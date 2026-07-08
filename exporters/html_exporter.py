@@ -1476,7 +1476,9 @@ graph TD
     
     def _section_risk(self, bs: dict) -> str:
         """风险评估章节"""
-        risk_list = bs.get("risk", bs.get("risks", []))
+        risk_list = bs.get("risks") or bs.get("risk") or []
+        if isinstance(risk_list, dict):
+            risk_list = [risk_list]
         
         risk_counts = {}
         for risk in risk_list:
@@ -1696,8 +1698,12 @@ graph TD
         if improvements:
             accordion_items = []
             for i, imp in enumerate(improvements[:4]):
-                title = imp.get('title', f'改进 {i+1}')
-                desc = str(imp.get('description', imp.get('mitigation', '')))
+                if isinstance(imp, dict):
+                    title = imp.get('title', f'改进 {i+1}')
+                    desc = str(imp.get('description', imp.get('mitigation', '')))
+                else:
+                    title = f'改进 {i+1}'
+                    desc = str(imp)
                 accordion_items.append(f'<div class="accordion-item"><div class="accordion-header">{title}</div><div class="accordion-content"><p>{desc}</p></div></div>')
             improvements_html = f"""
             <div class="card">
