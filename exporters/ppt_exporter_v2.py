@@ -18,16 +18,29 @@ Features:
 5. Visual Effects - Gradients, shadows, icons, decorative elements
 6. Interactive Elements - Hyperlinks, animations, slide notes
 """
-from pptx import Presentation
-from pptx.util import Inches, Pt, Emu
-from pptx.dml.color import RGBColor
-from pptx.enum.text import PP_ALIGN
-from pptx.enum.shapes import MSO_SHAPE
-from pptx.dml.fill import FillFormat
-from pptx.oxml.xmlchemy import OxmlElement
+try:
+    from pptx import Presentation
+    from pptx.util import Inches, Pt, Emu
+    from pptx.dml.color import RGBColor
+    from pptx.enum.text import PP_ALIGN
+    from pptx.enum.shapes import MSO_SHAPE
+    from pptx.dml.fill import FillFormat
+    from pptx.oxml.xmlchemy import OxmlElement
+    _PPTX_OK = True
+except ImportError:
+    Presentation = Inches = Pt = Emu = RGBColor = PP_ALIGN = None
+    MSO_SHAPE = FillFormat = OxmlElement = None
+    _PPTX_OK = False
 import os, uuid, datetime
 from typing import Dict, Any, List, Optional
 import tempfile
+
+
+def _require_pptx():
+    """在使用 python-pptx 前调用；缺失时抛结构化错误。"""
+    if not _PPTX_OK:
+        from exporters.errors import ExportDependencyError
+        raise ExportDependencyError("pptx", "python-pptx", "pip install python-pptx matplotlib")
 
 try:
     import matplotlib
@@ -322,6 +335,7 @@ class PPTExporterV2:
     """专业级PPT导出器 - 增强版"""
     
     def __init__(self, theme: str = 'business', industry: str = None):
+        _require_pptx()
         self.prs = Presentation()
         self.prs.slide_width = Inches(13.333)
         self.prs.slide_height = Inches(7.5)

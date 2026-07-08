@@ -32,3 +32,26 @@ def test_unavailable_formats_shape():
     from exporters.capabilities import unavailable_formats
     result = unavailable_formats(["json", "html"])
     assert result == []
+
+
+def test_package_imports_without_pptx(monkeypatch):
+    import sys, importlib
+    monkeypatch.setitem(sys.modules, "pptx", None)
+    for name in [n for n in list(sys.modules) if n == "exporters" or n.startswith("exporters.")]:
+        monkeypatch.delitem(sys.modules, name, raising=False)
+    pkg = importlib.import_module("exporters")
+    assert callable(getattr(pkg, "export_html"))
+    wmod = importlib.import_module("exporters.word_exporter")
+    assert hasattr(wmod, "WordExporter")
+
+
+def test_pptx_exporter_missing_dep_raises_structured(monkeypatch):
+    import sys, importlib
+    monkeypatch.setitem(sys.modules, "pptx", None)
+    for name in [n for n in list(sys.modules) if n == "exporters" or n.startswith("exporters.")]:
+        monkeypatch.delitem(sys.modules, name, raising=False)
+    mod = importlib.import_module("exporters.ppt_exporter")
+    from exporters.errors import ExportDependencyError
+    with pytest.raises(ExportDependencyError) as ei:
+        mod.PPTExporter()
+    assert ei.value.missing_package == "python-pptx"

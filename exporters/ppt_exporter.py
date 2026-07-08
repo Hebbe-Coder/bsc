@@ -11,12 +11,24 @@ Meticulously crafted with:
   - Signature motif: thin gold rule, oversized slide numbers
   - Zero decoration that does not serve the content
 """
-from pptx import Presentation
-from pptx.util import Inches, Pt, Emu
-from pptx.dml.color import RGBColor
-from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
-from pptx.enum.shapes import MSO_SHAPE
+try:
+    from pptx import Presentation
+    from pptx.util import Inches, Pt, Emu
+    from pptx.dml.color import RGBColor
+    from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+    from pptx.enum.shapes import MSO_SHAPE
+    _PPTX_OK = True
+except ImportError:
+    Presentation = Inches = Pt = Emu = RGBColor = PP_ALIGN = MSO_ANCHOR = MSO_SHAPE = None
+    _PPTX_OK = False
 import os, uuid, datetime
+
+
+def _require_pptx():
+    """在使用 python-pptx 前调用；缺失时抛结构化错误。"""
+    if not _PPTX_OK:
+        from exporters.errors import ExportDependencyError
+        raise ExportDependencyError("pptx", "python-pptx", "pip install python-pptx matplotlib")
 
 # === DESIGN TOKENS ===
 class T:
@@ -51,6 +63,7 @@ class PPTExporter:
     """Impeccable presentation exporter."""
 
     def __init__(self):
+        _require_pptx()
         self.prs = Presentation()
         self.prs.slide_width  = Inches(13.333)
         self.prs.slide_height = Inches(7.5)
