@@ -33,7 +33,9 @@ Model Provider Layer - 大模型调用层
 from __future__ import annotations
 import json, os, time, logging, re, threading, traceback
 from enum import Enum
-from typing import Dict, Optional, Any, Tuple
+from typing import Dict, Optional, Any, Tuple, List
+
+import numpy as np
 
 from app.core.config import settings
 
@@ -142,8 +144,28 @@ class LLMService:
         "general": {"name": "企业服务", "department": "业务部", "role_prefix": "业务", "core_objective": "效率提升"},
     }
 
+    DOMAIN_SPECIFICITY: Dict[str, int] = {
+        "finance": 3,
+        "healthcare": 3,
+        "retail": 3,
+        "manufacturing": 3,
+        "education": 3,
+        "content": 3,
+        "logistics": 3,
+        "human_resource": 3,
+        "marketing": 3,
+        "energy": 3,
+        "real_estate": 3,
+        "enterprise": 1,
+        "general": 0,
+    }
+
     _KEYWORD_DOMAIN_COUNT: Dict[str, int] = {}
     _AVG_KEYWORD_LENGTH: float = 0.0
+
+    _TFIDF_VOCAB: Dict[str, int] = {}
+    _DOMAIN_VECTORS: Dict[str, np.ndarray] = {}
+    _IDF: Dict[str, float] = {}
 
     @classmethod
     def _precompute_keyword_stats(cls):
@@ -165,6 +187,208 @@ class LLMService:
 
         cls._KEYWORD_DOMAIN_COUNT = {kw: len(domains) for kw, domains in kw_to_domains.items()}
         cls._AVG_KEYWORD_LENGTH = total_length / total_count if total_count > 0 else 4.0
+
+    @classmethod
+    def _generate_synthetic_prds(cls) -> Dict[str, List[str]]:
+        """生成合成PRD训练数据"""
+        templates = {
+            "finance": [
+                "金融风控系统PRD文档，包含银行支付、保险理财、证券基金等业务模块",
+                "企业级金融交易平台需求说明，支持股票债券、投资贷款等功能",
+                "金融服务数字化转型项目，涵盖结算清算、征信评估等核心能力",
+                "银行核心业务系统重构方案，涉及风险管理、合规审计等关键领域",
+                "金融科技产品需求分析，包含智能投顾、量化交易等创新功能",
+            ],
+            "healthcare": [
+                "医疗健康管理系统PRD，支持在线问诊、电子病历、远程医疗等功能",
+                "医院信息化建设方案，涵盖挂号预约、诊疗管理、药品管理等模块",
+                "医疗数据平台需求说明，包含健康档案、医学影像、检验报告等",
+                "智慧医院建设项目，涉及患者管理、医护协作、质量控制等领域",
+                "医疗AI辅助诊断系统需求分析，支持疾病预测、用药推荐等功能",
+            ],
+            "retail": [
+                "电商平台订单管理系统PRD，支持商品管理、购物车、支付结算等",
+                "零售数字化转型方案，涵盖会员管理、促销活动、库存管理等模块",
+                "电商APP需求说明，包含商品搜索、推荐系统、订单跟踪等功能",
+                "新零售业务系统建设项目，涉及线上线下融合、供应链管理等",
+                "电商数据分析平台需求分析，支持用户行为分析、销售预测等",
+            ],
+            "manufacturing": [
+                "智能制造工厂管理系统PRD，支持生产计划、设备监控、质量管理等",
+                "工业互联网平台需求说明，涵盖工艺管理、产能调度、工单管理等",
+                "制造业数字化转型方案，涉及供应链协同、质检追溯、智能仓储等",
+                "智能工厂建设项目，包含自动化生产线、物联网监控、数据分析等",
+                "制造业ERP系统需求分析，支持物料管理、成本核算、生产统计等",
+            ],
+            "education": [
+                "在线教育学习平台PRD，支持课程管理、学习跟踪、考试测评等",
+                "教育信息化建设方案，涵盖MOOC平台、题库系统、培训管理等",
+                "智慧校园项目需求说明，包含在线教学、学生管理、教务系统等",
+                "教育科技产品需求分析，支持个性化学习、AI辅导、学习分析等",
+                "职业培训平台PRD，涉及课程开发、学习认证、企业培训等",
+            ],
+            "content": [
+                "内容审核系统PRD，支持文本审核、图片审核、视频审核等功能",
+                "内容安全平台需求说明，涵盖违规检测、风险评估、审核流程等",
+                "媒体内容管理系统方案，涉及UGC管理、PGC运营、内容分发等",
+                "短视频平台内容安全项目，包含直播审核、社区治理、版权保护等",
+                "内容风控系统需求分析，支持敏感词检测、语义分析、图像识别等",
+            ],
+            "logistics": [
+                "智慧物流管理系统PRD，支持订单管理、运输调度、仓储管理等",
+                "物流信息化建设方案，涵盖快递配送、冷链物流、干线运输等",
+                "供应链物流平台需求说明，包含物流跟踪、运力管理、成本核算等",
+                "跨境物流系统建设项目，涉及报关清关、国际运输、多仓管理等",
+                "物流自动化系统需求分析，支持智能分拣、无人配送、路径优化等",
+            ],
+            "human_resource": [
+                "人力资源管理系统PRD，支持招聘管理、绩效考核、薪酬管理等",
+                "HR信息化建设方案，涵盖员工管理、培训发展、考勤管理等模块",
+                "人才管理平台需求说明，包含人才招聘、绩效评估、职业发展等",
+                "企业HR数字化转型项目，涉及组织管理、员工关怀、数据分析等",
+                "人力资源服务平台需求分析，支持社保管理、员工福利、人才盘点等",
+            ],
+            "enterprise": [
+                "企业ERP系统PRD，支持财务管理、供应链管理、生产管理等",
+                "企业数字化转型方案，涵盖OA办公、CRM客户管理、SaaS平台等",
+                "企业管理系统需求说明，包含业务流程、数据管理、系统集成等",
+                "智慧企业建设项目，涉及数字化办公、业务协同、数据中台等",
+                "企业信息化平台需求分析，支持流程自动化、数据可视化、移动办公等",
+            ],
+            "marketing": [
+                "数字营销平台PRD，支持广告投放、营销自动化、效果分析等",
+                "营销数字化转型方案，涵盖品牌营销、内容营销、用户运营等",
+                "营销云平台需求说明，包含渠道管理、活动管理、数据追踪等",
+                "增长营销系统建设项目，涉及获客转化、用户增长、私域运营等",
+                "营销数据分析平台需求分析，支持ROI分析、用户画像、营销归因等",
+            ],
+            "energy": [
+                "新能源充电桩管理系统PRD，支持充电运营、设备监控、计费管理等",
+                "能源数字化转型方案，涵盖光伏电站、风力发电、储能管理等",
+                "智慧能源平台需求说明，包含能源监控、节能减排、碳中和管理等",
+                "新能源项目建设方案，涉及充电网络、智能电网、能源交易等",
+                "能源管理系统需求分析，支持能耗分析、能效优化、绿色能源等",
+            ],
+            "real_estate": [
+                "房地产销售管理系统PRD，支持楼盘管理、客户管理、销售追踪等",
+                "房地产数字化转型方案，涵盖物业管理、租赁管理、房产交易等",
+                "智慧房产平台需求说明，包含房产营销、客户服务、数据分析等",
+                "房地产项目管理系统，涉及项目开发、工程管理、成本控制等",
+                "房产中介平台需求分析，支持房源管理、交易撮合、佣金结算等",
+            ],
+        }
+        return templates
+
+    @classmethod
+    def _build_tfidf_model(cls):
+        """构建TF-IDF模型：词汇表、IDF值、领域向量"""
+        if cls._TFIDF_VOCAB:
+            return
+
+        synthetic_prds = cls._generate_synthetic_prds()
+        all_docs = []
+        all_domains = []
+
+        for domain, prds in synthetic_prds.items():
+            for prd in prds:
+                all_docs.append(prd)
+                all_domains.append(domain)
+
+        vocab = {}
+        doc_term_counts = []
+
+        for doc in all_docs:
+            tokens = cls._tokenize(doc)
+            term_counts = {}
+            for token in tokens:
+                if token not in vocab:
+                    vocab[token] = len(vocab)
+                term_counts[token] = term_counts.get(token, 0) + 1
+            doc_term_counts.append(term_counts)
+
+        num_docs = len(all_docs)
+        idf = {}
+        for term, idx in vocab.items():
+            doc_freq = sum(1 for dt in doc_term_counts if term in dt)
+            idf[term] = np.log((num_docs + 1) / (doc_freq + 1)) + 1
+
+        domain_docs = {}
+        for domain, prds in synthetic_prds.items():
+            domain_docs[domain] = prds
+
+        domain_vectors = {}
+        for domain, prds in domain_docs.items():
+            doc_vectors = []
+            for prd in prds:
+                tokens = cls._tokenize(prd)
+                tf = {}
+                for token in tokens:
+                    tf[token] = tf.get(token, 0) + 1
+
+                vector = np.zeros(len(vocab))
+                for token, count in tf.items():
+                    if token in vocab:
+                        vector[vocab[token]] = count * idf.get(token, 1.0)
+
+                if np.linalg.norm(vector) > 0:
+                    vector = vector / np.linalg.norm(vector)
+                doc_vectors.append(vector)
+
+            if doc_vectors:
+                domain_vector = np.mean(doc_vectors, axis=0)
+                if np.linalg.norm(domain_vector) > 0:
+                    domain_vector = domain_vector / np.linalg.norm(domain_vector)
+                domain_vectors[domain] = domain_vector
+
+        cls._TFIDF_VOCAB = vocab
+        cls._IDF = idf
+        cls._DOMAIN_VECTORS = domain_vectors
+
+    @staticmethod
+    def _tokenize(text: str) -> List[str]:
+        """分词：中英文混合分词"""
+        tokens = []
+
+        chinese_pattern = re.findall(r'[\u4e00-\u9fff]+', text)
+        for word in chinese_pattern:
+            for i in range(len(word)):
+                for j in range(i + 1, min(i + 3, len(word) + 1)):
+                    tokens.append(word[i:j])
+
+        english_pattern = re.findall(r'[a-zA-Z]+', text.lower())
+        for word in english_pattern:
+            if len(word) >= 2:
+                tokens.append(word)
+
+        return tokens
+
+    @classmethod
+    def _classify_with_tfidf(cls, text: str) -> Dict[str, float]:
+        """使用TF-IDF余弦相似度分类"""
+        cls._build_tfidf_model()
+
+        if not cls._TFIDF_VOCAB:
+            return {}
+
+        tokens = cls._tokenize(text.lower())
+        tf = {}
+        for token in tokens:
+            tf[token] = tf.get(token, 0) + 1
+
+        query_vector = np.zeros(len(cls._TFIDF_VOCAB))
+        for token, count in tf.items():
+            if token in cls._TFIDF_VOCAB:
+                query_vector[cls._TFIDF_VOCAB[token]] = count * cls._IDF.get(token, 1.0)
+
+        if np.linalg.norm(query_vector) > 0:
+            query_vector = query_vector / np.linalg.norm(query_vector)
+
+        scores = {}
+        for domain, domain_vector in cls._DOMAIN_VECTORS.items():
+            similarity = np.dot(query_vector, domain_vector)
+            scores[domain] = float(similarity)
+
+        return scores
 
     PROVIDERS: Dict[str, Dict[str, str]] = {
         "deepseek": {
@@ -357,7 +581,7 @@ class LLMService:
                     logger.warning(f"Failed to record cache hit metric: {e}")
                 return cached_result
 
-        if provider == ProviderType.MOCK.value or self.provider == ProviderType.MOCK.value:
+        if provider == ProviderType.MOCK.value:
             result = self._mock(system_prompt, user_prompt)
             elapsed_ms = int((time.perf_counter() - t0) * 1000)
             result["_meta"] = {**context_info, "mode": ProviderType.MOCK.value, "elapsed_ms": elapsed_ms}
@@ -627,96 +851,82 @@ class LLMService:
         return {"content": "mock response", "note": "未匹配到Agent类型"}
 
     def _analyze_input_domain(self, user_prompt: str) -> dict:
-        """分析输入内容，提取业务领域信息"""
-        domain_keywords = {
-            "finance": ["金融", "银行", "支付", "保险", "理财", "证券", "基金", "贷款",
-                        "投资", "股票", "债券", "信托", "租赁", "征信", "结算", "交易",
-                        "bank", "payment", "insurance", "finance", "investment", "stock",
-                        "securities", "fund", "loan", "credit", "trade"],
-            "healthcare": ["医疗", "健康", "医院", "医生", "病人", "药品", "诊断",
-                           "挂号", "诊疗", "病历", "医保", "体检", "康复", "疫苗", "药房",
-                           "问诊", "门诊", "住院", "手术", "护理", "影像", "检验",
-                           "healthcare", "hospital", "doctor", "patient", "medicine", "diagnosis",
-                           "treatment", "medical", "pharmacy", "health", "consultation", "clinic"],
-            "retail": ["零售", "电商", "购物", "商品", "订单", "物流", "库存",
-                       "购物车", "优惠券", "促销", "会员", "店铺", "商品管理", "供应链",
-                       "retail", "e-commerce", "shopping", "product", "order", "logistics",
-                       "inventory", "cart", "coupon", "promotion", "supply"],
-            "manufacturing": ["制造", "生产", "工厂", "供应链", "质检", "仓库",
-                              "工艺", "设备", "产能", "工单", "装配", "零部件", "质量控制",
-                              "manufacturing", "production", "factory", "supply", "quality",
-                              "assembly", "equipment", "workshop"],
-            "education": ["教育", "培训", "学校", "课程", "学生", "老师",
-                          "学习", "考试", "作业", "在线教育", "MOOC", "题库", "培训课程",
-                          "education", "training", "school", "course", "student", "teacher",
-                          "learning", "exam", "online", "elearning", "tutorial"],
-            "content": ["内容", "审核", "视频", "图片", "文本", "安全",
-                        "媒体", "直播", "短视频", "社区", "论坛", "UGC", "PGC",
-                        "content", "moderation", "video", "image", "text", "safety",
-                        "media", "live", "streaming", "community", "forum"],
-            "logistics": ["物流", "快递", "配送", "运输", "仓储",
-                          "货运", "报关", "分拣", "冷链", "干线", "末端", "物流中心",
-                          "logistics", "delivery", "shipping", "transport", "warehouse",
-                          "freight", "courier"],
-            "human_resource": ["人力", "招聘", "员工", "绩效", "薪酬", "考勤",
-                               "HR", "入职", "离职", "培训", "福利", "社保", "人才",
-                               "human resource", "HR", "recruitment", "employee", "performance",
-                               "salary", "attendance", "talent"],
-            "enterprise": ["企业", "公司", "组织", "管理", "办公", "OA", "ERP",
-                           "CRM", "SaaS", "业务系统", "数字化", "信息化", "协作",
-                           "enterprise", "company", "organization", "management", "ERP",
-                           "CRM", "SaaS", "digital", "collaboration"],
-            "marketing": ["营销", "广告", "推广", "品牌", "渠道", "获客",
-                          "投放", "转化", "KOL", "裂变", "私域", "增长黑客",
-                          "marketing", "advertising", "promotion", "brand", "channel",
-                          "conversion", "campaign", "growth"],
-            "energy": ["能源", "电力", "光伏", "风电", "储能", "电网",
-                       "新能源", "充电桩", "碳中和", "环保", "节能减排",
-                       "energy", "power", "solar", "wind", "storage", "grid",
-                       "renewable", "charging", "carbon", "green"],
-            "real_estate": ["房地产", "物业", "楼盘", "销售", "租赁", "中介",
-                            "建筑", "装修", "物业管理", "房产交易",
-                            "real estate", "property", "housing", "construction",
-                            "building", "rental", "broker"],
-        }
+        """分析输入内容，提取业务领域信息（加权评分算法）"""
+        self._precompute_keyword_stats()
 
         user_lower = user_prompt.lower()
-        matched_domain = "general"
-        matched_keywords = []
+        scores = {}
+        domain_keywords_found = {}
 
-        for domain, keywords in domain_keywords.items():
-            found = [kw for kw in keywords if kw in user_lower]
+        for domain, keywords in self.DOMAIN_KEYWORDS.items():
+            found = []
+            score = 0.0
+
+            for kw in keywords:
+                if kw in user_lower:
+                    found.append(kw)
+                    kw_length_weight = 1.0 + (len(kw) / self._AVG_KEYWORD_LENGTH) * 0.5
+                    domain_count = self._KEYWORD_DOMAIN_COUNT.get(kw, 1)
+
+                    if domain_count == 1:
+                        exclusivity_boost = 2.0
+                    elif domain_count <= 3:
+                        exclusivity_boost = 1.5
+                    else:
+                        exclusivity_boost = 1.0
+
+                    score += kw_length_weight * exclusivity_boost
+
             if found:
-                matched_domain = domain
-                matched_keywords.extend(found)
-                break
+                scores[domain] = score
+                domain_keywords_found[domain] = found
 
-        domain_templates = {
-            "finance": {"name": "金融服务", "department": "金融部", "role_prefix": "金融", "core_objective": "风险管理与合规"},
-            "healthcare": {"name": "医疗健康", "department": "医疗部", "role_prefix": "医疗", "core_objective": "患者安全与疗效"},
-            "retail": {"name": "零售电商", "department": "电商部", "role_prefix": "电商", "core_objective": "用户体验与转化"},
-            "manufacturing": {"name": "智能制造", "department": "生产部", "role_prefix": "制造", "core_objective": "质量与效率"},
-            "education": {"name": "在线教育", "department": "教学部", "role_prefix": "教育", "core_objective": "学习效果"},
-            "content": {"name": "内容安全", "department": "运营部", "role_prefix": "审核", "core_objective": "内容安全"},
-            "logistics": {"name": "智慧物流", "department": "物流部", "role_prefix": "物流", "core_objective": "配送时效"},
-            "human_resource": {"name": "人力资源", "department": "人事部", "role_prefix": "HR", "core_objective": "人才发展"},
-            "enterprise": {"name": "企业管理", "department": "企管部", "role_prefix": "企业", "core_objective": "数字化转型"},
-            "marketing": {"name": "数字营销", "department": "市场部", "role_prefix": "营销", "core_objective": "增长与转化"},
-            "energy": {"name": "新能源", "department": "能源部", "role_prefix": "能源", "core_objective": "绿色低碳发展"},
-            "real_estate": {"name": "房地产", "department": "房产部", "role_prefix": "房产", "core_objective": "资产运营"},
-            "general": {"name": "企业服务", "department": "业务部", "role_prefix": "业务", "core_objective": "效率提升"},
-        }
+        if not scores:
+            template = self.DOMAIN_TEMPLATES["general"]
+            return {
+                "domain": "general",
+                "domain_name": template["name"],
+                "department": template["department"],
+                "role_prefix": template["role_prefix"],
+                "core_objective": template["core_objective"],
+                "keywords": [],
+                "prompt_length": len(user_prompt),
+                "confidence": 0.0,
+                "scores": {},
+            }
 
-        template = domain_templates.get(matched_domain, domain_templates["general"])
+        sorted_domains = sorted(scores.items(), key=lambda x: (-x[1], -self.DOMAIN_SPECIFICITY.get(x[0], 0), x[0]))
+        top_domain, top_score = sorted_domains[0]
+        second_score = sorted_domains[1][1] if len(sorted_domains) > 1 else 0.0
+
+        confidence = 0.0
+        if top_score > 0:
+            if second_score == 0:
+                confidence = 1.0
+            else:
+                confidence = (top_score - second_score) / top_score
+
+        CONFIDENCE_THRESHOLD = 0.15
+
+        if confidence < CONFIDENCE_THRESHOLD and top_score < 2.0:
+            selected_domain = "general"
+            matched_keywords = []
+        else:
+            selected_domain = top_domain
+            matched_keywords = domain_keywords_found[top_domain]
+
+        template = self.DOMAIN_TEMPLATES.get(selected_domain, self.DOMAIN_TEMPLATES["general"])
 
         return {
-            "domain": matched_domain,
+            "domain": selected_domain,
             "domain_name": template["name"],
             "department": template["department"],
             "role_prefix": template["role_prefix"],
             "core_objective": template["core_objective"],
             "keywords": matched_keywords[:5],
             "prompt_length": len(user_prompt),
+            "confidence": round(confidence, 3),
+            "scores": {k: round(v, 2) for k, v in sorted_domains[:5]},
         }
 
     def _mock_analysis(self, domain_info: dict) -> dict:
@@ -1447,7 +1657,7 @@ flowchart TD
         
         provider = self._get_provider_for_agent(system_prompt)
         
-        if provider == ProviderType.MOCK.value or self.provider == ProviderType.MOCK.value:
+        if provider == ProviderType.MOCK.value:
             result = self._mock(system_prompt, user_prompt)
             content = json.dumps(result, ensure_ascii=False) if isinstance(result, dict) else str(result)
             for chunk in content.split("\n"):
@@ -1521,7 +1731,7 @@ flowchart TD
         
         provider = self._get_provider_for_agent(system_prompt)
         
-        if provider == ProviderType.MOCK.value or self.provider == ProviderType.MOCK.value:
+        if provider == ProviderType.MOCK.value:
             result = self._mock(system_prompt, user_prompt)
             content = json.dumps(result, ensure_ascii=False) if isinstance(result, dict) else str(result)
             for chunk in content.split("\n"):
