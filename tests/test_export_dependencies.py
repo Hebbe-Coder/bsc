@@ -55,3 +55,15 @@ def test_pptx_exporter_missing_dep_raises_structured(monkeypatch):
     with pytest.raises(ExportDependencyError) as ei:
         mod.PPTExporter()
     assert ei.value.missing_package == "python-pptx"
+
+
+def test_word_exporter_missing_dep_raises_structured(monkeypatch):
+    import sys
+    from exporters.errors import ExportDependencyError
+    monkeypatch.setitem(sys.modules, "docx", None)
+    from exporters.word_exporter import WordExporter
+    exp = WordExporter()
+    with pytest.raises(ExportDependencyError) as ei:
+        exp.export({})
+    assert ei.value.missing_package == "python-docx"
+    assert "pip install python-docx" in ei.value.pip_install

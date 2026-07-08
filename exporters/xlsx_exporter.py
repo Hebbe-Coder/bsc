@@ -20,8 +20,9 @@ def export_xlsx(business_system, output_path=None):
         from openpyxl import Workbook
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side, numbers
         from openpyxl.utils import get_column_letter
-    except ImportError:
-        raise ImportError("openpyxl required: pip install openpyxl")
+    except ImportError as e:
+        from exporters.errors import ExportDependencyError
+        raise ExportDependencyError("xlsx", "openpyxl", "pip install openpyxl") from e
 
     wb = Workbook()
     bs = business_system.get('business_system', business_system)

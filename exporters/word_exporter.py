@@ -20,7 +20,8 @@ class WordExporter:
     def export(self, business_system: Dict[str, Any]) -> bytes:
         """导出为Word文档"""
         if not self._docx_available:
-            raise RuntimeError("python-docx未安装，请运行: pip install python-docx")
+            from exporters.errors import ExportDependencyError
+            raise ExportDependencyError("word", "python-docx", "pip install python-docx")
 
         from docx import Document
         from docx.shared import Pt, Inches

@@ -42,7 +42,8 @@ class PDFExporter:
         elif self._reportlab_available:
             return self._export_with_reportlab(business_system)
         else:
-            raise RuntimeError("需要安装weasyprint、pdfkit或reportlab来生成PDF")
+            from exporters.errors import ExportDependencyError
+            raise ExportDependencyError("pdf", "weasyprint", "pip install weasyprint")
 
     def _export_with_reportlab(self, business_system: Dict[str, Any]) -> bytes:
         """使用 reportlab 生成 PDF（纯 Python，跨平台，无需系统 GTK）。"""
