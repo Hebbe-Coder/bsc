@@ -1,0 +1,141 @@
+{
+  "type": "object",
+  "required": [
+    "risk_id",
+    "risk_matrix",
+    "bottlenecks",
+    "mitigations",
+    "optimizations"
+  ],
+  "properties": {
+    "risk_id": {
+      "type": "string"
+    },
+    "risk_matrix": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "risk",
+          "probability",
+          "impact",
+          "score"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "risk": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "probability": {
+            "type": "string"
+          },
+          "impact": {
+            "type": "string"
+          },
+          "score": {
+            "type": "integer"
+          },
+          "trigger": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "bottlenecks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "node",
+          "cause",
+          "impact",
+          "severity"
+        ],
+        "properties": {
+          "node": {
+            "type": "string"
+          },
+          "cause": {
+            "type": "string"
+          },
+          "impact": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "mitigations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "risk_id",
+          "action",
+          "owner",
+          "priority"
+        ],
+        "properties": {
+          "risk_id": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string"
+          },
+          "cost_estimate": {
+            "type": "string"
+          },
+          "timeline": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "optimizations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "suggestion",
+          "expected_impact"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "suggestion": {
+            "type": "string"
+          },
+          "expected_impact": {
+            "type": "string"
+          },
+          "effort": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

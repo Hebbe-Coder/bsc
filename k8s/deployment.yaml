@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bsc-backend
+  labels:
+    app: bsc-backend
+    version: "5.0.0"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: bsc-backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: bsc-backend
+        version: "5.0.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: bsc-backend
+          image: bsc-backend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+              name: http
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: bsc-config
+            - secretRef:
+                name: bsc-secrets
+          env:
+            - name: ENVIRONMENT
+              value: "production"
+            - name: CACHE_TYPE
+              value: "redis"
+            - name: REDIS_URL
+              value: "redis://redis:6379"
+            - name: DB_TYPE
+              value: "postgresql"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "1Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]
+          volumeMounts:
+            - name: output
+              mountPath: /app/output
+            - name: data
+              mountPath: /app/data
+      volumes:
+        - name: output
+          persistentVolumeClaim:
+            claimName: bsc-output-pvc
+        - name: data
+          persistentVolumeClaim:
+            claimName: bsc-data-pvc
+      terminationGracePeriodSeconds: 30

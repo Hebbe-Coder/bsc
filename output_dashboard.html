@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Decision Dashboard - SOP Insight Engine</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600&family=Noto+Sans+SC:wght@200;300;400;500;700&display=swap" rel="stylesheet">
+<style>
+/* ===== CARBON DESIGN TOKENS (Swiss International) ===== */
+:root{
+  --paper:#fafaf8;--paper-rgb:250,250,248;--ink:#0a0a0a;--ink-rgb:10,10,10;
+  --grey-1:#f0f0ee;--grey-2:#d4d4d2;--grey-3:#737373;
+  --accent:#002FA7;--accent-rgb:0,47,167;--accent-on:#ffffff;--accent-bright:#5B7BFF;
+  --sans:"Inter","Helvetica Neue","Helvetica","Arial",system-ui,sans-serif;
+  --sans-zh:"Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+  --mono:"JetBrains Mono","IBM Plex Mono","SF Mono","Consolas",monospace;
+  --sp-3:8px;--sp-4:12px;--sp-5:16px;--sp-6:24px;--sp-7:32px;--sp-8:40px;
+  --sp-9:48px;--sp-10:64px;--sp-11:80px;
+  --text-primary:#0a0a0a;--text-secondary:#525252;--text-helper:#737373;--text-placeholder:#a3a3a3;
+  --border-subtle:#e0e0e0;
+  --red:#DC2626;--orange:#F97316;--yellow:#EAB308;--green:#22C55E;--teal:#5A9E96;
+  /* Carbon motion */
+  --ease-prod:cubic-bezier(.2,0,.38,.9);--ease-exp:cubic-bezier(.4,.14,.3,1);
+  --dur-fast:.11s;--dur-mod:.24s;--dur-slow:.4s;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--paper);color:var(--ink);
+  font-family:var(--sans),var(--sans-zh);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+
+/* ===== ANIMATED CANVAS BACKGROUND (Swiss dot matrix) ===== */
+canvas.bg{position:fixed;inset:0;width:100vw;height:100vh;z-index:0;display:block;opacity:.42;mix-blend-mode:multiply;pointer-events:none}
+body.low-power canvas.bg{opacity:.18}
+
+/* ===== APP SHELL ===== */
+.app{position:relative;z-index:1;display:grid;grid-template-rows:auto 1fr;height:100vh}
+
+/* ===== TOPBAR ===== */
+.topbar{display:flex;align-items:center;gap:var(--sp-5);padding:var(--sp-4) var(--sp-6);
+  border-bottom:1px solid var(--border-subtle);background:var(--paper);flex-wrap:wrap}
+.topbar h1{font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;white-space:nowrap;font-family:var(--sans)}
+.topbar .divider{width:1px;height:18px;background:var(--grey-2)}
+.sim-group{display:flex;align-items:center;gap:var(--sp-4);flex:1;overflow-x:auto;flex-wrap:wrap}
+.sim-item{display:flex;align-items:center;gap:var(--sp-3);font-size:0.6rem;white-space:nowrap;font-family:var(--mono)}
+.sim-item label{color:var(--text-helper);text-transform:uppercase;letter-spacing:0.06em;font-size:0.55rem;min-width:55px;font-weight:500}
+.sim-item input[type=range]{width:72px;accent-color:var(--accent);height:2px}
+.sim-item .val{color:var(--accent);font-weight:600;min-width:32px;text-align:right;font-size:0.65rem}
+.btn{display:inline-flex;align-items:center;gap:4px;padding:4px 12px;border:1px solid var(--border-subtle);
+  background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:0.6rem;font-weight:500;
+  cursor:pointer;text-transform:uppercase;letter-spacing:0.05em;white-space:nowrap;transition:all var(--dur-fast) var(--ease-prod);border-radius:0}
+.btn:hover{background:var(--grey-1);border-color:var(--grey-2)}.btn:active{background:var(--grey-2)}
+.btn.accent{background:var(--accent);color:var(--accent-on);border-color:var(--accent)}.btn.accent:hover{background:var(--accent-bright)}
+.btn-close{font-size:1rem;padding:2px 8px;line-height:1}
+
+/* ===== MAIN GRID (3 columns, Swiss proportions) ===== */
+.main-grid{display:grid;grid-template-columns:300px 1fr 300px;height:100%;overflow:hidden}
+.panel{border-right:1px solid var(--border-subtle);overflow-y:auto;padding:var(--sp-5);scrollbar-width:thin;scrollbar-color:var(--grey-2) transparent}
+.panel:last-child{border-right:none}
+.panel::-webkit-scrollbar{width:4px}.panel::-webkit-scrollbar-thumb{background:var(--grey-2)}
+.panel h2{font-size:0.65rem;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;
+  color:var(--text-helper);margin-bottom:var(--sp-5);padding-bottom:var(--sp-3);border-bottom:1px solid var(--border-subtle)}
+
+/* ===== NODE CARDS (strict Swiss: no radius, 3px left accent) ===== */
+.node-card{border-left:3px solid var(--grey-2);padding:var(--sp-3) var(--sp-4);margin-bottom:var(--sp-3);
+  cursor:pointer;transition:border-color var(--dur-fast) var(--ease-prod),background var(--dur-fast) var(--ease-prod);
+  background:var(--paper);border-radius:0}
+.node-card:hover{border-color:var(--accent);background:rgba(var(--accent-rgb),0.03)}
+.node-card.active{border-color:var(--accent);background:rgba(var(--accent-rgb),0.05)}
+.node-card .name{font-size:0.7rem;font-weight:500;margin-bottom:1px;letter-spacing:-0.01em}
+.node-card .meta{font-size:0.55rem;color:var(--text-helper);font-family:var(--mono);display:flex;gap:var(--sp-4)}
+.node-card.start{border-left-color:var(--green)}.node-card.end{border-left-color:var(--grey-3)}
+.node-badge{display:inline-block;padding:1px 5px;font-size:0.5rem;font-weight:600;border-radius:0;
+  margin-left:4px;text-transform:uppercase;letter-spacing:0.06em}
+.node-badge.kpi{background:rgba(var(--accent-rgb),0.07);color:var(--accent)}
+.node-badge.risk{background:rgba(249,115,22,0.07);color:var(--orange)}
+
+/* ===== KPI COMPONENTS ===== */
+.kpi-row{display:flex;justify-content:space-between;align-items:center;padding:var(--sp-3) 0;border-bottom:1px solid var(--grey-1);transition:background var(--dur-fast) var(--ease-prod)}
+.kpi-row:hover{background:rgba(var(--accent-rgb),0.02)}
+.kpi-row .name{font-size:0.68rem;font-weight:500;flex:1;letter-spacing:-0.01em}
+.kpi-row .branch{font-size:0.5rem;color:var(--text-helper);text-transform:uppercase;letter-spacing:0.06em;margin-right:var(--sp-3);font-weight:500}
+.kpi-row .val{font-size:0.9rem;font-weight:300;font-family:var(--mono);letter-spacing:-0.03em;min-width:55px;text-align:right}
+.kpi-row .val.pass{color:var(--green)}.kpi-row .val.warn{color:var(--orange)}.kpi-row .val.fail{color:var(--red)}
+.kpi-trend{display:flex;align-items:flex-end;gap:1px;height:24px;margin-top:var(--sp-3)}
+.kpi-trend-bar{flex:1;background:var(--accent);min-width:2px;transition:height var(--dur-slow) var(--ease-exp);border-radius:0}
+.kpi-target-edit{width:50px;border:1px solid var(--border-subtle);font-family:var(--mono);font-size:0.65rem;
+  padding:2px 4px;text-align:right;background:var(--paper);border-radius:0;transition:border-color var(--dur-fast) var(--ease-prod)}
+.kpi-target-edit:focus{border-color:var(--accent);outline:none}
+
+/* ===== GAUGE ===== */
+.gauge-large{text-align:center;padding:var(--sp-7) 0 var(--sp-5)}
+.gauge-num{font-size:3.2rem;font-weight:200;letter-spacing:-0.04em;line-height:1;font-family:var(--mono);font-feature-settings:"tnum"}
+.gauge-label{font-size:0.55rem;text-transform:uppercase;letter-spacing:0.12em;color:var(--text-helper);margin-top:var(--sp-3);font-weight:500}
+
+/* ===== RISK COMPONENTS ===== */
+.risk-item{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-2) var(--sp-4);
+  margin-bottom:var(--sp-2);cursor:pointer;border-left:2px solid transparent;transition:all var(--dur-fast) var(--ease-prod);border-radius:0}
+.risk-item:hover{background:var(--grey-1);border-left-color:currentColor}
+.risk-dot{width:8px;height:8px;flex-shrink:0}
+.risk-item .info{flex:1;min-width:0}
+.risk-item .name{font-size:0.68rem;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-0.01em}
+.risk-item .cat{font-size:0.5rem;color:var(--text-helper);text-transform:uppercase;letter-spacing:0.05em;font-weight:500}
+.risk-item .score{font-size:0.75rem;font-weight:300;font-family:var(--mono);letter-spacing:-0.02em}
+
+/* ===== HEATMAP (strict Swiss grid, no radius, no shadows) ===== */
+.heatmap-grid{display:grid;grid-template-columns:50px repeat(3,1fr);gap:1px;background:var(--grey-2);
+  border:1px solid var(--grey-2);margin-bottom:var(--sp-5);border-radius:0}
+.heatmap-grid .hdr{background:var(--paper);padding:3px 4px;font-size:0.48rem;text-align:center;
+  text-transform:uppercase;color:var(--text-helper);font-weight:600;letter-spacing:0.06em}
+.heatmap-grid .rlabel{background:var(--paper);padding:3px 4px;font-size:0.48rem;text-align:right;
+  text-transform:uppercase;color:var(--text-helper);font-weight:600;letter-spacing:0.06em}
+.heatmap-grid .cell{padding:8px 4px;text-align:center;font-size:0.6rem;font-weight:500;
+  font-family:var(--mono);transition:all var(--dur-fast) var(--ease-prod);cursor:pointer;border-radius:0}
+.heatmap-grid .cell:hover{opacity:0.75}
+
+/* ===== DETAIL OVERLAY (slide-up, Swiss motion) ===== */
+.detail-overlay{position:fixed;bottom:0;left:0;right:0;max-height:42vh;background:var(--paper);
+  border-top:2px solid var(--accent);z-index:100;overflow-y:auto;
+  transform:translateY(100%);transition:transform var(--dur-slow) var(--ease-exp)}
+.detail-overlay.open{transform:translateY(0)}
+.detail-header{display:flex;justify-content:space-between;align-items:center;padding:var(--sp-4) var(--sp-6);border-bottom:1px solid var(--border-subtle)}
+.detail-header .t-meta{font-size:0.65rem;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-helper)}
+.detail-body{padding:var(--sp-5) var(--sp-6);display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-5)}
+.detail-footer{padding:var(--sp-4) var(--sp-6);border-top:1px solid var(--border-subtle);font-size:0.55rem;color:var(--text-helper)}
+
+/* ===== PROP GROUPS (Swiss info display) ===== */
+.prop-group h4{font-size:0.55rem;text-transform:uppercase;letter-spacing:0.1em;color:var(--accent);margin-bottom:var(--sp-3);font-weight:600}
+.prop-row{display:flex;justify-content:space-between;padding:2px 0;font-size:0.65rem;border-bottom:1px solid var(--grey-1)}
+.prop-row .k{color:var(--text-helper);font-weight:400}.prop-row .v{font-family:var(--mono);font-weight:500;letter-spacing:-0.01em}
+
+/* ===== SIMULATION RESULTS BAR ===== */
+.sim-results{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--sp-4);padding:var(--sp-4);margin-bottom:var(--sp-5);
+  background:var(--grey-1);border:1px solid var(--border-subtle);border-radius:0;animation:fadeIn var(--dur-slow) var(--ease-exp)}
+@keyframes fadeIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+.sim-stat{text-align:center}.sim-val{font-size:1.1rem;font-weight:200;font-family:var(--mono);letter-spacing:-0.03em;line-height:1;font-feature-settings:"tnum"}
+.sim-label{font-size:0.5rem;text-transform:uppercase;color:var(--text-helper);letter-spacing:0.08em;margin-top:3px;font-weight:500}
+
+/* ===== TIME SLIDER ===== */
+.time-slider{display:flex;align-items:center;gap:var(--sp-4);padding:0 var(--sp-4)}
+.time-slider input[type=range]{flex:1;accent-color:var(--accent);max-width:180px;height:2px}
+.time-slider .time-label{font-size:0.55rem;color:var(--text-helper);font-family:var(--mono);white-space:nowrap;font-weight:500}
+
+/* ===== MERMAID WRAPPER ===== */
+.mermaid-wrap{font-family:var(--mono);font-size:0.55rem;color:var(--text-helper);padding:var(--sp-4);
+  background:var(--grey-1);border:1px solid var(--border-subtle);border-radius:0;margin-top:var(--sp-5);
+  white-space:pre;overflow-x:auto;line-height:1.6}
+
+/* ===== RESPONSIVE ===== */
+@media(max-width:1200px){.main-grid{grid-template-columns:240px 1fr 240px}}
+@media(max-width:900px){.main-grid{grid-template-columns:1fr}.panel{border-right:none;border-bottom:1px solid var(--border-subtle)}.detail-body{grid-template-columns:1fr}}
+</style>
+</head>
+<body class="low-power">
+<canvas id="bg-grid" class="bg" aria-hidden="true"></canvas>
+<div class="app">
+  <div class="topbar">
+<h1>SOP Insight</h1>
+<div class="divider"></div>
+<div class="sim-group">
+  <div class="sim-item"><label>Staff</label><input type="range" id="sim-staffing" min="1" max="50" value="10" oninput="onSimChange()"><span class="val" id="val-staffing">10</span></div>
+  <div class="sim-item"><label>Auto</label><input type="range" id="sim-auto" min="0" max="100" value="70" oninput="onSimChange()"><span class="val" id="val-auto">70%</span></div>
+  <div class="sim-item"><label>SLA</label><input type="range" id="sim-sla" min="1" max="72" value="24" oninput="onSimChange()"><span class="val" id="val-sla">24h</span></div>
+  <div class="sim-item"><label>Vol</label><input type="range" id="sim-vol" min="100" max="20000" value="5000" oninput="onSimChange()"><span class="val" id="val-vol">5k</span></div>
+  <button class="btn" id="time-btn" onclick="toggleTime()">Time</button>
+  <button class="btn" onclick="simPreset('cost')">Cost</button>
+  <button class="btn" onclick="simPreset('scale')">Scale</button>
+</div>
+<div class="time-slider" id="time-slider" style="display:none">
+  <span class="time-label">t0</span><input type="range" id="time-range" min="0" max="11" value="0" oninput="onTimeSlide()"><span class="time-label">t11</span>
+</div>
+</div>
+  <div class="main-grid">
+    <div class="panel panel-left" id="panel-left"></div>
+    <div class="panel panel-center" id="panel-center"></div>
+    <div class="panel panel-right" id="panel-right"></div>
+  </div>
+  <div class="detail-overlay" id="detail-overlay">
+    <div class="detail-header"><span id="detail-title" class="t-meta"></span><button class="btn btn-close" onclick="closeDetail()">&times;</button></div>
+    <div class="detail-body" id="detail-body"></div>
+    <div class="detail-footer" id="detail-footer"></div>
+  </div>
+</div>
+<script>
+var ST={"state": {"modules": [{"id": "content-ingestion", "name": "Content Ingestion", "description": "Accepts user-submitted content via API and web upload", "owner": "Platform Team", "priority": "high", "dependencies": [], "active": true, "health": 100.0}, {"id": "ai-screening", "name": "AI Screening Engine", "description": "Automated screening for sensitive words and policy violations", "owner": "ML Team", "priority": "critical", "dependencies": [], "active": true, "health": 100.0}, {"id": "human-review", "name": "Human Review Workbench", "description": "Review queue for flagged content with audit log", "owner": "Operations", "priority": "high", "dependencies": ["{'module_name': 'ai-screening', 'type': 'process', 'required': True}"], "active": true, "health": 100.0}, {"id": "analytics", "name": "Operations Analytics", "description": "Real-time dashboards for throughput and SLA", "owner": "Data Team", "priority": "medium", "dependencies": [], "active": true, "health": 100.0}], "active_nodes": [{"id": "submit", "name": "Submit Content", "owner": "Content Creator", "type": "start", "status": "active", "sla_hours": 0.0, "elapsed_ms": 0.0, "next": ["ai-screen"], "conditions": [], "is_start": true, "is_end": false, "visit_count": 1, "triggered_risks": []}, {"id": "ai-screen", "name": "AI Auto-Screening", "owner": "AI System", "type": "action", "status": "pending", "sla_hours": 0.002, "elapsed_ms": 0.0, "next": ["classify"], "conditions": [], "is_start": false, "is_end": false, "visit_count": 0, "triggered_risks": []}, {"id": "classify", "name": "Risk Classification", "owner": "AI System", "type": "decision", "status": "pending", "sla_hours": 0.0, "elapsed_ms": 0.0, "next": ["human-review", "publish"], "conditions": [{"label": "risk > threshold", "next": "human-review"}, {"label": "risk <= threshold", "next": "publish"}], "is_start": false, "is_end": false, "visit_count": 0, "triggered_risks": []}, {"id": "human-review", "name": "Human Review", "owner": "Human Reviewer", "type": "action", "status": "pending", "sla_hours": 24.0, "elapsed_ms": 0.0, "next": ["review-decision"], "conditions": [], "is_start": false, "is_end": false, "visit_count": 0, "triggered_risks": []}, {"id": "review-decision", "name": "Review Decision", "owner": "Human Reviewer", "type": "decision", "status": "pending", "sla_hours": 0.0, "elapsed_ms": 0.0, "next": ["publish", "notify-rejection"], "conditions": [{"label": "approved", "next": "publish"}, {"label": "rejected", "next": "notify-rejection"}], "is_start": false, "is_end": false, "visit_count": 0, "triggered_risks": []}, {"id": "publish", "name": "Publish Content", "owner": "System", "type": "end", "status": "pending", "sla_hours": 0.0, "elapsed_ms": 0.0, "next": [], "conditions": [], "is_start": false, "is_end": true, "visit_count": 0, "triggered_risks": []}, {"id": "notify-rejection", "name": "Notify Rejection", "owner": "System", "type": "end", "status": "pending", "sla_hours": 0.0, "elapsed_ms": 0.0, "next": [], "conditions": [], "is_start": false, "is_end": true, "visit_count": 0, "triggered_risks": []}], "kpi_state": {"metrics": [{"id": "throughput", "name": "Daily Throughput", "formula": "processed / day", "branch": "KpiBranch.EFFICIENCY", "direction": "higher_better", "target": 4000.0, "warning": 3000.0, "current": 4000.0, "previous": 4000.0, "status": "pass", "trend": [4000.0, 4000.0, 4000.0], "gauge": 70.0}, {"id": "avg-screen-time", "name": "Avg Screening Time", "formula": "sum(screen_ms) / count", "branch": "KpiBranch.EFFICIENCY", "direction": "lower_better", "target": 500.0, "warning": 1000.0, "current": 500.0, "previous": 500.0, "status": "pass", "trend": [500.0, 500.0, 500.0], "gauge": 70.0}, {"id": "accuracy", "name": "Screening Accuracy", "formula": "correct / total * 100", "branch": "KpiBranch.QUALITY", "direction": "higher_better", "target": 99.0, "warning": 97.0, "current": 99.0, "previous": 99.0, "status": "pass", "trend": [99.0, 99.0, 99.0], "gauge": 70.0}, {"id": "false-positive-rate", "name": "False Positive Rate", "formula": "fp / total_flagged * 100", "branch": "KpiBranch.QUALITY", "direction": "lower_better", "target": 1.0, "warning": 3.0, "current": 1.0, "previous": 1.0, "status": "pass", "trend": [1.0, 1.0, 1.0], "gauge": 70.0}, {"id": "queue-length", "name": "Review Queue Length", "formula": "count(pending)", "branch": "KpiBranch.CAPACITY", "direction": "lower_better", "target": 200.0, "warning": 500.0, "current": 200.0, "previous": 200.0, "status": "pass", "trend": [200.0, 200.0, 200.0], "gauge": 70.0}, {"id": "reviewer-util", "name": "Reviewer Utilization", "formula": "active / shift * 100", "branch": "KpiBranch.CAPACITY", "direction": "target_range", "target": 0.0, "warning": 90.0, "current": 100.0, "previous": 100.0, "status": "pass", "trend": [100.0, 100.0, 100.0], "gauge": 70.0}, {"id": "cost-per-review", "name": "Cost Per Review", "formula": "total_cost / reviewed", "branch": "KpiBranch.COST", "direction": "lower_better", "target": 0.5, "warning": 1.0, "current": 0.5, "previous": 0.5, "status": "pass", "trend": [0.5, 0.5, 0.5], "gauge": 70.0}, {"id": "sla-compliance", "name": "SLA Compliance Rate", "formula": "sla_met / total * 100", "branch": "KpiBranch.RISK", "direction": "higher_better", "target": 99.5, "warning": 98.0, "current": 99.5, "previous": 99.5, "status": "pass", "trend": [99.5, 99.5, 99.5], "gauge": 70.0}], "overall_health": 100.0}, "risk_state": {"risks": [{"id": "R1", "name": "AI False Negatives", "category": "quality", "impact": "high", "probability": "medium", "score": 6, "mitigated": true, "triggered": false, "trigger_reason": "", "trigger_node": "", "trigger_tick": 0, "color": "#C0392B", "affected_nodes": [], "kpi_impact": {"throughput": -3.0, "accuracy": -1.8, "cost": 2.4, "sla_compliance": -3.6}}, {"id": "R2", "name": "Reviewer Fatigue", "category": "operational", "impact": "medium", "probability": "medium", "score": 4, "mitigated": true, "triggered": false, "trigger_reason": "", "trigger_node": "", "trigger_tick": 0, "color": "#FFD500", "affected_nodes": [], "kpi_impact": {"throughput": -2.0, "accuracy": -1.2, "cost": 1.6, "sla_compliance": -2.4}}, {"id": "R3", "name": "Peak Volume Overload", "category": "capacity", "impact": "high", "probability": "low", "score": 3, "mitigated": true, "triggered": false, "trigger_reason": "", "trigger_node": "", "trigger_tick": 0, "color": "#d4d4d2", "affected_nodes": [], "kpi_impact": {"throughput": -1.5, "accuracy": -0.9, "cost": 1.2, "sla_compliance": -1.8}}, {"id": "R4", "name": "API Downtime", "category": "technical", "impact": "high", "probability": "low", "score": 3, "mitigated": true, "triggered": false, "trigger_reason": "", "trigger_node": "", "trigger_tick": 0, "color": "#d4d4d2", "affected_nodes": [], "kpi_impact": {"throughput": -1.5, "accuracy": -0.9, "cost": 1.2, "sla_compliance": -1.8}}], "triggered_count": 0, "total_count": 4}, "simulation": {"mode": "idle", "tick": 0, "max_ticks": 50, "current_node": "submit", "visited": ["submit"], "path_history": [], "params": {"staffing": 10, "automation_rate": "70%", "sla_target": 24.0, "daily_volume": 5000}, "results": {"throughput": 5000, "backlog": 0, "cost_per_day": 2001.75, "sla_compliance": 100.0}}, "meta": {"system_id": "40207119-cec", "objective": "Content Moderation Platform", "domain": "content-safety", "version": "1.0.0", "health_score": 100, "totals": {"modules": 4, "nodes": 7, "kpis": 8, "risks": 4}}}}, GP={"nodes": [{"id": "submit", "label": "Submit Content", "owner": "Content Creator", "type": "start", "sla": 0.0, "start": true, "end": false, "status": "active"}, {"id": "ai-screen", "label": "AI Auto-Screening", "owner": "AI System", "type": "action", "sla": 0.002, "start": false, "end": false, "status": "pending"}, {"id": "classify", "label": "Risk Classification", "owner": "AI System", "type": "decision", "sla": 0.0, "start": false, "end": false, "status": "pending"}, {"id": "human-review", "label": "Human Review", "owner": "Human Reviewer", "type": "action", "sla": 24.0, "start": false, "end": false, "status": "pending"}, {"id": "review-decision", "label": "Review Decision", "owner": "Human Reviewer", "type": "decision", "sla": 0.0, "start": false, "end": false, "status": "pending"}, {"id": "publish", "label": "Publish Content", "owner": "System", "type": "end", "sla": 0.0, "start": false, "end": true, "status": "pending"}, {"id": "notify-rejection", "label": "Notify Rejection", "owner": "System", "type": "end", "sla": 0.0, "start": false, "end": true, "status": "pending"}], "edges": [{"from": "submit", "to": "ai-screen", "label": ""}, {"from": "ai-screen", "to": "classify", "label": ""}, {"from": "classify", "to": "human-review", "label": ""}, {"from": "classify", "to": "publish", "label": ""}, {"from": "classify", "to": "human-review", "label": "risk > threshold"}, {"from": "classify", "to": "publish", "label": "risk <= threshold"}, {"from": "human-review", "to": "review-decision", "label": ""}, {"from": "review-decision", "to": "publish", "label": ""}, {"from": "review-decision", "to": "notify-rejection", "label": ""}, {"from": "review-decision", "to": "publish", "label": "approved"}, {"from": "review-decision", "to": "notify-rejection", "label": "rejected"}], "swimlanes": ["AI System", "Content Creator", "Human Reviewer", "System"], "starts": ["submit"], "ends": ["publish", "notify-rejection"], "paths": [["submit", "ai-screen", "classify", "publish"], ["submit", "ai-screen", "classify", "publish"], ["submit", "ai-screen", "classify", "human-review", "review-decision", "publish"]], "bottlenecks": [{"node": "human-review", "name": "Human Review", "reason": "Long SLA: 24.0h", "severity": "medium", "fix": "Reduce SLA or split into parallel sub-steps"}], "mermaid": "graph LR\n  submit[\"Submit Content\"]\n  ai-screen[\"AI Auto-Screening\"]\n  classify[\"Risk Classification\"]\n  human-review[\"Human Review\"]\n  review-decision[\"Review Decision\"]\n  publish[\"Publish Content\"]\n  notify-rejection[\"Notify Rejection\"]\n  submit --> ai-screen\n  ai-screen --> classify\n  classify --> human-review\n  classify --> publish\n  classify -->|risk > threshold| human-review\n  classify -->|risk <= threshold| publish\n  human-review --> review-decision\n  review-decision --> publish\n  review-decision --> notify-rejection\n  review-decision -->|approved| publish\n  review-decision -->|rejected| notify-rejection", "counts": {"nodes": 7, "edges": 11}}, KP={"metrics": [{"id": "throughput", "name": "Daily Throughput", "formula": "processed / day", "branch": "KpiBranch.EFFICIENCY", "direction": "higher_better", "target": 4000.0, "warning": 3000.0, "current": 3954.1, "previous": 3863.9, "status": "warn", "gauge": 69.2, "trend": [3687.2, 3845.1, 3920.6, 3920.6, 3880.7, 3983.5, 3919.4, 3457.1, 3920.7, 3932.0, 3863.9, 3954.1], "trend_direction": "improving", "trend_velocity": 0.17, "forecast": [3994.2, 4034.4, 4074.5], "anomaly": false, "linked_nodes": [], "linked_node_labels": [], "sim_sensitivity": {"staffing": 0.8, "automation": 1.2, "volume": 1.0}}, {"id": "avg-screen-time", "name": "Avg Screening Time", "formula": "sum(screen_ms) / count", "branch": "KpiBranch.EFFICIENCY", "direction": "lower_better", "target": 500.0, "warning": 1000.0, "current": 475.9, "previous": 530.9, "status": "pass", "gauge": 66.6, "trend": [487.3, 484.0, 483.8, 445.7, 490.7, 516.7, 509.8, 496.2, 499.6, 483.9, 530.9, 475.9], "trend_direction": "improving", "trend_velocity": 0.41, "forecast": [473.6, 471.3, 468.9], "anomaly": false, "linked_nodes": ["ai-screen"], "linked_node_labels": ["AI Auto-Screening"], "sim_sensitivity": {"staffing": -0.6, "automation": -0.9, "volume": 0.2}}, {"id": "accuracy", "name": "Screening Accuracy", "formula": "correct / total * 100", "branch": "KpiBranch.QUALITY", "direction": "higher_better", "target": 99.0, "warning": 97.0, "current": 93.2, "previous": 103.0, "status": "fail", "gauge": 65.9, "trend": [92.7, 97.7, 105.0, 106.6, 95.0, 103.3, 107.0, 98.8, 99.7, 108.2, 103.0, 93.2], "trend_direction": "improving", "trend_velocity": 0.19, "forecast": [91.8, 90.5, 89.1], "anomaly": false, "linked_nodes": ["ai-screen"], "linked_node_labels": ["AI Auto-Screening"], "sim_sensitivity": {"automation": 0.3, "staffing": 0.1}}, {"id": "false-positive-rate", "name": "False Positive Rate", "formula": "fp / total_flagged * 100", "branch": "KpiBranch.QUALITY", "direction": "lower_better", "target": 1.0, "warning": 3.0, "current": 1.1, "previous": 1.2, "status": "warn", "gauge": 77.0, "trend": [1.1, 1.0, 1.1, 1.2, 1.1, 1.1, 1.2, 1.2, 1.2, 1.2, 1.2, 1.1], "trend_direction": "improving", "trend_velocity": 0.89, "forecast": [1.1, 1.1, 1.1], "anomaly": false, "linked_nodes": [], "linked_node_labels": [], "sim_sensitivity": {"staffing": 0.1, "automation": 0.1, "volume": 0.3}}, {"id": "queue-length", "name": "Review Queue Length", "formula": "count(pending)", "branch": "KpiBranch.CAPACITY", "direction": "lower_better", "target": 200.0, "warning": 500.0, "current": 187.3, "previous": 200.7, "status": "pass", "gauge": 65.6, "trend": [182.6, 194.4, 195.8, 191.6, 201.8, 203.0, 188.3, 192.7, 196.0, 200.9, 200.7, 187.3], "trend_direction": "improving", "trend_velocity": 0.22, "forecast": [188.0, 188.7, 189.3], "anomaly": false, "linked_nodes": ["human-review", "review-decision"], "linked_node_labels": ["Human Review", "Review Decision"], "sim_sensitivity": {"staffing": 0.1, "automation": 0.1, "volume": 0.3}}, {"id": "reviewer-util", "name": "Reviewer Utilization", "formula": "active / shift * 100", "branch": "KpiBranch.CAPACITY", "direction": "target_range", "target": 100.0, "warning": 90.0, "current": 98.1, "previous": 91.5, "status": "warn", "gauge": 68.7, "trend": [89.3, 91.2, 87.9, 82.5, 88.8, 83.9, 99.2, 92.9, 89.1, 91.0, 91.5, 98.1], "trend_direction": "improving", "trend_velocity": 0.7, "forecast": [97.9, 97.7, 97.4], "anomaly": false, "linked_nodes": [], "linked_node_labels": [], "sim_sensitivity": {"staffing": -0.7, "volume": 1.0, "automation": 0.1}}, {"id": "cost-per-review", "name": "Cost Per Review", "formula": "total_cost / reviewed", "branch": "KpiBranch.COST", "direction": "lower_better", "target": 0.5, "warning": 1.0, "current": 0.5, "previous": 0.5, "status": "pass", "gauge": 35.0, "trend": [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5], "trend_direction": "stable", "trend_velocity": 0.0, "forecast": [0.5, 0.5, 0.5], "anomaly": false, "linked_nodes": ["human-review", "review-decision"], "linked_node_labels": ["Human Review", "Review Decision"], "sim_sensitivity": {"staffing": 1.0, "automation": -0.5, "volume": 0.8}}, {"id": "sla-compliance", "name": "SLA Compliance Rate", "formula": "sla_met / total * 100", "branch": "KpiBranch.RISK", "direction": "higher_better", "target": 99.5, "warning": 98.0, "current": 100.5, "previous": 121.4, "status": "pass", "gauge": 70.7, "trend": [112.9, 101.9, 112.9, 105.1, 118.1, 120.8, 125.2, 112.8, 116.9, 113.0, 121.4, 100.5], "trend_direction": "improving", "trend_velocity": 0.27, "forecast": [97.6, 94.7, 91.8], "anomaly": false, "linked_nodes": [], "linked_node_labels": [], "sim_sensitivity": {"staffing": 0.6, "automation": 0.8, "volume": -0.4}}], "items": [{"id": "throughput", "name": "Daily Throughput", "formula": "processed / day", "branch": "KpiBranch.EFFICIENCY", "direction": "higher_better", "target": 4000.0, "warning": 3000.0, "current": 3954.1, "previous": 3863.9, "status": "warn", "gauge": 69.2, "trend": [3687.2, 3845.1, 3920.6, 3920.6, 3880.7, 3983.5, 3919.4, 3457.1, 3920.7, 3932.0, 3863.9, 3954.1], "trend_direction": "improving", "trend_velocity": 0.17, "forecast": [3994.2, 4034.4, 4074.5], "anomaly": false, "linked_nodes": [], "linked_node_labels": [], "sim_sensitivity": {"staffing": 0.8, "automation": 1.2, "volume": 1.0}}, {"id": "avg-screen-time", "name": "Avg Screening Time", "formula": "sum(screen_ms) / count", "branch": "KpiBranch.EFFICIENCY", "direction": "lower_better", "target": 500.0, "warning": 1000.0, "current": 475.9, "previous": 530.9, "status": "pass", "gauge": 66.6, "trend": [487.3, 484.0, 483.8, 445.7, 490.7, 516.7, 509.8, 496.2, 499.6, 483.9, 530.9, 475.9], "trend_direction": "improving", "trend_velocity": 0.41, "forecast": [473.6, 471.3, 468.9], "anomaly": false, "linked_nodes": ["ai-screen"], "linked_node_labels": ["AI Auto-Screening"], "sim_sensitivity": {"staffing": -0.6, "automation": -0.9, "volume": 0.2}}, {"id": "accuracy", "name": "Screening Accuracy", "formula": "correct / total * 100", "branch": "KpiBranch.QUALITY", "direction": "higher_better", "target": 99.0, "warning": 97.0, "current": 93.2, "previous": 103.0, "status": "fail", "gauge": 65.9, "trend": [92.7, 97.7, 105.0, 106.6, 95.0, 103.3, 107.0, 98.8, 99.7, 108.2, 103.0, 93.2], "trend_direction": "improving", "trend_velocity": 0.19, "forecast": [91.8, 90.5, 89.1], "anomaly": false, "linked_nodes": ["ai-screen"], "linked_node_labels": ["AI Auto-Screening"], "sim_sensitivity": {"automation": 0.3, "staffing": 0.1}}, {"id": "false-positive-rate", "name": "False Positive Rate", "formula": "fp / total_flagged * 100", "branch": "KpiBranch.QUALITY", "direction": "lower_better", "target": 1.0, "warning": 3.0, "current": 1.1, "previous": 1.2, "status": "warn", "gauge": 77.0, "trend": [1.1, 1.0, 1.1, 1.2, 1.1, 1.1, 1.2, 1.2, 1.2, 1.2, 1.2, 1.1], "trend_direction": "improving", "trend_velocity": 0.89, "forecast": [1.1, 1.1, 1.1], "anomaly": false, "linked_nodes": [], "linked_node_labels": [], "sim_sensitivity": {"staffing": 0.1, "automation": 0.1, "volume": 0.3}}, {"id": "queue-length", "name": "Review Queue Length", "formula": "count(pending)", "branch": "KpiBranch.CAPACITY", "direction": "lower_better", "target": 200.0, "warning": 500.0, "current": 187.3, "previous": 200.7, "status": "pass", "gauge": 65.6, "trend": [182.6, 194.4, 195.8, 191.6, 201.8, 203.0, 188.3, 192.7, 196.0, 200.9, 200.7, 187.3], "trend_direction": "improving", "trend_velocity": 0.22, "forecast": [188.0, 188.7, 189.3], "anomaly": false, "linked_nodes": ["human-review", "review-decision"], "linked_node_labels": ["Human Review", "Review Decision"], "sim_sensitivity": {"staffing": 0.1, "automation": 0.1, "volume": 0.3}}, {"id": "reviewer-util", "name": "Reviewer Utilization", "formula": "active / shift * 100", "branch": "KpiBranch.CAPACITY", "direction": "target_range", "target": 100.0, "warning": 90.0, "current": 98.1, "previous": 91.5, "status": "warn", "gauge": 68.7, "trend": [89.3, 91.2, 87.9, 82.5, 88.8, 83.9, 99.2, 92.9, 89.1, 91.0, 91.5, 98.1], "trend_direction": "improving", "trend_velocity": 0.7, "forecast": [97.9, 97.7, 97.4], "anomaly": false, "linked_nodes": [], "linked_node_labels": [], "sim_sensitivity": {"staffing": -0.7, "volume": 1.0, "automation": 0.1}}, {"id": "cost-per-review", "name": "Cost Per Review", "formula": "total_cost / reviewed", "branch": "KpiBranch.COST", "direction": "lower_better", "target": 0.5, "warning": 1.0, "current": 0.5, "previous": 0.5, "status": "pass", "gauge": 35.0, "trend": [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5], "trend_direction": "stable", "trend_velocity": 0.0, "forecast": [0.5, 0.5, 0.5], "anomaly": false, "linked_nodes": ["human-review", "review-decision"], "linked_node_labels": ["Human Review", "Review Decision"], "sim_sensitivity": {"staffing": 1.0, "automation": -0.5, "volume": 0.8}}, {"id": "sla-compliance", "name": "SLA Compliance Rate", "formula": "sla_met / total * 100", "branch": "KpiBranch.RISK", "direction": "higher_better", "target": 99.5, "warning": 98.0, "current": 100.5, "previous": 121.4, "status": "pass", "gauge": 70.7, "trend": [112.9, 101.9, 112.9, 105.1, 118.1, 120.8, 125.2, 112.8, 116.9, 113.0, 121.4, 100.5], "trend_direction": "improving", "trend_velocity": 0.27, "forecast": [97.6, 94.7, 91.8], "anomaly": false, "linked_nodes": [], "linked_node_labels": [], "sim_sensitivity": {"staffing": 0.6, "automation": 0.8, "volume": -0.4}}], "branches": [{"name": "KpiBranch.EFFICIENCY", "count": 2, "pass": 1, "warn": 1, "fail": 0, "health": 50.0}, {"name": "KpiBranch.QUALITY", "count": 2, "pass": 0, "warn": 1, "fail": 1, "health": 0.0}, {"name": "KpiBranch.CAPACITY", "count": 2, "pass": 1, "warn": 1, "fail": 0, "health": 50.0}, {"name": "KpiBranch.COST", "count": 1, "pass": 1, "warn": 0, "fail": 0, "health": 100.0}, {"name": "KpiBranch.RISK", "count": 1, "pass": 1, "warn": 0, "fail": 0, "health": 100.0}], "health": 50.0, "summary": {"pass": 4, "warn": 3, "fail": 1, "total": 8, "anomalies": 0}}, RK={"matrix": [{"impact": "low", "probability": "low", "count": 0, "severity": "low", "color": "#22C55E", "risk_ids": []}, {"impact": "low", "probability": "medium", "count": 0, "severity": "low", "color": "#22C55E", "risk_ids": []}, {"impact": "low", "probability": "high", "count": 0, "severity": "low", "color": "#22C55E", "risk_ids": []}, {"impact": "medium", "probability": "low", "count": 0, "severity": "low", "color": "#22C55E", "risk_ids": []}, {"impact": "medium", "probability": "medium", "count": 1, "severity": "medium", "color": "#EAB308", "risk_ids": ["R2"]}, {"impact": "medium", "probability": "high", "count": 0, "severity": "low", "color": "#22C55E", "risk_ids": []}, {"impact": "high", "probability": "low", "count": 2, "severity": "medium", "color": "#EAB308", "risk_ids": ["R3", "R4"]}, {"impact": "high", "probability": "medium", "count": 1, "severity": "high", "color": "#F97316", "risk_ids": ["R1"]}, {"impact": "high", "probability": "high", "count": 0, "severity": "critical", "color": "#DC2626", "risk_ids": []}, {"impact": "critical", "probability": "low", "count": 0, "severity": "high", "color": "#F97316", "risk_ids": []}, {"impact": "critical", "probability": "medium", "count": 0, "severity": "high", "color": "#F97316", "risk_ids": []}, {"impact": "critical", "probability": "high", "count": 0, "severity": "critical", "color": "#DC2626", "risk_ids": []}], "items": [{"id": "R1", "name": "AI False Negatives", "cat": "quality", "impact": "high", "prob": "medium", "score": 6, "severity": "high", "color": "#F97316", "mitigated": true, "affected": [], "node": "ai-screen", "node_label": "AI Auto-Screening", "impact_score": 21, "kpi_impact": {"throughput": -0.12, "cost-per-review": 0.12}}, {"id": "R2", "name": "Reviewer Fatigue", "cat": "operational", "impact": "medium", "prob": "medium", "score": 4, "severity": "medium", "color": "#EAB308", "mitigated": true, "affected": [], "node": "submit", "node_label": "Submit Content", "impact_score": 12, "kpi_impact": {"throughput": -0.05, "reviewer-util": -0.1, "cost-per-review": 0.1}}, {"id": "R3", "name": "Peak Volume Overload", "cat": "capacity", "impact": "high", "prob": "low", "score": 3, "severity": "low", "color": "#22C55E", "mitigated": true, "affected": [], "node": "human-review", "node_label": "Human Review", "impact_score": 7, "kpi_impact": {"throughput": -0.02, "cost-per-review": 0.02}}, {"id": "R4", "name": "API Downtime", "cat": "technical", "impact": "high", "prob": "low", "score": 3, "severity": "low", "color": "#22C55E", "mitigated": true, "affected": [], "node": "submit", "node_label": "Submit Content", "impact_score": 7, "kpi_impact": {"throughput": -0.02, "cost-per-review": 0.02}}], "risk_map": [{"name": "AI False Negatives", "level": "high", "color": "#F97316", "node": "ai-screen", "node_label": "AI Auto-Screening", "impact_score": 21, "category": "quality", "probability": "medium", "mitigated": true, "kpi_impact": {"throughput": -0.12, "cost-per-review": 0.12}, "description": "Quality risk - score 6", "mitigation": true}, {"name": "Reviewer Fatigue", "level": "medium", "color": "#EAB308", "node": "submit", "node_label": "Submit Content", "impact_score": 12, "category": "operational", "probability": "medium", "mitigated": true, "kpi_impact": {"throughput": -0.05, "reviewer-util": -0.1, "cost-per-review": 0.1}, "description": "Operational risk - score 4", "mitigation": true}, {"name": "Peak Volume Overload", "level": "low", "color": "#22C55E", "node": "human-review", "node_label": "Human Review", "impact_score": 7, "category": "capacity", "probability": "low", "mitigated": true, "kpi_impact": {"throughput": -0.02, "cost-per-review": 0.02}, "description": "Capacity risk - score 3", "mitigation": true}, {"name": "API Downtime", "level": "low", "color": "#22C55E", "node": "submit", "node_label": "Submit Content", "impact_score": 7, "category": "technical", "probability": "low", "mitigated": true, "kpi_impact": {"throughput": -0.02, "cost-per-review": 0.02}, "description": "Technical risk - score 3", "mitigation": true}], "totals": {"total": 4, "mitigated": 4, "unmitigated": 0, "by_severity": {"critical": 0, "high": 1, "medium": 1, "low": 2}}, "categories": {"quality": 1, "operational": 1, "capacity": 1, "technical": 1}, "alerts": {"critical": 0, "high": 1, "actionable": []}}, IN={"available": {"owners": ["AI System", "Content Creator", "Human Reviewer", "System"], "branches": ["KpiBranch.CAPACITY", "KpiBranch.COST", "KpiBranch.EFFICIENCY", "KpiBranch.QUALITY", "KpiBranch.RISK"], "categories": ["capacity", "operational", "quality", "technical"], "types": ["action", "decision", "end", "start"]}, "simulation": {"params": {"staffing": {"value": 10, "min": 1, "max": 50, "step": 1, "label": "Staffing"}, "automation": {"value": 70, "min": 0, "max": 100, "step": 5, "label": "Automation %"}, "sla_target": {"value": 24, "min": 1, "max": 72, "step": 1, "label": "SLA Target (h)"}, "volume": {"value": 5000, "min": 100, "max": 20000, "step": 100, "label": "Daily Volume"}}, "presets": [{"name": "High Automation", "params": {"staffing": 5, "automation": 95, "volume": 5000, "sla_target": 12}, "description": "Minimal human review, heavy AI automation"}, {"name": "Manual Heavy", "params": {"staffing": 25, "automation": 40, "volume": 5000, "sla_target": 48}, "description": "Large review team, low automation"}, {"name": "Scale Up", "params": {"staffing": 15, "automation": 80, "volume": 10000, "sla_target": 24}, "description": "Double volume, moderate team + high automation"}, {"name": "Cost Optimized", "params": {"staffing": 8, "automation": 85, "volume": 4000, "sla_target": 36}, "description": "Minimize cost while maintaining quality"}]}, "drill": {"submit": {"summary": "NodeType.START · Content Creator · 0.0h SLA", "kpi_count": 0, "risk_count": 2}, "ai-screen": {"summary": "NodeType.ACTION · AI System · 0.002h SLA", "kpi_count": 2, "risk_count": 1}, "classify": {"summary": "NodeType.DECISION · AI System · 0.0h SLA", "kpi_count": 0, "risk_count": 0}, "human-review": {"summary": "NodeType.ACTION · Human Reviewer · 24.0h SLA", "kpi_count": 2, "risk_count": 1}, "review-decision": {"summary": "NodeType.DECISION · Human Reviewer · 0.0h SLA", "kpi_count": 2, "risk_count": 0}, "publish": {"summary": "NodeType.END · System · 0.0h SLA", "kpi_count": 0, "risk_count": 0}, "notify-rejection": {"summary": "NodeType.END · System · 0.0h SLA", "kpi_count": 0, "risk_count": 0}}, "time_travel": {"steps": 12, "range_label": "12 periods"}, "actions": ["drill", "recompute", "simulate", "time_travel", "export"]}, LY={"layout": {"left": "workflow", "center": "kpi", "right": "risk", "top": "controls"}, "panels": [{"id": "top-controls", "zone": "top", "title": "Controls", "component": "controls", "width_ratio": 1.0, "min_width": "100%", "data_bindings": ["sim_params", "sim_presets", "time_travel"]}, {"id": "left-workflow", "zone": "left", "title": "Workflow", "component": "workflow", "width_ratio": 1.0, "min_width": "300px", "data_bindings": ["graph", "flow_runtime"]}, {"id": "center-kpi", "zone": "center", "title": "KPI Dashboard", "component": "kpi", "width_ratio": 1.0, "min_width": "340px", "data_bindings": ["kpi_metrics", "kpi_trends"]}, {"id": "right-risk", "zone": "right", "title": "Risk Map", "component": "risk", "width_ratio": 1.0, "min_width": "280px", "data_bindings": ["risk_map", "risk_matrix"]}, {"id": "detail-overlay", "zone": "center", "title": "Detail", "component": "detail", "width_ratio": 0.0, "min_width": "0px", "data_bindings": ["drill_result"]}], "interactions": [{"source": "left-workflow", "event": "click", "target": "detail-overlay", "action": "drill", "data_mapping": {"node_id": "$event.target.id"}}, {"source": "left-workflow", "event": "click", "target": "center-kpi", "action": "highlight", "data_mapping": {"node_id": "$event.target.id"}}, {"source": "center-kpi", "event": "change", "target": "center-kpi", "action": "recompute", "data_mapping": {"kpi_id": "$event.target.kpi_id"}}, {"source": "top-controls", "event": "slide", "target": "center-kpi", "action": "recompute", "data_mapping": {"params": "$event.params"}}, {"source": "right-risk", "event": "click", "target": "detail-overlay", "action": "drill", "data_mapping": {"risk_id": "$event.target.id"}}], "theme": {"paper": "#fafaf8", "ink": "#0a0a0a", "accent": "#002FA7", "accent_bright": "#5B7BFF", "red": "#DC2626", "orange": "#F97316", "yellow": "#EAB308", "green": "#22C55E", "grey_1": "#f0f0ee", "grey_2": "#d4d4d2", "grey_3": "#737373", "border": "#e0e0e0", "sans": "Inter, Noto Sans SC, sans-serif", "mono": "JetBrains Mono, monospace"}, "responsive": {"desktop": {"min_width": "1200px", "columns": 3}, "tablet": {"min_width": "768px", "columns": 2}, "mobile": {"min_width": "320px", "columns": 1}}};
+var simParams={staffing:10,automation:70,sla_target:24,volume:5000,daily_volume:5000};
+var timeStep=0, timeMode=false;
+
+// ===== ANIMATED CANVAS BACKGROUND (Swiss dot matrix) =====
+(function(){
+  var c=document.getElementById('bg-grid'),ctx=c.getContext('2d');
+  var dots=[], DOT_COUNT=80, t=0;
+  function resize(){c.width=window.innerWidth;c.height=window.innerHeight}
+  function init(){
+    resize();
+    for(var i=0;i<DOT_COUNT;i++){
+      dots.push({x:Math.random()*c.width,y:Math.random()*c.height,
+        r:0.6+Math.random()*1.2,vx:(Math.random()-0.5)*0.3,vy:(Math.random()-0.5)*0.3,
+        phase:Math.random()*Math.PI*2,alpha:0.15+Math.random()*0.25});
+    }
+  }
+  function draw(){
+    ctx.clearRect(0,0,c.width,c.height);
+    // Grid lines
+    ctx.strokeStyle='rgba(0,47,167,0.03)';ctx.lineWidth=0.5;
+    var s=48;
+    for(var x=0;x<c.width;x+=s){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,c.height);ctx.stroke()}
+    for(var y=0;y<c.height;y+=s){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(c.width,y);ctx.stroke()}
+    // Breathing dots
+    t+=0.008;
+    for(var i=0;i<dots.length;i++){
+      var d=dots[i];
+      d.x+=d.vx;d.y+=d.vy;
+      if(d.x<0)d.x=c.width;if(d.x>c.width)d.x=0;
+      if(d.y<0)d.y=c.height;if(d.y>c.height)d.y=0;
+      var pulse=0.5+0.5*Math.sin(t*2+d.phase);
+      var alpha=d.alpha*(0.6+0.4*pulse);
+      ctx.fillStyle='rgba(0,47,167,'+alpha.toFixed(2)+')';
+      ctx.beginPath();ctx.arc(d.x,d.y,d.r,0,Math.PI*2);ctx.fill();
+    }
+    requestAnimationFrame(draw);
+  }
+  init();draw();
+  window.addEventListener('resize',resize);
+})();
+
+// ===== HELPERS =====
+function $(id){return document.getElementById(id)}
+
+// ===== INIT =====
+function init(){
+  renderWorkflow();renderKPI();renderRisk();
+}
+function onSimChange(){
+  simParams.staffing=parseInt($('sim-staffing').value);
+  simParams.automation=parseInt($('sim-auto').value);
+  simParams.sla_target=parseInt($('sim-sla').value);
+  simParams.volume=simParams.daily_volume=parseInt($('sim-vol').value);
+  $('val-staffing').textContent=simParams.staffing;
+  $('val-auto').textContent=simParams.automation+'%';
+  $('val-sla').textContent=simParams.sla_target+'h';
+  $('val-vol').textContent=(simParams.volume/1000).toFixed(1)+'k';
+  runSimulation();
+}
+function simPreset(type){
+  var p=type==='cost'?{staffing:8,automation:85,volume:4000,sla_target:36}:{staffing:15,automation:80,volume:10000,sla_target:24};
+  $('sim-staffing').value=p.staffing;$('sim-auto').value=p.automation;
+  $('sim-sla').value=p.sla_target;$('sim-vol').value=p.volume;
+  onSimChange();
+}
+
+// ===== WORKFLOW (LEFT PANEL) =====
+function renderWorkflow(){
+  var nodes=GP.nodes||[],h='<h2>Workflow</h2>';
+  nodes.forEach(function(n){
+    var cls='node-card'+(n.start?' start':'')+(n.end?' end':'');
+    var badges='';
+    if(n.kpi_count>0) badges+='<span class="node-badge kpi">'+n.kpi_count+' KPI</span>';
+    if(n.risk_count>0) badges+='<span class="node-badge risk">'+n.risk_count+' Risk</span>';
+    h+='<div class="'+cls+'" id="nc-'+n.id+'" onclick="drillNode(\''+n.id+'\')">';
+    h+='<div class="name">'+n.label+badges+'</div>';
+    h+='<div class="meta"><span>'+n.type+'</span><span>'+n.owner+'</span><span>'+(n.sla||0)+'h</span></div></div>';
+  });
+  h+='<div class="mermaid-wrap">'+GP.mermaid+'</div>';
+  $('panel-left').innerHTML=h;
+}
+
+// ===== KPI (CENTER PANEL) =====
+function renderKPI(){
+  var ms=KP.items||KP.metrics||[],h='<div class="gauge-large"><div class="gauge-num">'+(KP.health||0).toFixed(0)+'%</div>';
+  h+='<div class="gauge-label">KPI Health Score</div></div><h2>Metrics</h2>';
+  ms.forEach(function(m){
+    var cls=m.status||'pass';
+    h+='<div class="kpi-row"><div><div class="name">'+m.name+'<span class="branch">'+m.branch+'</span></div>';
+    h+='<div class="kpi-trend">';
+    var trend=m.trend||[],mx=Math.max.apply(null,trend.concat([m.target||100]));
+    trend.forEach(function(v,i){h+='<div class="kpi-trend-bar" style="height:'+(v/mx*24)+'px;opacity:'+(0.25+i*0.06)+'" title="'+v+'"></div>'});
+    h+='</div></div>';
+    h+='<div><div class="val '+cls+'">'+m.current+'</div>';
+    h+='<input class="kpi-target-edit" value="'+m.target+'" onchange="recomputeKPI(\''+m.id+'\',this.value)" title="Edit target"></div></div>';
+  });
+  $('panel-center').innerHTML=h;
+}
+
+// ===== RISK (RIGHT PANEL) =====
+function renderRisk(){
+  var risk_map=RK.risk_map||[],items=RK.items||[],h='<h2>Risk Map</h2>';
+  h+='<div class="heatmap-grid"><div class="hdr"></div><div class="hdr">Low</div><div class="hdr">Med</div><div class="hdr">High</div>';
+  ['critical','high','medium','low'].forEach(function(imp){
+    h+='<div class="rlabel">'+imp+'</div>';
+    ['low','medium','high'].forEach(function(prob){
+      var cell=(RK.matrix||[]).find(function(c){return c.impact===imp&&c.probability===prob});
+      var cnt=cell?cell.count:0, sev=cell?cell.severity:'low', col=cell?cell.color:'#d4d4d2';
+      h+='<div class="cell" style="background:'+col+'15;color:'+col+'" onclick="drillRiskCell(\''+imp+'\',\''+prob+'\')">'+(cnt||'')+'</div>';
+    });
+  });
+  h+='</div>';
+  (risk_map.length?risk_map:items).forEach(function(r){
+    h+='<div class="risk-item" id="rk-'+r.name.replace(/ /g,'_')+'" onclick="drillRisk(\''+r.name+'\')" style="border-left-color:'+r.color+'">';
+    h+='<div class="risk-dot" style="background:'+r.color+'"></div>';
+    h+='<div class="info"><div class="name">'+r.name+'</div><div class="cat">'+r.level+' &middot; '+r.category+'</div></div>';
+    h+='<div class="score">'+(r.impact_score||r.score||'')+'</div></div>';
+  });
+  $('panel-right').innerHTML=h;
+}
+
+// ===== DRILL DOWN =====
+function drillNode(id){
+  document.querySelectorAll('.node-card').forEach(function(c){c.classList.remove('active')});
+  var el=$('nc-'+id); if(el) el.classList.add('active');
+  var node=(GP.nodes||[]).find(function(n){return n.id===id}); if(!node) return;
+  var h='<div class="prop-group"><h4>Node</h4>';
+  h+='<div class="prop-row"><span class="k">Name</span><span class="v">'+node.label+'</span></div>';
+  h+='<div class="prop-row"><span class="k">Type</span><span class="v">'+node.type+'</span></div>';
+  h+='<div class="prop-row"><span class="k">SLA</span><span class="v">'+(node.sla||0)+'h</span></div></div>';
+  var kpis=(KP.items||KP.metrics||[]).filter(function(k){return (k.linked_nodes||[]).indexOf(id)>=0});
+  if(kpis.length){
+    h+='<div class="prop-group"><h4>Bound KPIs</h4>';
+    kpis.forEach(function(k){
+      h+='<div class="prop-row"><span class="k">'+k.name+'</span><span class="v '+k.status+'">'+k.current+' / '+k.target+'</span></div>';
+    });h+='</div>';
+  }
+  var risks=(RK.risk_map||[]).filter(function(r){return r.node===id});
+  if(risks.length){
+    h+='<div class="prop-group"><h4>Bound Risks</h4>';
+    risks.forEach(function(r){
+      h+='<div class="prop-row"><span class="k">'+r.name+'</span><span class="v" style="color:'+r.color+'">'+r.level+'</span></div>';
+    });h+='</div>';
+  }
+  $('detail-title').textContent='Node: '+node.label;
+  $('detail-body').innerHTML=h;
+  $('detail-footer').innerHTML='<button class="btn" onclick="closeDetail()">Close</button>';
+  $('detail-overlay').classList.add('open');
+}
+function drillRisk(name){
+  var r=(RK.risk_map||[]).find(function(x){return x.name===name})||(RK.items||[]).find(function(x){return x.name===name});
+  if(!r) return;
+  var h='<div class="prop-group"><h4>Risk</h4>';
+  h+='<div class="prop-row"><span class="k">Level</span><span class="v" style="color:'+r.color+'">'+r.level+'</span></div>';
+  h+='<div class="prop-row"><span class="k">Score</span><span class="v">'+r.impact_score+'</span></div>';
+  h+='<div class="prop-row"><span class="k">Node</span><span class="v">'+r.node_label+'</span></div></div>';
+  if(r.kpi_impact){
+    h+='<div class="prop-group"><h4>KPI Impact</h4>';
+    Object.keys(r.kpi_impact).forEach(function(k){h+='<div class="prop-row"><span class="k">'+k+'</span><span class="v" style="color:'+(r.kpi_impact[k]<0?'var(--red)':'var(--green)')+'">'+(r.kpi_impact[k]>0?'+':'')+r.kpi_impact[k]+'</span></div>'});
+    h+='</div>';
+  }
+  $('detail-title').textContent='Risk: '+r.name;
+  $('detail-body').innerHTML=h;
+  $('detail-footer').innerHTML='<button class="btn" onclick="closeDetail()">Close</button>';
+  $('detail-overlay').classList.add('open');
+}
+function drillRiskCell(imp,prob){
+  (RK.risk_map||[]).forEach(function(r){
+    var el=$('rk-'+r.name.replace(/ /g,'_'));
+    if(el){el.style.opacity=(r.impact===imp && r.probability===prob)?'1':'0.35'}
+  });
+}
+function closeDetail(){$('detail-overlay').classList.remove('open')}
+
+// ===== SIMULATION =====
+function runSimulation(){
+  var s=simParams.staffing,a=simParams.automation/100,v=simParams.volume;
+  var ai=v*a,cap=s*8*20,tp=Math.min(v,Math.floor(ai+cap));
+  var bl=Math.max(0,v-tp),cost=Math.round((ai/1000*0.5+s*8*25)*100)/100;
+  var h='<div class="sim-results">';
+  h+='<div class="sim-stat"><div class="sim-val">'+tp.toLocaleString()+'</div><div class="sim-label">Throughput</div></div>';
+  h+='<div class="sim-stat"><div class="sim-val" style="color:'+(bl>0?'var(--red)':'var(--green)')+'">'+bl.toLocaleString()+'</div><div class="sim-label">Backlog</div></div>';
+  h+='<div class="sim-stat"><div class="sim-val">$'+cost.toLocaleString()+'</div><div class="sim-label">Cost/Day</div></div>';
+  h+='<div class="sim-stat"><div class="sim-val">$'+(cost/Math.max(v,1)).toFixed(4)+'</div><div class="sim-label">Cost/Item</div></div>';
+  h+='</div>';
+  var old=$('sim-block');if(old)old.remove();
+  var el=document.createElement('div');el.id='sim-block';el.innerHTML=h;
+  var pc=$('panel-center');pc.insertBefore(el,pc.firstChild.nextSibling);
+}
+
+// ===== TIME TRAVEL =====
+function toggleTime(){
+  timeMode=!timeMode;
+  $('time-slider').style.display=timeMode?'flex':'none';
+  $('time-btn').textContent=timeMode?'Live':'Time';
+  if(timeMode) renderTimeSeries(); else renderKPI();
+}
+function onTimeSlide(){timeStep=parseInt($('time-range').value);renderTimeSeries();}
+function renderTimeSeries(){
+  var ms=KP.items||KP.metrics||[],h='<div class="gauge-large"><div class="gauge-num">'+(KP.health||0).toFixed(0)+'%</div>';
+  h+='<div class="gauge-label">KPI Health at t'+timeStep+'</div></div>';
+  ms.forEach(function(m){
+    h+='<div class="kpi-row"><div class="name">'+m.name+'</div><div class="branch">t'+timeStep+'</div>';
+    h+='<div class="val '+m.status+'">'+m.current+'</div></div>';
+    var trend=m.trend||[],mx=Math.max.apply(null,trend.concat([m.target||100]));
+    h+='<div class="kpi-trend" style="height:32px">';
+    trend.forEach(function(v,i){
+      h+='<div class="kpi-trend-bar" style="height:'+(v/mx*32)+'px;opacity:'+(0.25+i*0.06)+';'+(i===timeStep?'background:var(--orange);':'')+'" title="t'+i+': '+v+'"></div>';
+    });h+='</div>';
+  });
+  $('panel-center').innerHTML=h;
+}
+
+// ===== KPI RECOMPUTE =====
+function recomputeKPI(id,val){
+  var t=parseFloat(val);if(isNaN(t))return;
+  var item=(KP.items||KP.metrics||[]).find(function(x){return x.id===id});
+  if(!item)return;item.target=t;
+  var dir=item.direction||'higher_better';
+  item.status=(dir==='lower_better'?item.current<=t:item.current>=t)?'pass':'warn';
+  renderKPI();
+}
+
+init();
+
+</script>
+</body>
+</html>

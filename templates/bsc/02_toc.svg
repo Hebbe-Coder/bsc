@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720">
+  <defs>
+    <linearGradient id="topGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#2E86AB"/>
+      <stop offset="100%" stop-color="#1B3A5C"/>
+    </linearGradient>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#F8FAFB"/>
+      <stop offset="100%" stop-color="#FFFFFF"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="720" fill="url(#bgGrad)"/>
+  <rect x="0" y="0" width="1280" height="5" fill="url(#topGrad)"/>
+  <!-- header -->
+  <rect x="60" y="30" width="50" height="50" rx="8" fill="#1B3A5C"/>
+  <text x="85" y="65" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="24" font-weight="bold" fill="#FFFFFF">01</text>
+  <text x="130" y="65" font-family="Segoe UI,Microsoft YaHei,sans-serif" font-size="26" font-weight="bold" fill="#2D3436">Contents</text>
+  <line x1="60" y1="95" x2="1220" y2="95" stroke="#DEE2E6" stroke-width="1" stroke-dasharray="6,4"/>
+  <!-- TOC items -->
+  <g transform="translate(60,130)">
+    <rect x="0" y="0" width="560" height="110" rx="8" fill="#FFFFFF" stroke="#DEE2E6" stroke-width="1"/>
+    <rect x="0" y="0" width="6" height="110" rx="3" fill="#2E86AB"/>
+    <text x="30" y="45" font-family="Segoe UI,sans-serif" font-size="38" font-weight="bold" fill="#1B3A5C">01</text>
+    <text x="100" y="42" font-family="Segoe UI,Microsoft YaHei,sans-serif" font-size="18" font-weight="bold" fill="#2D3436">Business System Structure</text>
+    <text x="100" y="72" font-family="Segoe UI,sans-serif" font-size="13" fill="#636E72">Actors, State Machine, Business Rules</text>
+  </g>
+  <g transform="translate(660,130)">
+    <rect x="0" y="0" width="560" height="110" rx="8" fill="#FFFFFF" stroke="#DEE2E6" stroke-width="1"/>
+    <rect x="0" y="0" width="6" height="110" rx="3" fill="#2CA02C"/>
+    <text x="30" y="45" font-family="Segoe UI,sans-serif" font-size="38" font-weight="bold" fill="#1B3A5C">02</text>
+    <text x="100" y="42" font-family="Segoe UI,Microsoft YaHei,sans-serif" font-size="18" font-weight="bold" fill="#2D3436">SOP Workflow</text>
+    <text x="100" y="72" font-family="Segoe UI,sans-serif" font-size="13" fill="#636E72">Swimlane Process, Node Details</text>
+  </g>
+  <g transform="translate(60,270)">
+    <rect x="0" y="0" width="560" height="110" rx="8" fill="#FFFFFF" stroke="#DEE2E6" stroke-width="1"/>
+    <rect x="0" y="0" width="6" height="110" rx="3" fill="#F4A261"/>
+    <text x="30" y="45" font-family="Segoe UI,sans-serif" font-size="38" font-weight="bold" fill="#1B3A5C">03</text>
+    <text x="100" y="42" font-family="Segoe UI,Microsoft YaHei,sans-serif" font-size="18" font-weight="bold" fill="#2D3436">KPI System</text>
+    <text x="100" y="72" font-family="Segoe UI,sans-serif" font-size="13" fill="#636E72">Metrics, Alerts, Health Score</text>
+  </g>
+  <g transform="translate(660,270)">
+    <rect x="0" y="0" width="560" height="110" rx="8" fill="#FFFFFF" stroke="#DEE2E6" stroke-width="1"/>
+    <rect x="0" y="0" width="6" height="110" rx="3" fill="#E83151"/>
+    <text x="30" y="45" font-family="Segoe UI,sans-serif" font-size="38" font-weight="bold" fill="#1B3A5C">04</text>
+    <text x="100" y="42" font-family="Segoe UI,Microsoft YaHei,sans-serif" font-size="18" font-weight="bold" fill="#2D3436">Risk Analysis</text>
+    <text x="100" y="72" font-family="Segoe UI,sans-serif" font-size="13" fill="#636E72">Risk Matrix, Mitigations, Optimizations</text>
+  </g>
+  <g transform="translate(60,410)">
+    <rect x="0" y="0" width="560" height="110" rx="8" fill="#FFFFFF" stroke="#DEE2E6" stroke-width="1"/>
+    <rect x="0" y="0" width="6" height="110" rx="3" fill="#9467BD"/>
+    <text x="30" y="45" font-family="Segoe UI,sans-serif" font-size="38" font-weight="bold" fill="#1B3A5C">05</text>
+    <text x="100" y="42" font-family="Segoe UI,Microsoft YaHei,sans-serif" font-size="18" font-weight="bold" fill="#2D3436">Executive Summary</text>
+    <text x="100" y="72" font-family="Segoe UI,sans-serif" font-size="13" fill="#636E72">Key Findings &amp; Recommendations</text>
+  </g>
+  <!-- footer -->
+  <rect x="0" y="716" width="1280" height="4" fill="#1B3A5C"/>
+  <text x="640" y="695" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12" fill="#636E72">2</text>
+</svg>

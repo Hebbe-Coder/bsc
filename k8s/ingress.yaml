@@ -1,0 +1,30 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bsc-backend
+  labels:
+    app: bsc-backend
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/client-max-body-size: "50m"
+    nginx.ingress.kubernetes.io/limit-rpm: "600"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - api.bsc.example.com
+      secretName: bsc-tls
+  rules:
+    - host: api.bsc.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: bsc-backend
+                port:
+                  name: http

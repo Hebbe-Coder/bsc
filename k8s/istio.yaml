@@ -1,0 +1,124 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: bsc-backend
+spec:
+  hosts:
+    - bsc-backend
+    - bsc.example.com
+  gateways:
+    - bsc-gateway
+  http:
+    - match:
+        - uri:
+            prefix: /bsc/
+        - uri:
+            prefix: /tasks/
+        - uri:
+            prefix: /templates/
+        - uri:
+            prefix: /chat/
+        - uri:
+            prefix: /studio/
+        - uri:
+            prefix: /visual/
+        - uri:
+            prefix: /dashboard/
+      route:
+        - destination:
+            host: bsc-backend
+            port:
+              number: 8000
+            subset: stable
+          weight: 90
+        - destination:
+            host: bsc-backend
+            port:
+              number: 8000
+            subset: canary
+          weight: 10
+      timeout: 300s
+      retries:
+        attempts: 2
+        perTryTimeout: 10s
+        retryOn: "5xx,gateway-error,reset,connect-failure"
+      corsPolicy:
+        allowOrigin:
+          - "*"
+        allowMethods:
+          - "GET"
+          - "POST"
+          - "PUT"
+          - "DELETE"
+          - "OPTIONS"
+        allowHeaders:
+          - "Content-Type"
+          - "Authorization"
+          - "X-API-Key"
+        maxAge: "24h"
+      fault:
+        delay:
+          percentage:
+            value: 0
+          fixedDelay: 0s
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: bsc-backend
+spec:
+  host: bsc-backend
+  subsets:
+    - name: stable
+      labels:
+        version: "5.0.0"
+      trafficPolicy:
+        loadBalancer:
+          consistentHash:
+            httpHeaderName: X-Request-Id
+        connectionPool:
+          http:
+            maxConnections: 1000
+            http2MaxRequests: 1000
+            maxPendingRequests: 500
+            idleTimeout: 300s
+          tcp:
+            maxConnections: 2000
+            connectTimeout: 10s
+        outlierDetection:
+          consecutive5xxErrors: 5
+          interval: 30s
+          baseEjectionTime: 30s
+          maxEjectionPercent: 50
+    - name: canary
+      labels:
+        version: "canary"
+      trafficPolicy:
+        loadBalancer:
+          simple: ROUND_ROBIN
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: bsc-gateway
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+        - bsc.example.com
+      tls:
+        httpsRedirect: true
+    - port:
+        number: 443
+        name: https
+        protocol: HTTPS
+      hosts:
+        - bsc.example.com
+      tls:
+        mode: SIMPLE
+        credentialName: bsc-tls

@@ -1,0 +1,1465 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>零售电商订单管理系统</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+        :root {
+            --bg: #ffffff;
+            --bg-secondary: #f8fafc;
+            --bg-card: #ffffff;
+            --primary: #1e40af;
+            --primary-light: #3b82f6;
+            --primary-dark: #1e3a8a;
+            --accent: #f59e0b;
+            --accent-light: #fbbf24;
+            --text: #1e293b;
+            --text-light: #64748b;
+            --text-faint: #94a3b8;
+            --border: #e2e8f0;
+            --border-light: #f1f5f9;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --info: #0ea5e9;
+            --sidebar-bg: #0f172a;
+            --sidebar-text: #f1f5f9;
+            --code-bg: #1e293b;
+            --code-text: #e2e8f0;
+            --gradient-start: #1e40af;
+            --gradient-end: #3b82f6;
+            --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+            --card-hover-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.08);
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html { scroll-behavior: smooth; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', sans-serif;
+            line-height: 1.75;
+            color: var(--text);
+            background-color: var(--bg);
+            transition: background-color 0.3s ease, color 0.3s ease;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        .app-container { display: flex; min-height: 100vh; }
+        .sidebar {
+            width: 300px;
+            background: var(--sidebar-bg);
+            color: var(--sidebar-text);
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 100vh;
+            overflow-y: auto;
+            z-index: 100;
+            padding: 0;
+            box-shadow: 4px 0 30px rgba(0,0,0,0.15);
+        }
+        .sidebar-header {
+            padding: 32px 24px;
+            background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+            position: relative;
+        }
+        .sidebar-header::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+        }
+        .sidebar-logo { font-size: 20px; font-weight: 800; margin-bottom: 4px; letter-spacing: -0.5px; }
+        .sidebar-subtitle { font-size: 12px; opacity: 0.8; }
+        .toc { list-style: none; padding: 16px 0; }
+        .toc-item { margin-bottom: 1px; }
+        .toc-link {
+            display: block;
+            padding: 10px 24px;
+            color: var(--sidebar-text);
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 400;
+            border-radius: 0 24px 24px 0;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            position: relative;
+        }
+        .toc-link::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 3px;
+            height: 0;
+            background: var(--accent);
+            border-radius: 0 3px 3px 0;
+            transition: height 0.3s ease;
+        }
+        .toc-link:hover { background: rgba(255,255,255,0.06); padding-left: 28px; }
+        .toc-link.active { 
+            background: rgba(255,255,255,0.12); 
+            color: white;
+            font-weight: 600;
+        }
+        .toc-link.active::before { height: 60%; }
+        .toc-link.level-2 { padding-left: 40px; font-size: 13px; opacity: 0.85; }
+        .sidebar-footer {
+            padding: 20px 24px;
+            border-top: 1px solid rgba(255,255,255,0.08);
+            font-size: 12px;
+            opacity: 0.5;
+            margin-top: 20px;
+        }
+        .sidebar-footer span { display: block; margin-bottom: 4px; }
+        .main-content {
+            flex: 1;
+            margin-left: 300px;
+            min-height: 100vh;
+        }
+        .header {
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+            padding: 32px 60px;
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.04);
+        }
+        .header-title { font-size: 32px; font-weight: 800; margin-bottom: 8px; letter-spacing: -1px; }
+        .header-meta { font-size: 14px; color: var(--text-light); }
+        .header-meta span { margin-right: 20px; }
+        .theme-toggle {
+            float: right;
+            padding: 10px 24px;
+            border: none;
+            border-radius: 25px;
+            background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.35s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+        }
+        .theme-toggle:hover { transform: translateY(-2px); box-shadow: 0 6px 25px rgba(0,0,0,0.25); }
+        .content-wrapper { padding: 48px 60px; max-width: 1500px; }
+        .section { margin-bottom: 56px; }
+        .section-header {
+            margin-bottom: 32px;
+            padding-bottom: 20px;
+            border-bottom: 3px solid var(--border);
+            position: relative;
+        }
+        .section-header::after {
+            content: '';
+            position: absolute;
+            bottom: -3px;
+            left: 0;
+            width: 80px;
+            height: 3px;
+            background: linear-gradient(90deg, var(--gradient-start), var(--gradient-end));
+            border-radius: 0 3px 3px 0;
+        }
+        .section-title {
+            font-size: 28px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            letter-spacing: -0.5px;
+        }
+        .section-title::before {
+            content: '';
+            width: 4px;
+            height: 28px;
+            background: linear-gradient(180deg, var(--gradient-start), var(--gradient-end));
+            margin-right: 16px;
+            border-radius: 2px;
+        }
+        .section-subtitle { font-size: 15px; color: var(--text-light); margin-top: 6px; font-weight: 400; }
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 32px;
+            margin-bottom: 24px;
+            transition: all 0.4s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, var(--gradient-start), var(--gradient-end));
+            opacity: 0;
+            transition: opacity 0.4s ease;
+        }
+        .card:hover { 
+            box-shadow: var(--card-hover-shadow); 
+            transform: translateY(-3px);
+            border-color: var(--border-light);
+        }
+        .card:hover::before { opacity: 1; }
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border-light);
+        }
+        .card-title { font-size: 20px; font-weight: 600; }
+        .card-badge {
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+        .card-badge.primary { background: rgba(37,99,235,0.1); color: var(--primary); }
+        .card-badge.success { background: rgba(16,185,129,0.1); color: var(--success); }
+        .card-badge.warning { background: rgba(245,158,11,0.1); color: var(--warning); }
+        .card-badge.danger { background: rgba(239,68,68,0.1); color: var(--danger); }
+        .card-badge.info { background: rgba(14,165,233,0.1); color: var(--info); }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 24px; }
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 28px;
+            text-align: center;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            position: relative;
+            overflow: hidden;
+        }
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 6px;
+            height: 100%;
+            transition: width 0.4s ease;
+        }
+        .stat-card:hover { 
+            transform: translateY(-6px) scale(1.02); 
+            box-shadow: var(--card-hover-shadow); 
+            border-color: var(--border-light);
+        }
+        .stat-card:hover::before { width: 12px; }
+        .stat-card.primary::before { background: var(--primary); }
+        .stat-card.success::before { background: var(--success); }
+        .stat-card.warning::before { background: var(--warning); }
+        .stat-card.danger::before { background: var(--danger); }
+        .stat-card.info::before { background: var(--info); }
+        .stat-icon {
+            font-size: 36px;
+            margin-bottom: 16px;
+            opacity: 0.9;
+            filter: drop-shadow(0 4px 12px rgba(0,0,0,0.1));
+        }
+        .stat-value {
+            font-size: 48px;
+            font-weight: 900;
+            margin-bottom: 8px;
+            line-height: 1;
+            letter-spacing: -2px;
+        }
+        .stat-value.primary { color: var(--primary); }
+        .stat-value.success { color: var(--success); }
+        .stat-value.warning { color: var(--warning); }
+        .stat-value.danger { color: var(--danger); }
+        .stat-value.info { color: var(--info); }
+        .stat-label { font-size: 14px; color: var(--text-light); font-weight: 500; }
+        .stat-change {
+            font-size: 13px;
+            font-weight: 600;
+            margin-top: 8px;
+            padding: 4px 12px;
+            border-radius: 12px;
+            display: inline-block;
+        }
+        .stat-change.up { color: var(--success); background: rgba(16,185,129,0.1); }
+        .stat-change.down { color: var(--danger); background: rgba(239,68,68,0.1); }
+        .chart-container { height: 400px; margin-top: 24px; }
+        .chart-container-small { height: 300px; }
+        .chart-container-gauge { height: 280px; }
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        .data-table th, .data-table td {
+            padding: 16px 20px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-light);
+        }
+        .data-table th {
+            background: var(--bg-secondary);
+            font-weight: 600;
+            color: var(--text);
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .data-table th:hover { background: var(--border-light); }
+        .data-table tr:hover { background: var(--bg-secondary); }
+        .data-table tr:last-child td { border-bottom: none; }
+        .data-table .sort-indicator { font-size: 12px; margin-left: 8px; color: var(--text-faint); }
+        .table-wrapper { overflow-x: auto; border-radius: 12px; border: 1px solid var(--border); background: var(--bg-card); }
+        .table-filter {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 20px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .table-filter input {
+            flex: 1;
+            min-width: 200px;
+            padding: 12px 20px;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+        .table-filter input:focus { 
+            outline: none; 
+            border-color: var(--primary); 
+            box-shadow: 0 0 0 4px rgba(37,99,235,0.1); 
+        }
+        .table-pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+            margin-top: 20px;
+            padding: 16px;
+            border-top: 1px solid var(--border-light);
+        }
+        .table-pagination button {
+            padding: 8px 16px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--bg-card);
+            color: var(--text);
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.3s ease;
+        }
+        .table-pagination button:hover { border-color: var(--primary); color: var(--primary); }
+        .table-pagination button.active { background: var(--primary); color: white; border-color: var(--primary); }
+        .table-pagination span { font-size: 13px; color: var(--text-light); margin: 0 8px; }
+        .workflow-step {
+            display: flex;
+            align-items: flex-start;
+            padding: 24px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            margin-bottom: 16px;
+            transition: all 0.4s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        .workflow-step::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 5px;
+            height: 100%;
+            transition: width 0.3s ease;
+        }
+        .workflow-step:hover { border-color: var(--primary); transform: translateX(4px); }
+        .workflow-step:hover::before { width: 8px; }
+        .workflow-step.primary::before { background: var(--primary); }
+        .workflow-step.accent::before { background: var(--accent); }
+        .workflow-step.success::before { background: var(--success); }
+        .workflow-step.warning::before { background: var(--warning); }
+        .step-number {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: 800;
+            color: white;
+            margin-right: 24px;
+            flex-shrink: 0;
+            background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+            box-shadow: 0 4px 15px rgba(37,99,235,0.3);
+        }
+        .step-content { flex: 1; }
+        .step-title { font-size: 17px; font-weight: 600; margin-bottom: 8px; }
+        .step-meta { font-size: 14px; color: var(--text-light); }
+        .step-meta span { margin-right: 20px; }
+        .step-sla {
+            display: inline-block;
+            padding: 5px 12px;
+            background: rgba(37,99,235,0.1);
+            color: var(--primary);
+            border-radius: 14px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .step-owner { color: var(--accent); font-weight: 500; }
+        .risk-item {
+            padding: 24px;
+            background: var(--bg-card);
+            border-radius: 16px;
+            margin-bottom: 16px;
+            border-left: 5px solid var(--border);
+            transition: all 0.4s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        .risk-item::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 100px;
+            height: 100px;
+            opacity: 0.03;
+            border-radius: 50%;
+            transform: translate(30%, -30%);
+        }
+        .risk-item:hover { box-shadow: var(--card-shadow); transform: translateX(4px); }
+        .risk-item.critical { border-left-color: var(--danger); }
+        .risk-item.critical::after { background: var(--danger); }
+        .risk-item.high { border-left-color: var(--warning); }
+        .risk-item.high::after { background: var(--warning); }
+        .risk-item.medium { border-left-color: var(--primary); }
+        .risk-item.medium::after { background: var(--primary); }
+        .risk-item.low { border-left-color: var(--success); }
+        .risk-item.low::after { background: var(--success); }
+        .risk-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+        .risk-title { font-size: 17px; font-weight: 600; }
+        .risk-score { 
+            font-size: 14px; 
+            padding: 6px 16px; 
+            border-radius: 20px;
+            font-weight: 700;
+            letter-spacing: 1px;
+        }
+        .risk-score.critical { background: rgba(239,68,68,0.1); color: var(--danger); }
+        .risk-score.high { background: rgba(245,158,11,0.1); color: var(--warning); }
+        .risk-score.medium { background: rgba(37,99,235,0.1); color: var(--primary); }
+        .risk-score.low { background: rgba(16,185,129,0.1); color: var(--success); }
+        .risk-desc { font-size: 14px; color: var(--text-light); margin-bottom: 16px; line-height: 1.8; }
+        .risk-mitigation { font-size: 14px; color: var(--success); font-weight: 500; padding: 12px 16px; background: rgba(16,185,129,0.05); border-radius: 8px; }
+        .progress-bar {
+            height: 12px;
+            background: var(--border-light);
+            border-radius: 6px;
+            overflow: hidden;
+            margin: 16px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            border-radius: 6px;
+            transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+        }
+        .progress-fill::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+            animation: shimmer 2.5s infinite;
+        }
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+        .timeline-item {
+            position: relative;
+            padding-left: 50px;
+            padding-bottom: 40px;
+        }
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: 14px;
+            top: 8px;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            border: 4px solid var(--primary);
+            background: var(--bg);
+            box-shadow: 0 0 0 4px rgba(37,99,235,0.1);
+        }
+        .timeline-item::after {
+            content: '';
+            position: absolute;
+            left: 24px;
+            top: 36px;
+            width: 4px;
+            height: calc(100% - 12px);
+            background: var(--border);
+        }
+        .timeline-item:last-child::after { display: none; }
+        .timeline-item.completed::before { background: var(--success); border-color: var(--success); }
+        .timeline-item.in-progress::before { background: var(--accent); border-color: var(--accent); }
+        .timeline-title { font-size: 17px; font-weight: 600; margin-bottom: 8px; }
+        .timeline-time { font-size: 14px; color: var(--text-light); font-weight: 500; }
+        .timeline-items { font-size: 14px; color: var(--text-light); margin-top: 14px; }
+        .timeline-items ul { list-style: none; padding-left: 0; }
+        .timeline-items li { padding: 8px 0; border-bottom: 1px dashed var(--border-light); display: flex; align-items: center; }
+        .timeline-items li:last-child { border-bottom: none; }
+        .timeline-items li::before {
+            content: '▸';
+            color: var(--primary);
+            margin-right: 10px;
+            font-size: 12px;
+        }
+        .mermaid-container {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 32px;
+            margin-top: 24px;
+            overflow-x: auto;
+        }
+        .mermaid { max-width: 100%; }
+        .comparison-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; }
+        .comparison-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 28px;
+            transition: all 0.4s ease;
+            position: relative;
+        }
+        .comparison-card:hover { border-color: var(--primary); box-shadow: var(--card-shadow); }
+        .comparison-title { font-size: 15px; color: var(--text-light); margin-bottom: 20px; text-align: center; font-weight: 500; }
+        .comparison-values { display: flex; justify-content: space-around; align-items: center; }
+        .comparison-value { text-align: center; }
+        .comparison-label { font-size: 12px; color: var(--text-faint); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
+        .comparison-num { font-size: 32px; font-weight: 800; }
+        .comparison-num.current { color: var(--text-faint); }
+        .comparison-num.target { color: var(--primary); }
+        .comparison-arrow { font-size: 24px; color: var(--success); font-weight: bold; margin: 0 8px; }
+        .comparison-improvement {
+            text-align: center;
+            margin-top: 16px;
+            padding: 8px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        .comparison-improvement.positive { background: rgba(16,185,129,0.1); color: var(--success); }
+        .comparison-improvement.negative { background: rgba(239,68,68,0.1); color: var(--danger); }
+        .footer {
+            padding: 40px 60px;
+            border-top: 1px solid var(--border);
+            margin-top: 64px;
+            font-size: 14px;
+            color: var(--text-faint);
+            text-align: center;
+            background: var(--bg-card);
+        }
+        .footer a { color: var(--primary); text-decoration: none; font-weight: 500; }
+        .footer a:hover { text-decoration: underline; }
+        .module-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 28px;
+            margin-bottom: 16px;
+            transition: all 0.4s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        .module-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--primary);
+            transition: width 0.3s ease;
+        }
+        .module-card:hover { border-color: var(--primary); box-shadow: var(--card-shadow); transform: translateX(4px); }
+        .module-card:hover::before { width: 8px; }
+        .module-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+        .module-name { font-size: 17px; font-weight: 600; }
+        .module-deps { font-size: 12px; color: var(--text-faint); background: rgba(0,0,0,0.05); padding: 4px 10px; border-radius: 8px; }
+        .module-desc { font-size: 14px; color: var(--text-light); line-height: 1.7; }
+        .module-tags { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+        .module-tag {
+            font-size: 11px;
+            padding: 4px 10px;
+            background: rgba(37,99,235,0.08);
+            color: var(--primary);
+            border-radius: 6px;
+            font-weight: 500;
+        }
+        .roi-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 28px;
+            text-align: center;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            position: relative;
+            overflow: hidden;
+        }
+        .roi-card::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(16,185,129,0.05) 0%, transparent 70%);
+            opacity: 0;
+            transition: opacity 0.4s ease;
+        }
+        .roi-card:hover { border-color: var(--success); transform: translateY(-8px); box-shadow: 0 20px 40px rgba(16,185,129,0.1); }
+        .roi-card:hover::before { opacity: 1; }
+        .roi-title { font-size: 15px; color: var(--text-light); margin-bottom: 16px; font-weight: 500; }
+        .roi-savings { font-size: 40px; font-weight: 900; color: var(--success); margin-bottom: 10px; letter-spacing: -1px; }
+        .roi-investment { font-size: 14px; color: var(--text-faint); }
+        .roi-period { font-size: 12px; color: var(--accent); margin-top: 8px; font-weight: 500; }
+        .accordion { border-radius: 16px; overflow: hidden; border: 1px solid var(--border); }
+        .accordion-item { border-bottom: 1px solid var(--border); }
+        .accordion-item:last-child { border-bottom: none; }
+        .accordion-header {
+            padding: 20px 24px;
+            background: var(--bg-card);
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: 600;
+            font-size: 15px;
+            transition: all 0.3s ease;
+        }
+        .accordion-header:hover { background: var(--bg-secondary); }
+        .accordion-header.active { background: var(--bg-secondary); }
+        .accordion-header::after {
+            content: '▼';
+            font-size: 10px;
+            color: var(--text-faint);
+            transition: transform 0.3s ease;
+        }
+        .accordion-header.active::after { transform: rotate(180deg); }
+        .accordion-content {
+            padding: 0 24px;
+            background: var(--bg);
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.4s ease, padding 0.4s ease;
+        }
+        .accordion-content.open {
+            padding: 20px 24px;
+            max-height: 500px;
+        }
+        @media (max-width: 1024px) {
+            .sidebar { width: 260px; }
+            .main-content { margin-left: 260px; }
+            .header, .content-wrapper { padding: 24px 32px; }
+            .header-title { font-size: 26px; }
+        }
+        @media (max-width: 768px) {
+            .sidebar { display: none; }
+            .main-content { margin-left: 0; }
+            .header, .content-wrapper { padding: 16px 20px; }
+            .header-title { font-size: 22px; }
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+            .comparison-grid { grid-template-columns: 1fr; }
+            .chart-container { height: 320px; }
+            .stat-value { font-size: 36px; }
+        }
+        @media (max-width: 480px) {
+            .stats-grid { grid-template-columns: 1fr; }
+            .chart-container { height: 280px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">BSC Engine</div>
+                <div class="sidebar-subtitle">业务系统分析报告</div>
+            </div>
+            <ul class="toc" id="toc">
+                <li class="toc-item"><a href="#exec-summary" class="toc-link">执行摘要</a></li>
+<li class="toc-item"><a href="#modules" class="toc-link">系统架构</a></li>
+<li class="toc-item"><a href="#workflow" class="toc-link">业务流程</a></li>
+<li class="toc-item"><a href="#kpi" class="toc-link">关键指标</a></li>
+<li class="toc-item"><a href="#risk" class="toc-link">风险评估</a></li>
+<li class="toc-item"><a href="#roi" class="toc-link">投资回报</a></li>
+<li class="toc-item"><a href="#timeline" class="toc-link">实施路线</a></li>
+<li class="toc-item"><a href="#comparison" class="toc-link">对比分析</a></li>
+            </ul>
+            <div class="sidebar-footer">
+                <span>2026年07月07日</span>
+                <span>版本 v3.0</span>
+            </div>
+        </aside>
+        
+        <main class="main-content">
+            <header class="header">
+                <button class="theme-toggle" onclick="toggleTheme()">切换主题</button>
+                <h1 class="header-title">零售电商订单管理系统</h1>
+                <div class="header-meta">
+                    <span>行业：retail</span>
+                    <span>生成时间：2026年07月07日</span>
+                    <span>报告版本：v3.0</span>
+                </div>
+            </header>
+            
+            <div class="content-wrapper">
+                
+        <section id="exec-summary" class="section">
+            <div class="section-header">
+                <h2 class="section-title">执行摘要</h2>
+                <div class="section-subtitle">系统概览与关键指标</div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">核心指标</span>
+                    <span class="card-badge primary">实时统计</span>
+                </div>
+                <div class="stats-grid">
+            <div class="stat-card primary">
+                <div class="stat-icon">📦</div>
+                <div class="stat-value primary">6</div>
+                <div class="stat-label">功能模块</div>
+                <div class="stat-change up">+12%</div>
+            </div>
+        
+            <div class="stat-card accent">
+                <div class="stat-icon">🔄</div>
+                <div class="stat-value accent">8</div>
+                <div class="stat-label">流程节点</div>
+                <div class="stat-change up">+8%</div>
+            </div>
+        
+            <div class="stat-card success">
+                <div class="stat-icon">📊</div>
+                <div class="stat-value success">6</div>
+                <div class="stat-label">关键指标</div>
+                <div class="stat-change up">+25%</div>
+            </div>
+        
+            <div class="stat-card danger">
+                <div class="stat-icon">⚠️</div>
+                <div class="stat-value danger">6</div>
+                <div class="stat-label">识别风险</div>
+                <div class="stat-change down">-15%</div>
+            </div>
+        </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">业务目标</span>
+                </div>
+                <p style="color: var(--text); font-size: 15px; line-height: 1.8;">构建一套高效的订单管理系统，实现订单全生命周期管理，提升运营效率和客户体验</p>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">技术架构</span>
+                </div>
+                <div class="mermaid-container">
+                    <pre class="mermaid">
+graph TD
+    A[前端应用] --> B[API网关]
+    B --> C[业务逻辑层]
+    C --> D[数据层]
+    C --> E[LLM服务]
+    B --> F[缓存层]
+    D --> G[(数据库)]
+    E --> H[OpenAI/本地模型]
+                    </pre>
+                </div>
+            </div>
+        </section>
+        
+                
+        <section id="modules" class="section">
+            <div class="section-header">
+                <h2 class="section-title">系统架构</h2>
+                <div class="section-subtitle">模块分解与依赖关系</div>
+            </div>
+            
+            <div class="module-card">
+                <div class="module-header">
+                    <span class="module-name">订单管理模块</span>
+                    <span class="module-deps">依赖: 用户模块, 商品模块</span>
+                </div>
+                <div class="module-desc">处理订单创建、修改、取消等操作</div>
+                
+            </div>
+        
+            <div class="module-card">
+                <div class="module-header">
+                    <span class="module-name">支付模块</span>
+                    <span class="module-deps">依赖: 订单模块</span>
+                </div>
+                <div class="module-desc">集成多种支付方式，处理支付流程</div>
+                
+            </div>
+        
+            <div class="module-card">
+                <div class="module-header">
+                    <span class="module-name">库存模块</span>
+                    <span class="module-deps">依赖: 商品模块</span>
+                </div>
+                <div class="module-desc">实时库存管理，库存预警</div>
+                
+            </div>
+        
+            <div class="module-card">
+                <div class="module-header">
+                    <span class="module-name">物流模块</span>
+                    <span class="module-deps">依赖: 订单模块</span>
+                </div>
+                <div class="module-desc">订单配送追踪，物流信息同步</div>
+                
+            </div>
+        
+            <div class="module-card">
+                <div class="module-header">
+                    <span class="module-name">售后模块</span>
+                    <span class="module-deps">依赖: 订单模块</span>
+                </div>
+                <div class="module-desc">处理退换货申请，售后服务</div>
+                
+            </div>
+        
+            <div class="module-card">
+                <div class="module-header">
+                    <span class="module-name">数据分析模块</span>
+                    <span class="module-deps">依赖: 订单模块, 库存模块</span>
+                </div>
+                <div class="module-desc">订单数据分析，业务报表</div>
+                
+            </div>
+        
+        </section>
+        
+                
+        <section id="workflow" class="section">
+            <div class="section-header">
+                <h2 class="section-title">业务流程</h2>
+                <div class="section-subtitle">标准操作流程与责任人</div>
+            </div>
+            
+            <div class="workflow-step primary">
+                <div class="step-number">1</div>
+                <div class="step-content">
+                    <div class="step-title">用户下单</div>
+                    <div class="step-meta">
+                        <span>责任人: <span class="step-owner">客户</span></span>
+                        <span class="step-sla">SLA: 24h</span>
+                        <span>→ 订单审核</span>
+                    </div>
+                </div>
+            </div>
+        
+            <div class="workflow-step accent">
+                <div class="step-number">2</div>
+                <div class="step-content">
+                    <div class="step-title">订单审核</div>
+                    <div class="step-meta">
+                        <span>责任人: <span class="step-owner">审核员</span></span>
+                        <span class="step-sla">SLA: 1h</span>
+                        <span>→ 库存检查</span>
+                    </div>
+                </div>
+            </div>
+        
+            <div class="workflow-step success">
+                <div class="step-number">3</div>
+                <div class="step-content">
+                    <div class="step-title">库存检查</div>
+                    <div class="step-meta">
+                        <span>责任人: <span class="step-owner">系统</span></span>
+                        <span class="step-sla">SLA: 0.5h</span>
+                        <span>→ 支付处理</span>
+                    </div>
+                </div>
+            </div>
+        
+            <div class="workflow-step warning">
+                <div class="step-number">4</div>
+                <div class="step-content">
+                    <div class="step-title">支付处理</div>
+                    <div class="step-meta">
+                        <span>责任人: <span class="step-owner">支付系统</span></span>
+                        <span class="step-sla">SLA: 0.25h</span>
+                        <span>→ 发货</span>
+                    </div>
+                </div>
+            </div>
+        
+            <div class="workflow-step danger">
+                <div class="step-number">5</div>
+                <div class="step-content">
+                    <div class="step-title">发货</div>
+                    <div class="step-meta">
+                        <span>责任人: <span class="step-owner">仓库</span></span>
+                        <span class="step-sla">SLA: 4h</span>
+                        <span>→ 配送</span>
+                    </div>
+                </div>
+            </div>
+        
+            <div class="workflow-step info">
+                <div class="step-number">6</div>
+                <div class="step-content">
+                    <div class="step-title">配送</div>
+                    <div class="step-meta">
+                        <span>责任人: <span class="step-owner">物流商</span></span>
+                        <span class="step-sla">SLA: 48h</span>
+                        <span>→ 签收</span>
+                    </div>
+                </div>
+            </div>
+        
+            <div class="workflow-step primary">
+                <div class="step-number">7</div>
+                <div class="step-content">
+                    <div class="step-title">签收</div>
+                    <div class="step-meta">
+                        <span>责任人: <span class="step-owner">客户</span></span>
+                        <span class="step-sla">SLA: 72h</span>
+                        <span>→ 完成</span>
+                    </div>
+                </div>
+            </div>
+        
+            <div class="workflow-step accent">
+                <div class="step-number">8</div>
+                <div class="step-content">
+                    <div class="step-title">完成</div>
+                    <div class="step-meta">
+                        <span>责任人: <span class="step-owner">系统</span></span>
+                        
+                        
+                    </div>
+                </div>
+            </div>
+        
+        </section>
+        
+                
+        <section id="kpi" class="section">
+            <div class="section-header">
+                <h2 class="section-title">关键指标</h2>
+                <div class="section-subtitle">可量化指标与目标</div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">综合评分</span>
+                    <span class="card-badge success">健康度</span>
+                </div>
+                <div class="chart-container chart-container-gauge" id="chart_2" data-config='{"series": [{"type": "gauge", "startAngle": 200, "endAngle": -20, "pointer": {"show": false}, "progress": {"show": true, "overlap": false, "roundCap": true, "clip": false, "itemStyle": {"color": {"type": "linear", "x": 0, "y": 0, "x2": 1, "y2": 0, "colorStops": [{"offset": 0, "color": "#3b82f6"}, {"offset": 1, "color": "#1e40af"}]}}}, "axisLine": {"lineStyle": {"width": 20, "color": [[1, "#e2e8f0"]]}}, "splitLine": {"show": false}, "axisTick": {"show": false}, "axisLabel": {"show": false}, "data": [{"value": 5.0, "detail": {"valueAnimation": true, "offsetCenter": [0, "65%"], "fontSize": 56, "fontWeight": "bold", "color": "#1e293b", "formatter": "{value}%", "fontFamily": "'Helvetica Neue', 'PingFang SC', sans-serif"}, "name": {"offsetCenter": [0, "90%"], "fontSize": 14, "color": "#64748b", "fontWeight": "500"}}]}], "title": {"text": "综合评分", "left": "center", "top": "5%", "textStyle": {"color": "#1e293b", "fontSize": 14, "fontWeight": "bold"}}, "animationDuration": 2000, "animationEasing": "elasticOut"}'></div>
+            </div>
+            
+            <div class="card"><div class="card-header"><span class="card-title">KPI图表</span></div><div class="chart-container" id="{chart_id}" data-config='{chart_config}'></div></div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">指标详情</span>
+                </div>
+                <div class="table-wrapper">
+                    <div class="table-filter">
+                        <input type="text" placeholder="搜索指标...">
+                    </div>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th data-sort="asc">指标名称</th>
+                                <th data-sort="asc">目标值</th>
+                                <th data-sort="asc">计算公式</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            
+            <tr>
+                <td>订单处理时长</td>
+                <td>2小时</td>
+                <td>完成时间 - 创建时间</td>
+            </tr>
+        
+            <tr>
+                <td>订单准确率</td>
+                <td>99.5%</td>
+                <td>准确订单数 / 总订单数</td>
+            </tr>
+        
+            <tr>
+                <td>库存周转率</td>
+                <td>8次/月</td>
+                <td>出库量 / 平均库存</td>
+            </tr>
+        
+            <tr>
+                <td>客户满意度</td>
+                <td>95%</td>
+                <td>满意评价数 / 总评价数</td>
+            </tr>
+        
+            <tr>
+                <td>退货率</td>
+                <td><3%</td>
+                <td>退货订单数 / 总订单数</td>
+            </tr>
+        
+            <tr>
+                <td>支付成功率</td>
+                <td>99%</td>
+                <td>成功支付数 / 支付请求数</td>
+            </tr>
+        
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+        
+                
+        <section id="risk" class="section">
+            <div class="section-header">
+                <h2 class="section-title">风险评估</h2>
+                <div class="section-subtitle">风险矩阵与应对策略</div>
+            </div>
+            
+            <div class="card"><div class="card-header"><span class="card-title">风险分布</span></div><div class="chart-container" id="{chart_id}" data-config='{chart_config}'></div></div>
+            
+            
+            <div class="risk-item critical">
+                <div class="risk-header">
+                    <span class="risk-title">库存不足导致超卖</span>
+                    <span class="risk-score critical">
+                        9/10
+                    </span>
+                </div>
+                <div class="risk-desc">高并发场景下库存扣减不一致</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: 90%; background: var(--danger);"></div>
+                </div>
+                <div class="risk-mitigation">应对措施: 使用分布式锁，预扣库存机制</div>
+            </div>
+        
+            <div class="risk-item high">
+                <div class="risk-header">
+                    <span class="risk-title">支付超时</span>
+                    <span class="risk-score high">
+                        7/10
+                    </span>
+                </div>
+                <div class="risk-desc">第三方支付接口响应慢</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: 70%; background: var(--warning);"></div>
+                </div>
+                <div class="risk-mitigation">应对措施: 异步处理，超时重试</div>
+            </div>
+        
+            <div class="risk-item medium">
+                <div class="risk-header">
+                    <span class="risk-title">物流信息延迟</span>
+                    <span class="risk-score medium">
+                        5/10
+                    </span>
+                </div>
+                <div class="risk-desc">物流商数据同步延迟</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: 50%; background: var(--info);"></div>
+                </div>
+                <div class="risk-mitigation">应对措施: 定时拉取，增量更新</div>
+            </div>
+        
+            <div class="risk-item high">
+                <div class="risk-header">
+                    <span class="risk-title">订单数据一致性</span>
+                    <span class="risk-score high">
+                        8/10
+                    </span>
+                </div>
+                <div class="risk-desc">多渠道订单数据不一致</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: 80%; background: var(--warning);"></div>
+                </div>
+                <div class="risk-mitigation">应对措施: 统一数据中台，实时同步</div>
+            </div>
+        
+            <div class="risk-item medium">
+                <div class="risk-header">
+                    <span class="risk-title">系统性能瓶颈</span>
+                    <span class="risk-score medium">
+                        6/10
+                    </span>
+                </div>
+                <div class="risk-desc">大促期间系统响应慢</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: 60%; background: var(--info);"></div>
+                </div>
+                <div class="risk-mitigation">应对措施: 缓存策略，水平扩展</div>
+            </div>
+        
+            <div class="risk-item medium">
+                <div class="risk-header">
+                    <span class="risk-title">安全风险</span>
+                    <span class="risk-score medium">
+                        5/10
+                    </span>
+                </div>
+                <div class="risk-desc">订单数据泄露风险</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: 50%; background: var(--info);"></div>
+                </div>
+                <div class="risk-mitigation">应对措施: 数据加密，访问控制</div>
+            </div>
+        
+        </section>
+        
+                
+        <section id="roi" class="section">
+            <div class="section-header">
+                <h2 class="section-title">投资回报分析</h2>
+                <div class="section-subtitle">预期效益与成本节约</div>
+            </div>
+            
+            <div class="stats-grid">
+            <div class="roi-card">
+                <div class="roi-title">引入分布式锁</div>
+                <div class="roi-savings">¥30万/年</div>
+                <div class="roi-investment">投入: ¥5万</div>
+                <div class="roi-period">预计回报周期: 2个月</div>
+            </div>
+        
+            <div class="roi-card">
+                <div class="roi-title">异步支付处理</div>
+                <div class="roi-savings">¥20万/年</div>
+                <div class="roi-investment">投入: ¥3万</div>
+                <div class="roi-period">预计回报周期: 1个月</div>
+            </div>
+        
+            <div class="roi-card">
+                <div class="roi-title">智能库存预警</div>
+                <div class="roi-savings">¥25万/年</div>
+                <div class="roi-investment">投入: ¥4万</div>
+                <div class="roi-period">预计回报周期: 1个月</div>
+            </div>
+        
+            <div class="roi-card">
+                <div class="roi-title">实时数据同步</div>
+                <div class="roi-savings">¥35万/年</div>
+                <div class="roi-investment">投入: ¥6万</div>
+                <div class="roi-period">预计回报周期: 2个月</div>
+            </div>
+        </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">年度预期效益对比</span>
+                </div>
+                <div class="table-wrapper">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th data-sort="asc">指标</th>
+                                <th data-sort="asc">当前状态</th>
+                                <th data-sort="asc">目标状态</th>
+                                <th data-sort="asc">改善幅度</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            
+            <tr><td>处理时长</td><td>4.2小时</td><td>1.8小时</td><td>-57%</td></tr>
+            <tr><td>人工审核</td><td>100%</td><td>40%</td><td>-60%</td></tr>
+            <tr><td>错误率</td><td>3.2%</td><td>1.1%</td><td>-65%</td></tr>
+            <tr><td>人员利用率</td><td>68%</td><td>92%</td><td>+24%</td></tr>
+        
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+        
+                
+        <section id="timeline" class="section">
+            <div class="section-header">
+                <h2 class="section-title">实施路线图</h2>
+                <div class="section-subtitle">分阶段交付计划</div>
+            </div>
+            
+            <div class="card">
+                
+            <div class="timeline-item completed">
+                <div class="timeline-title">基础架构</div>
+                <div class="timeline-time">0-4周</div>
+                <div class="timeline-items"><ul><li>核心模块开发</li><li>数据库设计</li><li>API接口</li></ul></div>
+            </div>
+        
+            <div class="timeline-item in-progress">
+                <div class="timeline-title">核心功能</div>
+                <div class="timeline-time">4-8周</div>
+                <div class="timeline-items"><ul><li>订单流程</li><li>支付集成</li><li>库存管理</li></ul></div>
+            </div>
+        
+            <div class="timeline-item ">
+                <div class="timeline-title">优化完善</div>
+                <div class="timeline-time">8-12周</div>
+                <div class="timeline-items"><ul><li>性能优化</li><li>安全加固</li><li>数据分析</li></ul></div>
+            </div>
+        
+            </div>
+        </section>
+        
+                
+        <section id="comparison" class="section">
+            <div class="section-header">
+                <h2 class="section-title">对比分析</h2>
+                <div class="section-subtitle">现状与目标差距分析</div>
+            </div>
+            
+            <div class="comparison-grid">
+            <div class="comparison-card">
+                <div class="comparison-title">处理效率</div>
+                <div class="comparison-values">
+                    <div class="comparison-value">
+                        <div class="comparison-label">当前</div>
+                        <div class="comparison-num current">4.2小时小时</div>
+                    </div>
+                    <div class="comparison-arrow">→</div>
+                    <div class="comparison-value">
+                        <div class="comparison-label">目标</div>
+                        <div class="comparison-num target">1.8小时小时</div>
+                    </div>
+                </div>
+                <div class="comparison-improvement positive">
+                    优化中
+                </div>
+            </div>
+        
+            <div class="comparison-card">
+                <div class="comparison-title">人工审核</div>
+                <div class="comparison-values">
+                    <div class="comparison-value">
+                        <div class="comparison-label">当前</div>
+                        <div class="comparison-num current">100%%</div>
+                    </div>
+                    <div class="comparison-arrow">→</div>
+                    <div class="comparison-value">
+                        <div class="comparison-label">目标</div>
+                        <div class="comparison-num target">40%%</div>
+                    </div>
+                </div>
+                <div class="comparison-improvement negative">
+                    优化中
+                </div>
+            </div>
+        
+            <div class="comparison-card">
+                <div class="comparison-title">错误率</div>
+                <div class="comparison-values">
+                    <div class="comparison-value">
+                        <div class="comparison-label">当前</div>
+                        <div class="comparison-num current">3.2%%</div>
+                    </div>
+                    <div class="comparison-arrow">→</div>
+                    <div class="comparison-value">
+                        <div class="comparison-label">目标</div>
+                        <div class="comparison-num target">1.1%%</div>
+                    </div>
+                </div>
+                <div class="comparison-improvement negative">
+                    优化中
+                </div>
+            </div>
+        
+            <div class="comparison-card">
+                <div class="comparison-title">人员利用率</div>
+                <div class="comparison-values">
+                    <div class="comparison-value">
+                        <div class="comparison-label">当前</div>
+                        <div class="comparison-num current">68%%</div>
+                    </div>
+                    <div class="comparison-arrow">→</div>
+                    <div class="comparison-value">
+                        <div class="comparison-label">目标</div>
+                        <div class="comparison-num target">92%%</div>
+                    </div>
+                </div>
+                <div class="comparison-improvement positive">
+                    优化中
+                </div>
+            </div>
+        </div>
+            
+            <div class="card"><div class="card-header"><span class="card-title">对比图表</span></div><div class="chart-container" id="{chart_id}" data-config='{chart_config}'></div></div>
+            
+            
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">关键改进措施</span>
+                    <span class="card-badge accent">行动计划</span>
+                </div>
+                <div class="accordion">
+                    <div class="accordion-item"><div class="accordion-header">引入分布式锁</div><div class="accordion-content"><p></p></div></div><div class="accordion-item"><div class="accordion-header">异步支付处理</div><div class="accordion-content"><p></p></div></div><div class="accordion-item"><div class="accordion-header">智能库存预警</div><div class="accordion-content"><p></p></div></div><div class="accordion-item"><div class="accordion-header">实时数据同步</div><div class="accordion-content"><p></p></div></div>
+                </div>
+            </div>
+            
+        </section>
+        
+            </div>
+            
+            <footer class="footer">
+                生成于 2026年07月07日 · <a href="#">BSC Engine Professional Edition</a> · 版权所有
+            </footer>
+        </main>
+    </div>
+    
+    <script>
+        var theme = 'light';
+        function toggleTheme() {
+            theme = theme === 'light' ? 'dark' : 'light';
+            localStorage.setItem('bsc-theme', theme);
+            location.reload();
+        }
+        document.addEventListener('DOMContentLoaded', function() {
+            var savedTheme = localStorage.getItem('bsc-theme');
+            if (savedTheme && savedTheme !== theme) {
+                theme = savedTheme;
+                document.documentElement.style.setProperty('--bg', savedTheme === 'light' ? '#ffffff' : '#0f172a');
+            }
+            
+            mermaid.initialize({ startOnLoad: true, theme: theme === 'dark' ? 'dark' : 'default', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif' });
+            
+            var charts = document.querySelectorAll('.chart-container');
+            charts.forEach(function(el) {
+                var chart = echarts.init(el, theme === 'dark' ? 'dark' : 'light');
+                var config = JSON.parse(el.dataset.config);
+                chart.setOption(config);
+                window.addEventListener('resize', function() { chart.resize(); });
+            });
+            
+            var tocLinks = document.querySelectorAll('.toc-link');
+            tocLinks.forEach(function(link) {
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    var targetId = this.getAttribute('href').substring(1);
+                    var target = document.getElementById(targetId);
+                    if (target) {
+                        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+                    tocLinks.forEach(function(l) { l.classList.remove('active'); });
+                    this.classList.add('active');
+                });
+            });
+            
+            window.addEventListener('scroll', function() {
+                var sections = document.querySelectorAll('.section');
+                var scrollPos = window.scrollY + 200;
+                
+                sections.forEach(function(section) {
+                    var top = section.offsetTop;
+                    var height = section.offsetHeight;
+                    var id = section.getAttribute('id');
+                    
+                    if (scrollPos >= top && scrollPos < top + height) {
+                        tocLinks.forEach(function(link) { link.classList.remove('active'); });
+                        var activeLink = document.querySelector('.toc-link[href="#' + id + '"]');
+                        if (activeLink) { activeLink.classList.add('active'); }
+                    }
+                });
+            });
+            
+            var headers = document.querySelectorAll('th[data-sort]');
+            headers.forEach(function(th) {
+                th.addEventListener('click', function() {
+                    var table = this.closest('.data-table');
+                    var colIndex = Array.from(this.parentElement.children).indexOf(this);
+                    var rows = Array.from(table.querySelectorAll('tbody tr'));
+                    var isAsc = this.getAttribute('data-sort') === 'asc';
+                    
+                    rows.sort(function(a, b) {
+                        var aVal = a.children[colIndex].textContent.trim();
+                        var bVal = b.children[colIndex].textContent.trim();
+                        if (!isNaN(aVal) && !isNaN(bVal)) {
+                            return isAsc ? parseFloat(aVal) - parseFloat(bVal) : parseFloat(bVal) - parseFloat(aVal);
+                        }
+                        return isAsc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+                    });
+                    
+                    rows.forEach(function(row) { table.querySelector('tbody').appendChild(row); });
+                    this.setAttribute('data-sort', isAsc ? 'desc' : 'asc');
+                });
+            });
+            
+            var filters = document.querySelectorAll('.table-filter input');
+            filters.forEach(function(input) {
+                input.addEventListener('input', function() {
+                    var keyword = this.value.toLowerCase();
+                    var table = this.parentElement.nextElementSibling.querySelector('.data-table');
+                    var rows = table.querySelectorAll('tbody tr');
+                    rows.forEach(function(row) {
+                        var text = row.textContent.toLowerCase();
+                        row.style.display = text.includes(keyword) ? '' : 'none';
+                    });
+                });
+            });
+            
+            var progressBars = document.querySelectorAll('.progress-fill');
+            progressBars.forEach(function(bar) {
+                var width = bar.style.width;
+                bar.style.width = '0%';
+                setTimeout(function() { bar.style.width = width; }, 400);
+            });
+            
+            var statCards = document.querySelectorAll('.stat-card');
+            statCards.forEach(function(card, index) {
+                card.style.opacity = '0';
+                card.style.transform = 'translateY(30px)';
+                setTimeout(function() {
+                    card.style.transition = 'all 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
+                    card.style.opacity = '1';
+                    card.style.transform = 'translateY(0)';
+                }, 100 + index * 100);
+            });
+            
+            var accordions = document.querySelectorAll('.accordion-header');
+            accordions.forEach(function(header) {
+                header.addEventListener('click', function() {
+                    this.classList.toggle('active');
+                    var content = this.nextElementSibling;
+                    content.classList.toggle('open');
+                });
+            });
+        });
+    </script>
+</body>
+</html>

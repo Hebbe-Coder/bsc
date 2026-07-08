@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720">
+  <defs>
+    <linearGradient id="topGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#2E86AB"/>
+      <stop offset="100%" stop-color="#1B3A5C"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="720" fill="#F8FAFB"/>
+  <rect x="0" y="0" width="1280" height="5" fill="url(#topGrad)"/>
+  <!-- header -->
+  <rect x="60" y="28" width="42" height="42" rx="8" fill="#1B3A5C"/>
+  <text x="81" y="58" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="20" font-weight="bold" fill="#FFFFFF">{{CHAPTER_NUM}}</text>
+  <text x="118" y="58" font-family="Segoe UI,Microsoft YaHei,sans-serif" font-size="24" font-weight="bold" fill="#2D3436">{{PAGE_TITLE}}</text>
+  <line x1="60" y1="88" x2="1220" y2="88" stroke="#DEE2E6" stroke-width="1" stroke-dasharray="6,4"/>
+  <!-- Risk heatmap table -->
+  <g transform="translate(60,108)">
+    <text x="0" y="15" font-family="Segoe UI,sans-serif" font-size="11" font-weight="bold" fill="#E83151">RISK HEATMAP</text>
+    <rect x="0" y="28" width="1160" height="28" rx="4" fill="#1B3A5C"/>
+    <text x="10" y="48" font-family="Segoe UI,sans-serif" font-size="10" font-weight="bold" fill="#FFFFFF">ID</text>
+    <text x="60" y="48" font-family="Segoe UI,sans-serif" font-size="10" font-weight="bold" fill="#FFFFFF">Risk</text>
+    <text x="380" y="48" font-family="Segoe UI,sans-serif" font-size="10" font-weight="bold" fill="#FFFFFF">Category</text>
+    <text x="540" y="48" font-family="Segoe UI,sans-serif" font-size="10" font-weight="bold" fill="#FFFFFF">Probability</text>
+    <text x="680" y="48" font-family="Segoe UI,sans-serif" font-size="10" font-weight="bold" fill="#FFFFFF">Impact</text>
+    <text x="800" y="48" font-family="Segoe UI,sans-serif" font-size="10" font-weight="bold" fill="#FFFFFF">Score</text>
+    <text x="890" y="48" font-family="Segoe UI,sans-serif" font-size="10" font-weight="bold" fill="#FFFFFF">Owner</text>
+    {{RISK_ROWS}}
+  </g>
+  <!-- Mitigations -->
+  <g transform="translate(60,328)">
+    <text x="0" y="15" font-family="Segoe UI,sans-serif" font-size="11" font-weight="bold" fill="#2E86AB">MITIGATIONS</text>
+    <rect x="0" y="28" width="1160" height="24" rx="4" fill="#1B3A5C"/>
+    <text x="10" y="45" font-family="Segoe UI,sans-serif" font-size="9" font-weight="bold" fill="#FFFFFF">Risk</text>
+    <text x="70" y="45" font-family="Segoe UI,sans-serif" font-size="9" font-weight="bold" fill="#FFFFFF">Action</text>
+    <text x="520" y="45" font-family="Segoe UI,sans-serif" font-size="9" font-weight="bold" fill="#FFFFFF">Owner</text>
+    <text x="680" y="45" font-family="Segoe UI,sans-serif" font-size="9" font-weight="bold" fill="#FFFFFF">Priority</text>
+    <text x="800" y="45" font-family="Segoe UI,sans-serif" font-size="9" font-weight="bold" fill="#FFFFFF">Timeline</text>
+    {{MITIGATION_ROWS}}
+  </g>
+  <!-- Optimizations -->
+  <g transform="translate(60,508)">
+    <text x="0" y="15" font-family="Segoe UI,sans-serif" font-size="11" font-weight="bold" fill="#2CA02C">OPTIMIZATIONS</text>
+    <rect x="0" y="28" width="1160" height="24" rx="4" fill="#1B3A5C"/>
+    <text x="10" y="45" font-family="Segoe UI,sans-serif" font-size="9" font-weight="bold" fill="#FFFFFF">ID</text>
+    <text x="60" y="45" font-family="Segoe UI,sans-serif" font-size="9" font-weight="bold" fill="#FFFFFF">Suggestion</text>
+    <text x="520" y="45" font-family="Segoe UI,sans-serif" font-size="9" font-weight="bold" fill="#FFFFFF">Impact</text>
+    <text x="800" y="45" font-family="Segoe UI,sans-serif" font-size="9" font-weight="bold" fill="#FFFFFF">Effort</text>
+    <text x="940" y="45" font-family="Segoe UI,sans-serif" font-size="9" font-weight="bold" fill="#FFFFFF">Category</text>
+    {{OPT_ROWS}}
+  </g>
+  <!-- footer -->
+  <rect x="0" y="716" width="1280" height="4" fill="#1B3A5C"/>
+  <text x="640" y="695" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12" fill="#636E72">{{PAGE_NUM}}</text>
+</svg>

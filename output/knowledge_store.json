@@ -1,0 +1,5887 @@
+{
+  "graphs": [
+    {
+      "graph_id": "08379c65-da0",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Content Ingestion",
+          "description": "Accepts user-submitted content via API and web upload",
+          "attributes": [],
+          "domain": "content-safety",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "AI Screening Engine",
+          "description": "Automated screening for sensitive words and policy violations",
+          "attributes": [],
+          "domain": "content-safety",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "Human Review Workbench",
+          "description": "Review queue for flagged content with audit log",
+          "attributes": [],
+          "domain": "content-safety",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "Operations Analytics",
+          "description": "Real-time dashboards for throughput and SLA",
+          "attributes": [],
+          "domain": "content-safety",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "Content Creator",
+          "responsibilities": [
+            "Submit Content"
+          ],
+          "reports_to": null,
+          "domain": "content-safety",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "AI System",
+          "responsibilities": [
+            "AI Auto-Screening"
+          ],
+          "reports_to": null,
+          "domain": "content-safety",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "Human Reviewer",
+          "responsibilities": [
+            "Human Review"
+          ],
+          "reports_to": null,
+          "domain": "content-safety",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "System",
+          "responsibilities": [
+            "Publish Content"
+          ],
+          "reports_to": null,
+          "domain": "content-safety",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "content-safety-process",
+          "steps": [
+            "Submit Content",
+            "AI Auto-Screening",
+            "Risk Classification",
+            "Human Review",
+            "Review Decision",
+            "Publish Content",
+            "Notify Rejection"
+          ],
+          "domain": "content-safety",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Daily Throughput",
+          "formula": "processed / day",
+          "branch": "Efficiency",
+          "domain": "content-safety",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "Avg Screening Time",
+          "formula": "sum(screen_ms) / count",
+          "branch": "Efficiency",
+          "domain": "content-safety",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "Screening Accuracy",
+          "formula": "correct / total * 100",
+          "branch": "Quality",
+          "domain": "content-safety",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "False Positive Rate",
+          "formula": "fp / total_flagged * 100",
+          "branch": "Quality",
+          "domain": "content-safety",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "Review Queue Length",
+          "formula": "count(pending)",
+          "branch": "Capacity",
+          "domain": "content-safety",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "Reviewer Utilization",
+          "formula": "active / shift * 100",
+          "branch": "Capacity",
+          "domain": "content-safety",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "Cost Per Review",
+          "formula": "total_cost / reviewed",
+          "branch": "Cost",
+          "domain": "content-safety",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "SLA Compliance Rate",
+          "formula": "sla_met / total * 100",
+          "branch": "Risk",
+          "domain": "content-safety",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "AI False Negatives",
+          "category": "quality",
+          "common_mitigation": "Weekly model retraining",
+          "domain": "content-safety",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "Reviewer Fatigue",
+          "category": "operational",
+          "common_mitigation": "Mandatory breaks + rotation",
+          "domain": "content-safety",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "Peak Volume Overload",
+          "category": "capacity",
+          "common_mitigation": "Auto-scale reviewer pool",
+          "domain": "content-safety",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "API Downtime",
+          "category": "technical",
+          "common_mitigation": "Multi-region failover",
+          "domain": "content-safety",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        }
+      ],
+      "domains": []
+    },
+    {
+      "graph_id": "bb68beb2-5af",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Workforce Management",
+          "description": "Staff scheduling, capacity planning, and shift optimization",
+          "attributes": [],
+          "domain": "bpo",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "Quality Assurance",
+          "description": "Quality monitoring, scoring, and calibration",
+          "attributes": [],
+          "domain": "bpo",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "Performance Analytics",
+          "description": "Agent performance dashboards and productivity tracking",
+          "attributes": [],
+          "domain": "bpo",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "Client Reporting",
+          "description": "Automated client SLA reports and business reviews",
+          "attributes": [],
+          "domain": "bpo",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "Client System",
+          "responsibilities": [
+            "Task Intake"
+          ],
+          "reports_to": null,
+          "domain": "bpo",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "Routing Engine",
+          "responsibilities": [
+            "Classify & Route"
+          ],
+          "reports_to": null,
+          "domain": "bpo",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "WFM System",
+          "responsibilities": [
+            "Assign Senior Agent"
+          ],
+          "reports_to": null,
+          "domain": "bpo",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "Agent",
+          "responsibilities": [
+            "Agent Processing"
+          ],
+          "reports_to": null,
+          "domain": "bpo",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "QA Team",
+          "responsibilities": [
+            "QA Sampling"
+          ],
+          "reports_to": null,
+          "domain": "bpo",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "System",
+          "responsibilities": [
+            "Complete & Notify"
+          ],
+          "reports_to": null,
+          "domain": "bpo",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "bpo-process",
+          "steps": [
+            "Task Intake",
+            "Classify & Route",
+            "Assign Senior Agent",
+            "Assign Standard Agent",
+            "Agent Processing",
+            "QA Sampling",
+            "Rework",
+            "Complete & Notify"
+          ],
+          "domain": "bpo",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Average Handle Time",
+          "formula": "sum(handle_time) / count",
+          "branch": "Efficiency",
+          "domain": "bpo",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "First Contact Resolution",
+          "formula": "resolved_first / total * 100",
+          "branch": "Quality",
+          "domain": "bpo",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "Customer Satisfaction",
+          "formula": "avg(satisfaction_score)",
+          "branch": "Quality",
+          "domain": "bpo",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "Daily Throughput Per Agent",
+          "formula": "completed / agent_count / day",
+          "branch": "Efficiency",
+          "domain": "bpo",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "SLA Compliance Rate",
+          "formula": "on_time / total * 100",
+          "branch": "Quality",
+          "domain": "bpo",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "Agent Attrition Rate",
+          "formula": "left / avg_headcount * 100",
+          "branch": "Risk",
+          "domain": "bpo",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "Cost Per Task",
+          "formula": "total_op_cost / completed",
+          "branch": "Cost",
+          "domain": "bpo",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "Agent Utilization",
+          "formula": "productive_time / total_time * 100",
+          "branch": "Capacity",
+          "domain": "bpo",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "High Attrition",
+          "category": "operational",
+          "common_mitigation": "Competitive pay, career pathing, and engagement programs",
+          "domain": "bpo",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "SLA Breach",
+          "category": "operational",
+          "common_mitigation": "Real-time SLA dashboard + overflow capacity buffer",
+          "domain": "bpo",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "Quality Degradation",
+          "category": "quality",
+          "common_mitigation": "Weekly calibrations + targeted coaching",
+          "domain": "bpo",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "Volume Surge",
+          "category": "capacity",
+          "common_mitigation": "Surge pool + auto-overtime triggers",
+          "domain": "bpo",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        },
+        {
+          "name": "Data Security",
+          "category": "technical",
+          "common_mitigation": "Access controls + DLP + regular audits",
+          "domain": "bpo",
+          "frequency": 0,
+          "first_seen": 1783058871.4043481,
+          "last_seen": 1783058871.4043481
+        }
+      ],
+      "domains": []
+    },
+    {
+      "graph_id": "caae3ffc-3b0",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "AI System??",
+          "description": "Automated pre-screening and risk classification",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        },
+        {
+          "name": "Primary Reviewer??",
+          "description": "First-pass human review",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        },
+        {
+          "name": "Secondary Reviewer??",
+          "description": "Appeal and escalated case review",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        },
+        {
+          "name": "QA Specialist??",
+          "description": "Quality sampling at 5% rate",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        },
+        {
+          "name": "Team Lead??",
+          "description": "Escalation handling",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        },
+        {
+          "name": "Operations Manager??",
+          "description": "Strategy and SLA oversight",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        },
+        {
+          "name": "Review throughput??",
+          "description": "500,000/day",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        },
+        {
+          "name": "Accuracy rate??",
+          "description": "> 99.5%",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        },
+        {
+          "name": "Average review time??",
+          "description": "< 30 seconds",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        },
+        {
+          "name": "Appeal rate??",
+          "description": "< 2%",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        },
+        {
+          "name": "QA pass rate??",
+          "description": "> 98%",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        },
+        {
+          "name": "SLA compliance??",
+          "description": "> 99%",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        },
+        {
+          "name": "AI false negatives??",
+          "description": "harmful content passes screening",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        },
+        {
+          "name": "Review backlog??",
+          "description": "peak traffic causes queue buildup",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        },
+        {
+          "name": "Reviewer burnout??",
+          "description": "high volume leads to quality drop",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        },
+        {
+          "name": "Policy evasion??",
+          "description": "bad actors adapt to rules",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        },
+        {
+          "name": "System downtime??",
+          "description": "review pipeline interruption",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        },
+        {
+          "name": "screening filters violations",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "content-moderation-process",
+          "steps": [
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Review throughput",
+          "formula": "count/time_period",
+          "branch": "Efficiency",
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        },
+        {
+          "name": "Accuracy rate",
+          "formula": "correct/total*100",
+          "branch": "Efficiency",
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        },
+        {
+          "name": "Average review time",
+          "formula": "avg(processing_time)",
+          "branch": "Efficiency",
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        },
+        {
+          "name": "Appeal rate",
+          "formula": "correct/total*100",
+          "branch": "Efficiency",
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        },
+        {
+          "name": "QA pass rate",
+          "formula": "correct/total*100",
+          "branch": "Efficiency",
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        },
+        {
+          "name": "SLA compliance",
+          "formula": "sla_met/total*100",
+          "branch": "Efficiency",
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "AI false negatives",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        },
+        {
+          "name": "Review backlog",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        },
+        {
+          "name": "Reviewer burnout",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        },
+        {
+          "name": "Policy evasion",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        },
+        {
+          "name": "System downtime",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783058871.4609137,
+          "last_seen": 1783058871.4609137
+        }
+      ],
+      "domains": [
+        "content-moderation"
+      ]
+    },
+    {
+      "graph_id": "be82ef62-ffd",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "AI System??",
+          "description": "Pre-screening",
+          "attributes": [],
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1782972507.6507173,
+          "last_seen": 1783058907.6507173
+        },
+        {
+          "name": "Reviewer??",
+          "description": "Human review",
+          "attributes": [],
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783058907.6507173,
+          "last_seen": 1783058907.6507173
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783058907.6507173,
+          "last_seen": 1783058907.6507173
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "moderation-process",
+          "steps": [
+            "",
+            "",
+            ""
+          ],
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783058907.6507173,
+          "last_seen": 1783058907.6507173
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Throughput",
+          "formula": "count/time_period",
+          "branch": "Efficiency",
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783058907.6507173,
+          "last_seen": 1783058907.6507173
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Backlog",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783058907.6507173,
+          "last_seen": 1783058907.6507173
+        }
+      ],
+      "domains": [
+        "moderation"
+      ]
+    },
+    {
+      "graph_id": "fd411859-5f7",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "AI System??",
+          "description": "Pre-screening",
+          "attributes": [],
+          "domain": "moderation",
+          "frequency": 3,
+          "first_seen": 1782886166.9966617,
+          "last_seen": 1783058966.9966617
+        },
+        {
+          "name": "Reviewer??",
+          "description": "Human review",
+          "attributes": [],
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1782972566.9966617,
+          "last_seen": 1783058966.9966617
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783058966.9966617,
+          "last_seen": 1783058966.9966617
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "moderation-process",
+          "steps": [
+            "",
+            "",
+            ""
+          ],
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783058966.9966617,
+          "last_seen": 1783058966.9966617
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Throughput",
+          "formula": "count/time_period",
+          "branch": "Efficiency",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783058966.9966617,
+          "last_seen": 1783058966.9966617
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Backlog",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783058966.9966617,
+          "last_seen": 1783058966.9966617
+        }
+      ],
+      "domains": [
+        "moderation"
+      ]
+    },
+    {
+      "graph_id": "a9cd9509-ac8",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "AI System??",
+          "description": "Pre-screening",
+          "attributes": [],
+          "domain": "moderation",
+          "frequency": 4,
+          "first_seen": 1782799786.5359097,
+          "last_seen": 1783058986.5359097
+        },
+        {
+          "name": "Reviewer??",
+          "description": "Human review",
+          "attributes": [],
+          "domain": "moderation",
+          "frequency": 3,
+          "first_seen": 1782886186.5359097,
+          "last_seen": 1783058986.5359097
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783058986.5359097,
+          "last_seen": 1783058986.5359097
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "moderation-process",
+          "steps": [
+            "",
+            "",
+            ""
+          ],
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783058986.5359097,
+          "last_seen": 1783058986.5359097
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Throughput",
+          "formula": "count/time_period",
+          "branch": "Efficiency",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783058986.5359097,
+          "last_seen": 1783058986.5359097
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Backlog",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783058986.5359097,
+          "last_seen": 1783058986.5359097
+        }
+      ],
+      "domains": [
+        "moderation"
+      ]
+    },
+    {
+      "graph_id": "2c76b323-ad5",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "AI System??",
+          "description": "Pre-screening",
+          "attributes": [],
+          "domain": "moderation",
+          "frequency": 5,
+          "first_seen": 1782713446.5405478,
+          "last_seen": 1783059046.5405478
+        },
+        {
+          "name": "Reviewer??",
+          "description": "Human review",
+          "attributes": [],
+          "domain": "moderation",
+          "frequency": 4,
+          "first_seen": 1782799846.5405478,
+          "last_seen": 1783059046.5405478
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783059046.5405478,
+          "last_seen": 1783059046.5405478
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "moderation-process",
+          "steps": [
+            "",
+            "",
+            ""
+          ],
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783059046.5405478,
+          "last_seen": 1783059046.5405478
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Throughput",
+          "formula": "count/time_period",
+          "branch": "Efficiency",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059046.5405478,
+          "last_seen": 1783059046.5405478
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Backlog",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059046.5405478,
+          "last_seen": 1783059046.5405478
+        }
+      ],
+      "domains": [
+        "moderation"
+      ]
+    },
+    {
+      "graph_id": "c7a76c2c-ad4",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "AI System??",
+          "description": "Pre-screening",
+          "attributes": [],
+          "domain": "moderation",
+          "frequency": 6,
+          "first_seen": 1782627063.127296,
+          "last_seen": 1783059063.127296
+        },
+        {
+          "name": "Reviewer??",
+          "description": "Human review",
+          "attributes": [],
+          "domain": "moderation",
+          "frequency": 5,
+          "first_seen": 1782713463.127296,
+          "last_seen": 1783059063.127296
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783059063.127296,
+          "last_seen": 1783059063.127296
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "moderation-process",
+          "steps": [
+            "",
+            "",
+            ""
+          ],
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783059063.127296,
+          "last_seen": 1783059063.127296
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Throughput",
+          "formula": "count/time_period",
+          "branch": "Efficiency",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059063.127296,
+          "last_seen": 1783059063.127296
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Backlog",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059063.127296,
+          "last_seen": 1783059063.127296
+        }
+      ],
+      "domains": [
+        "moderation"
+      ]
+    },
+    {
+      "graph_id": "43b52f9d-a7e",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "AI System??",
+          "description": "Pre-screening",
+          "attributes": [],
+          "domain": "moderation",
+          "frequency": 7,
+          "first_seen": 1782540735.8971846,
+          "last_seen": 1783059135.8971846
+        },
+        {
+          "name": "Reviewer??",
+          "description": "Human review",
+          "attributes": [],
+          "domain": "moderation",
+          "frequency": 6,
+          "first_seen": 1782627135.8971846,
+          "last_seen": 1783059135.8971846
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783059135.8971846,
+          "last_seen": 1783059135.8971846
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "moderation-process",
+          "steps": [
+            "",
+            "",
+            ""
+          ],
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783059135.8971846,
+          "last_seen": 1783059135.8971846
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Throughput",
+          "formula": "count/time_period",
+          "branch": "Efficiency",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059135.8971846,
+          "last_seen": 1783059135.8971846
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Backlog",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059135.8971846,
+          "last_seen": 1783059135.8971846
+        }
+      ],
+      "domains": [
+        "moderation"
+      ]
+    },
+    {
+      "graph_id": "6ad39e56-3e8",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "AI System??",
+          "description": "Automated pre-screening and risk classification",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 8,
+          "first_seen": 1782454352.7567017,
+          "last_seen": 1783059152.7567017
+        },
+        {
+          "name": "Primary Reviewer??",
+          "description": "First-pass human review for flagged content",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 2,
+          "first_seen": 1782972752.7567017,
+          "last_seen": 1783059152.7567017
+        },
+        {
+          "name": "Secondary Reviewer??",
+          "description": "Appeal and escalated case review",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 2,
+          "first_seen": 1782972752.7567017,
+          "last_seen": 1783059152.7567017
+        },
+        {
+          "name": "QA Specialist??",
+          "description": "Quality sampling and calibration at 5% rate",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 2,
+          "first_seen": 1782972752.7567017,
+          "last_seen": 1783059152.7567017
+        },
+        {
+          "name": "Team Lead??",
+          "description": "Escalation handling and team management",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 2,
+          "first_seen": 1782972752.7567017,
+          "last_seen": 1783059152.7567017
+        },
+        {
+          "name": "Operations Manager??",
+          "description": "Strategy, reporting, and SLA oversight",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 2,
+          "first_seen": 1782972752.7567017,
+          "last_seen": 1783059152.7567017
+        },
+        {
+          "name": "Review throughput??",
+          "description": "500,000/day",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 2,
+          "first_seen": 1782972752.7567017,
+          "last_seen": 1783059152.7567017
+        },
+        {
+          "name": "Accuracy rate??",
+          "description": "> 99.5%",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 2,
+          "first_seen": 1782972752.7567017,
+          "last_seen": 1783059152.7567017
+        },
+        {
+          "name": "Average review time??",
+          "description": "< 30 seconds",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 2,
+          "first_seen": 1782972752.7567017,
+          "last_seen": 1783059152.7567017
+        },
+        {
+          "name": "Appeal rate??",
+          "description": "< 2%",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 2,
+          "first_seen": 1782972752.7567017,
+          "last_seen": 1783059152.7567017
+        },
+        {
+          "name": "QA pass rate??",
+          "description": "> 98%",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 2,
+          "first_seen": 1782972752.7567017,
+          "last_seen": 1783059152.7567017
+        },
+        {
+          "name": "SLA compliance??",
+          "description": "> 99%",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 2,
+          "first_seen": 1782972752.7567017,
+          "last_seen": 1783059152.7567017
+        },
+        {
+          "name": "AI false negatives??",
+          "description": "harmful content passes screening undetected",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 2,
+          "first_seen": 1782972752.7567017,
+          "last_seen": 1783059152.7567017
+        },
+        {
+          "name": "Review backlog??",
+          "description": "peak traffic causes queue buildup beyond capacity",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 2,
+          "first_seen": 1782972752.7567017,
+          "last_seen": 1783059152.7567017
+        },
+        {
+          "name": "Reviewer burnout??",
+          "description": "sustained high volume leads to quality degradation",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 2,
+          "first_seen": 1782972752.7567017,
+          "last_seen": 1783059152.7567017
+        },
+        {
+          "name": "Policy evasion??",
+          "description": "bad actors adapt to moderation rules over time",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 2,
+          "first_seen": 1782972752.7567017,
+          "last_seen": 1783059152.7567017
+        },
+        {
+          "name": "System downtime??",
+          "description": "review pipeline interruption causing SLA breach",
+          "attributes": [],
+          "domain": "content-moderation",
+          "frequency": 2,
+          "first_seen": 1782972752.7567017,
+          "last_seen": 1783059152.7567017
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783059152.7567017,
+          "last_seen": 1783059152.7567017
+        },
+        {
+          "name": "screening filters obvious violations",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783059152.7567017,
+          "last_seen": 1783059152.7567017
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "content-moderation-process",
+          "steps": [
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783059152.7567017,
+          "last_seen": 1783059152.7567017
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Review throughput",
+          "formula": "count/time_period",
+          "branch": "Efficiency",
+          "domain": "content-moderation",
+          "frequency": 2,
+          "first_seen": 1783059152.7567017,
+          "last_seen": 1783059152.7567017
+        },
+        {
+          "name": "Accuracy rate",
+          "formula": "correct/total*100",
+          "branch": "Efficiency",
+          "domain": "content-moderation",
+          "frequency": 2,
+          "first_seen": 1783059152.7567017,
+          "last_seen": 1783059152.7567017
+        },
+        {
+          "name": "Average review time",
+          "formula": "avg(processing_time)",
+          "branch": "Efficiency",
+          "domain": "content-moderation",
+          "frequency": 2,
+          "first_seen": 1783059152.7567017,
+          "last_seen": 1783059152.7567017
+        },
+        {
+          "name": "Appeal rate",
+          "formula": "correct/total*100",
+          "branch": "Efficiency",
+          "domain": "content-moderation",
+          "frequency": 2,
+          "first_seen": 1783059152.7567017,
+          "last_seen": 1783059152.7567017
+        },
+        {
+          "name": "QA pass rate",
+          "formula": "correct/total*100",
+          "branch": "Efficiency",
+          "domain": "content-moderation",
+          "frequency": 2,
+          "first_seen": 1783059152.7567017,
+          "last_seen": 1783059152.7567017
+        },
+        {
+          "name": "SLA compliance",
+          "formula": "sla_met/total*100",
+          "branch": "Efficiency",
+          "domain": "content-moderation",
+          "frequency": 2,
+          "first_seen": 1783059152.7567017,
+          "last_seen": 1783059152.7567017
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "AI false negatives",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "content-moderation",
+          "frequency": 1,
+          "first_seen": 1783059152.7567017,
+          "last_seen": 1783059152.7567017
+        },
+        {
+          "name": "Review backlog",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "content-moderation",
+          "frequency": 2,
+          "first_seen": 1783059152.7567017,
+          "last_seen": 1783059152.7567017
+        },
+        {
+          "name": "Reviewer burnout",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "content-moderation",
+          "frequency": 2,
+          "first_seen": 1783059152.7567017,
+          "last_seen": 1783059152.7567017
+        },
+        {
+          "name": "Policy evasion",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "content-moderation",
+          "frequency": 2,
+          "first_seen": 1783059152.7567017,
+          "last_seen": 1783059152.7567017
+        },
+        {
+          "name": "System downtime",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "content-moderation",
+          "frequency": 2,
+          "first_seen": 1783059152.7567017,
+          "last_seen": 1783059152.7567017
+        }
+      ],
+      "domains": [
+        "content-moderation"
+      ]
+    },
+    {
+      "graph_id": "af6d34b7-5c4",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "AI System??",
+          "description": "Pre-screening",
+          "attributes": [],
+          "domain": "moderation",
+          "frequency": 9,
+          "first_seen": 1782368004.239604,
+          "last_seen": 1783059204.239604
+        },
+        {
+          "name": "Primary Reviewer??",
+          "description": "Human review",
+          "attributes": [],
+          "domain": "moderation",
+          "frequency": 3,
+          "first_seen": 1782886404.239604,
+          "last_seen": 1783059204.239604
+        },
+        {
+          "name": "Secondary Reviewer??",
+          "description": "Appeal",
+          "attributes": [],
+          "domain": "moderation",
+          "frequency": 3,
+          "first_seen": 1782886404.239604,
+          "last_seen": 1783059204.239604
+        },
+        {
+          "name": "QA Specialist??",
+          "description": "Sampling",
+          "attributes": [],
+          "domain": "moderation",
+          "frequency": 3,
+          "first_seen": 1782886404.239604,
+          "last_seen": 1783059204.239604
+        },
+        {
+          "name": "Team Lead??",
+          "description": "Escalation",
+          "attributes": [],
+          "domain": "moderation",
+          "frequency": 3,
+          "first_seen": 1782886404.239604,
+          "last_seen": 1783059204.239604
+        },
+        {
+          "name": "Ops Manager??",
+          "description": "SLA",
+          "attributes": [],
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783059204.239604,
+          "last_seen": 1783059204.239604
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783059204.239604,
+          "last_seen": 1783059204.239604
+        },
+        {
+          "name": "screening",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783059204.239604,
+          "last_seen": 1783059204.239604
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "moderation-process",
+          "steps": [
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783059204.239604,
+          "last_seen": 1783059204.239604
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Throughput",
+          "formula": "count/time_period",
+          "branch": "Efficiency",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059204.239604,
+          "last_seen": 1783059204.239604
+        },
+        {
+          "name": "Accuracy",
+          "formula": "correct/total*100",
+          "branch": "Efficiency",
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783059204.239604,
+          "last_seen": 1783059204.239604
+        },
+        {
+          "name": "Review Time",
+          "formula": "avg(processing_time)",
+          "branch": "Efficiency",
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783059204.239604,
+          "last_seen": 1783059204.239604
+        },
+        {
+          "name": "Appeal Rate",
+          "formula": "correct/total*100",
+          "branch": "Efficiency",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059204.239604,
+          "last_seen": 1783059204.239604
+        },
+        {
+          "name": "QA Pass",
+          "formula": "measure",
+          "branch": "Efficiency",
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783059204.239604,
+          "last_seen": 1783059204.239604
+        },
+        {
+          "name": "SLA",
+          "formula": "sla_met/total*100",
+          "branch": "Efficiency",
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783059204.239604,
+          "last_seen": 1783059204.239604
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "False negatives",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783059204.239604,
+          "last_seen": 1783059204.239604
+        },
+        {
+          "name": "Backlog",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059204.239604,
+          "last_seen": 1783059204.239604
+        },
+        {
+          "name": "Burnout",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783059204.239604,
+          "last_seen": 1783059204.239604
+        },
+        {
+          "name": "Evasion",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783059204.239604,
+          "last_seen": 1783059204.239604
+        },
+        {
+          "name": "Downtime",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783059204.239604,
+          "last_seen": 1783059204.239604
+        }
+      ],
+      "domains": [
+        "moderation"
+      ]
+    },
+    {
+      "graph_id": "65fb1172-2cd",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "AI System??",
+          "description": "Pre-screening",
+          "attributes": [],
+          "domain": "moderation",
+          "frequency": 10,
+          "first_seen": 1782281749.12542,
+          "last_seen": 1783059349.12542
+        },
+        {
+          "name": "Primary Reviewer??",
+          "description": "Human review",
+          "attributes": [],
+          "domain": "moderation",
+          "frequency": 4,
+          "first_seen": 1782800149.12542,
+          "last_seen": 1783059349.12542
+        },
+        {
+          "name": "Secondary Reviewer??",
+          "description": "Appeal",
+          "attributes": [],
+          "domain": "moderation",
+          "frequency": 4,
+          "first_seen": 1782800149.12542,
+          "last_seen": 1783059349.12542
+        },
+        {
+          "name": "QA Specialist??",
+          "description": "Sampling",
+          "attributes": [],
+          "domain": "moderation",
+          "frequency": 4,
+          "first_seen": 1782800149.12542,
+          "last_seen": 1783059349.12542
+        },
+        {
+          "name": "Team Lead??",
+          "description": "Escalation",
+          "attributes": [],
+          "domain": "moderation",
+          "frequency": 4,
+          "first_seen": 1782800149.12542,
+          "last_seen": 1783059349.12542
+        },
+        {
+          "name": "Ops Manager??",
+          "description": "SLA",
+          "attributes": [],
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1782972949.12542,
+          "last_seen": 1783059349.12542
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783059349.12542,
+          "last_seen": 1783059349.12542
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "moderation-process",
+          "steps": [
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783059349.12542,
+          "last_seen": 1783059349.12542
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Throughput",
+          "formula": "count/time_period",
+          "branch": "Efficiency",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059349.12542,
+          "last_seen": 1783059349.12542
+        },
+        {
+          "name": "Accuracy",
+          "formula": "correct/total*100",
+          "branch": "Efficiency",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059349.12542,
+          "last_seen": 1783059349.12542
+        },
+        {
+          "name": "Review Time",
+          "formula": "avg(processing_time)",
+          "branch": "Efficiency",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059349.12542,
+          "last_seen": 1783059349.12542
+        },
+        {
+          "name": "Appeal Rate",
+          "formula": "correct/total*100",
+          "branch": "Efficiency",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059349.12542,
+          "last_seen": 1783059349.12542
+        },
+        {
+          "name": "QA Pass",
+          "formula": "measure",
+          "branch": "Efficiency",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059349.12542,
+          "last_seen": 1783059349.12542
+        },
+        {
+          "name": "SLA",
+          "formula": "sla_met/total*100",
+          "branch": "Efficiency",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059349.12542,
+          "last_seen": 1783059349.12542
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "False negatives",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059349.12542,
+          "last_seen": 1783059349.12542
+        },
+        {
+          "name": "Backlog",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059349.12542,
+          "last_seen": 1783059349.12542
+        },
+        {
+          "name": "Burnout",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059349.12542,
+          "last_seen": 1783059349.12542
+        },
+        {
+          "name": "Evasion",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059349.12542,
+          "last_seen": 1783059349.12542
+        },
+        {
+          "name": "Downtime",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059349.12542,
+          "last_seen": 1783059349.12542
+        }
+      ],
+      "domains": [
+        "moderation"
+      ]
+    },
+    {
+      "graph_id": "b4dfdd96-fba",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "AI System??",
+          "description": "Pre-screening",
+          "attributes": [],
+          "domain": "general",
+          "frequency": 11,
+          "first_seen": 1782195368.8063157,
+          "last_seen": 1783059368.8063157
+        },
+        {
+          "name": "Reviewer??",
+          "description": "Human",
+          "attributes": [],
+          "domain": "general",
+          "frequency": 7,
+          "first_seen": 1782540968.8063157,
+          "last_seen": 1783059368.8063157
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783059368.8063157,
+          "last_seen": 1783059368.8063157
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "general-process",
+          "steps": [
+            "",
+            "",
+            "",
+            ""
+          ],
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783059368.8063157,
+          "last_seen": 1783059368.8063157
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Throughput",
+          "formula": "count/time_period",
+          "branch": "Efficiency",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783059368.8063157,
+          "last_seen": 1783059368.8063157
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Backlog",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783059368.8063157,
+          "last_seen": 1783059368.8063157
+        }
+      ],
+      "domains": [
+        "general"
+      ]
+    },
+    {
+      "graph_id": "f3204ad8-c59",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "AI System??",
+          "description": "Pre-screening",
+          "attributes": [],
+          "domain": "moderation",
+          "frequency": 12,
+          "first_seen": 1782109068.8257072,
+          "last_seen": 1783059468.8257072
+        },
+        {
+          "name": "Primary Reviewer??",
+          "description": "Human",
+          "attributes": [],
+          "domain": "moderation",
+          "frequency": 5,
+          "first_seen": 1782713868.8257072,
+          "last_seen": 1783059468.8257072
+        },
+        {
+          "name": "Secondary Reviewer??",
+          "description": "Appeal",
+          "attributes": [],
+          "domain": "moderation",
+          "frequency": 5,
+          "first_seen": 1782713868.8257072,
+          "last_seen": 1783059468.8257072
+        },
+        {
+          "name": "QA Specialist??",
+          "description": "Sampling",
+          "attributes": [],
+          "domain": "moderation",
+          "frequency": 5,
+          "first_seen": 1782713868.8257072,
+          "last_seen": 1783059468.8257072
+        },
+        {
+          "name": "Team Lead??",
+          "description": "Escalation",
+          "attributes": [],
+          "domain": "moderation",
+          "frequency": 5,
+          "first_seen": 1782713868.8257072,
+          "last_seen": 1783059468.8257072
+        },
+        {
+          "name": "Ops Manager??",
+          "description": "SLA",
+          "attributes": [],
+          "domain": "moderation",
+          "frequency": 3,
+          "first_seen": 1782886668.8257072,
+          "last_seen": 1783059468.8257072
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783059468.8257072,
+          "last_seen": 1783059468.8257072
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "moderation-process",
+          "steps": [
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "domain": "moderation",
+          "frequency": 1,
+          "first_seen": 1783059468.8257072,
+          "last_seen": 1783059468.8257072
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Throughput",
+          "formula": "count/time_period",
+          "branch": "Efficiency",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059468.8257072,
+          "last_seen": 1783059468.8257072
+        },
+        {
+          "name": "Accuracy",
+          "formula": "correct/total*100",
+          "branch": "Efficiency",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059468.8257072,
+          "last_seen": 1783059468.8257072
+        },
+        {
+          "name": "Review Time",
+          "formula": "avg(processing_time)",
+          "branch": "Efficiency",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059468.8257072,
+          "last_seen": 1783059468.8257072
+        },
+        {
+          "name": "Appeal Rate",
+          "formula": "correct/total*100",
+          "branch": "Efficiency",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059468.8257072,
+          "last_seen": 1783059468.8257072
+        },
+        {
+          "name": "QA Pass",
+          "formula": "measure",
+          "branch": "Efficiency",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059468.8257072,
+          "last_seen": 1783059468.8257072
+        },
+        {
+          "name": "SLA",
+          "formula": "sla_met/total*100",
+          "branch": "Efficiency",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059468.8257072,
+          "last_seen": 1783059468.8257072
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "False negatives",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059468.8257072,
+          "last_seen": 1783059468.8257072
+        },
+        {
+          "name": "Backlog",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059468.8257072,
+          "last_seen": 1783059468.8257072
+        },
+        {
+          "name": "Burnout",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059468.8257072,
+          "last_seen": 1783059468.8257072
+        },
+        {
+          "name": "Evasion",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059468.8257072,
+          "last_seen": 1783059468.8257072
+        },
+        {
+          "name": "Downtime",
+          "category": "operational",
+          "common_mitigation": "Monitor and mitigate",
+          "domain": "moderation",
+          "frequency": 2,
+          "first_seen": 1783059468.8257072,
+          "last_seen": 1783059468.8257072
+        }
+      ],
+      "domains": [
+        "moderation"
+      ]
+    },
+    {
+      "graph_id": "7652c083-396",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783059627.257734,
+          "last_seen": 1783059627.257734
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783059627.257734,
+          "last_seen": 1783059627.257734
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "general-process",
+          "steps": [
+            ""
+          ],
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783059627.257734,
+          "last_seen": 1783059627.257734
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783059627.257734,
+          "last_seen": 1783059627.257734
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783059627.257734,
+          "last_seen": 1783059627.257734
+        }
+      ],
+      "domains": [
+        "general"
+      ]
+    },
+    {
+      "graph_id": "9e899822-c9d",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1782973640.4224293,
+          "last_seen": 1783060040.4224293
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783060040.4224293,
+          "last_seen": 1783060040.4224293
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "general-process",
+          "steps": [
+            ""
+          ],
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783060040.4224293,
+          "last_seen": 1783060040.4224293
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783060040.4224293,
+          "last_seen": 1783060040.4224293
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783060040.4224293,
+          "last_seen": 1783060040.4224293
+        }
+      ],
+      "domains": [
+        "general"
+      ]
+    },
+    {
+      "graph_id": "564c076d-6fa",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "general",
+          "frequency": 3,
+          "first_seen": 1782887339.3522635,
+          "last_seen": 1783060139.3522635
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783060139.3522635,
+          "last_seen": 1783060139.3522635
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "general-process",
+          "steps": [
+            ""
+          ],
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783060139.3522635,
+          "last_seen": 1783060139.3522635
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783060139.3522635,
+          "last_seen": 1783060139.3522635
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783060139.3522635,
+          "last_seen": 1783060139.3522635
+        }
+      ],
+      "domains": [
+        "general"
+      ]
+    },
+    {
+      "graph_id": "86825a08-dba",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "general",
+          "frequency": 4,
+          "first_seen": 1782801250.8411915,
+          "last_seen": 1783060450.8411915
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783060450.8411915,
+          "last_seen": 1783060450.8411915
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "general-process",
+          "steps": [
+            ""
+          ],
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783060450.8411915,
+          "last_seen": 1783060450.8411915
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783060450.8411915,
+          "last_seen": 1783060450.8411915
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783060450.8411915,
+          "last_seen": 1783060450.8411915
+        }
+      ],
+      "domains": [
+        "general"
+      ]
+    },
+    {
+      "graph_id": "b7a2df1a-7f1",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "general",
+          "frequency": 5,
+          "first_seen": 1782714850.8891249,
+          "last_seen": 1783060450.8891249
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783060450.8891249,
+          "last_seen": 1783060450.8891249
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "general-process",
+          "steps": [
+            ""
+          ],
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783060450.8891249,
+          "last_seen": 1783060450.8891249
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783060450.8891249,
+          "last_seen": 1783060450.8891249
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783060450.8891249,
+          "last_seen": 1783060450.8891249
+        }
+      ],
+      "domains": [
+        "general"
+      ]
+    },
+    {
+      "graph_id": "5c604d31-bb0",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "content_moderation",
+          "frequency": 6,
+          "first_seen": 1782628450.9031267,
+          "last_seen": 1783060450.9031267
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783060450.9031267,
+          "last_seen": 1783060450.9031267
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "content_moderation-process",
+          "steps": [
+            ""
+          ],
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783060450.9031267,
+          "last_seen": 1783060450.9031267
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783060450.9031267,
+          "last_seen": 1783060450.9031267
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783060450.9031267,
+          "last_seen": 1783060450.9031267
+        }
+      ],
+      "domains": [
+        "content_moderation"
+      ]
+    },
+    {
+      "graph_id": "7e444570-62b",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "content_moderation",
+          "frequency": 7,
+          "first_seen": 1782542214.3164463,
+          "last_seen": 1783060614.3164463
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783060614.3164463,
+          "last_seen": 1783060614.3164463
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "content_moderation-process",
+          "steps": [
+            ""
+          ],
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783060614.3164463,
+          "last_seen": 1783060614.3164463
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783060614.3164463,
+          "last_seen": 1783060614.3164463
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783060614.3164463,
+          "last_seen": 1783060614.3164463
+        }
+      ],
+      "domains": [
+        "content_moderation"
+      ]
+    },
+    {
+      "graph_id": "06f100f8-b0c",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "general",
+          "frequency": 8,
+          "first_seen": 1782456068.6749477,
+          "last_seen": 1783060868.6749477
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783060868.6749477,
+          "last_seen": 1783060868.6749477
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "general-process",
+          "steps": [
+            ""
+          ],
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783060868.6749477,
+          "last_seen": 1783060868.6749477
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783060868.6749477,
+          "last_seen": 1783060868.6749477
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783060868.6749477,
+          "last_seen": 1783060868.6749477
+        }
+      ],
+      "domains": [
+        "general"
+      ]
+    },
+    {
+      "graph_id": "9a22c65b-73e",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "general",
+          "frequency": 9,
+          "first_seen": 1782369718.431558,
+          "last_seen": 1783060918.431558
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783060918.431558,
+          "last_seen": 1783060918.431558
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "general-process",
+          "steps": [
+            ""
+          ],
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783060918.431558,
+          "last_seen": 1783060918.431558
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783060918.431558,
+          "last_seen": 1783060918.431558
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783060918.431558,
+          "last_seen": 1783060918.431558
+        }
+      ],
+      "domains": [
+        "general"
+      ]
+    },
+    {
+      "graph_id": "6dd3ebea-65e",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "general",
+          "frequency": 10,
+          "first_seen": 1782283330.4814937,
+          "last_seen": 1783060930.4814937
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783060930.4814937,
+          "last_seen": 1783060930.4814937
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "general-process",
+          "steps": [
+            ""
+          ],
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783060930.4814937,
+          "last_seen": 1783060930.4814937
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783060930.4814937,
+          "last_seen": 1783060930.4814937
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783060930.4814937,
+          "last_seen": 1783060930.4814937
+        }
+      ],
+      "domains": [
+        "general"
+      ]
+    },
+    {
+      "graph_id": "dd654ff9-ef6",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "content_moderation",
+          "frequency": 11,
+          "first_seen": 1782220353.9338746,
+          "last_seen": 1783084353.9338746
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783084353.9338746,
+          "last_seen": 1783084353.9338746
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "content_moderation-process",
+          "steps": [
+            ""
+          ],
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783084353.9338746,
+          "last_seen": 1783084353.9338746
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783084353.9338746,
+          "last_seen": 1783084353.9338746
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783084353.9338746,
+          "last_seen": 1783084353.9338746
+        }
+      ],
+      "domains": [
+        "content_moderation"
+      ]
+    },
+    {
+      "graph_id": "8af141c2-5a3",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "content_moderation",
+          "frequency": 12,
+          "first_seen": 1782134159.432765,
+          "last_seen": 1783084559.432765
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783084559.432765,
+          "last_seen": 1783084559.432765
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "content_moderation-process",
+          "steps": [
+            ""
+          ],
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783084559.432765,
+          "last_seen": 1783084559.432765
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783084559.432765,
+          "last_seen": 1783084559.432765
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783084559.432765,
+          "last_seen": 1783084559.432765
+        }
+      ],
+      "domains": [
+        "content_moderation"
+      ]
+    },
+    {
+      "graph_id": "ca4cee3f-7be",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "content_moderation",
+          "frequency": 13,
+          "first_seen": 1782047831.5229173,
+          "last_seen": 1783084631.5229173
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783084631.5229173,
+          "last_seen": 1783084631.5229173
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "content_moderation-process",
+          "steps": [
+            ""
+          ],
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783084631.5229173,
+          "last_seen": 1783084631.5229173
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783084631.5229173,
+          "last_seen": 1783084631.5229173
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783084631.5229173,
+          "last_seen": 1783084631.5229173
+        }
+      ],
+      "domains": [
+        "content_moderation"
+      ]
+    },
+    {
+      "graph_id": "c95f6785-651",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "content_moderation",
+          "frequency": 14,
+          "first_seen": 1781961448.6201105,
+          "last_seen": 1783084648.6201105
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783084648.6201105,
+          "last_seen": 1783084648.6201105
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "content_moderation-process",
+          "steps": [
+            ""
+          ],
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783084648.6201105,
+          "last_seen": 1783084648.6201105
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783084648.6201105,
+          "last_seen": 1783084648.6201105
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783084648.6201105,
+          "last_seen": 1783084648.6201105
+        }
+      ],
+      "domains": [
+        "content_moderation"
+      ]
+    },
+    {
+      "graph_id": "a81525cc-dfe",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "general",
+          "frequency": 15,
+          "first_seen": 1781875204.6167254,
+          "last_seen": 1783084804.6167254
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783084804.6167254,
+          "last_seen": 1783084804.6167254
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "general-process",
+          "steps": [
+            ""
+          ],
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783084804.6167254,
+          "last_seen": 1783084804.6167254
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783084804.6167254,
+          "last_seen": 1783084804.6167254
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783084804.6167254,
+          "last_seen": 1783084804.6167254
+        }
+      ],
+      "domains": [
+        "general"
+      ]
+    },
+    {
+      "graph_id": "a6bd12ff-c76",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "general",
+          "frequency": 16,
+          "first_seen": 1781789176.6778195,
+          "last_seen": 1783085176.6778195
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783085176.6778195,
+          "last_seen": 1783085176.6778195
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "general-process",
+          "steps": [
+            ""
+          ],
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783085176.6778195,
+          "last_seen": 1783085176.6778195
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783085176.6778195,
+          "last_seen": 1783085176.6778195
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783085176.6778195,
+          "last_seen": 1783085176.6778195
+        }
+      ],
+      "domains": [
+        "general"
+      ]
+    },
+    {
+      "graph_id": "9657c522-966",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "content_moderation",
+          "frequency": 17,
+          "first_seen": 1781702863.9442296,
+          "last_seen": 1783085263.9442296
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783085263.9442296,
+          "last_seen": 1783085263.9442296
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "content_moderation-process",
+          "steps": [
+            ""
+          ],
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783085263.9442296,
+          "last_seen": 1783085263.9442296
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783085263.9442296,
+          "last_seen": 1783085263.9442296
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783085263.9442296,
+          "last_seen": 1783085263.9442296
+        }
+      ],
+      "domains": [
+        "content_moderation"
+      ]
+    },
+    {
+      "graph_id": "8fd9c797-23d",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "general",
+          "frequency": 18,
+          "first_seen": 1781616464.2934847,
+          "last_seen": 1783085264.2934847
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783085264.2934847,
+          "last_seen": 1783085264.2934847
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "general-process",
+          "steps": [
+            ""
+          ],
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783085264.2934847,
+          "last_seen": 1783085264.2934847
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783085264.2934847,
+          "last_seen": 1783085264.2934847
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783085264.2934847,
+          "last_seen": 1783085264.2934847
+        }
+      ],
+      "domains": [
+        "general"
+      ]
+    },
+    {
+      "graph_id": "b3075a00-f99",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "risk_control",
+          "frequency": 19,
+          "first_seen": 1781530064.3420968,
+          "last_seen": 1783085264.3420968
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "risk_control",
+          "frequency": 1,
+          "first_seen": 1783085264.3420968,
+          "last_seen": 1783085264.3420968
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "risk_control-process",
+          "steps": [
+            ""
+          ],
+          "domain": "risk_control",
+          "frequency": 1,
+          "first_seen": 1783085264.3420968,
+          "last_seen": 1783085264.3420968
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "risk_control",
+          "frequency": 2,
+          "first_seen": 1783085264.3420968,
+          "last_seen": 1783085264.3420968
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "risk_control",
+          "frequency": 2,
+          "first_seen": 1783085264.3420968,
+          "last_seen": 1783085264.3420968
+        }
+      ],
+      "domains": [
+        "risk_control"
+      ]
+    },
+    {
+      "graph_id": "c36e4a22-76b",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "content_moderation",
+          "frequency": 20,
+          "first_seen": 1781443672.6636884,
+          "last_seen": 1783085272.6636884
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783085272.6636884,
+          "last_seen": 1783085272.6636884
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "content_moderation-process",
+          "steps": [
+            ""
+          ],
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783085272.6636884,
+          "last_seen": 1783085272.6636884
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783085272.6636884,
+          "last_seen": 1783085272.6636884
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783085272.6636884,
+          "last_seen": 1783085272.6636884
+        }
+      ],
+      "domains": [
+        "content_moderation"
+      ]
+    },
+    {
+      "graph_id": "f21f0465-7cb",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "content_moderation",
+          "frequency": 21,
+          "first_seen": 1781357363.6064732,
+          "last_seen": 1783085363.6064732
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783085363.6064732,
+          "last_seen": 1783085363.6064732
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "content_moderation-process",
+          "steps": [
+            ""
+          ],
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783085363.6064732,
+          "last_seen": 1783085363.6064732
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783085363.6064732,
+          "last_seen": 1783085363.6064732
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783085363.6064732,
+          "last_seen": 1783085363.6064732
+        }
+      ],
+      "domains": [
+        "content_moderation"
+      ]
+    },
+    {
+      "graph_id": "312cf741-4cf",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "general",
+          "frequency": 22,
+          "first_seen": 1781270963.8731618,
+          "last_seen": 1783085363.8731618
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783085363.8731618,
+          "last_seen": 1783085363.8731618
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "general-process",
+          "steps": [
+            ""
+          ],
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783085363.8731618,
+          "last_seen": 1783085363.8731618
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783085363.8731618,
+          "last_seen": 1783085363.8731618
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783085363.8731618,
+          "last_seen": 1783085363.8731618
+        }
+      ],
+      "domains": [
+        "general"
+      ]
+    },
+    {
+      "graph_id": "8d69b02b-652",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "risk_control",
+          "frequency": 23,
+          "first_seen": 1781184563.904134,
+          "last_seen": 1783085363.904134
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "risk_control",
+          "frequency": 1,
+          "first_seen": 1783085363.904134,
+          "last_seen": 1783085363.904134
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "risk_control-process",
+          "steps": [
+            ""
+          ],
+          "domain": "risk_control",
+          "frequency": 1,
+          "first_seen": 1783085363.904134,
+          "last_seen": 1783085363.904134
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "risk_control",
+          "frequency": 2,
+          "first_seen": 1783085363.904134,
+          "last_seen": 1783085363.904134
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "risk_control",
+          "frequency": 2,
+          "first_seen": 1783085363.904134,
+          "last_seen": 1783085363.904134
+        }
+      ],
+      "domains": [
+        "risk_control"
+      ]
+    },
+    {
+      "graph_id": "6e7f4cc3-659",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "content_moderation",
+          "frequency": 24,
+          "first_seen": 1781099805.499095,
+          "last_seen": 1783087005.4990773
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783087005.4990773,
+          "last_seen": 1783087005.4990773
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "content_moderation-process",
+          "steps": [
+            ""
+          ],
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783087005.4990773,
+          "last_seen": 1783087005.4990773
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783087005.4990773,
+          "last_seen": 1783087005.4990773
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783087005.4990773,
+          "last_seen": 1783087005.4990773
+        }
+      ],
+      "domains": [
+        "content_moderation"
+      ]
+    },
+    {
+      "graph_id": "e290fcbe-397",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "general",
+          "frequency": 25,
+          "first_seen": 1781013405.9251626,
+          "last_seen": 1783087005.925142
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783087005.925142,
+          "last_seen": 1783087005.925142
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "general-process",
+          "steps": [
+            ""
+          ],
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783087005.925142,
+          "last_seen": 1783087005.925142
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783087005.925142,
+          "last_seen": 1783087005.925142
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783087005.925142,
+          "last_seen": 1783087005.925142
+        }
+      ],
+      "domains": [
+        "general"
+      ]
+    },
+    {
+      "graph_id": "aae38570-cd3",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "risk_control",
+          "frequency": 26,
+          "first_seen": 1780927005.956095,
+          "last_seen": 1783087005.956081
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "risk_control",
+          "frequency": 1,
+          "first_seen": 1783087005.956081,
+          "last_seen": 1783087005.956081
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "risk_control-process",
+          "steps": [
+            ""
+          ],
+          "domain": "risk_control",
+          "frequency": 1,
+          "first_seen": 1783087005.956081,
+          "last_seen": 1783087005.956081
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "risk_control",
+          "frequency": 2,
+          "first_seen": 1783087005.956081,
+          "last_seen": 1783087005.956081
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "risk_control",
+          "frequency": 2,
+          "first_seen": 1783087005.956081,
+          "last_seen": 1783087005.956081
+        }
+      ],
+      "domains": [
+        "risk_control"
+      ]
+    },
+    {
+      "graph_id": "3d932400-e44",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Content Ingestion",
+          "description": "Accepts user-submitted content via API and web upload",
+          "attributes": [],
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087098.3270469,
+          "last_seen": 1783087098.3270469
+        },
+        {
+          "name": "AI Screening Engine",
+          "description": "Automated screening for sensitive words and policy violations",
+          "attributes": [],
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087098.3270469,
+          "last_seen": 1783087098.3270469
+        },
+        {
+          "name": "Human Review Workbench",
+          "description": "Review queue for flagged content with audit log",
+          "attributes": [],
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087098.3270469,
+          "last_seen": 1783087098.3270469
+        },
+        {
+          "name": "Operations Analytics",
+          "description": "Real-time dashboards for throughput and SLA",
+          "attributes": [],
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087098.3270469,
+          "last_seen": 1783087098.3270469
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "Content Creator",
+          "responsibilities": [
+            "Submit Content"
+          ],
+          "reports_to": null,
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087098.3270469,
+          "last_seen": 1783087098.3270469
+        },
+        {
+          "name": "AI System",
+          "responsibilities": [
+            "AI Auto-Screening"
+          ],
+          "reports_to": null,
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087098.3270469,
+          "last_seen": 1783087098.3270469
+        },
+        {
+          "name": "Human Reviewer",
+          "responsibilities": [
+            "Human Review"
+          ],
+          "reports_to": null,
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087098.3270469,
+          "last_seen": 1783087098.3270469
+        },
+        {
+          "name": "System",
+          "responsibilities": [
+            "Publish Content"
+          ],
+          "reports_to": null,
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087098.3270469,
+          "last_seen": 1783087098.3270469
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "content-safety-process",
+          "steps": [
+            "Submit Content",
+            "AI Auto-Screening",
+            "Risk Classification",
+            "Human Review",
+            "Review Decision",
+            "Publish Content",
+            "Notify Rejection"
+          ],
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087098.3270469,
+          "last_seen": 1783087098.3270469
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Daily Throughput",
+          "formula": "processed / day",
+          "branch": "KpiBranch.EFFICIENCY",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087098.3270469,
+          "last_seen": 1783087098.3270469
+        },
+        {
+          "name": "Avg Screening Time",
+          "formula": "sum(screen_ms) / count",
+          "branch": "KpiBranch.EFFICIENCY",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087098.3270469,
+          "last_seen": 1783087098.3270469
+        },
+        {
+          "name": "Screening Accuracy",
+          "formula": "correct / total * 100",
+          "branch": "KpiBranch.QUALITY",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087098.3270469,
+          "last_seen": 1783087098.3270469
+        },
+        {
+          "name": "False Positive Rate",
+          "formula": "fp / total_flagged * 100",
+          "branch": "KpiBranch.QUALITY",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087098.3270469,
+          "last_seen": 1783087098.3270469
+        },
+        {
+          "name": "Review Queue Length",
+          "formula": "count(pending)",
+          "branch": "KpiBranch.CAPACITY",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087098.3270469,
+          "last_seen": 1783087098.3270469
+        },
+        {
+          "name": "Reviewer Utilization",
+          "formula": "active / shift * 100",
+          "branch": "KpiBranch.CAPACITY",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087098.3270469,
+          "last_seen": 1783087098.3270469
+        },
+        {
+          "name": "Cost Per Review",
+          "formula": "total_cost / reviewed",
+          "branch": "KpiBranch.COST",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087098.3270469,
+          "last_seen": 1783087098.3270469
+        },
+        {
+          "name": "SLA Compliance Rate",
+          "formula": "sla_met / total * 100",
+          "branch": "KpiBranch.RISK",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087098.3270469,
+          "last_seen": 1783087098.3270469
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "AI False Negatives",
+          "category": "quality",
+          "common_mitigation": "Weekly model retraining",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087098.3270469,
+          "last_seen": 1783087098.3270469
+        },
+        {
+          "name": "Reviewer Fatigue",
+          "category": "operational",
+          "common_mitigation": "Mandatory breaks + rotation",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087098.3270469,
+          "last_seen": 1783087098.3270469
+        },
+        {
+          "name": "Peak Volume Overload",
+          "category": "capacity",
+          "common_mitigation": "Auto-scale reviewer pool",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087098.3270469,
+          "last_seen": 1783087098.3270469
+        },
+        {
+          "name": "API Downtime",
+          "category": "technical",
+          "common_mitigation": "Multi-region failover",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087098.3270469,
+          "last_seen": 1783087098.3270469
+        }
+      ],
+      "domains": [
+        "content-safety"
+      ]
+    },
+    {
+      "graph_id": "00ade81e-df4",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "general",
+          "frequency": 27,
+          "first_seen": 1780840698.6533642,
+          "last_seen": 1783087098.6533492
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783087098.6533492,
+          "last_seen": 1783087098.6533492
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "general-process",
+          "steps": [
+            ""
+          ],
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783087098.6533492,
+          "last_seen": 1783087098.6533492
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783087098.6533492,
+          "last_seen": 1783087098.6533492
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783087098.6533492,
+          "last_seen": 1783087098.6533492
+        }
+      ],
+      "domains": [
+        "general"
+      ]
+    },
+    {
+      "graph_id": "8816608f-a97",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Content Ingestion",
+          "description": "Accepts user-submitted content via API and web upload",
+          "attributes": [],
+          "domain": "content-safety",
+          "frequency": 2,
+          "first_seen": 1783001585.8103101,
+          "last_seen": 1783087985.8102791
+        },
+        {
+          "name": "AI Screening Engine",
+          "description": "Automated screening for sensitive words and policy violations",
+          "attributes": [],
+          "domain": "content-safety",
+          "frequency": 2,
+          "first_seen": 1783001585.8103101,
+          "last_seen": 1783087985.8102791
+        },
+        {
+          "name": "Human Review Workbench",
+          "description": "Review queue for flagged content with audit log",
+          "attributes": [],
+          "domain": "content-safety",
+          "frequency": 2,
+          "first_seen": 1783001585.8103101,
+          "last_seen": 1783087985.8102791
+        },
+        {
+          "name": "Operations Analytics",
+          "description": "Real-time dashboards for throughput and SLA",
+          "attributes": [],
+          "domain": "content-safety",
+          "frequency": 2,
+          "first_seen": 1783001585.8103101,
+          "last_seen": 1783087985.8102791
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "Content Creator",
+          "responsibilities": [
+            "Submit Content"
+          ],
+          "reports_to": null,
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087985.8102791,
+          "last_seen": 1783087985.8102791
+        },
+        {
+          "name": "AI System",
+          "responsibilities": [
+            "AI Auto-Screening"
+          ],
+          "reports_to": null,
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087985.8102791,
+          "last_seen": 1783087985.8102791
+        },
+        {
+          "name": "Human Reviewer",
+          "responsibilities": [
+            "Human Review"
+          ],
+          "reports_to": null,
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087985.8102791,
+          "last_seen": 1783087985.8102791
+        },
+        {
+          "name": "System",
+          "responsibilities": [
+            "Publish Content"
+          ],
+          "reports_to": null,
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087985.8102791,
+          "last_seen": 1783087985.8102791
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "content-safety-process",
+          "steps": [
+            "Submit Content",
+            "AI Auto-Screening",
+            "Risk Classification",
+            "Human Review",
+            "Review Decision",
+            "Publish Content",
+            "Notify Rejection"
+          ],
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087985.8102791,
+          "last_seen": 1783087985.8102791
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Daily Throughput",
+          "formula": "processed / day",
+          "branch": "KpiBranch.EFFICIENCY",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087985.8102791,
+          "last_seen": 1783087985.8102791
+        },
+        {
+          "name": "Avg Screening Time",
+          "formula": "sum(screen_ms) / count",
+          "branch": "KpiBranch.EFFICIENCY",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087985.8102791,
+          "last_seen": 1783087985.8102791
+        },
+        {
+          "name": "Screening Accuracy",
+          "formula": "correct / total * 100",
+          "branch": "KpiBranch.QUALITY",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087985.8102791,
+          "last_seen": 1783087985.8102791
+        },
+        {
+          "name": "False Positive Rate",
+          "formula": "fp / total_flagged * 100",
+          "branch": "KpiBranch.QUALITY",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087985.8102791,
+          "last_seen": 1783087985.8102791
+        },
+        {
+          "name": "Review Queue Length",
+          "formula": "count(pending)",
+          "branch": "KpiBranch.CAPACITY",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087985.8102791,
+          "last_seen": 1783087985.8102791
+        },
+        {
+          "name": "Reviewer Utilization",
+          "formula": "active / shift * 100",
+          "branch": "KpiBranch.CAPACITY",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087985.8102791,
+          "last_seen": 1783087985.8102791
+        },
+        {
+          "name": "Cost Per Review",
+          "formula": "total_cost / reviewed",
+          "branch": "KpiBranch.COST",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087985.8102791,
+          "last_seen": 1783087985.8102791
+        },
+        {
+          "name": "SLA Compliance Rate",
+          "formula": "sla_met / total * 100",
+          "branch": "KpiBranch.RISK",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087985.8102791,
+          "last_seen": 1783087985.8102791
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "AI False Negatives",
+          "category": "quality",
+          "common_mitigation": "Weekly model retraining",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087985.8102791,
+          "last_seen": 1783087985.8102791
+        },
+        {
+          "name": "Reviewer Fatigue",
+          "category": "operational",
+          "common_mitigation": "Mandatory breaks + rotation",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087985.8102791,
+          "last_seen": 1783087985.8102791
+        },
+        {
+          "name": "Peak Volume Overload",
+          "category": "capacity",
+          "common_mitigation": "Auto-scale reviewer pool",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087985.8102791,
+          "last_seen": 1783087985.8102791
+        },
+        {
+          "name": "API Downtime",
+          "category": "technical",
+          "common_mitigation": "Multi-region failover",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783087985.8102791,
+          "last_seen": 1783087985.8102791
+        }
+      ],
+      "domains": [
+        "content-safety"
+      ]
+    },
+    {
+      "graph_id": "ecb08e8a-72c",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "general",
+          "frequency": 28,
+          "first_seen": 1780755186.1693769,
+          "last_seen": 1783087986.169362
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783087986.169362,
+          "last_seen": 1783087986.169362
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "general-process",
+          "steps": [
+            ""
+          ],
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783087986.169362,
+          "last_seen": 1783087986.169362
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783087986.169362,
+          "last_seen": 1783087986.169362
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783087986.169362,
+          "last_seen": 1783087986.169362
+        }
+      ],
+      "domains": [
+        "general"
+      ]
+    },
+    {
+      "graph_id": "fb7e13df-2d2",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Content Ingestion",
+          "description": "Accepts user-submitted content via API and web upload",
+          "attributes": [],
+          "domain": "content-safety",
+          "frequency": 3,
+          "first_seen": 1782915290.9887977,
+          "last_seen": 1783088090.9887614
+        },
+        {
+          "name": "AI Screening Engine",
+          "description": "Automated screening for sensitive words and policy violations",
+          "attributes": [],
+          "domain": "content-safety",
+          "frequency": 3,
+          "first_seen": 1782915290.9887977,
+          "last_seen": 1783088090.9887614
+        },
+        {
+          "name": "Human Review Workbench",
+          "description": "Review queue for flagged content with audit log",
+          "attributes": [],
+          "domain": "content-safety",
+          "frequency": 3,
+          "first_seen": 1782915290.9887977,
+          "last_seen": 1783088090.9887614
+        },
+        {
+          "name": "Operations Analytics",
+          "description": "Real-time dashboards for throughput and SLA",
+          "attributes": [],
+          "domain": "content-safety",
+          "frequency": 3,
+          "first_seen": 1782915290.9887977,
+          "last_seen": 1783088090.9887614
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "Content Creator",
+          "responsibilities": [
+            "Submit Content"
+          ],
+          "reports_to": null,
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088090.9887614,
+          "last_seen": 1783088090.9887614
+        },
+        {
+          "name": "AI System",
+          "responsibilities": [
+            "AI Auto-Screening"
+          ],
+          "reports_to": null,
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088090.9887614,
+          "last_seen": 1783088090.9887614
+        },
+        {
+          "name": "Human Reviewer",
+          "responsibilities": [
+            "Human Review"
+          ],
+          "reports_to": null,
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088090.9887614,
+          "last_seen": 1783088090.9887614
+        },
+        {
+          "name": "System",
+          "responsibilities": [
+            "Publish Content"
+          ],
+          "reports_to": null,
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088090.9887614,
+          "last_seen": 1783088090.9887614
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "content-safety-process",
+          "steps": [
+            "Submit Content",
+            "AI Auto-Screening",
+            "Risk Classification",
+            "Human Review",
+            "Review Decision",
+            "Publish Content",
+            "Notify Rejection"
+          ],
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088090.9887614,
+          "last_seen": 1783088090.9887614
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Daily Throughput",
+          "formula": "processed / day",
+          "branch": "KpiBranch.EFFICIENCY",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088090.9887614,
+          "last_seen": 1783088090.9887614
+        },
+        {
+          "name": "Avg Screening Time",
+          "formula": "sum(screen_ms) / count",
+          "branch": "KpiBranch.EFFICIENCY",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088090.9887614,
+          "last_seen": 1783088090.9887614
+        },
+        {
+          "name": "Screening Accuracy",
+          "formula": "correct / total * 100",
+          "branch": "KpiBranch.QUALITY",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088090.9887614,
+          "last_seen": 1783088090.9887614
+        },
+        {
+          "name": "False Positive Rate",
+          "formula": "fp / total_flagged * 100",
+          "branch": "KpiBranch.QUALITY",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088090.9887614,
+          "last_seen": 1783088090.9887614
+        },
+        {
+          "name": "Review Queue Length",
+          "formula": "count(pending)",
+          "branch": "KpiBranch.CAPACITY",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088090.9887614,
+          "last_seen": 1783088090.9887614
+        },
+        {
+          "name": "Reviewer Utilization",
+          "formula": "active / shift * 100",
+          "branch": "KpiBranch.CAPACITY",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088090.9887614,
+          "last_seen": 1783088090.9887614
+        },
+        {
+          "name": "Cost Per Review",
+          "formula": "total_cost / reviewed",
+          "branch": "KpiBranch.COST",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088090.9887614,
+          "last_seen": 1783088090.9887614
+        },
+        {
+          "name": "SLA Compliance Rate",
+          "formula": "sla_met / total * 100",
+          "branch": "KpiBranch.RISK",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088090.9887614,
+          "last_seen": 1783088090.9887614
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "AI False Negatives",
+          "category": "quality",
+          "common_mitigation": "Weekly model retraining",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088090.9887614,
+          "last_seen": 1783088090.9887614
+        },
+        {
+          "name": "Reviewer Fatigue",
+          "category": "operational",
+          "common_mitigation": "Mandatory breaks + rotation",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088090.9887614,
+          "last_seen": 1783088090.9887614
+        },
+        {
+          "name": "Peak Volume Overload",
+          "category": "capacity",
+          "common_mitigation": "Auto-scale reviewer pool",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088090.9887614,
+          "last_seen": 1783088090.9887614
+        },
+        {
+          "name": "API Downtime",
+          "category": "technical",
+          "common_mitigation": "Multi-region failover",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088090.9887614,
+          "last_seen": 1783088090.9887614
+        }
+      ],
+      "domains": [
+        "content-safety"
+      ]
+    },
+    {
+      "graph_id": "24aa9009-ffa",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "general",
+          "frequency": 29,
+          "first_seen": 1780668891.3428555,
+          "last_seen": 1783088091.342838
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783088091.342838,
+          "last_seen": 1783088091.342838
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "general-process",
+          "steps": [
+            ""
+          ],
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783088091.342838,
+          "last_seen": 1783088091.342838
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783088091.342838,
+          "last_seen": 1783088091.342838
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783088091.342838,
+          "last_seen": 1783088091.342838
+        }
+      ],
+      "domains": [
+        "general"
+      ]
+    },
+    {
+      "graph_id": "fabcadc8-dc5",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Content Ingestion",
+          "description": "Accepts user-submitted content via API and web upload",
+          "attributes": [],
+          "domain": "content-safety",
+          "frequency": 4,
+          "first_seen": 1782829025.5879433,
+          "last_seen": 1783088225.5879085
+        },
+        {
+          "name": "AI Screening Engine",
+          "description": "Automated screening for sensitive words and policy violations",
+          "attributes": [],
+          "domain": "content-safety",
+          "frequency": 4,
+          "first_seen": 1782829025.5879433,
+          "last_seen": 1783088225.5879085
+        },
+        {
+          "name": "Human Review Workbench",
+          "description": "Review queue for flagged content with audit log",
+          "attributes": [],
+          "domain": "content-safety",
+          "frequency": 4,
+          "first_seen": 1782829025.5879433,
+          "last_seen": 1783088225.5879085
+        },
+        {
+          "name": "Operations Analytics",
+          "description": "Real-time dashboards for throughput and SLA",
+          "attributes": [],
+          "domain": "content-safety",
+          "frequency": 4,
+          "first_seen": 1782829025.5879433,
+          "last_seen": 1783088225.5879085
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "Content Creator",
+          "responsibilities": [
+            "Submit Content"
+          ],
+          "reports_to": null,
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088225.5879085,
+          "last_seen": 1783088225.5879085
+        },
+        {
+          "name": "AI System",
+          "responsibilities": [
+            "AI Auto-Screening"
+          ],
+          "reports_to": null,
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088225.5879085,
+          "last_seen": 1783088225.5879085
+        },
+        {
+          "name": "Human Reviewer",
+          "responsibilities": [
+            "Human Review"
+          ],
+          "reports_to": null,
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088225.5879085,
+          "last_seen": 1783088225.5879085
+        },
+        {
+          "name": "System",
+          "responsibilities": [
+            "Publish Content"
+          ],
+          "reports_to": null,
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088225.5879085,
+          "last_seen": 1783088225.5879085
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "content-safety-process",
+          "steps": [
+            "Submit Content",
+            "AI Auto-Screening",
+            "Risk Classification",
+            "Human Review",
+            "Review Decision",
+            "Publish Content",
+            "Notify Rejection"
+          ],
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088225.5879085,
+          "last_seen": 1783088225.5879085
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Daily Throughput",
+          "formula": "processed / day",
+          "branch": "KpiBranch.EFFICIENCY",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088225.5879085,
+          "last_seen": 1783088225.5879085
+        },
+        {
+          "name": "Avg Screening Time",
+          "formula": "sum(screen_ms) / count",
+          "branch": "KpiBranch.EFFICIENCY",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088225.5879085,
+          "last_seen": 1783088225.5879085
+        },
+        {
+          "name": "Screening Accuracy",
+          "formula": "correct / total * 100",
+          "branch": "KpiBranch.QUALITY",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088225.5879085,
+          "last_seen": 1783088225.5879085
+        },
+        {
+          "name": "False Positive Rate",
+          "formula": "fp / total_flagged * 100",
+          "branch": "KpiBranch.QUALITY",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088225.5879085,
+          "last_seen": 1783088225.5879085
+        },
+        {
+          "name": "Review Queue Length",
+          "formula": "count(pending)",
+          "branch": "KpiBranch.CAPACITY",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088225.5879085,
+          "last_seen": 1783088225.5879085
+        },
+        {
+          "name": "Reviewer Utilization",
+          "formula": "active / shift * 100",
+          "branch": "KpiBranch.CAPACITY",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088225.5879085,
+          "last_seen": 1783088225.5879085
+        },
+        {
+          "name": "Cost Per Review",
+          "formula": "total_cost / reviewed",
+          "branch": "KpiBranch.COST",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088225.5879085,
+          "last_seen": 1783088225.5879085
+        },
+        {
+          "name": "SLA Compliance Rate",
+          "formula": "sla_met / total * 100",
+          "branch": "KpiBranch.RISK",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088225.5879085,
+          "last_seen": 1783088225.5879085
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "AI False Negatives",
+          "category": "quality",
+          "common_mitigation": "Weekly model retraining",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088225.5879085,
+          "last_seen": 1783088225.5879085
+        },
+        {
+          "name": "Reviewer Fatigue",
+          "category": "operational",
+          "common_mitigation": "Mandatory breaks + rotation",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088225.5879085,
+          "last_seen": 1783088225.5879085
+        },
+        {
+          "name": "Peak Volume Overload",
+          "category": "capacity",
+          "common_mitigation": "Auto-scale reviewer pool",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088225.5879085,
+          "last_seen": 1783088225.5879085
+        },
+        {
+          "name": "API Downtime",
+          "category": "technical",
+          "common_mitigation": "Multi-region failover",
+          "domain": "content-safety",
+          "frequency": 1,
+          "first_seen": 1783088225.5879085,
+          "last_seen": 1783088225.5879085
+        }
+      ],
+      "domains": [
+        "content-safety"
+      ]
+    },
+    {
+      "graph_id": "1e87b6cc-a98",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "general",
+          "frequency": 30,
+          "first_seen": 1780582625.9630268,
+          "last_seen": 1783088225.9630005
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783088225.9630005,
+          "last_seen": 1783088225.9630005
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "general-process",
+          "steps": [
+            ""
+          ],
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783088225.9630005,
+          "last_seen": 1783088225.9630005
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783088225.9630005,
+          "last_seen": 1783088225.9630005
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783088225.9630005,
+          "last_seen": 1783088225.9630005
+        }
+      ],
+      "domains": [
+        "general"
+      ]
+    },
+    {
+      "graph_id": "a9aa1bb9-140",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "content_moderation",
+          "frequency": 31,
+          "first_seen": 1780496264.44167,
+          "last_seen": 1783088264.4416566
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783088264.4416566,
+          "last_seen": 1783088264.4416566
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "content_moderation-process",
+          "steps": [
+            ""
+          ],
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783088264.4416566,
+          "last_seen": 1783088264.4416566
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783088264.4416566,
+          "last_seen": 1783088264.4416566
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783088264.4416566,
+          "last_seen": 1783088264.4416566
+        }
+      ],
+      "domains": [
+        "content_moderation"
+      ]
+    },
+    {
+      "graph_id": "1b9b5e69-9ea",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "general",
+          "frequency": 32,
+          "first_seen": 1780409864.5063925,
+          "last_seen": 1783088264.5063725
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783088264.5063725,
+          "last_seen": 1783088264.5063725
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "general-process",
+          "steps": [
+            ""
+          ],
+          "domain": "general",
+          "frequency": 1,
+          "first_seen": 1783088264.5063725,
+          "last_seen": 1783088264.5063725
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783088264.5063725,
+          "last_seen": 1783088264.5063725
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "general",
+          "frequency": 2,
+          "first_seen": 1783088264.5063725,
+          "last_seen": 1783088264.5063725
+        }
+      ],
+      "domains": [
+        "general"
+      ]
+    },
+    {
+      "graph_id": "762486b2-979",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "risk_control",
+          "frequency": 33,
+          "first_seen": 1780323464.5369134,
+          "last_seen": 1783088264.5368931
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "risk_control",
+          "frequency": 1,
+          "first_seen": 1783088264.5368931,
+          "last_seen": 1783088264.5368931
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "risk_control-process",
+          "steps": [
+            ""
+          ],
+          "domain": "risk_control",
+          "frequency": 1,
+          "first_seen": 1783088264.5368931,
+          "last_seen": 1783088264.5368931
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "risk_control",
+          "frequency": 2,
+          "first_seen": 1783088264.5368931,
+          "last_seen": 1783088264.5368931
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "risk_control",
+          "frequency": 2,
+          "first_seen": 1783088264.5368931,
+          "last_seen": 1783088264.5368931
+        }
+      ],
+      "domains": [
+        "risk_control"
+      ]
+    },
+    {
+      "graph_id": "9090e3fc-50b",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Backend??",
+          "description": "FastAPI (Python) with modular agent pipeline",
+          "attributes": [],
+          "domain": "saas",
+          "frequency": 1,
+          "first_seen": 1783091239.6345522,
+          "last_seen": 1783091239.6345522
+        },
+        {
+          "name": "Frontend??",
+          "description": "One-click SaaS UI with textarea + analyze button, Swiss IKB design system",
+          "attributes": [],
+          "domain": "saas",
+          "frequency": 1,
+          "first_seen": 1783091239.6345522,
+          "last_seen": 1783091239.6345522
+        },
+        {
+          "name": "AI Layer??",
+          "description": "LLM orchestration with goal routing, intent detection, and 5-agent pipeline",
+          "attributes": [],
+          "domain": "saas",
+          "frequency": 1,
+          "first_seen": 1783091239.6345522,
+          "last_seen": 1783091239.6345522
+        },
+        {
+          "name": "Storage??",
+          "description": "SQLite with PostgreSQL scalability",
+          "attributes": [],
+          "domain": "saas",
+          "frequency": 1,
+          "first_seen": 1783091239.6345522,
+          "last_seen": 1783091239.6345522
+        },
+        {
+          "name": "Asset output??",
+          "description": "PPTX (7-slide consulting format), HTML dashboard (Mermaid + Chart.js), XLSX, PDF",
+          "attributes": [],
+          "domain": "saas",
+          "frequency": 1,
+          "first_seen": 1783091239.6345522,
+          "last_seen": 1783091239.6345522
+        },
+        {
+          "name": "API response time??",
+          "description": "<100ms for static, <500ms for full pipeline",
+          "attributes": [],
+          "domain": "saas",
+          "frequency": 1,
+          "first_seen": 1783091239.6345522,
+          "last_seen": 1783091239.6345522
+        },
+        {
+          "name": "Agent pipeline??",
+          "description": "5 agents, ~70ms total execution",
+          "attributes": [],
+          "domain": "saas",
+          "frequency": 1,
+          "first_seen": 1783091239.6345522,
+          "last_seen": 1783091239.6345522
+        },
+        {
+          "name": "PPT generation??",
+          "description": "7-slide consulting deck in ~40ms",
+          "attributes": [],
+          "domain": "saas",
+          "frequency": 1,
+          "first_seen": 1783091239.6345522,
+          "last_seen": 1783091239.6345522
+        },
+        {
+          "name": "HTML dashboard??",
+          "description": "72KB interactive with workflow graph, KPI cards, risk heatmap",
+          "attributes": [],
+          "domain": "saas",
+          "frequency": 1,
+          "first_seen": 1783091239.6345522,
+          "last_seen": 1783091239.6345522
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "saas",
+          "frequency": 1,
+          "first_seen": 1783091239.6345522,
+          "last_seen": 1783091239.6345522
+        },
+        {
+          "name": "click simplicity - users input text, system handles everything",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "saas",
+          "frequency": 1,
+          "first_seen": 1783091239.6345522,
+          "last_seen": 1783091239.6345522
+        },
+        {
+          "name": "grade output - PPTs follow McKinsey-style narrative structure",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "saas",
+          "frequency": 1,
+          "first_seen": 1783091239.6345522,
+          "last_seen": 1783091239.6345522
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "saas-process",
+          "steps": [
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "domain": "saas",
+          "frequency": 1,
+          "first_seen": 1783091239.6345522,
+          "last_seen": 1783091239.6345522
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "API response time",
+          "formula": "avg(processing_time)",
+          "branch": "Efficiency",
+          "domain": "saas",
+          "frequency": 1,
+          "first_seen": 1783091239.6345522,
+          "last_seen": 1783091239.6345522
+        },
+        {
+          "name": "Agent pipeline",
+          "formula": "measure",
+          "branch": "Efficiency",
+          "domain": "saas",
+          "frequency": 1,
+          "first_seen": 1783091239.6345522,
+          "last_seen": 1783091239.6345522
+        },
+        {
+          "name": "PPT generation",
+          "formula": "measure",
+          "branch": "Efficiency",
+          "domain": "saas",
+          "frequency": 1,
+          "first_seen": 1783091239.6345522,
+          "last_seen": 1783091239.6345522
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "saas",
+          "frequency": 2,
+          "first_seen": 1783091239.6345522,
+          "last_seen": 1783091239.6345522
+        }
+      ],
+      "domains": [
+        "saas"
+      ]
+    },
+    {
+      "graph_id": "abf68cb3-6ac",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "content_moderation",
+          "frequency": 34,
+          "first_seen": 1780247583.6672497,
+          "last_seen": 1783098783.6672325
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783098783.6672325,
+          "last_seen": 1783098783.6672325
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "content_moderation-process",
+          "steps": [
+            ""
+          ],
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783098783.6672325,
+          "last_seen": 1783098783.6672325
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783098783.6672325,
+          "last_seen": 1783098783.6672325
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783098783.6672325,
+          "last_seen": 1783098783.6672325
+        }
+      ],
+      "domains": [
+        "content_moderation"
+      ]
+    },
+    {
+      "graph_id": "73110e5a-07a",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "content_moderation",
+          "frequency": 35,
+          "first_seen": 1780161462.5436628,
+          "last_seen": 1783099062.5436392
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783099062.5436392,
+          "last_seen": 1783099062.5436392
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "content_moderation-process",
+          "steps": [
+            ""
+          ],
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783099062.5436392,
+          "last_seen": 1783099062.5436392
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783099062.5436392,
+          "last_seen": 1783099062.5436392
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783099062.5436392,
+          "last_seen": 1783099062.5436392
+        }
+      ],
+      "domains": [
+        "content_moderation"
+      ]
+    },
+    {
+      "graph_id": "cec739c0-707",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "content_moderation",
+          "frequency": 36,
+          "first_seen": 1780107368.2478554,
+          "last_seen": 1783131368.247839
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783131368.247839,
+          "last_seen": 1783131368.247839
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "content_moderation-process",
+          "steps": [
+            ""
+          ],
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783131368.247839,
+          "last_seen": 1783131368.247839
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783131368.247839,
+          "last_seen": 1783131368.247839
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783131368.247839,
+          "last_seen": 1783131368.247839
+        }
+      ],
+      "domains": [
+        "content_moderation"
+      ]
+    },
+    {
+      "graph_id": "517c9c7a-83b",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "content_moderation",
+          "frequency": 37,
+          "first_seen": 1780074849.1066327,
+          "last_seen": 1783185249.1066327
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783185249.1066327,
+          "last_seen": 1783185249.1066327
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "content_moderation-process",
+          "steps": [
+            ""
+          ],
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783185249.1066327,
+          "last_seen": 1783185249.1066327
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783185249.1066327,
+          "last_seen": 1783185249.1066327
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783185249.1066327,
+          "last_seen": 1783185249.1066327
+        }
+      ],
+      "domains": [
+        "content_moderation"
+      ]
+    },
+    {
+      "graph_id": "bfd334c7-322",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "content_moderation",
+          "frequency": 38,
+          "first_seen": 1779988466.194154,
+          "last_seen": 1783185266.194154
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783185266.194154,
+          "last_seen": 1783185266.194154
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "content_moderation-process",
+          "steps": [
+            ""
+          ],
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783185266.194154,
+          "last_seen": 1783185266.194154
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783185266.194154,
+          "last_seen": 1783185266.194154
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783185266.194154,
+          "last_seen": 1783185266.194154
+        }
+      ],
+      "domains": [
+        "content_moderation"
+      ]
+    },
+    {
+      "graph_id": "6f8a85ff-977",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "content_moderation",
+          "frequency": 39,
+          "first_seen": 1779902095.9914155,
+          "last_seen": 1783185295.9914155
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783185295.9914155,
+          "last_seen": 1783185295.9914155
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "content_moderation-process",
+          "steps": [
+            ""
+          ],
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783185295.9914155,
+          "last_seen": 1783185295.9914155
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783185295.9914155,
+          "last_seen": 1783185295.9914155
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783185295.9914155,
+          "last_seen": 1783185295.9914155
+        }
+      ],
+      "domains": [
+        "content_moderation"
+      ]
+    },
+    {
+      "graph_id": "413d6cce-76c",
+      "version": "2.0.0",
+      "business_objects": [
+        {
+          "name": "Operator??",
+          "description": "Core business operator",
+          "attributes": [],
+          "domain": "content_moderation",
+          "frequency": 40,
+          "first_seen": 1779815701.5624745,
+          "last_seen": 1783185301.5624745
+        }
+      ],
+      "role_patterns": [
+        {
+          "name": "System",
+          "responsibilities": [
+            ""
+          ],
+          "reports_to": null,
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783185301.5624745,
+          "last_seen": 1783185301.5624745
+        }
+      ],
+      "process_patterns": [
+        {
+          "name": "content_moderation-process",
+          "steps": [
+            ""
+          ],
+          "domain": "content_moderation",
+          "frequency": 1,
+          "first_seen": 1783185301.5624745,
+          "last_seen": 1783185301.5624745
+        }
+      ],
+      "metric_templates": [
+        {
+          "name": "Efficiency",
+          "formula": "output/input",
+          "branch": "Efficiency",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783185301.5624745,
+          "last_seen": 1783185301.5624745
+        }
+      ],
+      "risk_patterns": [
+        {
+          "name": "Operational Risk",
+          "category": "operational",
+          "common_mitigation": "Monitor",
+          "domain": "content_moderation",
+          "frequency": 2,
+          "first_seen": 1783185301.5624745,
+          "last_seen": 1783185301.5624745
+        }
+      ],
+      "domains": [
+        "content_moderation"
+      ]
+    }
+  ],
+  "last_updated": 1783185301.5624745
+}

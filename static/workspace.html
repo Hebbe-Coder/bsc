@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>BSC Studio — Business System Cloud</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#FAFAF9;--ink:#0A0A0A;--accent:#002FA7;--accent-on:#fff;
+  --grey-1:#F0F0EE;--grey-2:#D4D4D2;--grey-3:#737373;--border:#E0E0E0;
+  --green:#22C55E;--red:#DC2626;--orange:#F97316;
+  --sans:"Inter","Noto Sans SC","PingFang SC",sans-serif;
+  --mono:"JetBrains Mono",monospace;
+  --radius:6px;--radius-lg:12px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--sans);background:var(--paper);color:var(--ink);min-height:100vh}
+body::before{content:"";position:fixed;inset:0;z-index:0;opacity:.02;
+  background-image:radial-gradient(circle at 1px 1px,var(--ink) 1px,transparent 0);background-size:20px 20px;}
+
+/* Layout */
+.app{position:relative;z-index:1;display:grid;grid-template-columns:320px 1fr;height:100vh;overflow:hidden}
+
+/* Sidebar */
+.sidebar{background:#fff;border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+.sidebar-header{padding:20px 24px;border-bottom:1px solid var(--border)}
+.sidebar-header h1{font-size:1rem;font-weight:600;letter-spacing:-.02em}
+.sidebar-header .brand{font-size:.6rem;color:var(--grey-3);font-family:var(--mono);text-transform:uppercase;letter-spacing:.06em;margin-top:2px}
+.sidebar-header .brand span{color:var(--accent)}
+
+.project-list{flex:1;overflow-y:auto;padding:12px}
+.project-list h3{font-size:.6rem;color:var(--grey-3);text-transform:uppercase;letter-spacing:.08em;padding:8px 12px;margin-bottom:4px}
+.project-item{padding:12px 16px;border-radius:var(--radius);cursor:pointer;transition:all .12s;margin-bottom:2px;border:1px solid transparent}
+.project-item:hover{background:var(--grey-1)}
+.project-item.active{background:var(--grey-1);border-color:var(--accent)}
+.project-item .pname{font-size:.8rem;font-weight:500;margin-bottom:2px}
+.project-item .pmeta{font-size:.58rem;color:var(--grey-3);font-family:var(--mono)}
+.project-item .pstatus{display:inline-block;font-size:.5rem;padding:2px 6px;border-radius:8px;margin-left:6px;text-transform:uppercase;letter-spacing:.04em}
+.pstatus.active{background:#F0FDF4;color:var(--green)}
+.pstatus.compiled{background:#EFF6FF;color:var(--accent)}
+
+.sidebar-footer{padding:12px 16px;border-top:1px solid var(--border)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 16px;border-radius:var(--radius);font-size:.7rem;font-weight:500;cursor:pointer;font-family:var(--sans);transition:all .12s;border:1px solid transparent}
+.btn-primary{background:var(--accent);color:var(--accent-on);width:100%}
+.btn-primary:hover{background:#0038C8}
+.btn-ghost{background:transparent;color:var(--ink);border:1px solid var(--border)}
+.btn-ghost:hover{border-color:var(--accent);color:var(--accent)}
+.btn-sm{padding:5px 10px;font-size:.65rem}
+.btn-danger{background:transparent;color:var(--red);border-color:var(--red)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+
+/* Main area */
+.main{display:flex;flex-direction:column;overflow:hidden}
+.main-header{padding:16px 32px;border-bottom:1px solid var(--border);background:#fff;display:flex;align-items:center;justify-content:space-between}
+.main-header h2{font-size:.95rem;font-weight:500;letter-spacing:-.01em}
+.main-header .meta{font-size:.6rem;color:var(--grey-3);font-family:var(--mono)}
+
+.main-body{flex:1;overflow-y:auto;padding:32px}
+
+/* Empty state */
+.empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;text-align:center;color:var(--grey-3)}
+.empty-state .icon{font-size:3rem;margin-bottom:16px;opacity:.3}
+.empty-state h3{font-size:.95rem;font-weight:400;margin-bottom:8px;color:var(--ink)}
+.empty-state p{font-size:.75rem;max-width:400px;line-height:1.6}
+
+/* Document section */
+.section{margin-bottom:32px}
+.section h3{font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--grey-3);margin-bottom:12px}
+.doc-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px 24px;margin-bottom:8px;display:flex;align-items:flex-start;gap:12px;transition:all .12s}
+.doc-card:hover{border-color:var(--accent)}
+.doc-card .doc-icon{font-size:1.2rem;flex-shrink:0;margin-top:2px}
+.doc-card .doc-body{flex:1}
+.doc-card .doc-title{font-size:.8rem;font-weight:500;margin-bottom:4px}
+.doc-card .doc-meta{font-size:.58rem;color:var(--grey-3);font-family:var(--mono)}
+.doc-card .doc-preview{font-size:.7rem;color:var(--grey-3);margin-top:6px;line-height:1.5;max-height:60px;overflow:hidden}
+
+/* Add document form */
+.add-doc{background:var(--grey-1);border:1px dashed var(--grey-2);border-radius:var(--radius-lg);padding:20px 24px}
+.add-doc input,.add-doc textarea,.add-doc select{width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--sans);font-size:.75rem;margin-bottom:8px;background:#fff}
+.add-doc textarea{min-height:100px;resize:vertical;font-family:var(--mono);font-size:.65rem}
+.add-doc .row{display:flex;gap:8px;align-items:center}
+.add-doc .row input{flex:1}
+
+/* Compile button */
+.compile-section{text-align:center;padding:24px 0}
+.compile-section .btn-compile{padding:14px 48px;font-size:.85rem;font-weight:600;letter-spacing:.02em}
+
+/* Results */
+.pipeline-bar{display:flex;align-items:center;gap:12px;padding:16px 24px;background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);margin-bottom:20px;overflow-x:auto}
+.pipeline-step{display:flex;align-items:center;gap:6px;font-size:.65rem;font-family:var(--mono);white-space:nowrap}
+.pipeline-dot{width:8px;height:8px;border-radius:50%}
+.pipeline-dot.done{background:var(--green)}
+.pipeline-dot.running{background:var(--accent);animation:pulse 1s infinite}
+.pipeline-arrow{color:var(--grey-2);margin:0 4px}
+
+.result-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
+.result-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px 24px}
+.result-card h4{font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--grey-3);margin-bottom:12px}
+.result-card .value{font-size:1.5rem;font-weight:300;letter-spacing:-.02em;color:var(--accent)}
+
+.kpi-row{display:flex;gap:12px;flex-wrap:wrap}
+.kpi-badge{display:inline-flex;flex-direction:column;padding:10px 16px;background:var(--grey-1);border-radius:var(--radius);min-width:100px}
+.kpi-badge .lbl{font-size:.55rem;color:var(--grey-3);text-transform:uppercase;font-family:var(--mono);letter-spacing:.04em}
+.kpi-badge .val{font-size:.9rem;font-weight:600;margin-top:2px}
+
+.asset-links{display:flex;gap:8px;flex-wrap:wrap}
+.asset-link{display:inline-flex;align-items:center;gap:4px;padding:6px 14px;border:1px solid var(--border);border-radius:var(--radius);font-size:.65rem;font-family:var(--mono);text-decoration:none;color:var(--accent);background:#fff}
+.asset-link:hover{border-color:var(--accent);background:rgba(0,47,167,.03)}
+
+/* Modal */
+.modal-overlay{position:fixed;inset:0;z-index:100;background:rgba(10,10,10,.3);display:flex;align-items:center;justify-content:center;display:none}
+.modal-overlay.show{display:flex}
+.modal{background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);width:min(480px,90vw);padding:24px;box-shadow:0 16px 48px rgba(0,0,0,.1)}
+
+/* Toast */
+#toast{position:fixed;top:24px;right:24px;z-index:200;background:var(--ink);color:var(--paper);padding:10px 18px;border-radius:var(--radius);font-size:.65rem;font-family:var(--mono);opacity:0;transform:translateY(-8px);transition:all .2s;pointer-events:none}
+
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes spin{to{transform:rotate(360deg)}}
+.spinner{width:14px;height:14px;border:2px solid var(--accent-on);border-top-color:transparent;border-radius:50%;animation:spin .6s linear infinite;display:none}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <h1>BSC Studio</h1>
+      <div class="brand">Business <span>System</span> Cloud</div>
+    </div>
+    <div class="project-list">
+      <h3>Projects</h3>
+      <div id="projectList"></div>
+    </div>
+    <div class="sidebar-footer">
+      <button class="btn btn-primary" onclick="showNewProject()">+ New Project</button>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+    <div class="main-header">
+      <h2 id="mainTitle">Select a Project</h2>
+      <span class="meta" id="mainMeta"></span>
+    </div>
+    <div class="main-body" id="mainBody">
+      <div class="empty-state">
+        <div class="icon">📋</div>
+        <h3>Welcome to BSC Studio</h3>
+        <p>Create a project, upload your PRD or business documents, and compile them into a complete business system — including SOP workflows, KPI dashboards, risk analysis, and presentation-ready reports.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- New Project Modal -->
+<div class="modal-overlay" id="newProjectModal">
+  <div class="modal">
+    <h3 style="font-size:.85rem;font-weight:600;margin-bottom:16px">New Project</h3>
+    <input id="npName" placeholder="Project name (e.g. ACME Content Moderation)" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--sans);font-size:.8rem;margin-bottom:10px">
+    <input id="npDesc" placeholder="Brief description (optional)" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--sans);font-size:.8rem;margin-bottom:10px">
+    <select id="npIndustry" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--sans);font-size:.8rem;margin-bottom:16px">
+      <option value="">Auto-detect industry</option>
+      <option value="content_moderation">Content Moderation</option>
+      <option value="customer_service">Customer Service</option>
+      <option value="risk_control">Risk Control</option>
+      <option value="bpo">BPO</option>
+      <option value="ecommerce">E-Commerce</option>
+      <option value="fintech">Fintech</option>
+    </select>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="closeModal('newProjectModal')">Cancel</button>
+      <button class="btn btn-primary" style="width:auto" onclick="createProject()">Create</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+var currentProject = null;
+var BASE = "";
+
+// ── Initialize ──
+async function init(){
+  await loadProjects();
+}
+init();
+
+// ── Projects ──
+async function loadProjects(){
+  try{
+    var r = await fetch(BASE+"/workspace/projects").then(r=>r.json());
+    var list = document.getElementById("projectList");
+    var projects = r.projects || [];
+    if(!projects.length){
+      list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--grey-3);font-size:.7rem">No projects yet.<br>Click + New Project</div>';
+      return;
+    }
+    list.innerHTML = projects.map(function(p){
+      var statusClass = p.status === "compiled" ? "compiled" : "active";
+      var activeClass = currentProject && currentProject.id === p.id ? " active" : "";
+      return '<div class="project-item'+activeClass+'" onclick="selectProject(\''+p.id+'\')">'
+        +'<div class="pname">'+esc(p.name)+'<span class="pstatus '+statusClass+'">'+p.status+'</span></div>'
+        +'<div class="pmeta">'+esc(p.industry||"general")+' · '+fmtDate(p.created_at)+'</div>'
+        +'</div>';
+    }).join("");
+  }catch(e){ toast("Failed to load projects"); }
+}
+
+async function createProject(){
+  var name = document.getElementById("npName").value.trim();
+  if(!name){ toast("Please enter a project name"); return; }
+  var desc = document.getElementById("npDesc").value.trim();
+  var industry = document.getElementById("npIndustry").value;
+
+  try{
+    var r = await fetch(BASE+"/workspace/projects",{
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({name:name, description:desc, industry:industry})
+    }).then(r=>r.json());
+    closeModal("newProjectModal");
+    document.getElementById("npName").value = "";
+    document.getElementById("npDesc").value = "";
+    await loadProjects();
+    selectProject(r.project.id);
+    toast("Project created");
+  }catch(e){ toast("Failed to create project"); }
+}
+
+async function selectProject(pid){
+  currentProject = {id: pid};
+  await loadProjects();
+  try{
+    var r = await fetch(BASE+"/workspace/projects/"+pid).then(r=>r.json());
+    currentProject = r.project;
+    currentProject.documents = r.documents || [];
+    currentProject.assets = r.assets || [];
+    renderProject();
+  }catch(e){ toast("Failed to load project"); }
+}
+
+function showNewProject(){
+  document.getElementById("newProjectModal").classList.add("show");
+  document.getElementById("npName").focus();
+}
+
+function closeModal(id){
+  document.getElementById(id).classList.remove("show");
+}
+
+// ── Render Project ──
+function renderProject(){
+  var p = currentProject;
+  document.getElementById("mainTitle").textContent = p.name;
+  document.getElementById("mainMeta").textContent = (p.industry||"general")+" · "+p.status+" · "+fmtDate(p.created_at);
+
+  var docs = p.documents || [];
+  var assets = p.assets || [];
+
+  var html = "";
+
+  // Documents
+  html += '<div class="section"><h3>Documents ('+docs.length+')</h3>';
+  docs.forEach(function(d){
+    html += '<div class="doc-card"><div class="doc-icon">'+(d.type==="prd"?"📄":d.type==="meeting"?"🗣":"📋")+'</div>';
+    html += '<div class="doc-body"><div class="doc-title">'+esc(d.title)+'</div>';
+    html += '<div class="doc-meta">'+esc(d.type)+' · '+fmtDate(d.created_at)+'</div></div></div>';
+  });
+  
+  // Add document form
+  html += '<div class="add-doc"><div class="row">';
+  html += '<input id="docTitle" placeholder="Document title" style="flex:2">';
+  html += '<select id="docType" style="flex:1"><option value="prd">PRD</option><option value="meeting">Meeting Notes</option><option value="process">Process Doc</option><option value="bid">Bid/RFP</option><option value="policy">Policy</option></select>';
+  html += '</div>';
+  html += '<textarea id="docContent" placeholder="Paste your PRD, meeting notes, or business document here..."></textarea>';
+  html += '<button class="btn btn-primary" style="width:auto" onclick="addDocument()">Add Document</button>';
+  html += '</div></div>';
+
+  // Compile button
+  if(docs.length > 0){
+    html += '<div class="compile-section">';
+    html += '<button class="btn btn-primary btn-compile" id="btnCompile" onclick="compileProject()">';
+    html += '<span id="compileText">Compile Business System</span>';
+    html += '<span class="spinner" id="compileSpinner"></span>';
+    html += '</button>';
+    html += '<div style="font-size:.6rem;color:var(--grey-3);margin-top:8px">Compiles all documents into: Business Blueprint · SOP Workflow · KPI System · Risk Analysis · PPT · Dashboard</div>';
+    html += '</div>';
+  }
+
+  // Results (if compiled)
+  if(assets.length > 0 || p.status === "compiled"){
+    html += '<div class="section"><h3>Compiled Assets</h3>';
+    html += '<div class="asset-links">';
+    assets.forEach(function(a){
+      html += '<a class="asset-link" href="'+BASE+'/workspace/projects/'+p.id+'/export/'+a.type+'" download>'
+        +(a.type==="ppt"?"📊":a.type==="html"?"🌐":"📋")+' '+esc(a.file_name||a.type)
+        +' <span style="font-size:.5rem;color:var(--grey-3)">'+(a.size?fmtSize(a.size):"")+'</span></a>';
+    });
+    html += '</div></div>';
+  }
+
+  document.getElementById("mainBody").innerHTML = html;
+}
+
+// ── Add Document ──
+async function addDocument(){
+  if(!currentProject) return;
+  var title = document.getElementById("docTitle").value.trim();
+  var content = document.getElementById("docContent").value.trim();
+  var type = document.getElementById("docType").value;
+  if(!title || !content){ toast("Title and content required"); return; }
+
+  try{
+    await fetch(BASE+"/workspace/projects/"+currentProject.id+"/documents",{
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({title:title, content:content, doc_type:type})
+    });
+    document.getElementById("docTitle").value = "";
+    document.getElementById("docContent").value = "";
+    selectProject(currentProject.id);
+    toast("Document added");
+  }catch(e){ toast("Failed to add document"); }
+}
+
+// ── Compile ──
+async function compileProject(){
+  if(!currentProject) return;
+  var btn = document.getElementById("btnCompile");
+  var text = document.getElementById("compileText");
+  var spinner = document.getElementById("compileSpinner");
+  btn.disabled = true;
+  text.textContent = "Compiling...";
+  spinner.style.display = "inline-block";
+
+  try{
+    var r = await fetch(BASE+"/workspace/projects/"+currentProject.id+"/compile",{
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({project_id:currentProject.id, output_types:["html","ppt","json"]})
+    }).then(r=>r.json());
+
+    // Show pipeline result
+    var stages = r.pipeline ? r.pipeline.stages : [];
+    var pipeHtml = '<div class="pipeline-bar">';
+    stages.forEach(function(s,i){
+      pipeHtml += '<div class="pipeline-step"><span class="pipeline-dot '+(s.status==="done"?"done":"running")+'"></span>'+esc(s.display||s.agent)+' <span style="color:var(--grey-3)">'+(s.duration_ms||0)+'ms</span></div>';
+      if(i<stages.length-1) pipeHtml += '<span class="pipeline-arrow">→</span>';
+    });
+    pipeHtml += '</div>';
+
+    // Results summary
+    var bs = r.results ? r.results.business_system : {};
+    var dec = r.results ? r.results.decision : {};
+    var kg = r.results ? r.results.knowledge_graph : {};
+
+    var resultHtml = pipeHtml;
+    resultHtml += '<div class="result-grid">';
+    resultHtml += '<div class="result-card"><h4>Business Modules</h4><div class="value">'+(bs.modules?bs.modules.length:bs.objectives?bs.objectives.length:"-")+'</div><div style="font-size:.65rem;color:var(--grey-3)">modules identified</div></div>';
+    resultHtml += '<div class="result-card"><h4>Knowledge Graph</h4><div class="value">'+(kg.nodes||0)+'</div><div style="font-size:.65rem;color:var(--grey-3)">nodes · '+(kg.edges||0)+' edges</div></div>';
+    resultHtml += '<div class="result-card"><h4>Processes</h4><div class="value">'+(bs.processes?bs.processes.length:bs.workflow?bs.workflow.length:"-")+'</div><div style="font-size:.65rem;color:var(--grey-3)">workflow steps</div></div>';
+    resultHtml += '<div class="result-card"><h4>KPIs</h4><div class="value">'+(bs.metrics?bs.metrics.length:bs.kpi?bs.kpi.length:"-")+'</div><div style="font-size:.65rem;color:var(--grey-3)">metrics defined</div></div>';
+    resultHtml += '</div>';
+
+    document.getElementById("mainBody").innerHTML = resultHtml;
+    selectProject(currentProject.id);
+    toast("Compilation complete!");
+  }catch(e){ toast("Compilation failed: "+e.message); }
+  finally{
+    btn.disabled = false;
+    text.textContent = "Compile Business System";
+    spinner.style.display = "none";
+  }
+}
+
+// ── Helpers ──
+function esc(s){ return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function fmtDate(d){ if(!d) return ""; return d.substring(0,10); }
+function fmtSize(b){ if(b<1024) return b+"B"; if(b<1048576) return (b/1024).toFixed(1)+"KB"; return (b/1048576).toFixed(1)+"MB"; }
+function toast(msg){
+  var t = document.getElementById("toast");
+  t.textContent = msg; t.style.opacity = "1"; t.style.transform = "translateY(0)";
+  setTimeout(function(){ t.style.opacity = "0"; t.style.transform = "translateY(-8px)"; }, 2400);
+}
+</script>
+</body>
+</html>

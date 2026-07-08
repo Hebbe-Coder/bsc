@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BSC Studio — Business System Cloud</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+:root{
+  --ink:#12161A; --surface:#1A1E23; --raised:#222831; --gold:#C9A84C;
+  --gold-dim:#8a7434; --patina:#5A9E96; --text:#E8E6E3; --text-dim:#8B8985;
+  --border:#2D333B; --red:#E05D5D; --green:#5DAF6F; --orange:#E0A04D;
+  --radius:10px; --mono:'DM Mono','SF Mono',Consolas,monospace;
+  --sans:'Albert Sans',system-ui,-apple-system,sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--ink);color:var(--text);font-family:var(--sans);min-height:100vh}
+a{color:var(--gold);text-decoration:none}
+button{cursor:pointer;font-family:inherit;border:none;outline:none}
+input,textarea,select{font-family:inherit;font-size:14px;outline:none}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:var(--ink)}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+/* ── Layout ── */
+#app{max-width:1200px;margin:0 auto;padding:24px 32px}
+
+/* ── Header ── */
+.header{display:flex;align-items:center;justify-content:space-between;
+  padding:16px 0;border-bottom:1px solid var(--border);margin-bottom:32px}
+.logo{display:flex;align-items:center;gap:12px}
+.logo-mark{width:36px;height:36px;border-radius:8px;
+  background:linear-gradient(135deg,var(--gold),var(--gold-dim));
+  display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--ink);font-size:16px}
+.logo-text{font-size:18px;font-weight:600;letter-spacing:-0.3px}
+.logo-text span{color:var(--gold)}
+.header-actions{display:flex;gap:12px;align-items:center}
+.header-link{color:var(--text-dim);font-size:13px;padding:6px 12px;border-radius:6px;transition:0.2s}
+.header-link:hover{background:var(--surface);color:var(--text)}
+
+/* ── Step Indicator ── */
+.steps{display:flex;gap:0;margin-bottom:32px}
+.step-item{flex:1;display:flex;align-items:center;gap:8px;padding:12px 16px;
+  border-bottom:2px solid var(--border);transition:0.3s}
+.step-item.active{border-bottom-color:var(--gold)}
+.step-item.done{border-bottom-color:var(--patina)}
+.step-num{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-size:12px;font-weight:600;border:1px solid var(--border)}
+.step-item.active .step-num{background:var(--gold);color:var(--ink);border-color:var(--gold)}
+.step-item.done .step-num{background:var(--patina);color:var(--ink);border-color:var(--patina)}
+.step-label{font-size:13px;color:var(--text-dim)}
+.step-item.active .step-label{color:var(--text)}
+
+/* ── Buttons ── */
+.btn{padding:10px 20px;border-radius:8px;font-size:14px;font-weight:500;transition:0.2s}
+.btn-primary{background:var(--gold);color:var(--ink)}
+.btn-primary:hover{background:#D4B85E;transform:translateY(-1px)}
+.btn-ghost{background:var(--surface);color:var(--text-dim);border:1px solid var(--border)}
+.btn-ghost:hover{background:var(--raised);color:var(--text)}
+.btn-lg{padding:14px 28px;font-size:15px}
+
+/* ── Project Cards ── */
+.section-title{font-size:20px;font-weight:600;margin-bottom:20px;letter-spacing:-0.3px}
+.section-title span{color:var(--gold)}
+.project-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+.project-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  padding:20px;cursor:pointer;transition:0.2s;position:relative}
+.project-card:hover{border-color:var(--gold-dim);transform:translateY(-2px)}
+.project-card .name{font-size:16px;font-weight:600;margin-bottom:6px}
+.project-card .desc{font-size:13px;color:var(--text-dim);margin-bottom:12px;line-height:1.5}
+.project-card .meta{display:flex;gap:12px;font-size:12px;color:var(--text-dim)}
+.project-card .meta-item{display:flex;align-items:center;gap:4px}
+.project-card .status{position:absolute;top:16px;right:16px;font-size:11px;
+  padding:2px 8px;border-radius:4px}
+.status-compiled{background:rgba(90,158,150,0.15);color:var(--patina)}
+.status-active{background:rgba(201,168,76,0.15);color:var(--gold)}
+.empty-state{text-align:center;padding:60px 20px;color:var(--text-dim)}
+.empty-state .icon{font-size:48px;margin-bottom:16px;opacity:0.3}
+.empty-state .title{font-size:16px;margin-bottom:8px}
+.empty-state .desc{font-size:13px}
+
+/* ── Modal ── */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:none;
+  align-items:center;justify-content:center;z-index:100;backdrop-filter:blur(4px)}
+.modal-overlay.show{display:flex}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:14px;
+  padding:28px;width:480px;max-width:90vw}
+.modal-title{font-size:18px;font-weight:600;margin-bottom:20px}
+.form-group{margin-bottom:16px}
+.form-label{display:block;font-size:13px;color:var(--text-dim);margin-bottom:6px}
+.form-input{width:100%;padding:10px 12px;background:var(--ink);border:1px solid var(--border);
+  border-radius:8px;color:var(--text);font-size:14px}
+.form-input:focus{border-color:var(--gold-dim)}
+.form-select{width:100%;padding:10px 12px;background:var(--ink);border:1px solid var(--border);
+  border-radius:8px;color:var(--text)}
+.form-textarea{width:100%;min-height:120px;padding:10px 12px;background:var(--ink);
+  border:1px solid var(--border);border-radius:8px;color:var(--text);resize:vertical;line-height:1.6}
+.modal-actions{display:flex;gap:12px;justify-content:flex-end;margin-top:24px}
+
+/* ── Document Upload ── */
+.doc-list{margin-bottom:24px}
+.doc-item{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--surface);
+  border:1px solid var(--border);border-radius:8px;margin-bottom:8px}
+.doc-item .type-tag{font-size:11px;padding:2px 8px;border-radius:4px;background:var(--raised);color:var(--text-dim)}
+.doc-item .title{flex:1;font-size:14px}
+.doc-item .delete{color:var(--text-dim);cursor:pointer;font-size:16px}
+.doc-item .delete:hover{color:var(--red)}
+.upload-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px}
+
+/* ── Pipeline Progress ── */
+.pipeline-trace{margin-bottom:32px}
+.pipeline-step{display:flex;align-items:center;gap:12px;padding:8px 0;
+  border-bottom:1px solid var(--border);font-size:13px}
+.pipeline-step:last-child{border-bottom:none}
+.pipeline-step .icon{width:20px;height:20px;border-radius:50%;display:flex;
+  align-items:center;justify-content:center;font-size:11px;flex-shrink:0}
+.ps-pending .icon{background:var(--border);color:var(--text-dim)}
+.ps-running .icon{background:var(--gold);color:var(--ink);animation:pulse 1s infinite}
+.ps-done .icon{background:var(--patina);color:var(--ink)}
+.ps-failed .icon{background:var(--red);color:#fff}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
+.pipeline-step .name{flex:1}
+.pipeline-step .time{color:var(--text-dim);font-family:var(--mono);font-size:12px}
+
+/* ── Result Tabs ── */
+.tabs{display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:24px}
+.tab{padding:10px 20px;font-size:14px;color:var(--text-dim);cursor:pointer;
+  border-bottom:2px solid transparent;transition:0.2s}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--gold);border-bottom-color:var(--gold)}
+.tab-content{display:none}
+.tab-content.active{display:block}
+
+/* ── Result Cards ── */
+.result-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
+.result-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px}
+.result-card .label{font-size:12px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px}
+.result-card .value{font-size:24px;font-weight:600;color:var(--gold)}
+.result-card .detail{font-size:13px;color:var(--text-dim);margin-top:4px}
+.module-list{display:flex;flex-direction:column;gap:8px}
+.module-item{padding:12px 16px;background:var(--surface);border:1px solid var(--border);
+  border-radius:8px;display:flex;align-items:center;gap:12px}
+.module-item .priority{width:6px;height:24px;border-radius:3px}
+.priority-high{background:var(--red)}
+.priority-medium{background:var(--orange)}
+.priority-low{background:var(--green)}
+.module-item .info{flex:1}
+.module-item .name{font-size:14px;font-weight:500}
+.module-item .desc{font-size:12px;color:var(--text-dim);margin-top:2px}
+
+/* ── KPI Grid ── */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+.kpi-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px}
+.kpi-card .name{font-size:13px;color:var(--text-dim);margin-bottom:6px}
+.kpi-card .target{font-size:18px;font-weight:600;color:var(--gold)}
+.kpi-card .formula{font-size:11px;color:var(--text-dim);font-family:var(--mono);margin-top:4px}
+
+/* ── Risk Table ── */
+.risk-table{width:100%;border-collapse:collapse}
+.risk-table th{text-align:left;font-size:12px;color:var(--text-dim);
+  text-transform:uppercase;letter-spacing:0.5px;padding:10px 12px;
+  border-bottom:1px solid var(--border)}
+.risk-table td{padding:12px;font-size:13px;border-bottom:1px solid var(--border)}
+.risk-level{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:500}
+.risk-high{background:rgba(224,93,93,0.15);color:var(--red)}
+.risk-medium{background:rgba(224,160,77,0.15);color:var(--orange)}
+.risk-low{background:rgba(93,175,111,0.15);color:var(--green)}
+
+/* ── Export Center ── */
+.export-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
+.export-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  padding:20px;text-align:center;cursor:pointer;transition:0.2s;text-decoration:none;color:var(--text)}
+.export-card:hover{border-color:var(--gold-dim);transform:translateY(-2px)}
+.export-card .icon{font-size:28px;margin-bottom:8px}
+.export-card .label{font-size:14px;font-weight:500}
+.export-card .desc{font-size:11px;color:var(--text-dim);margin-top:4px}
+
+/* ── Back Button ── */
+.back-bar{display:flex;align-items:center;gap:12px;margin-bottom:24px}
+.back-btn{color:var(--text-dim);cursor:pointer;font-size:14px;display:flex;align-items:center;gap:6px}
+.back-btn:hover{color:var(--gold)}
+
+/* ── Mermaid ── */
+.mermaid{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  padding:24px;text-align:center;overflow-x:auto}
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- Header -->
+  <div class="header">
+    <div class="logo">
+      <div class="logo-mark">B</div>
+      <div class="logo-text">BSC <span>Studio</span></div>
+    </div>
+    <div class="header-actions">
+      <a class="header-link" href="/docs">API Docs</a>
+      <a class="header-link" href="/health">System</a>
+    </div>
+  </div>
+
+  <!-- Step Indicator -->
+  <div class="steps" id="steps">
+    <div class="step-item active" id="step1">
+      <div class="step-num">1</div>
+      <div class="step-label">项目空间</div>
+    </div>
+    <div class="step-item" id="step2">
+      <div class="step-num">2</div>
+      <div class="step-label">文档上传</div>
+    </div>
+    <div class="step-item" id="step3">
+      <div class="step-num">3</div>
+      <div class="step-label">编译结果</div>
+    </div>
+  </div>
+
+  <!-- ════ Step 1: Project Space ════ -->
+  <div id="view-projects">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <div class="section-title">项目空间 <span>Project Space</span></div>
+      <button class="btn btn-primary" onclick="showCreateModal()">+ 创建项目</button>
+    </div>
+    <div class="project-grid" id="projectGrid"></div>
+  </div>
+
+  <!-- ════ Step 2: Document Upload ════ -->
+  <div id="view-documents" style="display:none">
+    <div class="back-bar">
+      <div class="back-btn" onclick="showView('projects')">← 返回项目列表</div>
+    </div>
+    <div class="section-title" id="docTitle">文档上传</div>
+
+    <div class="doc-list" id="docList"></div>
+
+    <div class="upload-card">
+      <div style="font-size:15px;font-weight:600;margin-bottom:16px">添加文档</div>
+      <div class="form-group">
+        <label class="form-label">文档标题</label>
+        <input class="form-input" id="docTitleInput" placeholder="例：内容审核系统PRD">
+      </div>
+      <div class="form-group">
+        <label class="form-label">文档类型</label>
+        <select class="form-select" id="docTypeSelect">
+          <option value="prd">PRD / 产品需求文档</option>
+          <option value="meeting">会议纪要</option>
+          <option value="bid">招标书 / 竞标文件</option>
+          <option value="process">流程文档</option>
+          <option value="policy">政策 / 规范</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">文档内容</label>
+        <textarea class="form-textarea" id="docContentInput" placeholder="粘贴文档全文..."></textarea>
+      </div>
+      <div style="display:flex;gap:12px;margin-top:16px">
+        <button class="btn btn-ghost" onclick="addDocument()">添加文档</button>
+        <button class="btn btn-primary btn-lg" onclick="compileProject()" style="margin-left:auto">开始编译 →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════ Step 3: Compile Results ════ -->
+  <div id="view-results" style="display:none">
+    <div class="back-bar">
+      <div class="back-btn" onclick="showView('documents')">← 返回文档管理</div>
+    </div>
+    <div class="section-title">编译结果 <span>Results</span></div>
+
+    <!-- Pipeline Trace -->
+    <div class="pipeline-trace" id="pipelineTrace"></div>
+
+    <!-- Result Tabs -->
+    <div class="tabs" id="resultTabs" style="display:none">
+      <div class="tab active" onclick="switchTab(0)">业务系统</div>
+      <div class="tab" onclick="switchTab(1)">流程图</div>
+      <div class="tab" onclick="switchTab(2)">指标体系</div>
+      <div class="tab" onclick="switchTab(3)">风险体系</div>
+      <div class="tab" onclick="switchTab(4)">决策建议</div>
+      <div class="tab" onclick="switchTab(5)">导出中心</div>
+    </div>
+
+    <!-- Tab Contents -->
+    <div class="tab-content active" id="tab0">
+      <div class="result-grid" id="overviewGrid"></div>
+      <div style="margin-top:24px">
+        <div style="font-size:15px;font-weight:600;margin-bottom:12px">业务模块</div>
+        <div class="module-list" id="moduleList"></div>
+      </div>
+    </div>
+    <div class="tab-content" id="tab1">
+      <div class="mermaid" id="mermaidFlow"></div>
+    </div>
+    <div class="tab-content" id="tab2">
+      <div class="kpi-grid" id="kpiGrid"></div>
+    </div>
+    <div class="tab-content" id="tab3">
+      <table class="risk-table" id="riskTable">
+        <thead><tr><th>风险</th><th>等级</th><th>影响</th><th>缓解措施</th></tr></thead>
+        <tbody id="riskBody"></tbody>
+      </table>
+    </div>
+    <div class="tab-content" id="tab4">
+      <div id="recommendList"></div>
+    </div>
+    <div class="tab-content" id="tab5">
+      <div class="export-grid" id="exportGrid"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ════ Create Project Modal ════ -->
+<div class="modal-overlay" id="createModal">
+  <div class="modal">
+    <div class="modal-title">创建新项目</div>
+    <div class="form-group">
+      <label class="form-label">项目名称</label>
+      <input class="form-input" id="projectName" placeholder="例：ACME内容审核系统">
+    </div>
+    <div class="form-group">
+      <label class="form-label">项目描述</label>
+      <textarea class="form-textarea" id="projectDesc" style="min-height:60px" placeholder="简要描述项目目标..."></textarea>
+    </div>
+    <div class="form-group">
+      <label class="form-label">行业领域</label>
+      <select class="form-select" id="projectIndustry">
+        <option value="content_moderation">内容审核</option>
+        <option value="customer_service">客服运营</option>
+        <option value="risk_control">风控</option>
+        <option value="ecommerce">电商运营</option>
+        <option value="fintech">金融科技</option>
+        <option value="bpo">BPO外包</option>
+        <option value="general">通用</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="hideCreateModal()">取消</button>
+      <button class="btn btn-primary" onclick="createProject()">创建项目</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '';
+let currentProject = null;
+let compileResult = null;
+
+// ── Init ──
+mermaid.initialize({startOnLoad:false, theme:'dark', themeVariables:{
+  primaryColor:'#C9A84C', primaryTextColor:'#12161A', lineColor:'#5A9E96',
+  secondaryColor:'#222831', tertiaryColor:'#1A1E23'
+}});
+
+async function init(){
+  await loadProjects();
+}
+
+// ── View Switching ──
+function showView(view){
+  ['projects','documents','results'].forEach(v=>{
+    document.getElementById('view-'+v).style.display = v===view ? 'block' : 'none';
+  });
+  const map = {projects:1, documents:2, results:3};
+  ['step1','step2','step3'].forEach(s=>{
+    const el = document.getElementById(s);
+    el.classList.remove('active','done');
+    if(map[s.replace('step','')] < map[view]) el.classList.add('done');
+    else if(map[s.replace('step','')] === map[view]) el.classList.add('active');
+  });
+}
+
+// ── Step 1: Projects ──
+async function loadProjects(){
+  try{
+    const r = await fetch(API+'/workspace/projects');
+    const data = await r.json();
+    const projects = data.projects || [];
+    const grid = document.getElementById('projectGrid');
+    if(projects.length === 0){
+      grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">
+        <div class="icon">📁</div>
+        <div class="title">还没有项目</div>
+        <div class="desc">点击"创建项目"开始你的第一个业务系统编译</div>
+      </div>`;
+      return;
+    }
+    grid.innerHTML = projects.map(p=>`
+      <div class="project-card" onclick="selectProject('${p.id}')">
+        <div class="status status-${p.status||'active'}">${p.status==='compiled'?'已编译':'进行中'}</div>
+        <div class="name">${p.name||'未命名'}</div>
+        <div class="desc">${p.description||'暂无描述'}</div>
+        <div class="meta">
+          <div class="meta-item">📊 ${p.domain||'general'}</div>
+          <div class="meta-item">📄 ${p.doc_count||0} 文档</div>
+          <div class="meta-item">📦 ${p.asset_count||0} 资产</div>
+        </div>
+      </div>
+    `).join('');
+  }catch(e){
+    console.error('loadProjects error:', e);
+  }
+}
+
+function showCreateModal(){ document.getElementById('createModal').classList.add('show') }
+function hideCreateModal(){ document.getElementById('createModal').classList.remove('show') }
+
+async function createProject(){
+  const name = document.getElementById('projectName').value.trim();
+  if(!name){ alert('请输入项目名称'); return }
+  const desc = document.getElementById('projectDesc').value.trim();
+  const industry = document.getElementById('projectIndustry').value;
+  try{
+    const r = await fetch(API+'/workspace/projects', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name, description:desc, industry})
+    });
+    const data = await r.json();
+    hideCreateModal();
+    document.getElementById('projectName').value = '';
+    document.getElementById('projectDesc').value = '';
+    await loadProjects();
+    selectProject(data.project.id);
+  }catch(e){ alert('创建失败: '+e.message) }
+}
+
+async function selectProject(pid){
+  try{
+    const r = await fetch(API+`/workspace/projects/${pid}`);
+    const data = await r.json();
+    currentProject = data.project || data;
+    currentProject.id = pid;
+    currentProject.documents = data.documents || [];
+    currentProject.assets = data.assets || [];
+    document.getElementById('docTitle').innerHTML = `${currentProject.name} <span>— 文档管理</span>`;
+    renderDocuments();
+    showView('documents');
+  }catch(e){ console.error('selectProject:', e) }
+}
+
+// ── Step 2: Documents ──
+function renderDocuments(){
+  const list = document.getElementById('docList');
+  const docs = currentProject.documents || [];
+  if(docs.length === 0){
+    list.innerHTML = '<div style="color:var(--text-dim);font-size:13px;padding:12px">暂无文档，请在下方添加</div>';
+    return;
+  }
+  const typeMap = {prd:'PRD', meeting:'会议纪要', bid:'招标书', process:'流程文档', policy:'政策规范',
+    meeting_notes:'会议纪要', process_doc:'流程文档', bid_material:'招标书', other:'其他'};
+  list.innerHTML = docs.map(d=>`
+    <div class="doc-item">
+      <span class="type-tag">${typeMap[d.doc_type||d.type]||'文档'}</span>
+      <span class="title">${d.title||d.filename||'未命名'}</span>
+      <span style="font-size:12px;color:var(--text-dim)">${(d.content||'').length}字</span>
+    </div>
+  `).join('');
+}
+
+async function addDocument(){
+  const title = document.getElementById('docTitleInput').value.trim();
+  const content = document.getElementById('docContentInput').value.trim();
+  if(!title || !content){ alert('请填写标题和内容'); return }
+  const doc_type = document.getElementById('docTypeSelect').value;
+  try{
+    await fetch(API+`/workspace/projects/${currentProject.id}/documents`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({title, content, doc_type})
+    });
+    document.getElementById('docTitleInput').value = '';
+    document.getElementById('docContentInput').value = '';
+    // Reload project
+    await selectProject(currentProject.id);
+  }catch(e){ alert('添加失败: '+e.message) }
+}
+
+// ── Step 3: Compile ──
+async function compileProject(){
+  showView('results');
+  const traceDiv = document.getElementById('pipelineTrace');
+  traceDiv.innerHTML = '<div style="color:var(--gold);font-size:15px;margin-bottom:16px">⏳ 正在编译业务系统...</div>';
+
+  try{
+    const r = await fetch(API+`/workspace/projects/${currentProject.id}/compile`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({project_id: currentProject.id, output_types:['html','ppt','json']})
+    });
+    const data = await r.json();
+    compileResult = data;
+    renderPipelineTrace(data.pipeline || data);
+    renderResults(data);
+  }catch(e){
+    traceDiv.innerHTML = `<div style="color:var(--red)">编译失败: ${e.message}</div>`;
+  }
+}
+
+function renderPipelineTrace(pipeline){
+  const stages = pipeline.stages || [];
+  const traceDiv = document.getElementById('pipelineTrace');
+  if(stages.length === 0){
+    traceDiv.innerHTML = '<div style="color:var(--patina)">✅ 编译完成</div>';
+    return;
+  }
+  traceDiv.innerHTML = '<div style="font-size:15px;font-weight:600;margin-bottom:12px">Pipeline 执行</div>' +
+    stages.map(s=>{
+      const status = s.status === 'done' ? 'ps-done' : s.status === 'error' ? 'ps-failed' : 'ps-pending';
+      const icon = s.status === 'done' ? '✓' : s.status === 'error' ? '✗' : '○';
+      return `<div class="pipeline-step ${status}">
+        <div class="icon">${icon}</div>
+        <div class="name">${s.display || s.agent}</div>
+        <div class="time">${(s.duration_ms||0).toFixed(0)}ms</div>
+      </div>`;
+    }).join('');
+}
+
+function renderResults(data){
+  document.getElementById('resultTabs').style.display = 'flex';
+  const bs = data.business_system || {};
+
+  // Tab 0: Overview
+  const modules = bs.modules || [];
+  const metrics = bs.metrics || bs.kpi || [];
+  const risks = bs.risk || bs.risks || [];
+  const workflow = bs.workflow || [];
+
+  document.getElementById('overviewGrid').innerHTML = `
+    <div class="result-card"><div class="label">业务模块</div><div class="value">${modules.length}</div><div class="detail">个模块</div></div>
+    <div class="result-card"><div class="label">流程节点</div><div class="value">${workflow.length}</div><div class="detail">个步骤</div></div>
+    <div class="result-card"><div class="label">指标体系</div><div class="value">${Array.isArray(metrics)?metrics.length:(metrics.branches?metrics.branches.length:0)}</div><div class="detail">个指标</div></div>
+    <div class="result-card"><div class="label">风险体系</div><div class="value">${risks.length}</div><div class="detail">个风险</div></div>
+  `;
+
+  document.getElementById('moduleList').innerHTML = modules.map(m=>`
+    <div class="module-item">
+      <div class="priority priority-${m.priority||'medium'}"></div>
+      <div class="info">
+        <div class="name">${m.name||m.id||'模块'}</div>
+        <div class="desc">${(m.description||'').substring(0,80)}</div>
+      </div>
+    </div>
+  `).join('') || '<div style="color:var(--text-dim)">无模块数据</div>';
+
+  // Tab 1: Flowchart (Mermaid)
+  renderMermaid(workflow);
+
+  // Tab 2: KPIs
+  const kpiList = Array.isArray(metrics) ? metrics : (metrics.branches || []);
+  document.getElementById('kpiGrid').innerHTML = kpiList.map(k=>{
+    const name = k.name || k.id || '指标';
+    const target = k.target || k.warning_threshold || '—';
+    const formula = k.formula || '';
+    return `<div class="kpi-card">
+      <div class="name">${name}</div>
+      <div class="target">${target}</div>
+      <div class="formula">${formula}</div>
+    </div>`;
+  }).join('') || '<div style="color:var(--text-dim)">无指标数据</div>';
+
+  // Tab 3: Risks
+  const riskList = risks.map ? risks : [];
+  document.getElementById('riskBody').innerHTML = riskList.map(r=>{
+    const level = r.impact || r.level || 'medium';
+    const levelClass = level === 'high' || level === '高' ? 'risk-high' : level === 'medium' || level === '中' ? 'risk-medium' : 'risk-low';
+    return `<tr>
+      <td>${r.name||r.id||'风险'}</td>
+      <td><span class="risk-level ${levelClass}">${level}</span></td>
+      <td>${(r.description||r.cause||'').substring(0,60)}</td>
+      <td>${(r.mitigation && typeof r.mitigation === 'object' ? r.mitigation.action : r.mitigation)||'—'}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="4" style="color:var(--text-dim)">无风险数据</td></tr>';
+
+  // Tab 4: Recommendations
+  const recs = (data.decision && data.decision.recommendations) || [];
+  document.getElementById('recommendList').innerHTML = recs.map((r,i)=>`
+    <div class="result-card" style="margin-bottom:8px">
+      <div style="font-size:14px">${typeof r === 'string' ? r : (r.action || r.title || JSON.stringify(r))}</div>
+    </div>
+  `).join('') || '<div style="color:var(--text-dim)">暂无决策建议</div>';
+
+  // Tab 5: Export
+  const assets = data.assets || {};
+  const assetList = assets.assets || [];
+  const pid = currentProject.id;
+  const exportTypes = [
+    {type:'ppt', icon:'📊', label:'PPT报告', desc:'Executive presentation'},
+    {type:'html', icon:'🌐', label:'HTML报告', desc:'Web dashboard'},
+    {type:'json', icon:'📄', label:'JSON数据', desc:'Raw business system'},
+  ];
+  document.getElementById('exportGrid').innerHTML = exportTypes.map(et=>`
+    <a class="export-card" href="${API}/workspace/projects/${pid}/export/${et.type}" target="_blank">
+      <div class="icon">${et.icon}</div>
+      <div class="label">${et.label}</div>
+      <div class="desc">${et.desc}</div>
+    </a>
+  `).join('') + (assetList.length > 0 ? assetList.map(a=>`
+    <a class="export-card" href="${API}/workspace/projects/${pid}/export/${a.asset_type||a.type||'json'}" target="_blank">
+      <div class="icon">📦</div>
+      <div class="label">${a.label||a.file_name||'Asset'}</div>
+      <div class="desc">${a.asset_type||a.type||''}</div>
+    </a>
+  `).join('') : '');
+}
+
+function renderMermaid(workflow){
+  const container = document.getElementById('mermaidFlow');
+  if(!workflow || workflow.length === 0){
+    container.innerHTML = '<div style="color:var(--text-dim);padding:24px">无流程数据</div>';
+    return;
+  }
+  let lines = ['graph LR'];
+  const typeStyle = {start:':::startNode', end:':::endNode', decision:':::decisionNode'};
+  workflow.forEach(n=>{
+    const id = (n.id||'node').replace(/-/g,'_');
+    const name = (n.name||n.id||'').replace(/"/g,"'");
+    const style = typeStyle[n.type] || '';
+    if(n.type === 'decision') lines.push(`  ${id}{${name}}${style}`);
+    else lines.push(`  ${id}[${name}]${style}`);
+  });
+  workflow.forEach(n=>{
+    const id = (n.id||'node').replace(/-/g,'_');
+    if(n.next_node_id){
+      const next = n.next_node_id.replace(/-/g,'_');
+      lines.push(`  ${id} --> ${next}`);
+    }
+    if(n.conditions){
+      n.conditions.forEach(c=>{
+        const next = (c.next_node_id||'').replace(/-/g,'_');
+        if(next) lines.push(`  ${id} -->|${c.condition||''}| ${next}`);
+      });
+    }
+  });
+  lines.push('  classDef startNode fill:#C9A84C,stroke:#B8923A,color:#12161A');
+  lines.push('  classDef endNode fill:#5A9E96,stroke:#4A8E86,color:#12161A');
+  lines.push('  classDef decisionNode fill:#B8923A,stroke:#C9A84C,color:#12161A');
+  const graph = lines.join('\n');
+  container.innerHTML = '';
+  const mermaidDiv = document.createElement('div');
+  mermaidDiv.className = 'mermaid';
+  mermaidDiv.textContent = graph;
+  container.appendChild(mermaidDiv);
+  mermaid.run({nodes:[mermaidDiv]}).catch(e=>{ container.innerHTML = '<pre style="color:var(--text-dim)">'+graph+'</pre>' });
+}
+
+// ── Tab Switching ──
+function switchTab(idx){
+  document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active', i===idx));
+  document.querySelectorAll('.tab-content').forEach((t,i)=>t.classList.toggle('active', i===idx));
+}
+
+// ── Start ──
+init();
+</script>
+</body>
+</html>

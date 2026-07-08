@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720">
+  <defs>
+    <linearGradient id="topGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#2E86AB"/>
+      <stop offset="100%" stop-color="#1B3A5C"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="720" fill="#F8FAFB"/>
+  <rect x="0" y="0" width="1280" height="5" fill="url(#topGrad)"/>
+  <!-- header -->
+  <rect x="60" y="28" width="42" height="42" rx="8" fill="#1B3A5C"/>
+  <text x="81" y="58" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="20" font-weight="bold" fill="#FFFFFF">{{CHAPTER_NUM}}</text>
+  <text x="118" y="58" font-family="Segoe UI,Microsoft YaHei,sans-serif" font-size="24" font-weight="bold" fill="#2D3436">{{PAGE_TITLE}}</text>
+  <line x1="60" y1="88" x2="1220" y2="88" stroke="#DEE2E6" stroke-width="1" stroke-dasharray="6,4"/>
+  <!-- Swimlanes -->
+  {{SWIMLANES}}
+  <!-- footer -->
+  <rect x="0" y="716" width="1280" height="4" fill="#1B3A5C"/>
+  <text x="640" y="695" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12" fill="#636E72">{{PAGE_NUM}}</text>
+</svg>

@@ -1,0 +1,1546 @@
+{
+  "tfidf": {
+    "vocab": {
+      "content": 0,
+      "ingestion": 1,
+      "accepts": 2,
+      "user": 3,
+      "submitted": 4,
+      "via": 5,
+      "api": 6,
+      "web": 7,
+      "upload": 8,
+      "ai": 9,
+      "screening": 10,
+      "engine": 11,
+      "automated": 12,
+      "sensitive": 13,
+      "words": 14,
+      "policy": 15,
+      "violations": 16,
+      "human": 17,
+      "review": 18,
+      "workbench": 19,
+      "queue": 20,
+      "flagged": 21,
+      "audit": 22,
+      "log": 23,
+      "operations": 24,
+      "analytics": 25,
+      "real": 26,
+      "time": 27,
+      "dashboards": 28,
+      "throughput": 29,
+      "sla": 30,
+      "submit": 31,
+      "auto": 32,
+      "risk": 33,
+      "classification": 34,
+      "decision": 35,
+      "publish": 36,
+      "notify": 37,
+      "rejection": 38,
+      "daily": 39,
+      "formula": 40,
+      "processed": 41,
+      "day": 42,
+      "target": 43,
+      "4000": 44,
+      "avg": 45,
+      "sum": 46,
+      "screen_ms": 47,
+      "count": 48,
+      "500": 49,
+      "accuracy": 50,
+      "correct": 51,
+      "total": 52,
+      "100": 53,
+      "99": 54,
+      "false": 55,
+      "positive": 56,
+      "rate": 57,
+      "fp": 58,
+      "total_flagged": 59,
+      "1": 60,
+      "length": 61,
+      "pending": 62,
+      "200": 63,
+      "reviewer": 64,
+      "utilization": 65,
+      "active": 66,
+      "shift": 67,
+      "70": 68,
+      "85": 69,
+      "cost": 70,
+      "per": 71,
+      "total_cost": 72,
+      "reviewed": 73,
+      "0": 74,
+      "50": 75,
+      "compliance": 76,
+      "sla_met": 77,
+      "5": 78,
+      "creator": 79,
+      "workflow": 80,
+      "role": 81,
+      "system": 82,
+      "negatives": 83,
+      "probability": 84,
+      "medium": 85,
+      "impact": 86,
+      "high": 87,
+      "fatigue": 88,
+      "peak": 89,
+      "volume": 90,
+      "overload": 91,
+      "low": 92,
+      "downtime": 93
+    },
+    "idf": {
+      "content": 2.668526828804107,
+      "ingestion": 4.194583132299156,
+      "accepts": 4.194583132299156,
+      "user": 4.194583132299156,
+      "submitted": 4.194583132299156,
+      "via": 4.194583132299156,
+      "api": 3.5527292461267614,
+      "web": 4.194583132299156,
+      "upload": 4.194583132299156,
+      "ai": 2.8862503126489774,
+      "screening": 2.8862503126489774,
+      "engine": 4.194583132299156,
+      "automated": 4.194583132299156,
+      "sensitive": 4.194583132299156,
+      "words": 4.194583132299156,
+      "policy": 4.194583132299156,
+      "violations": 4.194583132299156,
+      "human": 3.164963715117998,
+      "review": 2.668526828804107,
+      "workbench": 4.194583132299156,
+      "queue": 3.5527292461267614,
+      "flagged": 4.194583132299156,
+      "audit": 4.194583132299156,
+      "log": 4.194583132299156,
+      "operations": 4.194583132299156,
+      "analytics": 4.194583132299156,
+      "real": 4.194583132299156,
+      "time": 3.5527292461267614,
+      "dashboards": 4.194583132299156,
+      "throughput": 3.5527292461267614,
+      "sla": 3.5527292461267614,
+      "submit": 4.194583132299156,
+      "auto": 4.194583132299156,
+      "risk": 4.194583132299156,
+      "classification": 4.194583132299156,
+      "decision": 4.194583132299156,
+      "publish": 4.194583132299156,
+      "notify": 4.194583132299156,
+      "rejection": 4.194583132299156,
+      "daily": 4.194583132299156,
+      "formula": 2.2067087841448108,
+      "processed": 4.194583132299156,
+      "day": 4.194583132299156,
+      "target": 2.2067087841448108,
+      "4000": 4.194583132299156,
+      "avg": 4.194583132299156,
+      "sum": 4.194583132299156,
+      "screen_ms": 4.194583132299156,
+      "count": 3.5527292461267614,
+      "500": 4.194583132299156,
+      "accuracy": 4.194583132299156,
+      "correct": 4.194583132299156,
+      "total": 3.5527292461267614,
+      "100": 2.8862503126489774,
+      "99": 3.5527292461267614,
+      "false": 3.5527292461267614,
+      "positive": 4.194583132299156,
+      "rate": 3.5527292461267614,
+      "fp": 4.194583132299156,
+      "total_flagged": 4.194583132299156,
+      "1": 4.194583132299156,
+      "length": 4.194583132299156,
+      "pending": 4.194583132299156,
+      "200": 4.194583132299156,
+      "reviewer": 3.164963715117998,
+      "utilization": 4.194583132299156,
+      "active": 4.194583132299156,
+      "shift": 4.194583132299156,
+      "70": 4.194583132299156,
+      "85": 4.194583132299156,
+      "cost": 4.194583132299156,
+      "per": 4.194583132299156,
+      "total_cost": 4.194583132299156,
+      "reviewed": 4.194583132299156,
+      "0": 4.194583132299156,
+      "50": 4.194583132299156,
+      "compliance": 4.194583132299156,
+      "sla_met": 4.194583132299156,
+      "5": 4.194583132299156,
+      "creator": 4.194583132299156,
+      "workflow": 2.8862503126489774,
+      "role": 2.8862503126489774,
+      "system": 3.5527292461267614,
+      "negatives": 4.194583132299156,
+      "probability": 2.8862503126489774,
+      "medium": 3.5527292461267614,
+      "impact": 2.8862503126489774,
+      "high": 3.164963715117998,
+      "fatigue": 4.194583132299156,
+      "peak": 4.194583132299156,
+      "volume": 4.194583132299156,
+      "overload": 4.194583132299156,
+      "low": 3.5527292461267614,
+      "downtime": 4.194583132299156
+    },
+    "doc_count": 243,
+    "doc_freq": {
+      "submitted": 9,
+      "upload": 9,
+      "api": 18,
+      "ingestion": 9,
+      "via": 9,
+      "web": 9,
+      "accepts": 9,
+      "content": 45,
+      "user": 9,
+      "policy": 9,
+      "ai": 36,
+      "violations": 9,
+      "sensitive": 9,
+      "engine": 9,
+      "screening": 36,
+      "automated": 9,
+      "words": 9,
+      "flagged": 9,
+      "audit": 9,
+      "review": 45,
+      "human": 27,
+      "queue": 18,
+      "log": 9,
+      "workbench": 9,
+      "real": 9,
+      "dashboards": 9,
+      "time": 18,
+      "throughput": 18,
+      "sla": 18,
+      "analytics": 9,
+      "operations": 9,
+      "submit": 9,
+      "auto": 9,
+      "risk": 9,
+      "classification": 9,
+      "decision": 9,
+      "publish": 9,
+      "notify": 9,
+      "rejection": 9,
+      "daily": 9,
+      "day": 9,
+      "formula": 72,
+      "4000": 9,
+      "processed": 9,
+      "target": 72,
+      "avg": 9,
+      "500": 9,
+      "sum": 9,
+      "count": 18,
+      "screen_ms": 9,
+      "100": 36,
+      "total": 18,
+      "accuracy": 9,
+      "correct": 9,
+      "99": 18,
+      "false": 18,
+      "positive": 9,
+      "fp": 9,
+      "total_flagged": 9,
+      "1": 9,
+      "rate": 18,
+      "200": 9,
+      "pending": 9,
+      "length": 9,
+      "reviewer": 27,
+      "70": 9,
+      "85": 9,
+      "active": 9,
+      "shift": 9,
+      "utilization": 9,
+      "total_cost": 9,
+      "cost": 9,
+      "per": 9,
+      "reviewed": 9,
+      "0": 9,
+      "50": 9,
+      "compliance": 9,
+      "5": 9,
+      "sla_met": 9,
+      "workflow": 36,
+      "creator": 9,
+      "role": 36,
+      "system": 18,
+      "medium": 18,
+      "negatives": 9,
+      "impact": 36,
+      "high": 27,
+      "probability": 36,
+      "fatigue": 9,
+      "peak": 9,
+      "volume": 9,
+      "overload": 9,
+      "low": 18,
+      "downtime": 9
+    },
+    "documents": {
+      "content-ingestion": {
+        "doc_id": "content-ingestion",
+        "text": "Content Ingestion Accepts user-submitted content via API and web upload",
+        "category": "objective",
+        "domain": "moderation",
+        "project_id": "",
+        "metadata": {
+          "title": "Content Ingestion",
+          "description": "Accepts user-submitted content via API and web upload"
+        },
+        "sparse_indices": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8
+        ],
+        "sparse_values": [
+          2.646825444505721,
+          2.040954984897522,
+          2.040954984897522,
+          2.040954984897522,
+          2.040954984897522,
+          2.040954984897522,
+          1.7470616524464622,
+          2.040954984897522,
+          2.040954984897522
+        ]
+      },
+      "ai-screening": {
+        "doc_id": "ai-screening",
+        "text": "AI Screening Engine Automated screening for sensitive words and policy violations",
+        "category": "objective",
+        "domain": "moderation",
+        "project_id": "",
+        "metadata": {
+          "title": "AI Screening Engine",
+          "description": "Automated screening for sensitive words and policy violations"
+        },
+        "sparse_indices": [
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16
+        ],
+        "sparse_values": [
+          1.4313556026001697,
+          2.8627112052003394,
+          2.0432433184112275,
+          2.0432433184112275,
+          2.0432433184112275,
+          2.0432433184112275,
+          2.0432433184112275,
+          2.0432433184112275
+        ]
+      },
+      "human-review": {
+        "doc_id": "human-review",
+        "text": "Human Review ",
+        "category": "process",
+        "domain": "moderation",
+        "project_id": "",
+        "metadata": {
+          "title": "Human Review",
+          "description": ""
+        },
+        "sparse_indices": [
+          17,
+          18
+        ],
+        "sparse_values": [
+          3.120263536200091,
+          2.6549002865108577
+        ]
+      },
+      "analytics": {
+        "doc_id": "analytics",
+        "text": "Operations Analytics Real-time dashboards for throughput and SLA",
+        "category": "objective",
+        "domain": "moderation",
+        "project_id": "",
+        "metadata": {
+          "title": "Operations Analytics",
+          "description": "Real-time dashboards for throughput and SLA"
+        },
+        "sparse_indices": [
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30
+        ],
+        "sparse_values": [
+          4.095577608523707,
+          4.095577608523707,
+          4.095577608523707,
+          3.5077909436215884,
+          4.095577608523707,
+          3.5077909436215884,
+          3.5077909436215884
+        ]
+      },
+      "submit": {
+        "doc_id": "submit",
+        "text": "Submit Content ",
+        "category": "process",
+        "domain": "moderation",
+        "project_id": "",
+        "metadata": {
+          "title": "Submit Content",
+          "description": ""
+        },
+        "sparse_indices": [
+          0,
+          31
+        ],
+        "sparse_values": [
+          2.6184877479540183,
+          4.100092288878233
+        ]
+      },
+      "ai-screen": {
+        "doc_id": "ai-screen",
+        "text": "AI Auto-Screening ",
+        "category": "process",
+        "domain": "moderation",
+        "project_id": "",
+        "metadata": {
+          "title": "AI Auto-Screening",
+          "description": ""
+        },
+        "sparse_indices": [
+          9,
+          10,
+          32
+        ],
+        "sparse_values": [
+          2.851823709970705,
+          2.851823709970705,
+          4.104586678466073
+        ]
+      },
+      "classify": {
+        "doc_id": "classify",
+        "text": "Risk Classification ",
+        "category": "process",
+        "domain": "moderation",
+        "project_id": "",
+        "metadata": {
+          "title": "Risk Classification",
+          "description": ""
+        },
+        "sparse_indices": [
+          33,
+          34
+        ],
+        "sparse_values": [
+          4.109060958860994,
+          4.109060958860994
+        ]
+      },
+      "review-decision": {
+        "doc_id": "review-decision",
+        "text": "Review Decision ",
+        "category": "process",
+        "domain": "moderation",
+        "project_id": "",
+        "metadata": {
+          "title": "Review Decision",
+          "description": ""
+        },
+        "sparse_indices": [
+          18,
+          35
+        ],
+        "sparse_values": [
+          2.6363453653540248,
+          4.11794990627824
+        ]
+      },
+      "publish": {
+        "doc_id": "publish",
+        "text": "Publish Content ",
+        "category": "process",
+        "domain": "moderation",
+        "project_id": "",
+        "metadata": {
+          "title": "Publish Content",
+          "description": ""
+        },
+        "sparse_indices": [
+          0,
+          36
+        ],
+        "sparse_values": [
+          2.618287527711083,
+          4.122364924487357
+        ]
+      },
+      "notify-rejection": {
+        "doc_id": "notify-rejection",
+        "text": "Notify Rejection ",
+        "category": "process",
+        "domain": "moderation",
+        "project_id": "",
+        "metadata": {
+          "title": "Notify Rejection",
+          "description": ""
+        },
+        "sparse_indices": [
+          37,
+          38
+        ],
+        "sparse_values": [
+          4.126760535960395,
+          4.126760535960395
+        ]
+      },
+      "throughput": {
+        "doc_id": "throughput",
+        "text": "Daily Throughput Formula: processed / day. Target: > 4000",
+        "category": "metric",
+        "domain": "moderation",
+        "project_id": "",
+        "metadata": {
+          "title": "Daily Throughput",
+          "description": "Formula: processed / day. Target: > 4000"
+        },
+        "sparse_indices": [
+          29,
+          39,
+          40,
+          41,
+          42,
+          43,
+          44
+        ],
+        "sparse_values": [
+          3.4892830243877992,
+          4.131136910560194,
+          2.244067261527814,
+          4.131136910560194,
+          4.131136910560194,
+          2.244067261527814,
+          4.131136910560194
+        ]
+      },
+      "avg-screen-time": {
+        "doc_id": "avg-screen-time",
+        "text": "Avg Screening Time Formula: sum(screen_ms) / count. Target: < 500",
+        "category": "metric",
+        "domain": "moderation",
+        "project_id": "",
+        "metadata": {
+          "title": "Avg Screening Time",
+          "description": "Formula: sum(screen_ms) / count. Target: < 500"
+        },
+        "sparse_indices": [
+          10,
+          27,
+          40,
+          43,
+          45,
+          46,
+          47,
+          48,
+          49
+        ],
+        "sparse_values": [
+          2.8545603704670857,
+          3.493640329756755,
+          2.2333866895322294,
+          2.2333866895322294,
+          4.13549421592915,
+          4.13549421592915,
+          4.13549421592915,
+          3.5477075510270306,
+          4.13549421592915
+        ]
+      },
+      "accuracy": {
+        "doc_id": "accuracy",
+        "text": "Screening Accuracy Formula: correct / total * 100. Target: > 99",
+        "category": "metric",
+        "domain": "moderation",
+        "project_id": "",
+        "metadata": {
+          "title": "Screening Accuracy",
+          "description": "Formula: correct / total * 100. Target: > 99"
+        },
+        "sparse_indices": [
+          10,
+          40,
+          43,
+          50,
+          51,
+          52,
+          53,
+          54
+        ],
+        "sparse_values": [
+          2.8314997978775693,
+          2.2229100053456867,
+          2.2229100053456867,
+          4.139832617527748,
+          4.139832617527748,
+          3.5520459526256287,
+          2.916057185905632,
+          3.5520459526256287
+        ]
+      },
+      "false-positive-rate": {
+        "doc_id": "false-positive-rate",
+        "text": "False Positive Rate Formula: fp / total_flagged * 100. Target: < 1",
+        "category": "metric",
+        "domain": "moderation",
+        "project_id": "",
+        "metadata": {
+          "title": "False Positive Rate",
+          "description": "Formula: fp / total_flagged * 100. Target: < 1"
+        },
+        "sparse_indices": [
+          40,
+          43,
+          53,
+          55,
+          56,
+          57,
+          58,
+          59,
+          60
+        ],
+        "sparse_values": [
+          2.21263086706905,
+          2.21263086706905,
+          2.8913893101768964,
+          3.5563656137701454,
+          4.144152278672264,
+          3.5563656137701454,
+          4.144152278672264,
+          4.144152278672264,
+          4.144152278672264
+        ]
+      },
+      "queue-length": {
+        "doc_id": "queue-length",
+        "text": "Review Queue Length Formula: count(pending). Target: < 200",
+        "category": "metric",
+        "domain": "moderation",
+        "project_id": "",
+        "metadata": {
+          "title": "Review Queue Length",
+          "description": "Formula: count(pending). Target: < 200"
+        },
+        "sparse_indices": [
+          18,
+          20,
+          40,
+          43,
+          48,
+          61,
+          62,
+          63
+        ],
+        "sparse_values": [
+          2.6443759637953805,
+          3.5065994743992603,
+          2.2025432115163417,
+          2.2025432115163417,
+          3.5065994743992603,
+          4.148453360571654,
+          4.148453360571654,
+          4.148453360571654
+        ]
+      },
+      "reviewer-util": {
+        "doc_id": "reviewer-util",
+        "text": "Reviewer Utilization Formula: active / shift * 100. Target: 70-85",
+        "category": "metric",
+        "domain": "moderation",
+        "project_id": "",
+        "metadata": {
+          "title": "Reviewer Utilization",
+          "description": "Formula: active / shift * 100. Target: 70-85"
+        },
+        "sparse_indices": [
+          40,
+          43,
+          53,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69
+        ],
+        "sparse_values": [
+          2.1926412383163862,
+          2.1926412383163862,
+          2.8718021769015913,
+          3.1972245773362196,
+          4.152736022363656,
+          4.152736022363656,
+          4.152736022363656,
+          4.152736022363656,
+          4.152736022363656
+        ]
+      },
+      "cost-per-review": {
+        "doc_id": "cost-per-review",
+        "text": "Cost Per Review Formula: total_cost / reviewed. Target: < 0.50",
+        "category": "metric",
+        "domain": "moderation",
+        "project_id": "",
+        "metadata": {
+          "title": "Cost Per Review",
+          "description": "Formula: total_cost / reviewed. Target: < 0.50"
+        },
+        "sparse_indices": [
+          18,
+          40,
+          43,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75
+        ],
+        "sparse_values": [
+          2.630944117655064,
+          2.1829193951281036,
+          2.1829193951281036,
+          4.157000421150114,
+          4.157000421150114,
+          4.157000421150114,
+          4.157000421150114,
+          4.157000421150114,
+          4.157000421150114
+        ]
+      },
+      "sla-compliance": {
+        "doc_id": "sla-compliance",
+        "text": "SLA Compliance Rate Formula: sla_met / total * 100. Target: > 99.5",
+        "category": "metric",
+        "domain": "moderation",
+        "project_id": "",
+        "metadata": {
+          "title": "SLA Compliance Rate",
+          "description": "Formula: sla_met / total * 100. Target: > 99.5"
+        },
+        "sparse_indices": [
+          30,
+          40,
+          43,
+          52,
+          53,
+          54,
+          57,
+          76,
+          77,
+          78
+        ],
+        "sparse_values": [
+          3.51939282585917,
+          2.1733723638772187,
+          2.1733723638772187,
+          3.51939282585917,
+          2.8529138923813857,
+          3.51939282585917,
+          3.51939282585917,
+          4.161246712031565,
+          4.161246712031565,
+          4.161246712031565
+        ]
+      },
+      "role_content_creator": {
+        "doc_id": "role_content_creator",
+        "text": "Content Creator Workflow role: Content Creator",
+        "category": "role",
+        "domain": "moderation",
+        "project_id": "",
+        "metadata": {
+          "title": "Content Creator",
+          "description": "Workflow role: Content Creator"
+        },
+        "sparse_indices": [
+          0,
+          79,
+          80,
+          81
+        ],
+        "sparse_values": [
+          2.6394187446460364,
+          4.165475048141086,
+          1.470849808259485,
+          1.470849808259485
+        ]
+      },
+      "role_ai_system": {
+        "doc_id": "role_ai_system",
+        "text": "AI System Workflow role: AI System",
+        "category": "role",
+        "domain": "moderation",
+        "project_id": "",
+        "metadata": {
+          "title": "AI System",
+          "description": "Workflow role: AI System"
+        },
+        "sparse_indices": [
+          9,
+          80,
+          81,
+          82
+        ],
+        "sparse_values": [
+          2.8887517352153647,
+          1.4584613060910305,
+          1.4584613060910305,
+          3.58189891577531
+        ]
+      },
+      "role_human_reviewer": {
+        "doc_id": "role_human_reviewer",
+        "text": "Human Reviewer Workflow role: Human Reviewer",
+        "category": "role",
+        "domain": "moderation",
+        "project_id": "",
+        "metadata": {
+          "title": "Human Reviewer",
+          "description": "Workflow role: Human Reviewer"
+        },
+        "sparse_indices": [
+          17,
+          64,
+          80,
+          81
+        ],
+        "sparse_values": [
+          3.1442590417563068,
+          3.1806266859271815,
+          1.4464723067377003,
+          1.4464723067377003
+        ]
+      },
+      "role_system": {
+        "doc_id": "role_system",
+        "text": "System Workflow role: System",
+        "category": "role",
+        "domain": "moderation",
+        "project_id": "",
+        "metadata": {
+          "title": "System",
+          "description": "Workflow role: System"
+        },
+        "sparse_indices": [
+          80,
+          81,
+          82
+        ],
+        "sparse_values": [
+          1.4348605053488834,
+          1.4348605053488834,
+          3.536199944175551
+        ]
+      },
+      "R1": {
+        "doc_id": "R1",
+        "text": "AI False Negatives Probability: medium. Impact: high",
+        "category": "risk",
+        "domain": "moderation",
+        "project_id": "",
+        "metadata": {
+          "title": "AI False Negatives",
+          "description": "Probability: medium. Impact: high"
+        },
+        "sparse_indices": [
+          9,
+          55,
+          83,
+          84,
+          85,
+          86,
+          87
+        ],
+        "sparse_values": [
+          2.8738790208464304,
+          3.5403579543242145,
+          4.18221184049661,
+          2.9584364088744937,
+          3.5944251755944903,
+          2.9584364088744937,
+          3.226700395469173
+        ]
+      },
+      "R2": {
+        "doc_id": "R2",
+        "text": "Reviewer Fatigue Probability: medium. Impact: medium",
+        "category": "risk",
+        "domain": "moderation",
+        "project_id": "",
+        "metadata": {
+          "title": "Reviewer Fatigue",
+          "description": "Probability: medium. Impact: medium"
+        },
+        "sparse_indices": [
+          64,
+          84,
+          85,
+          86,
+          88
+        ],
+        "sparse_values": [
+          1.5783666079907412,
+          1.4667948323336364,
+          3.544498746990246,
+          1.4667948323336364,
+          2.0931763165813204
+        ]
+      },
+      "R3": {
+        "doc_id": "R3",
+        "text": "Peak Volume Overload Probability: low. Impact: high",
+        "category": "risk",
+        "domain": "moderation",
+        "project_id": "",
+        "metadata": {
+          "title": "Peak Volume Overload",
+          "description": "Probability: low. Impact: high"
+        },
+        "sparse_indices": [
+          84,
+          86,
+          87,
+          89,
+          90,
+          91,
+          92
+        ],
+        "sparse_values": [
+          2.9095425048844383,
+          2.9095425048844383,
+          3.1972245773362196,
+          4.190476350346502,
+          4.190476350346502,
+          4.190476350346502,
+          3.6026896854443837
+        ]
+      },
+      "R4": {
+        "doc_id": "R4",
+        "text": "API Downtime Probability: low. Impact: high",
+        "category": "risk",
+        "domain": "moderation",
+        "project_id": "",
+        "metadata": {
+          "title": "API Downtime",
+          "description": "Probability: low. Impact: high"
+        },
+        "sparse_indices": [
+          6,
+          84,
+          86,
+          87,
+          92,
+          93
+        ],
+        "sparse_values": [
+          3.5527292461267614,
+          2.8862503126489774,
+          2.8862503126489774,
+          3.164963715117998,
+          3.5527292461267614,
+          4.194583132299156
+        ]
+      }
+    }
+  },
+  "entities": {
+    "content-ingestion": {
+      "entity_id": "content-ingestion",
+      "entity_type": "objective",
+      "text": "Content Ingestion Accepts user-submitted content via API and web upload",
+      "domain": "moderation",
+      "project_id": "",
+      "entity_data": {
+        "id": "content-ingestion",
+        "name": "Content Ingestion",
+        "description": "Accepts user-submitted content via API and web upload",
+        "owner": "Platform Team",
+        "priority": "high",
+        "dependencies": [],
+        "tags": []
+      }
+    },
+    "ai-screening": {
+      "entity_id": "ai-screening",
+      "entity_type": "objective",
+      "text": "AI Screening Engine Automated screening for sensitive words and policy violations",
+      "domain": "moderation",
+      "project_id": "",
+      "entity_data": {
+        "id": "ai-screening",
+        "name": "AI Screening Engine",
+        "description": "Automated screening for sensitive words and policy violations",
+        "owner": "ML Team",
+        "priority": "critical",
+        "dependencies": [],
+        "tags": []
+      }
+    },
+    "human-review": {
+      "entity_id": "human-review",
+      "entity_type": "process",
+      "text": "Human Review ",
+      "domain": "moderation",
+      "project_id": "",
+      "entity_data": {
+        "id": "human-review",
+        "name": "Human Review",
+        "type": "action",
+        "owner": "Human Reviewer",
+        "description": "",
+        "next_node_id": "review-decision",
+        "conditions": [],
+        "inputs": [
+          "flagged_content"
+        ],
+        "outputs": [
+          "review_verdict"
+        ],
+        "sla_hours": 24.0,
+        "est_duration_minutes": 15.0
+      }
+    },
+    "analytics": {
+      "entity_id": "analytics",
+      "entity_type": "objective",
+      "text": "Operations Analytics Real-time dashboards for throughput and SLA",
+      "domain": "moderation",
+      "project_id": "",
+      "entity_data": {
+        "id": "analytics",
+        "name": "Operations Analytics",
+        "description": "Real-time dashboards for throughput and SLA",
+        "owner": "Data Team",
+        "priority": "medium",
+        "dependencies": [],
+        "tags": []
+      }
+    },
+    "submit": {
+      "entity_id": "submit",
+      "entity_type": "process",
+      "text": "Submit Content ",
+      "domain": "moderation",
+      "project_id": "",
+      "entity_data": {
+        "id": "submit",
+        "name": "Submit Content",
+        "type": "start",
+        "owner": "Content Creator",
+        "description": "",
+        "next_node_id": "ai-screen",
+        "conditions": [],
+        "inputs": [],
+        "outputs": [
+          "submission"
+        ],
+        "sla_hours": null,
+        "est_duration_minutes": null
+      }
+    },
+    "ai-screen": {
+      "entity_id": "ai-screen",
+      "entity_type": "process",
+      "text": "AI Auto-Screening ",
+      "domain": "moderation",
+      "project_id": "",
+      "entity_data": {
+        "id": "ai-screen",
+        "name": "AI Auto-Screening",
+        "type": "action",
+        "owner": "AI System",
+        "description": "",
+        "next_node_id": "classify",
+        "conditions": [],
+        "inputs": [
+          "submission"
+        ],
+        "outputs": [
+          "screening_result"
+        ],
+        "sla_hours": 0.002,
+        "est_duration_minutes": 0.05
+      }
+    },
+    "classify": {
+      "entity_id": "classify",
+      "entity_type": "process",
+      "text": "Risk Classification ",
+      "domain": "moderation",
+      "project_id": "",
+      "entity_data": {
+        "id": "classify",
+        "name": "Risk Classification",
+        "type": "decision",
+        "owner": "AI System",
+        "description": "",
+        "next_node_id": null,
+        "conditions": [
+          {
+            "condition": "risk > threshold",
+            "next_node_id": "human-review"
+          },
+          {
+            "condition": "risk <= threshold",
+            "next_node_id": "publish"
+          }
+        ],
+        "inputs": [],
+        "outputs": [],
+        "sla_hours": null,
+        "est_duration_minutes": null
+      }
+    },
+    "review-decision": {
+      "entity_id": "review-decision",
+      "entity_type": "process",
+      "text": "Review Decision ",
+      "domain": "moderation",
+      "project_id": "",
+      "entity_data": {
+        "id": "review-decision",
+        "name": "Review Decision",
+        "type": "decision",
+        "owner": "Human Reviewer",
+        "description": "",
+        "next_node_id": null,
+        "conditions": [
+          {
+            "condition": "approved",
+            "next_node_id": "publish"
+          },
+          {
+            "condition": "rejected",
+            "next_node_id": "notify-rejection"
+          }
+        ],
+        "inputs": [],
+        "outputs": [],
+        "sla_hours": null,
+        "est_duration_minutes": null
+      }
+    },
+    "publish": {
+      "entity_id": "publish",
+      "entity_type": "process",
+      "text": "Publish Content ",
+      "domain": "moderation",
+      "project_id": "",
+      "entity_data": {
+        "id": "publish",
+        "name": "Publish Content",
+        "type": "end",
+        "owner": "System",
+        "description": "",
+        "next_node_id": null,
+        "conditions": [],
+        "inputs": [],
+        "outputs": [],
+        "sla_hours": null,
+        "est_duration_minutes": null
+      }
+    },
+    "notify-rejection": {
+      "entity_id": "notify-rejection",
+      "entity_type": "process",
+      "text": "Notify Rejection ",
+      "domain": "moderation",
+      "project_id": "",
+      "entity_data": {
+        "id": "notify-rejection",
+        "name": "Notify Rejection",
+        "type": "end",
+        "owner": "System",
+        "description": "",
+        "next_node_id": null,
+        "conditions": [],
+        "inputs": [],
+        "outputs": [
+          "rejection_notice"
+        ],
+        "sla_hours": null,
+        "est_duration_minutes": null
+      }
+    },
+    "throughput": {
+      "entity_id": "throughput",
+      "entity_type": "metric",
+      "text": "Daily Throughput Formula: processed / day. Target: > 4000",
+      "domain": "moderation",
+      "project_id": "",
+      "entity_data": {
+        "id": "throughput",
+        "name": "Daily Throughput",
+        "description": "",
+        "formula": "processed / day",
+        "unit": "items/day",
+        "target": "> 4000",
+        "warning_threshold": "< 3000",
+        "critical_threshold": "< 2000",
+        "branch": "Efficiency",
+        "direction": "higher_better",
+        "alerts": [],
+        "data_source": ""
+      }
+    },
+    "avg-screen-time": {
+      "entity_id": "avg-screen-time",
+      "entity_type": "metric",
+      "text": "Avg Screening Time Formula: sum(screen_ms) / count. Target: < 500",
+      "domain": "moderation",
+      "project_id": "",
+      "entity_data": {
+        "id": "avg-screen-time",
+        "name": "Avg Screening Time",
+        "description": "",
+        "formula": "sum(screen_ms) / count",
+        "unit": "ms",
+        "target": "< 500",
+        "warning_threshold": "> 1000",
+        "critical_threshold": null,
+        "branch": "Efficiency",
+        "direction": "lower_better",
+        "alerts": [],
+        "data_source": ""
+      }
+    },
+    "accuracy": {
+      "entity_id": "accuracy",
+      "entity_type": "metric",
+      "text": "Screening Accuracy Formula: correct / total * 100. Target: > 99",
+      "domain": "moderation",
+      "project_id": "",
+      "entity_data": {
+        "id": "accuracy",
+        "name": "Screening Accuracy",
+        "description": "",
+        "formula": "correct / total * 100",
+        "unit": "%",
+        "target": "> 99",
+        "warning_threshold": "< 97",
+        "critical_threshold": "< 95",
+        "branch": "Quality",
+        "direction": "higher_better",
+        "alerts": [
+          {
+            "condition": "accuracy < 95%",
+            "severity": "medium",
+            "message": "Quality degrading",
+            "auto_action": ""
+          }
+        ],
+        "data_source": ""
+      }
+    },
+    "false-positive-rate": {
+      "entity_id": "false-positive-rate",
+      "entity_type": "metric",
+      "text": "False Positive Rate Formula: fp / total_flagged * 100. Target: < 1",
+      "domain": "moderation",
+      "project_id": "",
+      "entity_data": {
+        "id": "false-positive-rate",
+        "name": "False Positive Rate",
+        "description": "",
+        "formula": "fp / total_flagged * 100",
+        "unit": "%",
+        "target": "< 1",
+        "warning_threshold": "> 3",
+        "critical_threshold": null,
+        "branch": "Quality",
+        "direction": "lower_better",
+        "alerts": [],
+        "data_source": ""
+      }
+    },
+    "queue-length": {
+      "entity_id": "queue-length",
+      "entity_type": "metric",
+      "text": "Review Queue Length Formula: count(pending). Target: < 200",
+      "domain": "moderation",
+      "project_id": "",
+      "entity_data": {
+        "id": "queue-length",
+        "name": "Review Queue Length",
+        "description": "",
+        "formula": "count(pending)",
+        "unit": "items",
+        "target": "< 200",
+        "warning_threshold": "> 500",
+        "critical_threshold": "> 1000",
+        "branch": "Capacity",
+        "direction": "lower_better",
+        "alerts": [
+          {
+            "condition": "queue > 1000",
+            "severity": "critical",
+            "message": "Backlog critical",
+            "auto_action": ""
+          }
+        ],
+        "data_source": ""
+      }
+    },
+    "reviewer-util": {
+      "entity_id": "reviewer-util",
+      "entity_type": "metric",
+      "text": "Reviewer Utilization Formula: active / shift * 100. Target: 70-85",
+      "domain": "moderation",
+      "project_id": "",
+      "entity_data": {
+        "id": "reviewer-util",
+        "name": "Reviewer Utilization",
+        "description": "",
+        "formula": "active / shift * 100",
+        "unit": "%",
+        "target": "70-85",
+        "warning_threshold": "> 90",
+        "critical_threshold": null,
+        "branch": "Capacity",
+        "direction": "target_range",
+        "alerts": [],
+        "data_source": ""
+      }
+    },
+    "cost-per-review": {
+      "entity_id": "cost-per-review",
+      "entity_type": "metric",
+      "text": "Cost Per Review Formula: total_cost / reviewed. Target: < 0.50",
+      "domain": "moderation",
+      "project_id": "",
+      "entity_data": {
+        "id": "cost-per-review",
+        "name": "Cost Per Review",
+        "description": "",
+        "formula": "total_cost / reviewed",
+        "unit": "CNY",
+        "target": "< 0.50",
+        "warning_threshold": "> 1.00",
+        "critical_threshold": null,
+        "branch": "Cost",
+        "direction": "lower_better",
+        "alerts": [],
+        "data_source": ""
+      }
+    },
+    "sla-compliance": {
+      "entity_id": "sla-compliance",
+      "entity_type": "metric",
+      "text": "SLA Compliance Rate Formula: sla_met / total * 100. Target: > 99.5",
+      "domain": "moderation",
+      "project_id": "",
+      "entity_data": {
+        "id": "sla-compliance",
+        "name": "SLA Compliance Rate",
+        "description": "",
+        "formula": "sla_met / total * 100",
+        "unit": "%",
+        "target": "> 99.5",
+        "warning_threshold": "< 98",
+        "critical_threshold": "< 95",
+        "branch": "Risk",
+        "direction": "higher_better",
+        "alerts": [
+          {
+            "condition": "sla < 95%",
+            "severity": "critical",
+            "message": "SLA breach",
+            "auto_action": ""
+          }
+        ],
+        "data_source": ""
+      }
+    },
+    "role_content_creator": {
+      "entity_id": "role_content_creator",
+      "entity_type": "role",
+      "text": "Content Creator Workflow role: Content Creator",
+      "domain": "moderation",
+      "project_id": "",
+      "entity_data": {
+        "role_name": "Content Creator"
+      }
+    },
+    "role_ai_system": {
+      "entity_id": "role_ai_system",
+      "entity_type": "role",
+      "text": "AI System Workflow role: AI System",
+      "domain": "moderation",
+      "project_id": "",
+      "entity_data": {
+        "role_name": "AI System"
+      }
+    },
+    "role_human_reviewer": {
+      "entity_id": "role_human_reviewer",
+      "entity_type": "role",
+      "text": "Human Reviewer Workflow role: Human Reviewer",
+      "domain": "moderation",
+      "project_id": "",
+      "entity_data": {
+        "role_name": "Human Reviewer"
+      }
+    },
+    "role_system": {
+      "entity_id": "role_system",
+      "entity_type": "role",
+      "text": "System Workflow role: System",
+      "domain": "moderation",
+      "project_id": "",
+      "entity_data": {
+        "role_name": "System"
+      }
+    },
+    "R1": {
+      "entity_id": "R1",
+      "entity_type": "risk",
+      "text": "AI False Negatives Probability: medium. Impact: high",
+      "domain": "moderation",
+      "project_id": "",
+      "entity_data": {
+        "id": "R1",
+        "name": "AI False Negatives",
+        "description": "Harmful content passes AI undetected",
+        "category": "quality",
+        "probability": "medium",
+        "impact": "high",
+        "score": 6,
+        "trigger": "Low AI confidence",
+        "affected_modules": [],
+        "affected_nodes": [],
+        "owner": "ML Team",
+        "mitigation": {
+          "action": "Weekly model retraining",
+          "owner": "ML Team",
+          "priority": "high",
+          "cost_estimate": "",
+          "timeline": "",
+          "status": "planned"
+        },
+        "contingency": ""
+      }
+    },
+    "R2": {
+      "entity_id": "R2",
+      "entity_type": "risk",
+      "text": "Reviewer Fatigue Probability: medium. Impact: medium",
+      "domain": "moderation",
+      "project_id": "",
+      "entity_data": {
+        "id": "R2",
+        "name": "Reviewer Fatigue",
+        "description": "Reviewers make errors after long shifts",
+        "category": "operational",
+        "probability": "medium",
+        "impact": "medium",
+        "score": 4,
+        "trigger": "Shift > 4h",
+        "affected_modules": [],
+        "affected_nodes": [],
+        "owner": "Team Lead",
+        "mitigation": {
+          "action": "Mandatory breaks + rotation",
+          "owner": "Team Lead",
+          "priority": "medium",
+          "cost_estimate": "",
+          "timeline": "",
+          "status": "planned"
+        },
+        "contingency": ""
+      }
+    },
+    "R3": {
+      "entity_id": "R3",
+      "entity_type": "risk",
+      "text": "Peak Volume Overload Probability: low. Impact: high",
+      "domain": "moderation",
+      "project_id": "",
+      "entity_data": {
+        "id": "R3",
+        "name": "Peak Volume Overload",
+        "description": "Viral event exceeds capacity",
+        "category": "capacity",
+        "probability": "low",
+        "impact": "high",
+        "score": 3,
+        "trigger": "Traffic spike",
+        "affected_modules": [],
+        "affected_nodes": [],
+        "owner": "DevOps",
+        "mitigation": {
+          "action": "Auto-scale reviewer pool",
+          "owner": "DevOps",
+          "priority": "high",
+          "cost_estimate": "",
+          "timeline": "",
+          "status": "planned"
+        },
+        "contingency": ""
+      }
+    },
+    "R4": {
+      "entity_id": "R4",
+      "entity_type": "risk",
+      "text": "API Downtime Probability: low. Impact: high",
+      "domain": "moderation",
+      "project_id": "",
+      "entity_data": {
+        "id": "R4",
+        "name": "API Downtime",
+        "description": "Screening API outage",
+        "category": "technical",
+        "probability": "low",
+        "impact": "high",
+        "score": 3,
+        "trigger": "",
+        "affected_modules": [],
+        "affected_nodes": [],
+        "owner": "DevOps",
+        "mitigation": {
+          "action": "Multi-region failover",
+          "owner": "DevOps",
+          "priority": "high",
+          "cost_estimate": "",
+          "timeline": "",
+          "status": "planned"
+        },
+        "contingency": ""
+      }
+    }
+  }
+}

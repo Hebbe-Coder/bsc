@@ -1,0 +1,499 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>SOP Insight Engine — Business Operating Intelligence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Lora:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+:root {
+  --bg: #141413; --bg-card: #1C1C1A; --bg-raised: #252523;
+  --surface: #faf9f5; --surface-dim: #e8e6dc;
+  --text: #141413; --text-dim: #b0aea5; --text-muted: #8a8984;
+  --text-inv: #faf9f5; --text-inv-dim: #b0aea5;
+  --accent: #d97757; --accent-dim: #c0684a;
+  --blue: #6a9bcc; --green: #788c5d;
+  --border: #2a2a28; --border-light: #d8d6ce;
+  --font-display: 'Poppins', 'Arial', sans-serif;
+  --font-body: 'Lora', 'Georgia', serif;
+  --radius: 6px; --radius-lg: 10px;
+  --sig-gold: #C9A84C;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { 
+  font-family: var(--font-body); 
+  background: var(--bg); color: var(--text-inv);
+  line-height: 1.6; min-height: 100vh;
+}
+h1,h2,h3,h4,h5,h6 { font-family: var(--font-display); font-weight: 600; }
+h2 { font-size: 1.25rem; letter-spacing: -0.01em; color: var(--text-inv); }
+h3 { font-size: 0.875rem; font-weight: 500; color: var(--text-inv-dim); text-transform: uppercase; letter-spacing: 0.08em; }
+
+.layout { display: flex; min-height: 100vh; }
+.sidebar {
+  width: 260px; background: var(--bg-card); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 10;
+}
+.sidebar-header {
+  padding: 1.5rem 1.25rem; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 0.625rem;
+}
+.sigil {
+  width: 32px; height: 32px; border-radius: var(--radius);
+  background: linear-gradient(135deg, var(--sig-gold), var(--accent));
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-display); font-weight: 700; font-size: 1rem; color: #141413;
+}
+.sidebar-title { font-family: var(--font-display); font-size: 0.938rem; font-weight: 600; color: var(--text-inv); line-height: 1.2; }
+.sidebar-sub { font-size: 0.688rem; color: var(--text-muted); letter-spacing: 0.05em; text-transform: uppercase; }
+
+.nav { padding: 1rem 0.75rem; flex: 1; }
+.nav-item {
+  display: flex; align-items: center; gap: 0.625rem; padding: 0.625rem 0.75rem;
+  border-radius: var(--radius); cursor: pointer; transition: all 0.15s;
+  font-family: var(--font-display); font-size: 0.813rem; font-weight: 500;
+  color: var(--text-inv-dim); margin-bottom: 0.125rem;
+}
+.nav-item:hover { background: var(--bg-raised); color: var(--text-inv); }
+.nav-item.active { background: var(--bg-raised); color: var(--accent); }
+.nav-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: 0.5; }
+.nav-item.active .nav-dot { opacity: 1; }
+
+.sidebar-footer {
+  padding: 1rem 1.25rem; border-top: 1px solid var(--border);
+}
+.system-pulse {
+  display: flex; align-items: center; gap: 0.5rem; font-size: 0.688rem; color: var(--text-muted);
+  font-family: var(--font-display); letter-spacing: 0.05em; text-transform: uppercase;
+}
+.pulse-dot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--green);
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse { 0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(120,140,93,0.4); } 50% { opacity: 0.6; box-shadow: 0 0 0 6px rgba(120,140,93,0); } }
+
+.main { margin-left: 260px; flex: 1; padding: 2rem; max-width: 1200px; }
+.topbar { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2rem; }
+.topbar-left h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; }
+.topbar-left p { font-size: 0.875rem; color: var(--text-inv-dim); margin-top: 0.25rem; }
+.badge {
+  display: inline-flex; align-items: center; gap: 0.375rem;
+  padding: 0.25rem 0.75rem; border-radius: 100px;
+  font-family: var(--font-display); font-size: 0.75rem; font-weight: 500;
+  border: 1px solid var(--border); color: var(--text-inv-dim);
+}
+.badge-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--green); }
+
+.grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
+.grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
+
+.card {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 1.25rem;
+  transition: border-color 0.2s;
+}
+.card:hover { border-color: var(--accent-dim); }
+.card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+
+.stat-value {
+  font-family: var(--font-display); font-size: 2rem; font-weight: 700;
+  letter-spacing: -0.02em; color: var(--text-inv); line-height: 1;
+}
+.stat-label { font-size: 0.75rem; color: var(--text-inv-dim); margin-top: 0.25rem; font-family: var(--font-display); letter-spacing: 0.03em; text-transform: uppercase; }
+.stat-change { font-size: 0.75rem; margin-top: 0.5rem; font-family: var(--font-display); font-weight: 500; }
+.stat-change.up { color: var(--green); }
+.stat-change.down { color: var(--accent); }
+
+.chart-box { width: 100%; height: 280px; }
+
+table { width: 100%; border-collapse: collapse; }
+th {
+  font-family: var(--font-display); font-size: 0.688rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-inv-dim);
+  text-align: left; padding: 0.625rem 0.75rem; border-bottom: 1px solid var(--border);
+}
+td {
+  font-size: 0.813rem; padding: 0.625rem 0.75rem;
+  border-bottom: 1px solid rgba(42,42,40,0.5); color: var(--text-inv);
+}
+tr:hover td { background: rgba(201,168,76,0.04); }
+
+.tag {
+  display: inline-block; padding: 0.125rem 0.5rem; border-radius: 4px;
+  font-family: var(--font-display); font-size: 0.688rem; font-weight: 500;
+}
+.tag-high { background: rgba(217,119,87,0.15); color: var(--accent); }
+.tag-mid { background: rgba(106,155,204,0.15); color: var(--blue); }
+.tag-low { background: rgba(120,140,93,0.15); color: var(--green); }
+
+.mermaid-box { background: var(--bg); border-radius: var(--radius); padding: 1rem; overflow-x: auto; }
+.mermaid-box svg { max-width: 100%; }
+
+.heatmap-cell {
+  width: 24px; height: 24px; border-radius: 3px; display: inline-block;
+}
+.heatmap-0 { background: rgba(255,255,255,0.03); }
+.heatmap-1 { background: rgba(106,155,204,0.15); }
+.heatmap-2 { background: rgba(106,155,204,0.35); }
+.heatmap-3 { background: rgba(217,119,87,0.35); }
+.heatmap-4 { background: rgba(217,119,87,0.65); }
+
+.section-divider {
+  height: 1px; background: var(--border); margin: 1.5rem 0;
+}
+
+.btn {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  padding: 0.5rem 1rem; border-radius: var(--radius);
+  font-family: var(--font-display); font-size: 0.813rem; font-weight: 500;
+  cursor: pointer; transition: all 0.15s; border: none;
+}
+.btn-primary { background: var(--accent); color: var(--text-inv); }
+.btn-primary:hover { background: var(--accent-dim); }
+.btn-ghost { background: transparent; color: var(--text-inv-dim); border: 1px solid var(--border); }
+.btn-ghost:hover { border-color: var(--accent-dim); color: var(--text-inv); }
+
+.empty-state { text-align: center; padding: 4rem 2rem; color: var(--text-inv-dim); }
+.empty-state h3 { font-family: var(--font-display); font-size: 1.25rem; color: var(--text-inv); margin-bottom: 0.5rem; }
+.empty-state p { font-size: 0.875rem; }
+.empty-icon { width: 48px; height: 48px; border-radius: 50%; background: var(--bg-raised); display: flex; align-items: center; justify-content: center; margin: 0 auto 1rem; font-size: 1.5rem; }
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+@media (max-width: 768px) {
+  .sidebar { display: none; }
+  .main { margin-left: 0; }
+  .grid-4 { grid-template-columns: repeat(2, 1fr); }
+  .grid-2, .grid-3 { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar">
+  <div class="sidebar-header">
+    <div class="sigil">S</div>
+    <div>
+      <div class="sidebar-title">SOP Insight</div>
+      <div class="sidebar-sub">Business Operating Intelligence</div>
+    </div>
+  </div>
+  <nav class="nav">
+    <div class="nav-item active" data-tab="overview">
+      <span class="nav-dot"></span>Health Overview
+    </div>
+    <div class="nav-item" data-tab="sop">
+      <span class="nav-dot"></span>SOP Workflow
+    </div>
+    <div class="nav-item" data-tab="metrics">
+      <span class="nav-dot"></span>KPI Analysis
+    </div>
+    <div class="nav-item" data-tab="risk">
+      <span class="nav-dot"></span>Risk Matrix
+    </div>
+    <div class="nav-item" data-tab="insight">
+      <span class="nav-dot"></span>Strategic Insight
+    </div>
+    <div class="nav-item" data-tab="sandbox">
+      <span class="nav-dot"></span>Decision Sandbox
+    </div>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="system-pulse"><span class="pulse-dot"></span>System Active</div>
+  </div>
+</aside>
+<main class="main" id="main-content">
+  <div id="empty-state" class="empty-state">
+    <div class="empty-icon">&#9670;</div>
+    <h3>SOP Insight Engine</h3>
+    <p>Enter a PRD or business requirement below to generate a complete operating intelligence dashboard.</p>
+  </div>
+  <div id="dashboard-content" style="display:none"></div>
+</main>
+</div>
+<script>
+mermaid.initialize({ startOnLoad: true, theme: 'dark', themeVariables: { primaryColor: '#d97757', primaryTextColor: '#faf9f5', lineColor: '#b0aea5', fontSize: '14px' } });
+
+const SECTIONS = ['overview','sop','metrics','risk','insight','sandbox'];
+let currentTab = 'overview';
+let currentData = null;
+
+function renderDashboard(data) {
+  currentData = data;
+  document.getElementById('empty-state').style.display = 'none';
+  const container = document.getElementById('dashboard-content');
+  container.style.display = 'block';
+  switchTab(currentTab);
+}
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  document.querySelector(`.nav-item[data-tab="${tab}"]`).classList.add('active');
+  if (!currentData) return;
+  const container = document.getElementById('dashboard-content');
+  const bs = currentData.business_system || currentData;
+  const mods = bs.modules || [];
+  const wf = bs.workflow || [];
+  const metrics = bs.metrics || [];
+  const risks = bs.risk || [];
+  const insight = currentData.insight || {};
+
+  const views = {
+    overview: renderOverview(bs, mods, wf, metrics, risks),
+    sop: renderSOP(wf),
+    metrics: renderMetrics(metrics),
+    risk: renderRisk(risks),
+    insight: renderInsight(insight),
+    sandbox: renderSandbox(currentData.sandbox || {})
+  };
+  container.innerHTML = views[tab] || views.overview;
+  if (tab === 'metrics') initMetricsChart(metrics);
+  if (tab === 'risk') initRiskChart(risks);
+  if (tab === 'overview') { initHealthChart(bs); initMermaid(wf); }
+  if (tab === 'sop') initMermaid(wf);
+}
+
+function renderOverview(bs, mods, wf, metrics, risks) {
+  const hs = bs.health_score || (currentData.insight && currentData.insight.health_score) || Math.round(60 + mods.length * 5 + wf.length * 3 + metrics.length * 2);
+  const slaOk = wf.filter(n => n.sla_hours && n.sla_hours > 0).length;
+  const riskMit = risks.filter(r => r.mitigation && (typeof r.mitigation === 'object' ? r.mitigation.action : r.mitigation)).length;
+  return `
+<div class="topbar">
+  <div class="topbar-left">
+    <h1>${bs.metadata?.objective || 'Business System'}</h1>
+    <p>${bs.metadata?.domain || 'general'} &middot; Generated ${bs.metadata?.generated_at || ''}</p>
+  </div>
+  <span class="badge"><span class="badge-dot"></span>${bs.metadata?.version || 'v1.0.0'}</span>
+</div>
+<div class="grid-4">
+  <div class="card"><div class="stat-value">${hs}<span style="font-size:1rem;color:var(--text-inv-dim)">/100</span></div><div class="stat-label">Health Score</div><div class="stat-change ${hs >= 70 ? 'up' : 'down'}">${hs >= 70 ? '▲' : '▼'} ${hs >= 80 ? 'Healthy' : hs >= 60 ? 'Stable' : 'Needs Attention'}</div></div>
+  <div class="card"><div class="stat-value">${mods.length}</div><div class="stat-label">Business Modules</div><div class="stat-change up">▲ Decomposed</div></div>
+  <div class="card"><div class="stat-value">${wf.length}</div><div class="stat-label">Workflow Nodes</div><div class="stat-change up">▲ ${slaOk} with SLA</div></div>
+  <div class="card"><div class="stat-value">${metrics.length}</div><div class="stat-label">KPIs Defined</div><div class="stat-change ${metrics.length >= 4 ? 'up' : 'down'}">${metrics.length >= 4 ? '▲' : '▼'} ${metrics.length} metrics tracked</div></div>
+</div>
+<div class="grid-2">
+  <div class="card"><div class="card-header"><h2>Health Composition</h2></div><div class="chart-box" id="health-chart"></div></div>
+  <div class="card"><div class="card-header"><h2>Workflow Overview</h2></div><div class="mermaid-box" id="overview-mermaid">${buildMermaid(wf)}</div></div>
+</div>
+<div class="section-divider"></div>
+<div class="grid-2">
+  <div class="card">
+    <div class="card-header"><h2>Risk Summary</h2><span class="tag ${risks.length > 3 ? 'tag-high' : 'tag-low'}">${risks.length} risks</span></div>
+    ${risks.slice(0,5).map(r => `<div style="display:flex;justify-content:space-between;align-items:center;padding:0.5rem 0;border-bottom:1px solid var(--border)"><span style="font-size:0.813rem">${r.name || ''}</span><span class="tag ${(r.score || 0) >= 6 ? 'tag-high' : (r.score || 0) >= 4 ? 'tag-mid' : 'tag-low'}">${r.category || r.severity || ''}</span></div>`).join('')}
+    ${risks.length === 0 ? '<p style="font-size:0.813rem;color:var(--text-inv-dim);padding:1rem 0">No risks identified.</p>' : ''}
+  </div>
+  <div class="card">
+    <div class="card-header"><h2>Modules</h2></div>
+    ${mods.map(m => `<div style="display:flex;justify-content:space-between;align-items:center;padding:0.5rem 0;border-bottom:1px solid var(--border)"><span style="font-size:0.813rem;font-weight:500">${m.name || m.id || ''}</span><span style="font-size:0.688rem;color:var(--text-inv-dim)">${m.owner || m.priority || ''}</span></div>`).join('')}
+  </div>
+</div>`;
+}
+
+function renderSOP(wf) {
+  return `
+<div class="topbar"><div class="topbar-left"><h1>SOP Workflow</h1><p>${wf.length} process nodes</p></div></div>
+<div class="card"><div class="mermaid-box" id="sop-mermaid">${buildMermaid(wf)}</div></div>
+<div class="section-divider"></div>
+<div class="card">
+  <div class="card-header"><h2>Node Details</h2></div>
+  <table><thead><tr><th>Node</th><th>Owner</th><th>Type</th><th>SLA</th><th>Next</th></tr></thead>
+  <tbody>${wf.map(n => `<tr><td style="font-weight:500">${n.name || n.id || ''}</td><td>${n.owner || '-'}</td><td><span class="tag tag-mid">${n.type || 'action'}</span></td><td>${n.sla_hours ? n.sla_hours + 'h' : '-'}</td><td>${(n.next_node_id || (n.conditions && n.conditions.length) || '-')}</td></tr>`).join('')}</tbody></table>
+</div>`;
+}
+
+function renderMetrics(metrics) {
+  const branches = {};
+  metrics.forEach(m => { const b = m.branch || 'Other'; if (!branches[b]) branches[b] = []; branches[b].push(m); });
+  return `
+<div class="topbar"><div class="topbar-left"><h1>KPI Analysis</h1><p>${metrics.length} metrics across ${Object.keys(branches).length} branches</p></div></div>
+<div class="grid-2">
+  <div class="card"><div class="card-header"><h2>Metric Distribution</h2></div><div class="chart-box" id="metrics-pie"></div></div>
+  <div class="card"><div class="card-header"><h2>Target vs Warning</h2></div><div class="chart-box" id="metrics-bar"></div></div>
+</div>
+<div class="section-divider"></div>
+<div class="card">
+  <div class="card-header"><h2>Metric Catalog</h2></div>
+  <table><thead><tr><th>Metric</th><th>Formula</th><th>Target</th><th>Warning</th><th>Branch</th></tr></thead>
+  <tbody>${metrics.map(m => `<tr><td style="font-weight:500">${m.name || m.id || ''}</td><td style="font-size:0.75rem;font-family:monospace">${m.formula || '-'}</td><td>${m.target || '-'}</td><td>${m.warning_threshold || '-'}</td><td><span class="tag tag-mid">${typeof m.branch === 'object' ? (m.branch.name || '') : (m.branch || '')}</span></td></tr>`).join('')}</tbody></table>
+</div>`;
+}
+
+function renderRisk(risks) {
+  return `
+<div class="topbar"><div class="topbar-left"><h1>Risk Matrix</h1><p>${risks.length} identified risks</p></div></div>
+<div class="grid-2">
+  <div class="card"><div class="card-header"><h2>Risk Heatmap</h2></div><div class="chart-box" id="risk-heatmap"></div></div>
+  <div class="card"><div class="card-header"><h2>Risk Register</h2></div>
+    ${risks.map(r => {
+      const sev = (r.score || 0) >= 6 ? 'tag-high' : (r.score || 0) >= 4 ? 'tag-mid' : 'tag-low';
+      return `<div style="padding:0.625rem 0;border-bottom:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem">
+          <span style="font-weight:600;font-size:0.813rem">${r.name || r.id || ''}</span><span class="tag ${sev}">Score ${r.score || '-'}</span>
+        </div>
+        <p style="font-size:0.75rem;color:var(--text-inv-dim);margin-bottom:0.25rem">${r.description || ''}</p>
+        <div style="font-size:0.688rem;color:var(--text-muted)">Impact: ${r.impact || '-'} &middot; Probability: ${r.probability || '-'} &middot; Owner: ${r.owner || '-'}</div>
+      </div>`;
+    }).join('')}
+  </div>
+</div>`;
+}
+
+function renderInsight(insight) {
+  const p = insight.problems || [];
+  const r = insight.recommendations || [];
+  const roi = insight.roi_projection || {};
+  const na = insight.next_actions || [];
+  return `
+<div class="topbar"><div class="topbar-left"><h1>Strategic Insight</h1><p>${p.length} problems &middot; ${r.length} recommendations</p></div><span class="badge">Health ${insight.health_score || '-'}/100</span></div>
+<div class="card" style="margin-bottom:1.5rem">
+  <div class="card-header"><h2>Executive Summary</h2></div>
+  <p style="font-size:0.938rem;line-height:1.8">${insight.executive_summary || 'No executive summary available.'}</p>
+</div>
+${p.length > 0 ? `<div class="grid-3" style="margin-bottom:1.5rem">${p.map(pr => `
+  <div class="card"><span class="tag ${pr.severity === 'critical' ? 'tag-high' : pr.severity === 'high' ? 'tag-high' : 'tag-mid'}" style="margin-bottom:0.5rem">${pr.severity || 'medium'}</span>
+    <h3 style="margin-bottom:0.375rem;color:var(--text-inv);text-transform:none;font-size:0.875rem">${pr.title || ''}</h3>
+    <p style="font-size:0.75rem;color:var(--text-inv-dim)">${pr.root_cause || pr.description || ''}</p>
+    ${pr.business_impact ? `<p style="font-size:0.688rem;color:var(--text-muted);margin-top:0.5rem">Impact: ${pr.business_impact}</p>` : ''}
+  </div>`).join('')}</div>` : ''}
+${r.length > 0 ? `<div class="card" style="margin-bottom:1.5rem"><div class="card-header"><h2>Recommendations</h2></div>${r.map(rec => `
+  <div style="padding:0.75rem 0;border-bottom:1px solid var(--border)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem">
+      <span style="font-weight:600;font-size:0.875rem">${rec.title || ''}</span>
+      <span style="font-size:0.688rem;color:var(--text-inv-dim)">${rec.timeline || ''} &middot; ${rec.difficulty || ''}</span>
+    </div>
+    <p style="font-size:0.75rem;color:var(--text-inv-dim)">${rec.action || ''}</p>
+    ${rec.expected_roi ? `<p style="font-size:0.688rem;color:var(--green);margin-top:0.25rem">ROI: ${rec.expected_roi}</p>` : ''}
+  </div>`).join('')}</div>` : ''}
+${Object.keys(roi).length > 0 ? `<div class="card" style="margin-bottom:1.5rem"><div class="card-header"><h2>ROI Projection</h2></div><div class="grid-3">${Object.entries(roi).map(([k,v]) => `<div><div class="stat-value" style="font-size:1.25rem">${Array.isArray(v) ? v.length : v}</div><div class="stat-label">${k.replace(/_/g,' ')}</div></div>`).join('')}</div></div>` : ''}
+${na.length > 0 ? `<div class="card"><div class="card-header"><h2>Next Actions</h2></div>${na.map((a,i) => `<div style="padding:0.5rem 0;border-bottom:1px solid var(--border);font-size:0.813rem"><span style="color:var(--accent);font-weight:600;margin-right:0.5rem">${i+1}.</span>${a}</div>`).join('')}</div>` : ''}`;
+}
+
+function renderSandbox(sandbox) {
+  const scenarios = sandbox.scenarios || [];
+  const rec = sandbox.recommendation || {};
+  const trades = sandbox.tradeoff_analysis || [];
+  return `
+<div class="topbar"><div class="topbar-left"><h1>Decision Sandbox</h1><p>${scenarios.length} scenarios simulated</p></div></div>
+${scenarios.length > 0 ? `
+<div class="card" style="margin-bottom:1.5rem"><div class="card-header"><h2>Scenario Comparison</h2><span class="tag tag-high">Best: ${rec.best_scenario || '-'}</span></div>
+<div style="overflow-x:auto"><table><thead><tr><th>Scenario</th><th>Efficiency</th><th>Quality</th><th>Cost/Item</th><th>Throughput</th><th>SLA</th></tr></thead>
+<tbody>${scenarios.map(s => `<tr>
+  <td style="font-weight:${s.scenario === rec.best_scenario ? '600' : '400'}">${s.scenario}${s.scenario === rec.best_scenario ? ' ★' : ''}</td>
+  <td>${s.scores?.efficiency || '-'}</td><td>${s.scores?.quality || '-'}</td>
+  <td>${s.cost?.cost_per_item || '-'}</td><td>${s.throughput?.daily || '-'}</td>
+  <td>${s.timing?.sla_compliance_pct || '-'}</td>
+</tr>`).join('')}</tbody></table></div></div>` : '<div class="card" style="margin-bottom:1.5rem"><p style="color:var(--text-inv-dim)">No simulation data available. Run a sandbox simulation to see what-if scenarios.</p></div>'}
+${trades.length > 0 ? `<div class="card"><div class="card-header"><h2>Tradeoff Analysis</h2></div>
+${trades.map(t => `<div style="padding:0.5rem 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between"><span style="font-weight:500">${t.scenario}</span><span>Cost: ${t.cost_delta} &middot; Throughput: ${t.throughput_delta} &middot; Accuracy: ${t.accuracy_delta}</span></div>`).join('')}</div>` : ''}`;
+}
+
+function buildMermaid(wf) {
+  if (!wf || wf.length === 0) return '<p style="color:var(--text-inv-dim);padding:2rem;text-align:center">No workflow defined.</p>';
+  let md = 'graph LR\n';
+  wf.forEach(n => {
+    const id = (n.id || n.name || '').replace(/[^a-zA-Z0-9]/g,'_');
+    const label = (n.name || n.id || '').replace(/"/g,'');
+    const owner = n.owner ? `<br/><small>${n.owner}</small>` : '';
+    md += `  ${id}["${label}${owner}"]\n`;
+  });
+  wf.forEach(n => {
+    const id = (n.id || n.name || '').replace(/[^a-zA-Z0-9]/g,'_');
+    if (n.next_node_id) {
+      const nid = n.next_node_id.replace(/[^a-zA-Z0-9]/g,'_');
+      md += `  ${id} --> ${nid}\n`;
+    }
+    if (n.conditions && Array.isArray(n.conditions)) {
+      n.conditions.forEach(c => {
+        if (c.next_node) {
+          const cid = c.next_node.replace(/[^a-zA-Z0-9]/g,'_');
+          md += `  ${id} -->|${c.label || c.condition || ''}| ${cid}\n`;
+        }
+      });
+    }
+  });
+  return `<pre class="mermaid">${md}</pre>`;
+}
+
+function initMermaid(wf) { try { mermaid.run({ querySelector: '.mermaid' }); } catch(e) {} }
+function initHealthChart(bs) {
+  const dom = document.getElementById('health-chart'); if (!dom) return;
+  const chart = echarts.init(dom);
+  chart.setOption({
+    tooltip: { trigger: 'item' },
+    series: [{
+      type: 'gauge', startAngle: 210, endAngle: -30,
+      min: 0, max: 100,
+      axisLine: { lineStyle: { width: 20, color: [[0.4,'#d97757'],[0.7,'#6a9bcc'],[1,'#788c5d']] } },
+      pointer: { length: '60%', width: 4, itemStyle: { color: '#b0aea5' } },
+      axisTick: { show: false }, splitLine: { show: false }, axisLabel: { show: false },
+      detail: { valueAnimation: true, fontSize: 28, fontFamily: 'Poppins', fontWeight: 700, color: '#faf9f5', offsetCenter: [0,'60%'] },
+      data: [{ value: bs.health_score || 70, name: 'Health' }]
+    }]
+  });
+}
+function initMetricsChart(metrics) {
+  const pieDom = document.getElementById('metrics-pie'); const barDom = document.getElementById('metrics-bar');
+  if (!pieDom && !barDom) return;
+  const branches = {};
+  metrics.forEach(m => { const b = (typeof m.branch === 'object' ? (m.branch.name || 'Other') : (m.branch || 'Other')); branches[b] = (branches[b] || 0) + 1; });
+  if (pieDom) {
+    const pc = echarts.init(pieDom);
+    pc.setOption({ tooltip:{trigger:'item'}, series:[{ type:'pie', radius:['40%','70%'], data: Object.entries(branches).map(([k,v])=>({name:k,value:v})), label:{color:'#b0aea5',fontFamily:'Poppins',fontSize:11}, itemStyle:{borderColor:'#141413',borderWidth:2} }] });
+  }
+  if (barDom) {
+    const bc = echarts.init(barDom);
+    const names = metrics.map(m => m.name || m.id || '').slice(0,10);
+    const targets = metrics.map(m => parseFloat(String(m.target || 0).replace(/[^0-9.]/g,'')) || 0).slice(0,10);
+    bc.setOption({ tooltip:{trigger:'axis'}, grid:{left:120,right:20,top:20,bottom:30}, xAxis:{type:'value',axisLabel:{color:'#b0aea5',fontSize:10}}, yAxis:{type:'category',data:names,axisLabel:{color:'#faf9f5',fontSize:11,fontFamily:'Poppins',width:100,overflow:'truncate'}}, series:[{type:'bar',data:targets,itemStyle:{color:'#6a9bcc',borderRadius:[0,3,3,0]},barWidth:16}] });
+  }
+}
+function initRiskChart(risks) {
+  const dom = document.getElementById('risk-heatmap'); if (!dom) return;
+  const chart = echarts.init(dom);
+  const impacts = ['Low','Medium','High','Critical']; const probs = ['Low','Medium','High'];
+  const data = impacts.flatMap((imp,i) => probs.map((prob,j) => {
+    const count = risks.filter(r => (r.impact||'').toLowerCase().includes(imp.toLowerCase()) && (r.probability||'').toLowerCase().includes(prob.toLowerCase())).length;
+    return [j,i,count || ''];
+  }));
+  chart.setOption({
+    tooltip:{},
+    grid:{left:80,right:20,top:10,bottom:40},
+    xAxis:{type:'category',data:probs,axisLabel:{color:'#b0aea5',fontFamily:'Poppins',fontSize:10},position:'bottom'},
+    yAxis:{type:'category',data:impacts,axisLabel:{color:'#faf9f5',fontFamily:'Poppins',fontSize:10}},
+    series:[{type:'heatmap',data:data.filter(d=>d[2]!==''),label:{show:true,color:'#faf9f5',fontSize:11,fontFamily:'Poppins'},emphasis:{itemStyle:{shadowBlur:10,shadowColor:'rgba(0,0,0,0.5)'}}}],
+    visualMap:{min:0,max:Math.max(1,...risks.length?[risks.length]:[1]),calculable:true,orient:'vertical',right:0,top:'center',inRange:{color:['rgba(255,255,255,0.03)','rgba(106,155,204,0.2)','rgba(106,155,204,0.4)','rgba(217,119,87,0.4)','rgba(217,119,87,0.7)']}}
+  });
+}
+
+document.querySelectorAll('.nav-item').forEach(el => {
+  el.addEventListener('click', () => switchTab(el.dataset.tab));
+});
+
+async function loadReport(prd) {
+  try {
+    const resp = await fetch('/generate', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({prd}) });
+    const data = await resp.json();
+    if (data.success) {
+      const insightResp = await fetch('/generate/insight', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({prd}) });
+      const insightData = await insightResp.json();
+      const sandboxResp = await fetch('/generate/sandbox', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({prd}) });
+      const sandboxData = await sandboxResp.json();
+      const combined = { business_system: data.data.business_system, insight: insightData.success ? insightData.data.insight : {}, sandbox: sandboxData.success ? sandboxData.data : {} };
+      renderDashboard(combined);
+    }
+  } catch(e) { console.error('Load error:', e); }
+}
+
+window.loadReport = loadReport;
+window.renderDashboard = renderDashboard;
+window.switchTab = switchTab;
+</script>
+</body>
+</html>

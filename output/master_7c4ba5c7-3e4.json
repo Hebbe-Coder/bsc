@@ -1,0 +1,685 @@
+{
+  "deck_id": "e5d0f8f8-b99",
+  "title": "Content Moderation Platform",
+  "domain": "content-safety",
+  "template": {
+    "type": "bidding_proposal",
+    "name": "Bidding Proposal"
+  },
+  "slide_count": 8,
+  "slides": [
+    {
+      "index": 0,
+      "type": "cover",
+      "title": "Content Moderation Platform",
+      "subtitle": "Business System Analysis | content-safety",
+      "enhanced_title": "Content Moderation Platform",
+      "business_subtitle": "",
+      "speaker_cue": "End with a clear recommendation. Then stop talking.",
+      "narrative": {
+        "act": 1,
+        "act_name": "Problem Definition",
+        "act_theme": "The Imperative for Change",
+        "decision_point": "Do we agree on the problem?",
+        "executive_question": "Why should we act now?",
+        "transition_in": ""
+      },
+      "template": {
+        "type": "bidding_proposal",
+        "role": "cover"
+      },
+      "layout": {
+        "type": "title_fullscreen",
+        "zones": []
+      },
+      "visuals": [],
+      "content": {
+        "items": [
+          {
+            "type": "title",
+            "content": "Content Moderation Platform",
+            "value": "",
+            "highlight": "primary"
+          },
+          {
+            "type": "subtitle",
+            "content": "Domain: content-safety",
+            "value": "",
+            "highlight": ""
+          },
+          {
+            "type": "bullet",
+            "content": "4 modules | 7 workflow nodes | 8 KPIs | 4 risks",
+            "value": "",
+            "highlight": ""
+          },
+          {
+            "type": "bullet",
+            "content": "Confidential | BSC Engine v5",
+            "value": "",
+            "highlight": "neutral"
+          }
+        ]
+      },
+      "meta": {
+        "is_decision_slide": true,
+        "highlight": ""
+      }
+    },
+    {
+      "index": 1,
+      "type": "problem",
+      "title": "Executive Summary",
+      "subtitle": "System Overview: Content Moderation Platform",
+      "enhanced_title": "Executive Summary",
+      "business_subtitle": "",
+      "speaker_cue": "",
+      "narrative": {
+        "act": 1,
+        "act_name": "Problem Definition",
+        "act_theme": "The Imperative for Change",
+        "decision_point": "Do we agree on the problem?",
+        "executive_question": "Why should we act now?",
+        "transition_in": ""
+      },
+      "template": {
+        "type": "bidding_proposal",
+        "role": "exec_summary"
+      },
+      "layout": {
+        "type": "left_right_split",
+        "zones": []
+      },
+      "visuals": [
+        {
+          "type": "metric_cards",
+          "title": "Module Summary",
+          "source": "modules",
+          "cards": [
+            {
+              "title": "Content Ingestion",
+              "value": "4 total"
+            }
+          ]
+        }
+      ],
+      "content": {
+        "items": [
+          {
+            "type": "bullet",
+            "content": "Decomposed into 4 business modules",
+            "value": "",
+            "highlight": ""
+          },
+          {
+            "type": "bullet",
+            "content": "End-to-end workflow with 7 process nodes and SLA tracking",
+            "value": "",
+            "highlight": ""
+          },
+          {
+            "type": "bullet",
+            "content": "Measurable KPIs across 5 dimensions: Capacity, Cost, Efficiency, Quality, Risk",
+            "value": "",
+            "highlight": ""
+          },
+          {
+            "type": "bullet",
+            "content": "4 identified risks (3 high-impact)",
+            "value": "",
+            "highlight": "warning"
+          }
+        ]
+      },
+      "meta": {
+        "is_decision_slide": true,
+        "highlight": ""
+      }
+    },
+    {
+      "index": 2,
+      "type": "modules",
+      "title": "Business Modules",
+      "subtitle": "4 modules decomposed by responsibility",
+      "enhanced_title": "Business Modules",
+      "business_subtitle": "",
+      "speaker_cue": "",
+      "narrative": {
+        "act": 2,
+        "act_name": "Current State Analysis",
+        "act_theme": "Understanding Where We Stand",
+        "decision_point": "Do we agree on the diagnosis?",
+        "executive_question": "What is really happening?",
+        "transition_in": ""
+      },
+      "template": {
+        "type": "bidding_proposal",
+        "role": "problem"
+      },
+      "layout": {
+        "type": "left_right_split",
+        "zones": []
+      },
+      "visuals": [],
+      "content": {
+        "items": [
+          {
+            "type": "bullet",
+            "content": "AI Screening Engine",
+            "value": "Owner: ML Team | Priority: CRITICAL",
+            "highlight": "warning",
+            "meta": {
+              "module_id": "ai-screening",
+              "priority": "critical",
+              "description": "Automated screening for sensitive words and policy violations"
+            }
+          },
+          {
+            "type": "bullet",
+            "content": "Content Ingestion",
+            "value": "Owner: Platform Team | Priority: HIGH",
+            "highlight": "primary",
+            "meta": {
+              "module_id": "content-ingestion",
+              "priority": "high",
+              "description": "Accepts user-submitted content via API and web upload"
+            }
+          },
+          {
+            "type": "bullet",
+            "content": "Human Review Workbench",
+            "value": "Owner: Operations | Priority: HIGH | Dependencies: 1",
+            "highlight": "primary",
+            "meta": {
+              "module_id": "human-review",
+              "priority": "high",
+              "description": "Review queue for flagged content with audit log"
+            }
+          },
+          {
+            "type": "bullet",
+            "content": "Operations Analytics",
+            "value": "Owner: Data Team | Priority: MEDIUM",
+            "highlight": "secondary",
+            "meta": {
+              "module_id": "analytics",
+              "priority": "medium",
+              "description": "Real-time dashboards for throughput and SLA"
+            }
+          }
+        ]
+      },
+      "meta": {
+        "is_decision_slide": false,
+        "highlight": ""
+      }
+    },
+    {
+      "index": 3,
+      "type": "workflow",
+      "title": "Process Workflow",
+      "subtitle": "7 nodes | 2 decision points",
+      "enhanced_title": "Process Workflow",
+      "business_subtitle": "",
+      "speaker_cue": "",
+      "narrative": {
+        "act": 4,
+        "act_name": "Execution Blueprint",
+        "act_theme": "Making It Real",
+        "decision_point": "Do we agree on the plan?",
+        "executive_question": "How do we get there?",
+        "transition_in": ""
+      },
+      "template": {
+        "type": "bidding_proposal",
+        "role": "solution"
+      },
+      "layout": {
+        "type": "flow_diagram",
+        "zones": []
+      },
+      "visuals": [],
+      "content": {
+        "items": [
+          {
+            "type": "bullet",
+            "content": "Start: Submit Content",
+            "value": "",
+            "highlight": ""
+          },
+          {
+            "type": "bullet",
+            "content": "End: Notify Rejection",
+            "value": "",
+            "highlight": ""
+          }
+        ]
+      },
+      "meta": {
+        "is_decision_slide": false,
+        "highlight": ""
+      }
+    },
+    {
+      "index": 4,
+      "type": "kpi",
+      "title": "Key Performance Indicators",
+      "subtitle": "8 metrics across 5 dimensions",
+      "enhanced_title": "Key Performance Indicators",
+      "business_subtitle": "",
+      "speaker_cue": "",
+      "narrative": {
+        "act": 5,
+        "act_name": "KPI Validation",
+        "act_theme": "Measuring What Matters",
+        "decision_point": "Do we agree on the success metrics?",
+        "executive_question": "How will we measure success?",
+        "transition_in": ""
+      },
+      "template": {
+        "type": "bidding_proposal",
+        "role": "architecture"
+      },
+      "layout": {
+        "type": "data_dashboard",
+        "zones": []
+      },
+      "visuals": [
+        {
+          "type": "metric_cards",
+          "title": "Module Summary",
+          "source": "modules",
+          "cards": [
+            {
+              "title": "Content Ingestion",
+              "value": "4 total"
+            }
+          ]
+        }
+      ],
+      "content": {
+        "items": [
+          {
+            "type": "metric_card",
+            "content": "Daily Throughput",
+            "value": "> 4000",
+            "highlight": "primary",
+            "meta": {
+              "formula": "processed / day",
+              "branch": "Efficiency",
+              "direction": "higher_better",
+              "warning": "< 3000",
+              "critical": "< 2000"
+            }
+          },
+          {
+            "type": "metric_card",
+            "content": "Avg Screening Time",
+            "value": "< 500",
+            "highlight": "primary",
+            "meta": {
+              "formula": "sum(screen_ms) / count",
+              "branch": "Efficiency",
+              "direction": "lower_better",
+              "warning": "> 1000",
+              "critical": null
+            }
+          },
+          {
+            "type": "metric_card",
+            "content": "Screening Accuracy",
+            "value": "> 99",
+            "highlight": "secondary",
+            "meta": {
+              "formula": "correct / total * 100",
+              "branch": "Quality",
+              "direction": "higher_better",
+              "warning": "< 97",
+              "critical": "< 95"
+            }
+          },
+          {
+            "type": "metric_card",
+            "content": "False Positive Rate",
+            "value": "< 1",
+            "highlight": "secondary",
+            "meta": {
+              "formula": "fp / total_flagged * 100",
+              "branch": "Quality",
+              "direction": "lower_better",
+              "warning": "> 3",
+              "critical": null
+            }
+          },
+          {
+            "type": "metric_card",
+            "content": "Review Queue Length",
+            "value": "< 200",
+            "highlight": "neutral",
+            "meta": {
+              "formula": "count(pending)",
+              "branch": "Capacity",
+              "direction": "lower_better",
+              "warning": "> 500",
+              "critical": "> 1000"
+            }
+          },
+          {
+            "type": "metric_card",
+            "content": "Reviewer Utilization",
+            "value": "70-85",
+            "highlight": "neutral",
+            "meta": {
+              "formula": "active / shift * 100",
+              "branch": "Capacity",
+              "direction": "target_range",
+              "warning": "> 90",
+              "critical": null
+            }
+          },
+          {
+            "type": "metric_card",
+            "content": "Cost Per Review",
+            "value": "< 0.50",
+            "highlight": "warning",
+            "meta": {
+              "formula": "total_cost / reviewed",
+              "branch": "Cost",
+              "direction": "lower_better",
+              "warning": "> 1.00",
+              "critical": null
+            }
+          },
+          {
+            "type": "metric_card",
+            "content": "SLA Compliance Rate",
+            "value": "> 99.5",
+            "highlight": "warning",
+            "meta": {
+              "formula": "sla_met / total * 100",
+              "branch": "Risk",
+              "direction": "higher_better",
+              "warning": "< 98",
+              "critical": "< 95"
+            }
+          }
+        ]
+      },
+      "meta": {
+        "is_decision_slide": false,
+        "highlight": ""
+      }
+    },
+    {
+      "index": 5,
+      "type": "risk",
+      "title": "Risk Assessment",
+      "subtitle": "4 risks identified | 3 high-impact",
+      "enhanced_title": "Risk Assessment",
+      "business_subtitle": "",
+      "speaker_cue": "",
+      "narrative": {
+        "act": 6,
+        "act_name": "Risk & Governance",
+        "act_theme": "Protecting the Investment",
+        "decision_point": "Do we agree on the risk mitigation strategy?",
+        "executive_question": "What could go wrong, and how do we prevent it?",
+        "transition_in": ""
+      },
+      "template": {
+        "type": "bidding_proposal",
+        "role": "capability"
+      },
+      "layout": {
+        "type": "risk_heatmap",
+        "zones": []
+      },
+      "visuals": [],
+      "content": {
+        "items": [
+          {
+            "type": "risk_card",
+            "content": "AI False Negatives",
+            "value": "Score: 6/10 | Impact: HIGH",
+            "highlight": "warning",
+            "meta": {
+              "description": "Harmful content passes AI undetected",
+              "category": "quality",
+              "probability": "medium",
+              "mitigation": "Weekly model retraining",
+              "owner": "ML Team"
+            }
+          },
+          {
+            "type": "risk_card",
+            "content": "Reviewer Fatigue",
+            "value": "Score: 4/10 | Impact: MEDIUM",
+            "highlight": "primary",
+            "meta": {
+              "description": "Reviewers make errors after long shifts",
+              "category": "operational",
+              "probability": "medium",
+              "mitigation": "Mandatory breaks + rotation",
+              "owner": "Team Lead"
+            }
+          },
+          {
+            "type": "risk_card",
+            "content": "Peak Volume Overload",
+            "value": "Score: 3/10 | Impact: HIGH",
+            "highlight": "warning",
+            "meta": {
+              "description": "Viral event exceeds capacity",
+              "category": "capacity",
+              "probability": "low",
+              "mitigation": "Auto-scale reviewer pool",
+              "owner": "DevOps"
+            }
+          },
+          {
+            "type": "risk_card",
+            "content": "API Downtime",
+            "value": "Score: 3/10 | Impact: HIGH",
+            "highlight": "warning",
+            "meta": {
+              "description": "Screening API outage",
+              "category": "technical",
+              "probability": "low",
+              "mitigation": "Multi-region failover",
+              "owner": "DevOps"
+            }
+          }
+        ]
+      },
+      "meta": {
+        "is_decision_slide": false,
+        "highlight": ""
+      }
+    },
+    {
+      "index": 6,
+      "type": "insight",
+      "title": "Recommendations & Next Steps",
+      "subtitle": "Strategic actions for implementation",
+      "enhanced_title": "Recommendations & Next Steps",
+      "business_subtitle": "",
+      "speaker_cue": "",
+      "narrative": {
+        "act": 3,
+        "act_name": "Solution Architecture",
+        "act_theme": "How We Solve It",
+        "decision_point": "Do we agree on the approach?",
+        "executive_question": "What is the best path forward?",
+        "transition_in": ""
+      },
+      "template": {
+        "type": "bidding_proposal",
+        "role": "workflow"
+      },
+      "layout": {
+        "type": "left_right_split",
+        "zones": []
+      },
+      "visuals": [],
+      "content": {
+        "items": [
+          {
+            "type": "bullet",
+            "content": "System ready for implementation planning",
+            "value": "",
+            "highlight": "primary"
+          },
+          {
+            "type": "bullet",
+            "content": "Recommended team size: 4 cross-functional members",
+            "value": "",
+            "highlight": ""
+          },
+          {
+            "type": "bullet",
+            "content": "Immediate attention: AI False Negatives, Peak Volume Overload, API Downtime",
+            "value": "",
+            "highlight": "warning"
+          }
+        ]
+      },
+      "meta": {
+        "is_decision_slide": false,
+        "highlight": ""
+      }
+    },
+    {
+      "index": 7,
+      "type": "end",
+      "title": "Thank You",
+      "subtitle": "Content Moderation Platform | BSC Engine v5",
+      "enhanced_title": "Thank You",
+      "business_subtitle": "",
+      "speaker_cue": "",
+      "narrative": {
+        "act": 6,
+        "act_name": "Risk & Governance",
+        "act_theme": "Protecting the Investment",
+        "decision_point": "Do we agree on the risk mitigation strategy?",
+        "executive_question": "What could go wrong, and how do we prevent it?",
+        "transition_in": ""
+      },
+      "template": {
+        "type": "bidding_proposal",
+        "role": "kpi"
+      },
+      "layout": {
+        "type": "title_fullscreen",
+        "zones": []
+      },
+      "visuals": [],
+      "content": {
+        "items": [
+          {
+            "type": "bullet",
+            "content": "PRD -> Business Blueprint -> SOP -> KPI -> Dashboard",
+            "value": "",
+            "highlight": ""
+          },
+          {
+            "type": "bullet",
+            "content": "Generated by Business System Compiler",
+            "value": "",
+            "highlight": ""
+          }
+        ]
+      },
+      "meta": {
+        "is_decision_slide": false,
+        "highlight": ""
+      }
+    }
+  ],
+  "executive": {
+    "narrative": {
+      "title": "Executive Narrative: Content Ingestion & AI Screening Engine",
+      "total_duration_estimate": "16-24 minutes",
+      "presenter_guidance": "Speak to the decision points. Let the slides support you, not lead you. Pause after each act for alignment: 'Do we agree?'",
+      "sections": [
+        {
+          "section": "Opening",
+          "tone": "Confident, direct, business-focused",
+          "text": "Good evening. Thank you for the opportunity to present our analysis of Content Ingestion & AI Screening Engine. Over the next 8 slides, we will walk through the problem, our diagnosis, the solution, the execution plan, success metrics, and risk mitigation. By the end, you will have a clear decision framework for moving forward."
+        },
+        {
+          "section": "Act 1: Problem Definition",
+          "theme": "The Imperative for Change",
+          "decision_point": "Do we agree on the problem?",
+          "executive_question": "Why should we act now?",
+          "business_value": "Every quarter of delay costs > 4000 Daily Throughput degradation. The window for competitive advantage is 6-12 months.",
+          "slides_in_act": 2,
+          "speaker_guidance": "Open with impact. State the problem in one sentence. Quantify the cost of inaction. Make it clear why status quo is unacceptable. Key message: Content Ingestion & AI Screening Engine faces a Daily Throughput gap that costs approximately > 4000 per quarter."
+        },
+        {
+          "section": "Act 2: Current State Analysis",
+          "theme": "Understanding Where We Stand",
+          "decision_point": "Do we agree on the diagnosis?",
+          "executive_question": "What is really happening?",
+          "business_value": "The current state reveals Daily Throughput underperformance against target. Without intervention, this trajectory leads to sustained Daily Throughput deficit costing approximately > 4000 per quarter.",
+          "slides_in_act": 1,
+          "speaker_guidance": "Present data objectively. Let the numbers tell the story. Avoid blame — focus on structural causes, not individuals. Key message: The root cause is Daily Throughput underperformance against target, driven by structural constraints across 4 capability areas."
+        },
+        {
+          "section": "Act 3: Solution Architecture",
+          "theme": "How We Solve It",
+          "decision_point": "Do we agree on the approach?",
+          "executive_question": "What is the best path forward?",
+          "business_value": "This approach delivers > 4000 Daily Throughput improvement through AI-compiled workflow automation with real-time monitoring, representing a 4x capability enhancement over the status quo.",
+          "slides_in_act": 1,
+          "speaker_guidance": "Present the solution as the logical response to the diagnosis. Each element of the architecture should map to a specific problem identified in Act 2. Key message: This 4-module architecture directly addresses the root causes, delivering > 4000 Daily Throughput improvement."
+        },
+        {
+          "section": "Act 4: Execution Blueprint",
+          "theme": "Making It Real",
+          "decision_point": "Do we agree on the plan?",
+          "executive_question": "How do we get there?",
+          "business_value": "Value delivery begins in week 4. Full capability within 16 weeks.",
+          "slides_in_act": 1,
+          "speaker_guidance": "Be specific about timelines and owners. Avoid vague commitments. Show the critical path. Identify dependencies. Key message: Value delivery begins in week 4. Full capability in 16 weeks."
+        },
+        {
+          "section": "Act 5: KPI Validation",
+          "theme": "Measuring What Matters",
+          "decision_point": "Do we agree on the success metrics?",
+          "executive_question": "How will we measure success?",
+          "business_value": "We will track Daily Throughput as our north star. Target: > 4000 by end of Q4.",
+          "slides_in_act": 1,
+          "speaker_guidance": "Define success in measurable terms. Link every KPI to a business outcome. Show the baseline, the target, and the measurement mechanism. Key message: Daily Throughput is our north star. Target: > 4000 by end of Q4."
+        },
+        {
+          "section": "Act 6: Risk & Governance",
+          "theme": "Protecting the Investment",
+          "decision_point": "Do we agree on the risk mitigation strategy?",
+          "executive_question": "What could go wrong, and how do we prevent it?",
+          "business_value": "3 critical risks identified. Each has a defined mitigation with owner, timeline, and trigger.",
+          "slides_in_act": 2,
+          "speaker_guidance": "Be transparent about risks — it builds credibility. For each critical risk, show the mitigation, owner, and trigger. End with a clear call to action. Key message: 3 critical risks identified — each with a defined mitigation plan. Our recommendation: proceed with Phase 1."
+        },
+        {
+          "section": "Closing",
+          "tone": "Decisive, action-oriented",
+          "text": "In summary: Content Ingestion & AI Screening Engine represents a 4x capability enhancement improvement in Daily Throughput. The investment is justified by a clear ROI within 12 weeks of deployment. Our recommendation is to proceed. We are ready to begin Phase 1 immediately. Thank you. I am happy to take your questions."
+        }
+      ]
+    },
+    "summary": "This Bidding Proposal decomposes into 4 modules (Content Ingestion, AI Screening Engine, Human Review Workbench, Operations Analytics), orchestrated through a 7-node workflow with 8 measurable KPIs. 3 high-impact risks are identified with defined mitigations. Template: Bidding Proposal."
+  },
+  "metadata": {
+    "engine": "Master Compiler v1",
+    "elapsed_ms": 7,
+    "engines_used": [
+      "schema",
+      "template",
+      "narrative",
+      "layout",
+      "visuals"
+    ],
+    "template_confidence": 0.95
+  },
+  "generated_at": "2026-07-02T15:22:09Z"
+}

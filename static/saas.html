@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>SOP Insight Engine — Enterprise Experience Assetization</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#FAFAF9;--paper-rgb:250,250,249;--ink:#0A0A0A;--ink-rgb:10,10,10;
+  --accent:#002FA7;--accent-rgb:0,47,167;--accent-on:#fff;--accent-bright:#5B7BFF;
+  --grey-1:#F0F0EE;--grey-2:#D4D4D2;--grey-3:#737373;--border:#E0E0E0;
+  --green:#22C55E;--red:#DC2626;--orange:#F97316;--yellow:#EAB308;
+  --sans:"Inter","Noto Sans SC","PingFang SC","Helvetica Neue",sans-serif;
+  --mono:"JetBrains Mono","SF Mono",monospace;
+  --radius:8px;--radius-lg:16px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--sans);background:var(--paper);color:var(--ink);min-height:100vh;overflow-x:hidden}
+body::before{content:"";position:fixed;inset:0;z-index:0;opacity:.03;
+  background-image:radial-gradient(circle at 1px 1px,var(--ink) 1px,transparent 0);
+  background-size:24px 24px;}
+
+/* Canvas background */
+canvas#bg{position:fixed;inset:0;z-index:0;opacity:.4}
+
+/* Layout */
+.app{position:relative;z-index:1;max-width:900px;margin:0 auto;padding:40px 24px 80px;display:flex;flex-direction:column;align-items:center;min-height:100vh}
+
+/* Hero */
+.hero{margin-top:8vh;text-align:center;width:100%}
+.hero h1{font-size:2.2rem;font-weight:200;letter-spacing:-0.03em;line-height:1.25;margin-bottom:12px}
+.hero h1 span{font-weight:600;color:var(--accent)}
+.hero .subtitle{font-size:.85rem;color:var(--grey-3);letter-spacing:.04em;font-family:var(--mono);text-transform:uppercase}
+
+/* Input area */
+.input-area{width:100%;margin-top:48px}
+.input-wrap{position:relative;background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:0 1px 3px rgba(0,0,0,.04),0 6px 24px rgba(0,0,0,.06);overflow:hidden;transition:all .2s}
+.input-wrap:focus-within{border-color:var(--accent);box-shadow:0 1px 3px rgba(0,0,0,.04),0 8px 32px rgba(0,47,167,.08)}
+.input-wrap textarea{width:100%;border:0;outline:0;padding:20px 20px 12px;font-size:.95rem;font-family:var(--sans);line-height:1.7;resize:none;min-height:80px;background:transparent}
+.input-wrap textarea::placeholder{color:var(--grey-3);opacity:.6}
+.input-bar{display:flex;align-items:center;justify-content:space-between;padding:0 16px 14px;gap:12px}
+.input-bar .mode-tags{display:flex;gap:6px;flex-wrap:wrap}
+.input-bar .mode-tag{font-size:.65rem;font-family:var(--mono);padding:3px 10px;border:1px solid var(--border);border-radius:20px;cursor:pointer;transition:all .15s;background:transparent;color:var(--grey-3);letter-spacing:.04em;text-transform:uppercase}
+.input-bar .mode-tag:hover,.input-bar .mode-tag.active{border-color:var(--accent);color:var(--accent);background:rgba(0,47,167,.04)}
+.input-bar button{display:inline-flex;align-items:center;gap:6px;padding:10px 20px;background:var(--accent);color:var(--accent-on);border:0;border-radius:var(--radius);font-size:.75rem;font-weight:600;font-family:var(--sans);cursor:pointer;letter-spacing:.03em;transition:all .15s;white-space:nowrap}
+.input-bar button:hover{background:#0038C8;transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,47,167,.2)}
+.input-bar button:disabled{opacity:.5;cursor:not-allowed;transform:none}
+
+/* Quick actions */
+.quick-actions{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap;justify-content:center}
+.quick-btn{font-size:.7rem;font-family:var(--sans);padding:8px 18px;border:1px solid var(--border);border-radius:24px;cursor:pointer;transition:all .15s;background:var(--paper);color:var(--ink);letter-spacing:.02em}
+.quick-btn:hover{border-color:var(--accent);color:var(--accent);transform:translateY(-1px)}
+
+/* Results */
+.results{margin-top:40px;width:100%;display:none}
+.results.visible{display:block;animation:fadeUp .4s ease}
+
+/* Pipeline trace */
+.pipeline{display:flex;align-items:center;gap:0;margin-bottom:32px;overflow-x:auto;padding:8px 0}
+.pipeline-step{display:flex;align-items:center;gap:0;white-space:nowrap}
+.pipeline-dot{width:10px;height:10px;border-radius:50%;margin-right:6px;flex-shrink:0}
+.pipeline-dot.done{background:var(--green)}
+.pipeline-dot.running{background:var(--accent);animation:pulse 1.2s infinite}
+.pipeline-dot.pending{background:var(--grey-2)}
+.pipeline-label{font-size:.65rem;font-family:var(--mono);color:var(--grey-3);letter-spacing:.04em}
+.pipeline-arrow{color:var(--grey-2);margin:0 10px;font-size:.7rem}
+.pipeline-time{font-size:.58rem;color:var(--grey-3);margin-left:4px;font-family:var(--mono)}
+
+/* Summary card */
+.summary-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);padding:32px;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,.03)}
+.summary-card h2{font-size:1.1rem;font-weight:500;margin-bottom:8px;letter-spacing:-.02em}
+.summary-card .meta{font-size:.65rem;font-family:var(--mono);color:var(--grey-3);margin-bottom:20px;text-transform:uppercase;letter-spacing:.06em}
+.summary-card .insight{font-size:.85rem;line-height:1.7;color:var(--ink)}
+
+/* KPI grid */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-top:16px}
+.kpi-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:16px}
+.kpi-card .kpi-label{font-size:.6rem;font-family:var(--mono);color:var(--grey-3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+.kpi-card .kpi-value{font-size:1.4rem;font-weight:600;color:var(--ink);letter-spacing:-.02em}
+.kpi-card .kpi-target{font-size:.6rem;color:var(--grey-3);margin-top:4px;font-family:var(--mono)}
+
+/* Risk list */
+.risk-list{display:flex;flex-direction:column;gap:10px;margin-top:16px}
+.risk-item{display:flex;align-items:center;gap:12px;padding:12px 16px;background:#fff;border:1px solid var(--border);border-radius:var(--radius)}
+.risk-badge{font-size:.55rem;font-weight:700;padding:3px 8px;border-radius:12px;text-transform:uppercase;letter-spacing:.05em;font-family:var(--mono)}
+.risk-badge.high{background:#FEF2F2;color:var(--red)}
+.risk-badge.medium{background:#FFF7ED;color:var(--orange)}
+.risk-badge.low{background:#F0FDF4;color:var(--green)}
+.risk-name{font-size:.8rem;font-weight:500;flex:1}
+
+/* Assets */
+.assets{margin-top:24px}
+.assets h3{font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px;color:var(--grey-3)}
+.asset-grid{display:flex;gap:10px;flex-wrap:wrap}
+.asset-link{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border:1px solid var(--border);border-radius:var(--radius);font-size:.7rem;font-family:var(--mono);text-decoration:none;color:var(--accent);transition:all .15s}
+.asset-link:hover{border-color:var(--accent);background:rgba(0,47,167,.03)}
+
+/* Loading */
+@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--accent-on);border-top-color:transparent;border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Error */
+.error-msg{background:#FEF2F2;border:1px solid #FECACA;color:var(--red);padding:16px;border-radius:var(--radius);font-size:.8rem;margin-top:16px}
+
+/* Toast */
+#toast{position:fixed;top:24px;right:24px;z-index:100;background:var(--ink);color:var(--paper);padding:12px 20px;border-radius:var(--radius);font-size:.7rem;font-family:var(--mono);opacity:0;transform:translateY(-8px);transition:all .24s cubic-bezier(.4,.14,.3,1);pointer-events:none}
+
+/* Responsive */
+@media(max-width:640px){
+  .hero{margin-top:4vh}
+  .hero h1{font-size:1.5rem}
+  .input-bar{flex-direction:column;align-items:stretch}
+  .kpi-grid{grid-template-columns:1fr 1fr}
+}
+</style>
+</head>
+<body>
+<canvas id="bg"></canvas>
+
+<div class="app">
+  <div class="hero">
+    <h1>SOP <span>Insight</span> Engine</h1>
+    <div class="subtitle">Enterprise Experience Assetization Engine</div>
+  </div>
+
+  <div class="input-area">
+    <div class="input-wrap">
+      <textarea id="question" placeholder="告诉我你的业务需求，我来帮你分析...&#10;&#10;例如：帮我分析这个内容审核PRD&#10;       生成竞标方案&#10;       看看流程有什么问题&#10;       帮我生成汇报材料" rows="3"></textarea>
+      <div class="input-bar">
+        <div class="mode-tags">
+          <span class="mode-tag active" data-mode="auto">Auto</span>
+          <span class="mode-tag" data-mode="full">Full Analysis</span>
+          <span class="mode-tag" data-mode="report">Report</span>
+          <span class="mode-tag" data-mode="risk">Risk</span>
+          <span class="mode-tag" data-mode="optimize">Optimize</span>
+        </div>
+        <button id="btnSubmit" onclick="submitAsk()">
+          <span id="btnText">Generate Insight</span>
+          <span id="btnSpinner" class="spinner" style="display:none"></span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Hidden: PRD text input -->
+    <div style="margin-top:10px">
+      <details style="font-size:.65rem;color:var(--grey-3);cursor:pointer">
+        <summary style="font-family:var(--mono);text-transform:uppercase;letter-spacing:.04em">+ Attach PRD / Document</summary>
+        <textarea id="prdInput" placeholder="Paste your PRD, BRD, SOP, or business document here..." style="width:100%;min-height:160px;margin-top:8px;padding:12px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--mono);font-size:.7rem;resize:vertical;background:var(--grey-1)" rows="8"></textarea>
+      </details>
+    </div>
+  </div>
+
+  <div class="quick-actions">
+    <button class="quick-btn" onclick="quickAsk('帮我分析这个内容审核系统的完整业务流程')">内容审核 SOP</button>
+    <button class="quick-btn" onclick="quickAsk('帮我设计智能客服系统的指标和SOP')">智能客服系统</button>
+    <button class="quick-btn" onclick="quickAsk('帮我生成风控系统的竞标方案')">风控竞标方案</button>
+    <button class="quick-btn" onclick="quickAsk('看看这个项目的流程瓶颈和风险')">流程诊断</button>
+    <button class="quick-btn" onclick="quickAsk('帮我生成汇报PPT材料')">生成汇报材料</button>
+  </div>
+
+  <div class="results" id="results"></div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ── Canvas background ──
+(function(){
+  var c=document.getElementById("bg"),ctx=c.getContext("2d");
+  function resize(){c.width=window.innerWidth;c.height=window.innerHeight;}
+  resize();window.addEventListener("resize",resize);
+  var PAL=" .:-=+*#%@",CELL=32,FS=12,t0=performance.now();
+  function draw(){
+    var w=c.width,h=c.height,now=performance.now(),t=(now-t0)/1000*.3;
+    ctx.clearRect(0,0,w,h);
+    ctx.font=FS+"px "+getComputedStyle(document.body).fontFamily;
+    ctx.textAlign="center";ctx.textBaseline="middle";
+    var cols=Math.ceil(w/CELL),rows=Math.ceil(h/CELL);
+    for(var r=0;r<rows;r++)for(var c2=0;c2<cols;c2++){
+      var n=(Math.sin(c2*.15+t)+Math.sin(r*.2-t*.6)+Math.sin((c2+r)*.1+t*.4)+Math.sin(Math.hypot(c2-cols*.5,r-rows*.5)*.14-t*.5))/4;
+      var v=(n+1)/2;if(v<.25)continue;
+      var idx=Math.min(PAL.length-1,Math.floor(v*PAL.length));
+      ctx.fillStyle="rgba(10,10,10,"+(.015+(v-.25)*.12)+")";
+      ctx.fillText(PAL[idx],c2*CELL+CELL/2,r*CELL+CELL/2);
+    }
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+
+// ── Mode tags ──
+document.querySelectorAll(".mode-tag").forEach(function(tag){
+  tag.addEventListener("click",function(){
+    document.querySelectorAll(".mode-tag").forEach(function(t){t.classList.remove("active")});
+    this.classList.add("active");
+  });
+});
+
+// ── Quick actions ──
+function quickAsk(q){
+  document.getElementById("question").value=q;
+  submitAsk();
+}
+
+// ── Submit ──
+async function submitAsk(){
+  var q=document.getElementById("question").value.trim();
+  var prd=document.getElementById("prdInput").value.trim();
+
+  if(!q&&!prd){
+    toast("Please describe your business need");
+    return;
+  }
+
+  var btn=document.getElementById("btnSubmit");
+  var btnText=document.getElementById("btnText");
+  var btnSpinner=document.getElementById("btnSpinner");
+  var results=document.getElementById("results");
+
+  btn.disabled=true;
+  btnText.textContent="Analyzing...";
+  btnSpinner.style.display="inline-block";
+
+  // Build payload
+  var mode=document.querySelector(".mode-tag.active").dataset.mode;
+  var payload={question:q||"Analyze this PRD",input_text:prd||q,output_types:["html","json"]};
+
+  // Mode-specific bias
+  var modeMap={auto:"",full:"帮我全面分析",report:"帮我生成报告",risk:"帮我分析风险",optimize:"帮我优化流程"};
+  if(modeMap[mode]&&!q.includes(modeMap[mode])){
+    payload.question=modeMap[mode]+" "+q;
+  }
+
+  try{
+    var resp=await fetch("/studio/ask",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify(payload)
+    });
+    var data=await resp.json();
+
+    if(!data.success){
+      results.innerHTML='<div class="error-msg">'+escapeHtml(data.error||"Unknown error")+"</div>";
+      results.classList.add("visible");
+      return;
+    }
+
+    renderResults(data.data);
+  }catch(e){
+    results.innerHTML='<div class="error-msg">Connection error: '+escapeHtml(e.message)+"</div>";
+    results.classList.add("visible");
+  }finally{
+    btn.disabled=false;
+    btnText.textContent="Generate Insight";
+    btnSpinner.style.display="none";
+  }
+}
+
+// ── Render ──
+function renderResults(d){
+  var results=document.getElementById("results");
+  var stages=d.stages||[];
+  var report=d.report||{};
+  var business=report.business_system||{};
+  var decision=report.decision||{};
+  var assets=d.assets||[];
+
+  // Pipeline trace
+  var pipeHtml='<div class="pipeline">';
+  stages.forEach(function(s,i){
+    var status=s.status==="done"?"done":s.status==="error"?"pending":"pending";
+    pipeHtml+='<div class="pipeline-step"><span class="pipeline-dot '+status+'"></span>';
+    pipeHtml+='<span class="pipeline-label">'+escapeHtml(s.display||s.agent)+'</span>';
+    pipeHtml+='<span class="pipeline-time">'+(s.duration_ms||0).toFixed(0)+"ms</span></div>";
+    if(i<stages.length-1)pipeHtml+='<span class="pipeline-arrow">→</span>';
+  });
+  pipeHtml+="</div>";
+
+  // Summary
+  var summaryHtml='<div class="summary-card">';
+  summaryHtml+='<h2>'+escapeHtml(d.display_name||"Analysis Complete")+"</h2>";
+  summaryHtml+='<div class="meta">'+escapeHtml(d.intent||"")+" · confidence: "+(d.confidence*100).toFixed(0)+"% · "+escapeHtml(d.domain||"general")+" · "+d.total_duration_ms.toFixed(0)+"ms total</div>";
+  summaryHtml+='<div class="insight">'+escapeHtml(d.summary||"")+"</div>";
+
+  // Decision insights
+  var health=decision.health_score||{};
+  if(Object.keys(health).length){
+    summaryHtml+='<div class="kpi-grid" style="margin-top:20px">';
+    summaryHtml+=kpiCard("Health Score",(health.overall||0)+"/100",health.status||"");
+    summaryHtml+=kpiCard("Bottlenecks",decision.bottlenecks?decision.bottlenecks.length:0,"issues found");
+    summaryHtml+=kpiCard("Recommendations",decision.recommendations?decision.recommendations.length:0,"actions");
+    summaryHtml+="</div>";
+  }
+  summaryHtml+="</div>";
+
+  // Business modules
+  var modules=business.modules||[];
+  if(modules.length){
+    summaryHtml+='<div class="summary-card"><h2>Business Modules</h2>';
+    summaryHtml+='<div class="kpi-grid">';
+    modules.slice(0,6).forEach(function(m){
+      summaryHtml+=kpiCard(m.name||m,m.description||"","module");
+    });
+    summaryHtml+="</div></div>";
+  }
+
+  // KPIs
+  var metrics=business.metrics||business.kpi||[];
+  if(metrics.length){
+    summaryHtml+='<div class="summary-card"><h2>Key Performance Indicators</h2>';
+    summaryHtml+='<div class="kpi-grid">';
+    metrics.slice(0,8).forEach(function(m){
+      summaryHtml+=kpiCard(m.name||m,m.target||m.formula||"","target");
+    });
+    summaryHtml+="</div></div>";
+  }
+
+  // Risks
+  var risks=business.risks||business.risk||[];
+  if(risks.length){
+    summaryHtml+='<div class="summary-card"><h2>Risk Assessment</h2><div class="risk-list">';
+    risks.slice(0,6).forEach(function(r){
+      var level=(r.impact||r.level||"medium").toLowerCase();
+      var lvlClass=level.includes("high")?"high":level.includes("medium")?"medium":"low";
+      summaryHtml+='<div class="risk-item"><span class="risk-badge '+lvlClass+'">'+level.substring(0,4).toUpperCase()+"</span>";
+      summaryHtml+='<span class="risk-name">'+escapeHtml(r.name||r)+"</span>";
+      if(r.mitigation)summaryHtml+='<span style="font-size:.65rem;color:var(--grey-3)">'+escapeHtml(r.mitigation).substring(0,60)+"</span>";
+      summaryHtml+="</div>";
+    });
+    summaryHtml+="</div></div>";
+  }
+
+  // Recommendations
+  var recs=decision.recommendations||[];
+  if(recs.length){
+    summaryHtml+='<div class="summary-card"><h2>Recommendations</h2><div class="risk-list">';
+    recs.slice(0,5).forEach(function(r,i){
+      var action=r.action||r;
+      var priority=r.priority||"medium";
+      var prioClass=priority.toLowerCase().includes("high")?"high":"medium";
+      summaryHtml+='<div class="risk-item"><span class="risk-badge '+prioClass+'">'+(i+1)+"</span>";
+      summaryHtml+='<span class="risk-name">'+escapeHtml(action)+"</span>";
+      if(r.roi||r.expected_roi)summaryHtml+='<span style="font-size:.6rem;color:var(--green);font-family:var(--mono)">ROI: '+escapeHtml(r.roi||r.expected_roi)+"</span>";
+      summaryHtml+="</div>";
+    });
+    summaryHtml+="</div></div>";
+  }
+
+  // Assets
+  if(assets.length){
+    summaryHtml+='<div class="assets"><h3>Generated Assets</h3><div class="asset-grid">';
+    assets.forEach(function(a){
+      var name=a.file_name||a.type||"file";
+      var path=a.file_path||"";
+      summaryHtml+='<a class="asset-link" href="/output/'+encodeURIComponent(name)+'" download>'+escapeHtml(name)+"</a>";
+    });
+    summaryHtml+="</div></div>";
+  }
+
+  results.innerHTML=pipeHtml+summaryHtml;
+  results.classList.add("visible");
+  results.scrollIntoView({behavior:"smooth",block:"start"});
+}
+
+function kpiCard(label,value,target){
+  return'<div class="kpi-card"><div class="kpi-label">'+escapeHtml(label)+'</div><div class="kpi-value">'+escapeHtml(String(value))+'</div><div class="kpi-target">'+escapeHtml(target||"")+"</div></div>";
+}
+
+function escapeHtml(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
+
+function toast(msg){
+  var t=document.getElementById("toast");
+  t.textContent=msg;t.style.opacity="1";t.style.transform="translateY(0)";
+  setTimeout(function(){t.style.opacity="0";t.style.transform="translateY(-8px)"},2400);
+}
+
+// Enter key submit
+document.getElementById("question").addEventListener("keydown",function(e){
+  if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();submitAsk();}
+});
+</script>
+</body>
+</html>

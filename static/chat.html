@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BSC · Business System Compiler</title>
+<style>
+:root{
+  --ink:#12161A; --surface:#1A1E23; --raised:#222831; --gold:#C9A84C;
+  --gold-dim:#8a7434; --patina:#5A9E96; --text:#E8E6E3; --text-dim:#8B8985;
+  --border:#2D333B; --user-bubble:#2A3340; --ai-bubble:#1E2530;
+  --success:#4CAF50; --warning:#FF9800; --danger:#F44336; --info:#2196F3;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--ink);color:var(--text);font-family:system-ui,-apple-system,sans-serif;height:100vh;display:flex;flex-direction:column}
+::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:var(--ink)}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+.header{padding:12px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-shrink:0;justify-content:space-between}
+.logo{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,var(--gold),var(--gold-dim));display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--ink);font-size:14px}
+.title{font-size:16px;font-weight:600}
+.title span{color:var(--gold)}
+.header-status{font-size:12px;color:var(--text-dim)}
+
+.main-container{flex:1;display:flex;overflow:hidden}
+.sidebar{width:280px;border-right:1px solid var(--border);padding:16px;overflow-y:auto;flex-shrink:0}
+.content{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column}
+
+.section{margin-bottom:24px}
+.section-title{font-size:14px;font-weight:600;color:var(--gold);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.section-title .icon{font-size:16px}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px}
+.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.card-title{font-size:14px;font-weight:600}
+.card-badge{font-size:11px;padding:2px 8px;border-radius:10px;background:var(--raised);color:var(--text-dim)}
+.card-badge.success{background:rgba(76,175,80,0.15);color:var(--success)}
+.card-badge.warning{background:rgba(255,152,0,0.15);color:var(--warning)}
+.card-badge.danger{background:rgba(244,67,54,0.15);color:var(--danger)}
+
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center}
+.stat-value{font-size:22px;font-weight:700;color:var(--gold)}
+.stat-label{font-size:12px;color:var(--text-dim);margin-top:4px}
+
+.workflow-steps{display:flex;flex-wrap:wrap;gap:8px}
+.workflow-step{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 16px;display:flex;align-items:center;gap:8px;font-size:13px}
+.workflow-step .num{width:20px;height:20px;border-radius:50%;background:var(--gold);color:var(--ink);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600}
+
+.objective-list{list-style:none}
+.objective-item{background:var(--surface);border-left:3px solid var(--gold);padding:10px 14px;border-radius:0 8px 8px 0;margin-bottom:8px}
+.objective-item .name{font-weight:500;font-size:13px}
+.objective-item .target{font-size:12px;color:var(--text-dim);margin-top:2px}
+.objective-item .priority{font-size:11px;padding:1px 6px;border-radius:4px;margin-top:4px;display:inline-block}
+.objective-item .priority.high{background:rgba(244,67,54,0.15);color:var(--danger)}
+.objective-item .priority.medium{background:rgba(255,152,0,0.15);color:var(--warning)}
+.objective-item .priority.low{background:rgba(33,150,243,0.15);color:var(--info)}
+
+.risk-list{list-style:none}
+.risk-item{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px}
+.risk-item .risk-name{font-weight:500;font-size:13px}
+.risk-item .risk-severity{font-size:11px;padding:1px 6px;border-radius:4px;margin-left:8px}
+.risk-item .risk-severity.critical{background:rgba(244,67,54,0.15);color:var(--danger)}
+.risk-item .risk-severity.high{background:rgba(255,152,0,0.15);color:var(--warning)}
+.risk-item .risk-severity.medium{background:rgba(33,150,243,0.15);color:var(--info)}
+.risk-item .risk-desc{font-size:12px;color:var(--text-dim);margin-top:4px}
+.risk-item .risk-mitigation{font-size:12px;color:var(--patina);margin-top:4px}
+
+.opportunity-list{list-style:none}
+.opportunity-item{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px}
+.opportunity-item .opp-name{font-weight:500;font-size:13px}
+.opportunity-item .opp-potential{font-size:12px;color:var(--gold);margin-top:2px}
+.opportunity-item .opp-desc{font-size:12px;color:var(--text-dim);margin-top:4px}
+
+.recommendation-list{list-style:none}
+.rec-item{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:8px}
+.rec-item .rec-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.rec-item .rec-title{font-weight:600;font-size:14px}
+.rec-item .rec-priority{font-size:11px;padding:2px 8px;border-radius:4px}
+.rec-item .rec-priority.P0{background:rgba(244,67,54,0.15);color:var(--danger)}
+.rec-item .rec-priority.P1{background:rgba(255,152,0,0.15);color:var(--warning)}
+.rec-item .rec-priority.P2{background:rgba(33,150,243,0.15);color:var(--info)}
+.rec-item .rec-desc{font-size:13px;color:var(--text-dim);margin-bottom:8px}
+.rec-item .rec-actions{display:flex;flex-wrap:gap:4px}
+.rec-item .rec-action{font-size:11px;padding:3px 8px;border-radius:4px;background:var(--raised);color:var(--text-dim);margin-right:4px;margin-bottom:4px;display:inline-block}
+
+.report-content{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px}
+.report-title{font-size:18px;font-weight:600;color:var(--gold);margin-bottom:12px}
+.report-summary{font-size:14px;line-height:1.7;color:var(--text)}
+.report-sections{margin-top:20px}
+.report-section{margin-bottom:16px}
+.report-section-title{font-size:14px;font-weight:600;color:var(--patina);margin-bottom:4px}
+.report-section-content{font-size:13px;color:var(--text-dim);line-height:1.6}
+
+.timeline{display:flex;gap:2px;margin-bottom:16px}
+.timeline-item{flex:1;height:4px;border-radius:2px;background:var(--border);transition:0.3s}
+.timeline-item.active{background:var(--gold)}
+.timeline-item.success{background:var(--success)}
+.timeline-item.failed{background:var(--danger)}
+
+.export-buttons{display:flex;gap:8px;margin-top:16px}
+.export-btn{padding:8px 16px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-size:13px;transition:0.2s}
+.export-btn:hover{border-color:var(--gold);color:var(--gold)}
+
+.input-area{border-top:1px solid var(--border);padding:16px 24px;flex-shrink:0}
+.input-inner{max-width:900px;margin:0 auto;display:flex;gap:12px;align-items:flex-end}
+.input-box{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 16px;color:var(--text);font-size:14px;font-family:inherit;resize:none;max-height:120px;min-height:44px;line-height:1.5}
+.input-box:focus{outline:none;border-color:var(--gold-dim)}
+.send-btn{width:44px;height:44px;border-radius:12px;background:var(--gold);color:var(--ink);border:none;cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:0.2s}
+.send-btn:hover{background:#D4B85E}
+.send-btn:disabled{opacity:0.3;cursor:not-allowed}
+
+.upload-btn{width:44px;height:44px;border-radius:12px;background:var(--surface);border:1px solid var(--border);color:var(--text);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:0.2s}
+.upload-btn:hover{border-color:var(--gold);color:var(--gold)}
+.upload-btn input{display:none}
+
+.upload-zone{border:2px dashed var(--border);border-radius:12px;padding:30px;text-align:center;cursor:pointer;transition:0.2s;margin-bottom:12px}
+.upload-zone:hover{border-color:var(--gold-dim)}
+.upload-zone.dragover{border-color:var(--gold);background:rgba(201,168,76,0.05)}
+.upload-zone .upload-icon{font-size:32px;margin-bottom:8px;color:var(--gold)}
+.upload-zone .upload-text{font-size:14px;color:var(--text-dim)}
+.upload-zone .upload-hint{font-size:12px;color:var(--text-dim);margin-top:4px}
+
+.file-list{display:flex;flex-wrap:gap:8px;margin-bottom:12px}
+.file-item{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px 12px;display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text)}
+.file-item .file-name{max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-item .file-remove{color:var(--text-dim);cursor:pointer}
+.file-item .file-remove:hover{color:var(--danger)}
+
+.welcome{text-align:center;padding:60px 20px}
+.welcome h2{font-size:24px;margin-bottom:12px;font-weight:600}
+.welcome h2 span{color:var(--gold)}
+.welcome p{color:var(--text-dim);font-size:15px;margin-bottom:24px}
+.welcome-examples{display:grid;gap:8px;max-width:500px;margin:0 auto}
+.welcome-example{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 18px;cursor:pointer;text-align:left;transition:0.2s;font-size:14px}
+.welcome-example:hover{border-color:var(--gold-dim);transform:translateY(-1px)}
+.welcome-example .label{color:var(--gold);font-size:12px;margin-bottom:4px}
+
+.typing{display:flex;gap:4px;justify-content:center;padding:20px}
+.typing span{width:6px;height:6px;border-radius:50%;background:var(--text-dim);animation:blink 1.4s infinite}
+.typing span:nth-child(2){animation-delay:0.2s}
+.typing span:nth-child(3){animation-delay:0.4s}
+@keyframes blink{0%,60%,100%{opacity:0.3}30%{opacity:1}}
+
+.tabs{display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:20px}
+.tab{padding:10px 24px;border-bottom:2px solid transparent;color:var(--text-dim);cursor:pointer;font-size:14px;transition:0.2s;background:none;border-left:none;border-right:none}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--gold);border-bottom-color:var(--gold)}
+.tab-content{display:none}
+.tab-content.active{display:block}
+
+.ppt-slide-preview{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:12px}
+.ppt-slide-preview .slide-type{font-size:12px;color:var(--gold);margin-bottom:8px}
+.ppt-slide-preview .slide-title{font-size:16px;font-weight:600;margin-bottom:8px}
+.ppt-slide-preview .slide-content{font-size:13px;color:var(--text-dim);line-height:1.6}
+
+.key-finding{background:var(--surface);border-left:3px solid var(--patina);padding:12px 16px;border-radius:0 8px 8px 0;margin-bottom:8px;font-size:13px}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">B</div>
+  <div class="title">BSC <span>Business System Compiler</span></div>
+  <div class="header-status" id="status">● 就绪</div>
+</div>
+
+<div class="main-container">
+  <div class="sidebar" id="sidebar">
+    <div class="section">
+      <div class="section-title"><span class="icon">📊</span> 概览</div>
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-value" id="statObjectives">0</div>
+          <div class="stat-label">业务目标</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="statWorkflow">0</div>
+          <div class="stat-label">流程步骤</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="statRisks">0</div>
+          <div class="stat-label">风险项</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="statOpportunities">0</div>
+          <div class="stat-label">战略机会</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title"><span class="icon">📋</span> 执行进度</div>
+      <div class="timeline" id="timeline">
+        <div class="timeline-item" title="业务理解"></div>
+        <div class="timeline-item" title="SOP"></div>
+        <div class="timeline-item" title="风险"></div>
+        <div class="timeline-item" title="战略"></div>
+        <div class="timeline-item" title="优化"></div>
+        <div class="timeline-item" title="组装"></div>
+      </div>
+      <div style="font-size:11px;color:var(--text-dim);text-align:center">
+        <span id="timelineText">等待输入...</span>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title"><span class="icon">📁</span> 导出</div>
+      <div class="export-buttons">
+        <button class="export-btn" onclick="exportData('json')">JSON</button>
+        <button class="export-btn" onclick="exportData('html')">HTML</button>
+        <button class="export-btn" onclick="exportData('ppt')">PPT</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="content" id="content">
+    <div class="welcome" id="welcome">
+      <h2>BSC <span>Business System Compiler</span></h2>
+      <p>将PRD文档自动编译为完整的业务系统方案</p>
+      <div class="welcome-examples">
+        <div class="welcome-example" onclick="sendQuick('内容审核系统PRD。目标：自动化审核，降低人工成本80%。流程：用户提交内容→AI自动审核→高风险转人工复审→审核通过发布。审核员20人。SLA要求24小时。准确率目标99%。')">
+          <div class="label">📄 粘贴PRD分析</div>
+          <div>内容审核系统PRD，自动生成业务系统方案</div>
+        </div>
+        <div class="welcome-example" onclick="sendQuick('电商订单系统PRD。目标：提升订单处理效率30%。流程：下单→支付→仓库发货→物流配送→签收。用户量100万/日。')">
+          <div class="label">🛒 电商系统</div>
+          <div>订单处理流程+风险分析+优化建议</div>
+        </div>
+        <div class="welcome-example" onclick="sendQuick('客户服务系统PRD。目标：客户满意度提升至95%。流程：咨询→受理→处理→反馈→回访。客服团队50人。')">
+          <div class="label">💬 客服系统</div>
+          <div>服务流程设计+KPI指标+战略规划</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="workspace" style="display:none">
+      <div class="tabs">
+        <div class="tab active" onclick="switchTab('dashboard')">📊 Dashboard</div>
+        <div class="tab" onclick="switchTab('report')">📄 Report</div>
+        <div class="tab" onclick="switchTab('ppt')">🎬 PPT Blueprint</div>
+      </div>
+
+      <div class="tab-content active" id="tab-dashboard"></div>
+      <div class="tab-content" id="tab-report"></div>
+      <div class="tab-content" id="tab-ppt"></div>
+    </div>
+
+    <div id="typing" style="display:none" class="typing"><span></span><span></span><span></span></div>
+  </div>
+</div>
+
+<div class="input-area">
+  <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+    <div class="upload-icon">📁</div>
+    <div class="upload-text">拖拽文件到这里，或点击上传</div>
+    <div class="upload-hint">支持 .docx .pdf .txt .png .jpg .jpeg 格式，单个文件最大10MB</div>
+  </div>
+  <div class="file-list" id="fileList" style="display:none"></div>
+  <input type="file" id="fileInput" multiple accept=".docx,.pdf,.txt,.png,.jpg,.jpeg" style="display:none" onchange="handleFileSelect(event)">
+  <div class="input-inner">
+    <textarea class="input-box" id="inputBox" placeholder="粘贴PRD文档或输入业务需求..." rows="1"></textarea>
+    <label class="upload-btn" for="fileInput">📎</label>
+    <button class="send-btn" id="sendBtn" onclick="sendMessage()">↑</button>
+  </div>
+</div>
+
+<script>
+const API = '';
+let currentData = null;
+let isProcessing = false;
+let uploadedFiles = [];
+
+function escapeHtml(text) {
+  if (!text) return '';
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+const input = document.getElementById('inputBox');
+const sendBtn = document.getElementById('sendBtn');
+const content = document.getElementById('content');
+const welcome = document.getElementById('welcome');
+const workspace = document.getElementById('workspace');
+const typing = document.getElementById('typing');
+const uploadZone = document.getElementById('uploadZone');
+const fileList = document.getElementById('fileList');
+
+input.addEventListener('input', () => {
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+});
+
+input.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+
+uploadZone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  uploadZone.classList.add('dragover');
+});
+
+uploadZone.addEventListener('dragleave', () => {
+  uploadZone.classList.remove('dragover');
+});
+
+uploadZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  uploadZone.classList.remove('dragover');
+  handleFiles(e.dataTransfer.files);
+});
+
+function handleFileSelect(event) {
+  handleFiles(event.target.files);
+}
+
+function handleFiles(files) {
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (['docx', 'pdf', 'txt', 'png', 'jpg', 'jpeg'].includes(ext)) {
+      if (file.size > 10 * 1024 * 1024) {
+        alert(file.name + ' 文件大小超过限制(10MB)');
+        continue;
+      }
+      uploadedFiles.push(file);
+    } else {
+      alert(file.name + ' 不支持的格式，仅支持 .docx .pdf .txt .png .jpg .jpeg');
+    }
+  }
+  renderFileList();
+}
+
+function renderFileList() {
+  if (uploadedFiles.length === 0) {
+    fileList.style.display = 'none';
+    return;
+  }
+  fileList.style.display = 'flex';
+  fileList.innerHTML = uploadedFiles.map((f, i) =>
+    `<div class="file-item"><span>${f.name}</span><span class="file-remove" onclick="removeFile(${i})">×</span></div>`
+  ).join('');
+}
+
+function removeFile(index) {
+  uploadedFiles.splice(index, 1);
+  renderFileList();
+}
+
+function sendQuick(msg) {
+  input.value = msg;
+  sendMessage();
+}
+
+async function sendMessage() {
+  const msg = input.value.trim();
+  if (!msg && uploadedFiles.length === 0) {
+    alert('请输入文本内容或上传文件');
+    return;
+  }
+  if (isProcessing) return;
+
+  if (welcome) welcome.style.display = 'none';
+  workspace.style.display = 'none';
+  typing.style.display = 'block';
+
+  isProcessing = true;
+  sendBtn.disabled = true;
+  document.getElementById('status').textContent = '● 编译中...';
+  updateTimeline('processing');
+
+  try {
+    let response;
+    if (uploadedFiles.length > 0) {
+      const formData = new FormData();
+      uploadedFiles.forEach(file => formData.append('files', file));
+      if (msg) formData.append('text', msg);
+      response = await fetch(API + '/bsc/compile/files', {
+        method: 'POST',
+        body: formData
+      });
+    } else {
+      response = await fetch(API + '/bsc/compile', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({input: msg, output_types: ['json', 'html', 'ppt']})
+      });
+    }
+
+    const data = await response.json();
+
+    currentData = data;
+    typing.style.display = 'none';
+    workspace.style.display = 'block';
+    renderWorkspace(data);
+    updateStats(data);
+    updateTimeline('complete', data.pipeline.stages);
+
+    if (data.errors && data.errors.length > 0) {
+      alert('部分文件解析失败:\n' + data.errors.join('\n'));
+    }
+
+  } catch (e) {
+    typing.style.display = 'none';
+    workspace.innerHTML = '<div class="card"><div style="color:var(--danger)">❌ 编译失败: ' + e.message + '</div></div>';
+    updateTimeline('failed');
+  }
+
+  isProcessing = false;
+  sendBtn.disabled = false;
+  document.getElementById('status').textContent = '● 就绪';
+  input.focus();
+}
+
+function updateStats(data) {
+  const bs = data.business_system || {};
+  document.getElementById('statObjectives').textContent = (bs.objectives || []).length;
+  document.getElementById('statWorkflow').textContent = (bs.workflow || []).length;
+  document.getElementById('statRisks').textContent = (bs.risks || []).length;
+  document.getElementById('statOpportunities').textContent = (bs.strategy?.growth_opportunities || []).length;
+}
+
+function updateTimeline(status, stages = []) {
+  const items = document.querySelectorAll('.timeline-item');
+  const labels = ['业务理解', 'SOP', '风险', '战略', '优化', '组装'];
+  const keyMap = {'business_understanding':'业务理解','sop':'SOP','risk':'风险','strategy':'战略','optimization':'优化','composer':'组装'};
+
+  items.forEach((item, i) => {
+    item.className = 'timeline-item';
+    if (status === 'processing') {
+      if (i <= Math.floor(Date.now() / 500) % items.length) {
+        item.classList.add('active');
+      }
+    } else if (status === 'complete') {
+      const stage = stages.find(s => s.display === labels[i] || keyMap[s.key] === labels[i]);
+      if (stage?.status === 'success') {
+        item.classList.add('success');
+      } else if (stage?.status === 'failed') {
+        item.classList.add('failed');
+      }
+    }
+  });
+
+  if (status === 'complete') {
+    document.getElementById('timelineText').textContent = `完成于 ${(currentData?.pipeline?.total_ms || 0)}ms`;
+  } else if (status === 'failed') {
+    document.getElementById('timelineText').textContent = '执行失败';
+  } else {
+    document.getElementById('timelineText').textContent = '处理中...';
+  }
+}
+
+function switchTab(tabName) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('tab-' + tabName).classList.add('active');
+}
+
+function renderWorkspace(data) {
+  const bs = data.business_system || {};
+  const composed = data.composed || {};
+  const workspaceData = data.workspace || {};
+
+  renderDashboard(bs, composed);
+  renderReport(bs, composed, workspaceData);
+  renderPPT(workspaceData, bs);
+}
+
+function renderDashboard(bs, composed) {
+  const html = [];
+
+  html.push('<div class="section"><div class="section-title"><span class="icon">🎯</span> 业务目标</div>');
+  html.push('<ul class="objective-list">');
+  (bs.objectives || []).forEach(obj => {
+    html.push(`<li class="objective-item"><div class="name">${escapeHtml(obj.objective)}</div><div class="target">目标: ${escapeHtml(obj.target)}</div><div class="priority ${escapeHtml(obj.priority)}">${escapeHtml(obj.priority)}</div></li>`);
+  });
+  html.push('</ul></div>');
+
+  html.push('<div class="section"><div class="section-title"><span class="icon">🔄</span> 流程设计</div>');
+  html.push('<div class="workflow-steps">');
+  (bs.workflow || []).forEach(step => {
+    html.push(`<div class="workflow-step"><span class="num">${escapeHtml(step.step || '?')}</span><span>${escapeHtml(step.name || step.action || '步骤')}</span></div>`);
+  });
+  html.push('</div></div>');
+
+  html.push('<div class="section"><div class="section-title"><span class="icon">🛡️</span> 风险分析</div>');
+  html.push('<ul class="risk-list">');
+  const allRisks = [];
+  if (bs.risks && Array.isArray(bs.risks)) {
+    allRisks.push(...bs.risks);
+  } else {
+    ['process_risks', 'organization_risks', 'system_risks', 'compliance_risks'].forEach(k => {
+      (bs.risk?.[k] || []).forEach(r => allRisks.push({...r, category: k}));
+    });
+  }
+  allRisks.slice(0, 8).forEach(risk => {
+    html.push(`<li class="risk-item"><span class="risk-name">${escapeHtml(risk.risk || risk.name || '风险')}</span><span class="risk-severity ${escapeHtml((risk.severity || 'medium').toLowerCase())}">${escapeHtml(risk.severity || 'Medium')}</span><div class="risk-desc">${escapeHtml(risk.description || risk.desc || risk.impact || '')}</div><div class="risk-mitigation">💡 ${escapeHtml(risk.mitigation || risk.control || risk.response || '暂无建议')}</div></li>`);
+  });
+  html.push('</ul></div>');
+
+  html.push('<div class="section"><div class="section-title"><span class="icon">🚀</span> 战略机会</div>');
+  html.push('<ul class="opportunity-list">');
+  (bs.strategy?.growth_opportunities || []).forEach(opp => {
+    html.push(`<li class="opportunity-item"><div class="opp-name">${escapeHtml(opp.opportunity)}</div><div class="opp-potential">潜力: ${escapeHtml(opp.potential)}</div><div class="opp-desc">优先级: ${escapeHtml(opp.priority)}, 时间: ${escapeHtml(opp.timeline)}</div></li>`);
+  });
+  html.push('</ul></div>');
+
+  html.push('<div class="section"><div class="section-title"><span class="icon">⚙️</span> 优化建议</div>');
+  html.push('<ul class="recommendation-list">');
+  (bs.optimization?.recommendations || []).forEach(rec => {
+    html.push(`<li class="rec-item"><div class="rec-header"><span class="rec-title">${escapeHtml(rec.title)}</span><span class="rec-priority ${escapeHtml(rec.priority)}">${escapeHtml(rec.priority)}</span></div><div class="rec-desc">${escapeHtml(rec.description)}</div><div class="rec-actions">${(rec.actions || []).map(a => `<span class="rec-action">${escapeHtml(a)}</span>`).join('')}</div></li>`);
+  });
+  html.push('</ul></div>');
+
+  document.getElementById('tab-dashboard').innerHTML = html.join('');
+}
+
+function renderReport(bs, composed, workspaceData) {
+  const report = bs.report || composed.report || workspaceData.report || {};
+  const html = [];
+
+  html.push(`<div class="report-content"><div class="report-title">${escapeHtml(report.title || bs.business_domain || '业务分析报告')}</div>`);
+  html.push(`<div class="report-summary">${escapeHtml(report.executive_summary || '暂无摘要')}</div>`);
+
+  if (report.key_findings && report.key_findings.length) {
+    html.push('<div style="margin-top:16px"><div style="font-size:14px;font-weight:600;color:var(--patina);margin-bottom:8px">关键发现</div>');
+    report.key_findings.forEach(kf => {
+      html.push(`<div class="key-finding">${escapeHtml(kf)}</div>`);
+    });
+    html.push('</div>');
+  }
+
+  if (report.sections && report.sections.length) {
+    html.push('<div class="report-sections">');
+    report.sections.forEach(sec => {
+      html.push(`<div class="report-section"><div class="report-section-title">${escapeHtml(sec.section)}</div><div class="report-section-content">${escapeHtml(sec.content)}</div></div>`);
+    });
+    html.push('</div>');
+  }
+
+  html.push('</div>');
+
+  document.getElementById('tab-report').innerHTML = html.join('');
+}
+
+function renderPPT(workspaceData, bs) {
+  const ppt = workspaceData.ppt_blueprint || {};
+  let slides = ppt.slides || [];
+  const html = [];
+
+  if (slides.length === 0 && bs) {
+    slides = generatePPTSlidesFromBS(bs);
+  }
+
+  html.push(`<div class="card"><div style="display:flex;align-items:center;justify-content:space-between"><span class="card-title">PPT蓝图</span><span class="card-badge">共 ${escapeHtml(ppt.slide_count || slides.length)} 页</span></div></div>`);
+
+  if (slides.length === 0) {
+    html.push('<div class="card" style="text-align:center;color:var(--text-dim);padding:30px">PPT蓝图数据暂不可用</div>');
+  } else {
+    slides.forEach((slide, i) => {
+      const typeNames = {cover:'封面', table_of_contents:'目录', objective:'业务目标', workflow:'流程步骤', summary:'总结', list:'列表', flow:'流程', table:'表格', content:'内容', title:'标题'};
+      html.push(`<div class="ppt-slide-preview"><div class="slide-type">${escapeHtml(typeNames[slide.slide_type] || typeNames[slide.type] || slide.slide_type || slide.type || '幻灯片')} · 第${escapeHtml(i+1)}页</div>`);
+      if (slide.title) html.push(`<div class="slide-title">${escapeHtml(slide.title)}</div>`);
+      if (slide.subtitle) html.push(`<div style="font-size:13px;color:var(--text-dim)">${escapeHtml(slide.subtitle)}</div>`);
+      if (slide.content) html.push(`<div class="slide-content">${escapeHtml(slide.content)}</div>`);
+      if (slide.step) html.push(`<div class="slide-content">步骤${escapeHtml(slide.step)}: ${escapeHtml(slide.action || '')}</div>`);
+      if (slide.items && slide.items.length) {
+        html.push('<div style="margin-top:8px">');
+        slide.items.forEach(item => {
+          html.push(`<div style="font-size:13px;color:var(--text-dim);margin-top:4px">• ${escapeHtml(item)}</div>`);
+        });
+        html.push('</div>');
+      }
+      if (slide.steps && slide.steps.length) {
+        html.push('<div style="margin-top:8px">');
+        slide.steps.forEach((step, si) => {
+          html.push(`<div style="font-size:13px;color:var(--text-dim);margin-top:4px">${escapeHtml(si+1)}. ${escapeHtml(step)}</div>`);
+        });
+        html.push('</div>');
+      }
+      if (slide.data && slide.headers) {
+        html.push('<table style="width:100%;border-collapse:collapse;margin-top:8px">');
+        html.push('<tr>' + slide.headers.map(h => `<th style="border:1px solid var(--border);padding:6px;text-align:left;font-size:12px;color:var(--gold)">${escapeHtml(h)}</th>`).join('') + '</tr>');
+        slide.data.forEach(row => {
+          html.push('<tr>' + row.map(c => `<td style="border:1px solid var(--border);padding:6px;font-size:12px;color:var(--text-dim)">${escapeHtml(c)}</td>`).join('') + '</tr>');
+        });
+        html.push('</table>');
+      }
+      html.push('</div>');
+    });
+  }
+
+  document.getElementById('tab-ppt').innerHTML = html.join('');
+}
+
+function generatePPTSlidesFromBS(bs) {
+  const slides = [];
+  
+  slides.push({
+    slide_type: 'title',
+    title: bs.business_domain || '业务系统分析',
+    subtitle: '基于PRD的业务系统分析报告'
+  });
+
+  if (bs.objectives && bs.objectives.length) {
+    slides.push({
+      slide_type: 'list',
+      title: '业务目标',
+      items: bs.objectives.map(o => `${o.objective}: ${o.target}`)
+    });
+  }
+
+  if (bs.workflow && bs.workflow.length) {
+    slides.push({
+      slide_type: 'flow',
+      title: '流程设计',
+      steps: bs.workflow.map(w => w.name || w.action)
+    });
+  }
+
+  if (bs.metrics && bs.metrics.length) {
+    slides.push({
+      slide_type: 'table',
+      title: '关键指标',
+      headers: ['指标', '公式', '目标'],
+      data: bs.metrics.map(m => [m.name, m.formula, m.target])
+    });
+  }
+
+  if (bs.risks && bs.risks.length) {
+    slides.push({
+      slide_type: 'list',
+      title: '风险分析',
+      items: bs.risks.slice(0, 5).map(r => `${r.risk} (${r.severity})`)
+    });
+  }
+
+  if (bs.strategy?.growth_opportunities && bs.strategy.growth_opportunities.length) {
+    slides.push({
+      slide_type: 'list',
+      title: '战略机会',
+      items: bs.strategy.growth_opportunities.map(o => `${o.opportunity}: ${o.potential}`)
+    });
+  }
+
+  if (bs.report?.executive_summary) {
+    slides.push({
+      slide_type: 'content',
+      title: '执行摘要',
+      content: bs.report.executive_summary
+    });
+  }
+
+  return slides;
+}
+
+async function exportData(format) {
+  if (!currentData) {
+    alert('请先执行编译');
+    return;
+  }
+
+  try {
+    const resp = await fetch(API + '/bsc/export', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({business_system: currentData.business_system, output_types: [format]})
+    });
+    const data = await resp.json();
+
+    if (format === 'json') {
+      downloadFile(JSON.stringify(data.exports.json, null, 2), 'bsc_result.json', 'application/json');
+    } else if (format === 'html') {
+      downloadFile(data.exports.html, 'bsc_report.html', 'text/html');
+    } else if (format === 'ppt') {
+      alert('PPT导出规格已生成，包含 ' + data.exports.ppt.slide_count + ' 页幻灯片');
+    }
+  } catch (e) {
+    alert('导出失败: ' + e.message);
+  }
+}
+
+function downloadFile(content, filename, type) {
+  const blob = new Blob([content], {type: type});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+input.focus();
+</script>
+</body>
+</html>

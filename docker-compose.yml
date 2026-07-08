@@ -1,0 +1,113 @@
+version: '3.8'
+
+services:
+  bsc-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    environment:
+      - APP_HOST=0.0.0.0
+      - APP_PORT=8000
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LLM_PROVIDER=${LLM_PROVIDER:-mock}
+      - CACHE_TYPE=${CACHE_TYPE:-memory}
+      - DB_TYPE=sqlite
+      - DB_PATH=/data/bsc_cloud.db
+      - CELERY_ENABLED=${CELERY_ENABLED:-false}
+      
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
+      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-deepseek-chat}
+      
+      - DOUBAO_API_KEY=${DOUBAO_API_KEY:-}
+      - DOUBAO_BASE_URL=${DOUBAO_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3}
+      - DOUBAO_MODEL=${DOUBAO_MODEL:-doubao-pro-32k}
+      
+      - QWEN_API_KEY=${QWEN_API_KEY:-}
+      - QWEN_BASE_URL=${QWEN_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      - QWEN_MODEL=${QWEN_MODEL:-qwen-plus}
+      
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434/v1}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:7b}
+      
+      - API_KEY=${API_KEY:-}
+      
+      - RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-false}
+      - SIGNATURE_ENABLED=${SIGNATURE_ENABLED:-false}
+      
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:8000,http://localhost:3000,http://127.0.0.1:8000}
+    volumes:
+      - bsc-data:/data
+      - bsc-output:/app/output
+    depends_on:
+      - ollama
+    networks:
+      - bsc-network
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_PORT=11434
+    networks:
+      - bsc-network
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - bsc-network
+    restart: unless-stopped
+    profiles:
+      - redis
+      - full
+
+  celery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: celery -A app.core.celery_app worker --loglevel=info --concurrency=4
+    environment:
+      - CELERY_ENABLED=true
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - LLM_PROVIDER=${LLM_PROVIDER:-mock}
+      - OLLAMA_BASE_URL=http://ollama:11434/v1
+    volumes:
+      - bsc-data:/data
+      - bsc-output:/app/output
+    depends_on:
+      - redis
+      - ollama
+    networks:
+      - bsc-network
+    restart: unless-stopped
+    profiles:
+      - celery
+      - full
+
+volumes:
+  bsc-data:
+    driver: local
+  bsc-output:
+    driver: local
+  ollama-data:
+    driver: local
+  redis-data:
+    driver: local
+
+networks:
+  bsc-network:
+    driver: bridge

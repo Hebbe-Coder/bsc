@@ -1,0 +1,44 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# ---- vendored third-party bundle (use requirements.txt + venv instead) ----
+lib/
+
+# ---- Node / frontend ----
+node_modules/
+dist/
+*.tsbuildinfo
+
+# ---- Secrets / env (NEVER commit) ----
+.env
+.env.*
+!.env.example
+
+# ---- Logs & caches ----
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# ---- IDE ----
+.idea/
+.vscode/
+*.swp
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+
+# ---- Build artifacts ----
+build/
+*.spec

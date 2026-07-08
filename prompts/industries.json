@@ -1,0 +1,539 @@
+{
+  "content_moderation": {
+    "name": "内容审核",
+    "keywords": [
+      "review",
+      "approve",
+      "flag",
+      "screen",
+      "moderate",
+      "content",
+      "audit",
+      "reject",
+      "censor"
+    ],
+    "cn_keywords": [
+      "审核",
+      "审批",
+      "标记",
+      "筛查",
+      "风控",
+      "内容",
+      "质检",
+      "拒绝"
+    ],
+    "typical_roles": [
+      "内容创作者",
+      "AI系统",
+      "人工审核员",
+      "团队负责人",
+      "QA分析师"
+    ],
+    "typical_sla": "人工审核24小时内完成，AI筛查<1秒",
+    "typical_kpis": [
+      "吞吐量",
+      "准确率",
+      "误报率",
+      "审核时长",
+      "单条审核成本"
+    ],
+    "typical_risks": [
+      "漏检风险",
+      "审核员疲劳",
+      "峰值过载",
+      "政策漂移"
+    ],
+    "process_patterns": [
+      "提交→AI初筛→人工复核→通过/拒绝",
+      "敏感内容→紧急升级→专家审核"
+    ],
+    "report_sections": ["审核概览", "质量分析", "趋势报告", "案例复盘"]
+  },
+  "customer_service": {
+    "name": "客户服务",
+    "keywords": [
+      "ticket",
+      "support",
+      "agent",
+      "queue",
+      "resolve",
+      "csat",
+      "helpdesk",
+      "inquiry"
+    ],
+    "cn_keywords": [
+      "工单",
+      "客服",
+      "坐席",
+      "队列",
+      "解决",
+      "满意度"
+    ],
+    "typical_roles": [
+      "客户",
+      "客服代表",
+      "团队负责人",
+      "智能机器人",
+      "质检人员"
+    ],
+    "typical_sla": "首次响应<5分钟，问题解决<24小时",
+    "typical_kpis": [
+      "首次响应时间",
+      "客户满意度",
+      "一次解决率",
+      "工单量",
+      "单工单成本"
+    ],
+    "typical_risks": [
+      "客服疲劳",
+      "知识缺口",
+      "SLA超时",
+      "语言障碍"
+    ],
+    "process_patterns": [
+      "咨询→路由→处理→回访",
+      "投诉→升级→专家处理→闭环"
+    ],
+    "report_sections": ["服务概览", "工单分析", "满意度报告", "改进建议"]
+  },
+  "ecommerce": {
+    "name": "电商零售",
+    "keywords": [
+      "order",
+      "payment",
+      "inventory",
+      "shipping",
+      "cart",
+      "checkout",
+      "catalog",
+      "fulfillment"
+    ],
+    "cn_keywords": [
+      "订单",
+      "支付",
+      "库存",
+      "物流",
+      "购物车",
+      "结算",
+      "商品",
+      "履约"
+    ],
+    "typical_roles": [
+      "顾客",
+      "订单系统",
+      "支付网关",
+      "仓库",
+      "快递商",
+      "客服"
+    ],
+    "typical_sla": "订单确认<1分钟，发货<48小时",
+    "typical_kpis": [
+      "订单量",
+      "转化率",
+      "履约时长",
+      "退货率",
+      "单订单成本"
+    ],
+    "typical_risks": [
+      "支付故障",
+      "库存缺货",
+      "物流延迟",
+      "欺诈风险"
+    ],
+    "process_patterns": [
+      "浏览→加购→结算→支付→发货→收货",
+      "退货→审核→退款→入库"
+    ],
+    "report_sections": ["销售概览", "库存分析", "物流报告", "转化漏斗"]
+  },
+  "risk_control": {
+    "name": "风控合规",
+    "keywords": [
+      "risk",
+      "compliance",
+      "fraud",
+      "audit",
+      "kyc",
+      "aml",
+      "regulatory",
+      "policy"
+    ],
+    "cn_keywords": [
+      "风险",
+      "合规",
+      "反欺诈",
+      "审计",
+      "KYC",
+      "AML",
+      "监管",
+      "政策"
+    ],
+    "typical_roles": [
+      "分析师",
+      "风控引擎",
+      "合规官",
+      "审计员",
+      "法务"
+    ],
+    "typical_sla": "告警分级<15分钟，案件解决<72小时",
+    "typical_kpis": [
+      "欺诈识别率",
+      "误报率",
+      "告警响应时间",
+      "合规得分"
+    ],
+    "typical_risks": [
+      "监管变化",
+      "模型漂移",
+      "误报泛滥",
+      "数据隐私"
+    ],
+    "process_patterns": [
+      "交易→风控检测→通过/拦截→复核",
+      "合规检查→问题发现→整改→验证"
+    ],
+    "report_sections": ["风险概览", "合规状态", "模型效果", "审计报告"]
+  },
+  "bpo": {
+    "name": "业务外包",
+    "keywords": [
+      "outsource",
+      "bpo",
+      "vendor",
+      "capacity",
+      "staffing",
+      "shift",
+      "productivity",
+      "headcount"
+    ],
+    "cn_keywords": [
+      "外包",
+      "BPO",
+      "供应商",
+      "产能",
+      "人力",
+      "班次",
+      "产能",
+      "人员编制"
+    ],
+    "typical_roles": [
+      "客户",
+      "供应商经理",
+      "坐席",
+      "团队负责人",
+      "WFM",
+      "QA"
+    ],
+    "typical_sla": "95% SLA达标，月度产能报告",
+    "typical_kpis": [
+      "利用率",
+      "流失率",
+      "产能",
+      "人均成本",
+      "质量得分"
+    ],
+    "typical_risks": [
+      "人员流失",
+      "培训缺口",
+      "客户升级",
+      "产能不足"
+    ],
+    "process_patterns": [
+      "需求评估→人员配置→培训→上线→监控",
+      "产能预测→排班→执行→调整"
+    ],
+    "report_sections": ["运营概览", "人员分析", "质量报告", "成本分析"]
+  },
+  "finance": {
+    "name": "金融银行业",
+    "keywords": [
+      "bank",
+      "loan",
+      "credit",
+      "payment",
+      "transaction",
+      "account",
+      "interest",
+      "asset"
+    ],
+    "cn_keywords": [
+      "银行",
+      "贷款",
+      "信贷",
+      "支付",
+      "交易",
+      "账户",
+      "利息",
+      "资产"
+    ],
+    "typical_roles": [
+      "客户",
+      "客户经理",
+      "信贷审批员",
+      "风控专员",
+      "柜员",
+      "后台运营"
+    ],
+    "typical_sla": "信贷审批<3个工作日，交易处理实时",
+    "typical_kpis": [
+      "审批通过率",
+      "不良率",
+      "客户满意度",
+      "运营效率",
+      "风险敞口"
+    ],
+    "typical_risks": [
+      "信用风险",
+      "操作风险",
+      "合规风险",
+      "市场风险"
+    ],
+    "process_patterns": [
+      "申请→资质审核→授信→放款→还款",
+      "开户→KYC→交易→对账→结算"
+    ],
+    "report_sections": ["业务概览", "信贷分析", "风险评估", "合规报告"]
+  },
+  "healthcare": {
+    "name": "医疗健康",
+    "keywords": [
+      "patient",
+      "doctor",
+      "hospital",
+      "treatment",
+      "diagnosis",
+      "appointment",
+      "medical",
+      "insurance"
+    ],
+    "cn_keywords": [
+      "患者",
+      "医生",
+      "医院",
+      "治疗",
+      "诊断",
+      "预约",
+      "医疗",
+      "保险"
+    ],
+    "typical_roles": [
+      "患者",
+      "医生",
+      "护士",
+      "药师",
+      "管理员",
+      "医保专员"
+    ],
+    "typical_sla": "预约响应<24小时，急诊优先",
+    "typical_kpis": [
+      "就诊时长",
+      "治愈率",
+      "患者满意度",
+      "床位周转率",
+      "药占比"
+    ],
+    "typical_risks": [
+      "医疗事故",
+      "隐私泄露",
+      "药品短缺",
+      "医患纠纷"
+    ],
+    "process_patterns": [
+      "挂号→就诊→检查→诊断→治疗→复诊",
+      "住院→治疗→康复→出院→随访"
+    ],
+    "report_sections": ["就诊概览", "疗效分析", "运营效率", "质量安全"]
+  },
+  "education": {
+    "name": "教育培训",
+    "keywords": [
+      "student",
+      "teacher",
+      "class",
+      "course",
+      "exam",
+      "learning",
+      "school",
+      "training"
+    ],
+    "cn_keywords": [
+      "学生",
+      "教师",
+      "班级",
+      "课程",
+      "考试",
+      "学习",
+      "学校",
+      "培训"
+    ],
+    "typical_roles": [
+      "学生",
+      "教师",
+      "班主任",
+      "教务",
+      "家长",
+      "校长"
+    ],
+    "typical_sla": "选课响应即时，成绩公布<3个工作日",
+    "typical_kpis": [
+      "出勤率",
+      "及格率",
+      "满意度",
+      "教学质量",
+      "升学率"
+    ],
+    "typical_risks": [
+      "教学质量下降",
+      "学生流失",
+      "师资不足",
+      "安全事故"
+    ],
+    "process_patterns": [
+      "报名→选课→上课→作业→考试→结业",
+      "招生→录取→入学→学习→毕业"
+    ],
+    "report_sections": ["教学概览", "成绩分析", "师资评估", "运营报告"]
+  },
+  "logistics": {
+    "name": "物流仓储",
+    "keywords": [
+      "warehouse",
+      "shipping",
+      "delivery",
+      "inventory",
+      "tracking",
+      "package",
+      "transport",
+      "fulfillment"
+    ],
+    "cn_keywords": [
+      "仓库",
+      "运输",
+      "配送",
+      "库存",
+      "追踪",
+      "包裹",
+      "物流",
+      "履约"
+    ],
+    "typical_roles": [
+      "仓库管理员",
+      "配送员",
+      "调度员",
+      "客服",
+      "司机",
+      "运营经理"
+    ],
+    "typical_sla": "同城配送<2小时，干线运输按时达",
+    "typical_kpis": [
+      "配送准时率",
+      "库存准确率",
+      "破损率",
+      "订单处理时效",
+      "成本/单"
+    ],
+    "typical_risks": [
+      "货物丢失",
+      "运输延误",
+      "库存积压",
+      "爆仓风险"
+    ],
+    "process_patterns": [
+      "入库→存储→拣货→打包→出库→配送",
+      "收货→验收→上架→管理→盘点"
+    ],
+    "report_sections": ["运营概览", "配送分析", "库存报告", "成本分析"]
+  },
+  "manufacturing": {
+    "name": "制造业",
+    "keywords": [
+      "production",
+      "factory",
+      "assembly",
+      "quality",
+      "supply",
+      "inventory",
+      "machinery",
+      "workshop"
+    ],
+    "cn_keywords": [
+      "生产",
+      "工厂",
+      "装配",
+      "质量",
+      "供应",
+      "库存",
+      "设备",
+      "车间"
+    ],
+    "typical_roles": [
+      "工人",
+      "班组长",
+      "质检员",
+      "工程师",
+      "采购",
+      "仓库"
+    ],
+    "typical_sla": "订单交付准时率>98%，质量检验实时",
+    "typical_kpis": [
+      "产能利用率",
+      "良品率",
+      "交付周期",
+      "设备稼动率",
+      "成本/件"
+    ],
+    "typical_risks": [
+      "设备故障",
+      "供应链中断",
+      "质量事故",
+      "安全隐患"
+    ],
+    "process_patterns": [
+      "接单→备料→生产→检验→入库→发货",
+      "采购→验收→仓储→领用→生产"
+    ],
+    "report_sections": ["生产概览", "质量分析", "设备状态", "成本报告"]
+  },
+  "general": {
+    "name": "通用业务",
+    "keywords": [
+      "process",
+      "workflow",
+      "automate",
+      "system",
+      "platform",
+      "manage"
+    ],
+    "cn_keywords": [
+      "流程",
+      "工作流",
+      "自动化",
+      "系统",
+      "平台",
+      "管理"
+    ],
+    "typical_roles": [
+      "用户",
+      "系统",
+      "管理者",
+      "管理员"
+    ],
+    "typical_sla": "根据业务需求确定",
+    "typical_kpis": [
+      "吞吐量",
+      "错误率",
+      "周期时间",
+      "单位成本"
+    ],
+    "typical_risks": [
+      "流程瓶颈",
+      "数据质量",
+      "系统宕机"
+    ],
+    "process_patterns": [
+      "申请→审批→执行→反馈",
+      "创建→处理→完成→归档"
+    ],
+    "report_sections": ["业务概览", "流程分析", "指标报告", "改进建议"]
+  }
+}

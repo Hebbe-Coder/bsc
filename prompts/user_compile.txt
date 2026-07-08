@@ -1,0 +1,8 @@
+Convert the following PRD into a Business System JSON.
+
+PRD:
+{PRD_TEXT}
+
+Industry context: {INDUSTRY}
+
+Output strictly following system constraints. Do NOT explain. Output ONLY valid JSON.
