@@ -1,9 +1,10 @@
 """
 生产路径数据模型 — 匹配 bsc_pipeline / async_pipeline 真实产出。
 
-与 business_schema.py 中的 BusinessSystemSchema 不同，这个模型
-完全基于 LLM Agent 的实际 JSON 输出结构定义，所有字段可选，
-校验失败时降级而非报错，保证生产可用性。
+ProductionBusinessSystem 是当前唯一 canonical 业务系统模型，完全基于
+LLM Agent 的实际 JSON 输出结构定义，所有字段可选；校验由
+validate_business_system() 在 compile_to_business_system() 中执行，
+失败时降级而非报错，保证生产可用性。
 """
 from __future__ import annotations
 
