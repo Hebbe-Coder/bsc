@@ -8,7 +8,9 @@ openpyxl>=3.1.0
 python-docx>=1.1.0
 pdfplumber>=0.11.0
 python-multipart>=0.0.10
-weasyprint>=62.0
+weasyprint>=62.0        # optional; PDF also renders via reportlab (no system GTK needed)
+reportlab>=4.0.0        # PDF export (pure-Python, primary cross-platform backend)
+numpy>=1.26.0           # used by LLM service domain analysis
 
 # LangChain dependencies
 langchain-core>=0.3.0
