@@ -7,6 +7,7 @@ from exporters.degrade import (
     classify_failure,
 )
 from exporters.errors import ExportDependencyError
+from exporters._degrade_ctx import DegradeContext
 
 
 def test_degradation_rules_present():
@@ -45,3 +46,19 @@ def test_classify_runtime_error():
     r = classify_failure("html", ValueError("boom"))
     assert r["type"] == "runtime_error"
     assert r["message"] == "boom"
+
+
+def test_component_failure_is_captured_not_raised():
+    ctx = DegradeContext()
+    with ctx.component("chart"):
+        raise ValueError("chart broke")
+    assert ctx.component_failures == [
+        {"type": "component_failed", "component": "chart", "message": "chart broke"}
+    ]
+
+
+def test_component_success_no_failure():
+    ctx = DegradeContext()
+    with ctx.component("table"):
+        pass
+    assert ctx.component_failures == []
