@@ -19,7 +19,10 @@ Every element is dynamically generated from business_system data.
 import json
 import uuid
 import datetime
+import html
 from typing import Dict, Any, List, Optional
+
+from exporters._degrade_ctx import DegradeContext
 
 
 class HTMLTheme:
@@ -1750,4 +1753,100 @@ __all__ = [
     "HTMLChartGenerator",
     "export_html",
     "export_html_dark",
+    "generate_html",
 ]
+
+
+# ---------------------------------------------------------------------------
+# 组件级降级 HTML 生成器（从 bsc_api._generate_html 迁入）
+# 注意：本文件顶部已 `import datetime` 作为模块（见 _section_* 中的
+# datetime.date.today()），故此处使用 datetime.datetime.now() 而非
+# `from datetime import datetime`，以避免遮蔽模块名。
+# ---------------------------------------------------------------------------
+
+def generate_html(
+    business_system: dict,
+    pipeline_info: dict,
+    ctx: Optional[DegradeContext] = None,
+) -> str:
+    """生成 HTML 报告。ctx 非空时单个区块渲染失败会被跳过而非整页崩溃。"""
+    sections: list = []
+
+    def _block(name: str, render):
+        if ctx is None:
+            render()
+        else:
+            with ctx.component(name):
+                render()
+
+    def _header():
+        sections.append(f"<h1>{html.escape(business_system.get('business_domain', '业务系统分析'))}</h1>")
+        sections.append(f"<p class='summary'>{html.escape(business_system.get('report', {}).get('executive_summary', ''))}</p>")
+
+    _block("header", _header)
+
+    def _objectives():
+        if business_system.get("objectives"):
+            sections.append("<h2>业务目标</h2>")
+            sections.append("<ul>")
+            for obj in business_system["objectives"]:
+                priority = obj.get("priority", "medium")
+                sections.append(f"<li><strong>{html.escape(obj.get('objective', ''))}</strong>: {html.escape(obj.get('target', ''))} ({html.escape(priority)})</li>")
+            sections.append("</ul>")
+
+    _block("objectives", _objectives)
+
+    def _workflow():
+        if business_system.get("workflow"):
+            sections.append("<h2>流程步骤</h2>")
+            sections.append("<ol>")
+            for step in business_system["workflow"]:
+                sections.append(f"<li><strong>步骤{html.escape(str(step.get('step', '')))}: {html.escape(step.get('name', ''))}</strong><br>{html.escape(step.get('action', ''))}</li>")
+            sections.append("</ol>")
+
+    _block("workflow", _workflow)
+
+    def _metrics():
+        if business_system.get("metrics"):
+            sections.append("<h2>关键指标</h2>")
+            sections.append("<table>")
+            sections.append("<tr><th>指标</th><th>公式</th><th>目标</th><th>负责人</th></tr>")
+            for kpi in business_system["metrics"]:
+                sections.append(f"<tr><td>{html.escape(kpi.get('name', ''))}</td><td>{html.escape(kpi.get('formula', ''))}</td><td>{html.escape(kpi.get('target', ''))}</td><td>{html.escape(kpi.get('owner', ''))}</td></tr>")
+            sections.append("</table>")
+
+    _block("metrics", _metrics)
+
+    def _risks():
+        if business_system.get("risks"):
+            sections.append("<h2>风险分析</h2>")
+            sections.append("<ul>")
+            for risk in business_system["risks"]:
+                sections.append(f"<li><strong>{html.escape(risk.get('risk', ''))}</strong> ({html.escape(risk.get('severity', ''))}) - {html.escape(risk.get('mitigation', ''))}</li>")
+            sections.append("</ul>")
+
+    _block("risks", _risks)
+
+    html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+    <title>业务系统分析报告</title>
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 40px; background: #12161A; color: #E8E8E8; }}
+        h1 {{ color: #C9A84C; }}
+        h2 {{ color: #5A9E96; margin-top: 30px; }}
+        .summary {{ font-size: 1.1em; color: #B8B8B8; }}
+        table {{ border-collapse: collapse; width: 100%; margin-top: 10px; }}
+        th, td {{ border: 1px solid #2E3338; padding: 10px; text-align: left; }}
+        th {{ background: #1C2024; color: #C9A84C; }}
+        ul, ol {{ line-height: 1.8; }}
+        li {{ margin: 5px 0; }}
+    </style>
+</head>
+<body>
+{''.join(sections)}
+<p style='margin-top: 40px; color: #8A8A86; font-size: 0.9em;'>生成时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
+</body>
+</html>"""
+
+    return html_content

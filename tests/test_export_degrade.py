@@ -8,6 +8,8 @@ from exporters.degrade import (
 )
 from exporters.errors import ExportDependencyError
 from exporters._degrade_ctx import DegradeContext
+from exporters.html_exporter import generate_html
+from exporters.ppt_spec_exporter import generate_ppt_spec
 
 
 def test_degradation_rules_present():
@@ -62,3 +64,39 @@ def test_component_success_no_failure():
     with ctx.component("table"):
         pass
     assert ctx.component_failures == []
+
+
+def _bs_with(metrics):
+    return {
+        "business_domain": "D",
+        "report": {"executive_summary": "S"},
+        "objectives": [{"objective": "O", "target": "T", "priority": "high"}],
+        "workflow": [{"step": 1, "name": "N", "action": "A"}],
+        "metrics": metrics,
+        "risks": [{"risk": "R", "severity": "high", "mitigation": "M"}],
+    }
+
+
+def test_generate_html_basic():
+    html = generate_html(_bs_with([{"name": "n", "formula": "f", "target": "t", "owner": "o"}]), {})
+    assert "<html>" in html and "业务目标" in html and "<table>" in html
+
+
+def test_generate_html_skips_failing_component():
+    ctx = DegradeContext()
+    bs = _bs_with("BROKEN")  # metrics 不是 list，区块渲染会出错
+    html = generate_html(bs, {}, ctx)
+    assert "<html>" in html
+    assert ctx.component_failures and ctx.component_failures[0]["component"] == "metrics"
+
+
+def test_generate_ppt_spec_basic():
+    spec = generate_ppt_spec(_bs_with([{"name": "n", "formula": "f", "target": "t", "owner": "o"}]))
+    assert "slides" in spec and spec["slide_count"] >= 1
+
+
+def test_generate_ppt_spec_skips_failing_component():
+    ctx = DegradeContext()
+    spec = generate_ppt_spec(_bs_with("BROKEN"), ctx)
+    assert "slides" in spec
+    assert ctx.component_failures and ctx.component_failures[0]["component"] == "metrics"
