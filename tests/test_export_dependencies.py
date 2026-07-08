@@ -67,3 +67,15 @@ def test_word_exporter_missing_dep_raises_structured(monkeypatch):
         exp.export({})
     assert ei.value.missing_package == "python-docx"
     assert "pip install python-docx" in ei.value.pip_install
+
+
+def test_apiresponse_partial():
+    from app.api.response import ApiResponse
+    resp = ApiResponse.partial(
+        data={"exports": {}}, message="部分格式失败",
+        errors=[{"format": "word", "missing_package": "python-docx"}],
+    )
+    assert resp.success is False
+    assert resp.code == 207
+    assert resp.message == "部分格式失败"
+    assert resp.errors and resp.errors[0]["format"] == "word"

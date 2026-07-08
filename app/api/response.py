@@ -10,7 +10,7 @@ class ApiResponse(BaseModel, Generic[T]):
     success: bool
     data: Optional[T] = None
     message: str = ""
-    errors: List[str] = []
+    errors: List = []
     code: int = 200
 
     @classmethod
@@ -37,3 +37,8 @@ class ApiResponse(BaseModel, Generic[T]):
     def server_error(cls, message: str = "服务器错误") -> "ApiResponse[T]":
         """服务器错误响应"""
         return cls(success=False, message=message, code=500)
+
+    @classmethod
+    def partial(cls, data: T = None, message: str = "部分成功", errors: List = None) -> "ApiResponse[T]":
+        """部分成功响应（如多格式导出中个别失败）。"""
+        return cls(success=False, data=data, message=message, errors=errors or [], code=207)
