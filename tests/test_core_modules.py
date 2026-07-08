@@ -7,6 +7,7 @@
 - 异常处理: 错误格式化、异常回退机制
 """
 import pytest
+from app.core.config import settings
 
 
 class TestLLMServiceCache:
@@ -67,18 +68,20 @@ class TestLLMServiceCache:
 class TestLLMServiceRouting:
     """LLM服务路由功能测试"""
 
-    def test_analysis_agent_routing(self, mock_llm_service):
-        """测试分析类Agent路由到DeepSeek"""
+    def test_analysis_agent_routing(self, mock_llm_service, monkeypatch):
+        """分析类Agent应路由到ANALYSIS_PROVIDER（设计默认deepseek）"""
+        monkeypatch.setattr(settings, "ANALYSIS_PROVIDER", "deepseek")
         system_prompt = "你是SOP Agent"
         provider = mock_llm_service._get_provider_for_agent(system_prompt)
-        
+
         assert provider == "deepseek"
 
-    def test_generation_agent_routing(self, mock_llm_service):
-        """测试生成类Agent路由到Doubao"""
+    def test_generation_agent_routing(self, mock_llm_service, monkeypatch):
+        """生成类Agent应路由到GENERATION_PROVIDER（设计默认doubao）"""
+        monkeypatch.setattr(settings, "GENERATION_PROVIDER", "doubao")
         system_prompt = "你是Business Understanding Agent"
         provider = mock_llm_service._get_provider_for_agent(system_prompt)
-        
+
         assert provider == "doubao"
 
     def test_agent_type_detection(self, mock_llm_service):

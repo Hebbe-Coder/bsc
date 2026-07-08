@@ -76,89 +76,139 @@ class LLMService:
     - 无共享状态，避免并发问题
     """
 
-    DOMAIN_KEYWORDS: Dict[str, List[str]] = {
-        "finance": ["金融", "银行", "支付", "保险", "理财", "证券", "基金", "贷款",
-                    "投资", "股票", "债券", "信托", "租赁", "征信", "结算", "交易",
-                    "bank", "payment", "insurance", "finance", "investment", "stock",
-                    "securities", "fund", "loan", "credit", "trade"],
-        "healthcare": ["医疗", "健康", "医院", "医生", "病人", "药品", "诊断",
-                       "挂号", "诊疗", "病历", "医保", "体检", "康复", "疫苗", "药房",
-                       "问诊", "门诊", "住院", "手术", "护理", "影像", "检验",
-                       "healthcare", "hospital", "doctor", "patient", "medicine", "diagnosis",
-                       "treatment", "medical", "pharmacy", "health", "consultation", "clinic"],
-        "retail": ["零售", "电商", "购物", "商品", "订单", "库存",
-                   "购物车", "优惠券", "促销", "会员", "店铺", "商品管理",
-                   "retail", "e-commerce", "shopping", "product", "order", "inventory",
-                   "cart", "coupon", "promotion"],
-        "manufacturing": ["制造", "生产", "工厂", "质检", "仓库",
+    DOMAIN_CONFIG: Dict[str, Dict[str, Any]] = {
+        "finance": {
+            "keywords": ["金融", "银行", "支付", "保险", "理财", "证券", "基金", "贷款",
+                        "投资", "股票", "债券", "信托", "租赁", "征信", "结算", "交易",
+                        "bank", "payment", "insurance", "finance", "investment", "stock",
+                        "securities", "fund", "loan", "credit", "trade"],
+            "template": {"name": "金融服务", "department": "金融部", "role_prefix": "金融", "core_objective": "风险管理与合规"},
+            "specificity": 3,
+            "prd_patterns": ["金融风控系统", "企业级金融交易平台", "金融服务数字化转型", "银行核心业务系统", "金融科技产品"],
+        },
+        "healthcare": {
+            "keywords": ["医疗", "健康", "医院", "医生", "病人", "药品", "诊断",
+                         "挂号", "诊疗", "病历", "医保", "体检", "康复", "疫苗", "药房",
+                         "问诊", "门诊", "住院", "手术", "护理", "影像", "检验",
+                         "healthcare", "hospital", "doctor", "patient", "medicine", "diagnosis",
+                         "treatment", "medical", "pharmacy", "health", "consultation", "clinic"],
+            "template": {"name": "医疗健康", "department": "医疗部", "role_prefix": "医疗", "core_objective": "患者安全与疗效"},
+            "specificity": 3,
+            "prd_patterns": ["医疗健康管理系统", "医院信息化建设", "医疗数据平台", "智慧医院建设", "医疗AI辅助诊断"],
+        },
+        "retail": {
+            "keywords": ["零售", "电商", "购物", "商品", "订单", "库存",
+                         "购物车", "优惠券", "促销", "会员", "店铺", "商品管理",
+                         "retail", "e-commerce", "shopping", "product", "order", "inventory",
+                         "cart", "coupon", "promotion"],
+            "template": {"name": "零售电商", "department": "电商部", "role_prefix": "电商", "core_objective": "用户体验与转化"},
+            "specificity": 3,
+            "prd_patterns": ["电商平台订单管理", "零售数字化转型", "电商APP需求", "新零售业务系统", "电商数据分析平台"],
+        },
+        "manufacturing": {
+            "keywords": ["制造", "生产", "工厂", "质检", "仓库",
                           "工艺", "设备", "产能", "工单", "装配", "零部件", "质量控制",
                           "manufacturing", "production", "factory", "quality",
                           "assembly", "equipment", "workshop"],
-        "education": ["教育", "培训", "学校", "课程", "学生", "老师",
-                      "学习", "考试", "作业", "在线教育", "MOOC", "题库", "培训课程",
-                      "education", "training", "school", "course", "student", "teacher",
-                      "learning", "exam", "online", "elearning", "tutorial"],
-        "content": ["内容", "审核", "视频", "图片", "文本",
-                    "媒体", "直播", "短视频", "社区", "论坛", "UGC", "PGC",
-                    "content", "moderation", "video", "image", "text",
-                    "media", "live", "streaming", "community", "forum"],
-        "logistics": ["物流", "快递", "配送", "运输", "仓储",
-                      "货运", "报关", "分拣", "冷链", "干线", "末端", "物流中心",
-                      "logistics", "delivery", "shipping", "transport", "warehouse",
-                      "freight", "courier"],
-        "human_resource": ["人力", "招聘", "员工", "绩效", "薪酬", "考勤",
-                           "HR", "入职", "离职", "福利", "社保", "人才",
-                           "human resource", "HR", "recruitment", "employee", "performance",
-                           "salary", "attendance", "talent"],
-        "enterprise": ["企业", "公司", "组织", "管理", "办公", "OA", "ERP",
-                       "CRM", "SaaS", "业务系统", "数字化", "信息化", "协作",
-                       "enterprise", "company", "organization", "management", "ERP",
-                       "CRM", "SaaS", "digital", "collaboration"],
-        "marketing": ["营销", "广告", "推广", "品牌", "渠道", "获客",
-                      "投放", "转化", "KOL", "裂变", "私域", "增长黑客",
-                      "marketing", "advertising", "promotion", "brand", "channel",
-                      "conversion", "campaign", "growth"],
-        "energy": ["能源", "电力", "光伏", "风电", "储能", "电网",
-                   "新能源", "充电桩", "碳中和", "环保", "节能减排",
-                   "energy", "power", "solar", "wind", "storage", "grid",
-                   "renewable", "charging", "carbon", "green"],
-        "real_estate": ["房地产", "物业", "楼盘", "销售", "租赁", "中介",
-                        "建筑", "装修", "物业管理", "房产交易",
-                        "real estate", "property", "housing", "construction",
-                        "building", "rental", "broker"],
+            "template": {"name": "智能制造", "department": "生产部", "role_prefix": "制造", "core_objective": "质量与效率"},
+            "specificity": 3,
+            "prd_patterns": ["智能制造工厂管理", "工业互联网平台", "制造业数字化转型", "智能工厂建设", "制造业ERP系统"],
+        },
+        "education": {
+            "keywords": ["教育", "培训", "学校", "课程", "学生", "老师",
+                          "学习", "考试", "作业", "在线教育", "MOOC", "题库", "培训课程",
+                          "education", "training", "school", "course", "student", "teacher",
+                          "learning", "exam", "online", "elearning", "tutorial"],
+            "template": {"name": "在线教育", "department": "教学部", "role_prefix": "教育", "core_objective": "学习效果"},
+            "specificity": 3,
+            "prd_patterns": ["在线教育学习平台", "教育信息化建设", "智慧校园项目", "教育科技产品", "职业培训平台"],
+        },
+        "content": {
+            "keywords": ["内容", "审核", "视频", "图片", "文本",
+                        "媒体", "直播", "短视频", "社区", "论坛", "UGC", "PGC",
+                        "content", "moderation", "video", "image", "text",
+                        "media", "live", "streaming", "community", "forum"],
+            "template": {"name": "内容安全", "department": "运营部", "role_prefix": "审核", "core_objective": "内容安全"},
+            "specificity": 3,
+            "prd_patterns": ["内容审核系统", "内容安全平台", "媒体内容管理", "短视频内容安全", "内容风控系统"],
+        },
+        "logistics": {
+            "keywords": ["物流", "快递", "配送", "运输", "仓储",
+                          "货运", "报关", "分拣", "冷链", "干线", "末端", "物流中心",
+                          "logistics", "delivery", "shipping", "transport", "warehouse",
+                          "freight", "courier"],
+            "template": {"name": "智慧物流", "department": "物流部", "role_prefix": "物流", "core_objective": "配送时效"},
+            "specificity": 3,
+            "prd_patterns": ["智慧物流管理系统", "物流信息化建设", "供应链物流平台", "跨境物流系统", "物流自动化系统"],
+        },
+        "human_resource": {
+            "keywords": ["人力", "招聘", "员工", "绩效", "薪酬", "考勤",
+                         "HR", "入职", "离职", "福利", "社保", "人才",
+                         "human resource", "HR", "recruitment", "employee", "performance",
+                         "salary", "attendance", "talent"],
+            "template": {"name": "人力资源", "department": "人事部", "role_prefix": "HR", "core_objective": "人才发展"},
+            "specificity": 3,
+            "prd_patterns": ["人力资源管理系统", "HR信息化建设", "人才管理平台", "企业HR数字化", "人力资源服务平台"],
+        },
+        "enterprise": {
+            "keywords": ["企业", "公司", "组织", "管理", "办公", "OA", "ERP",
+                         "CRM", "SaaS", "业务系统", "数字化", "信息化", "协作",
+                         "enterprise", "company", "organization", "management", "ERP",
+                         "CRM", "SaaS", "digital", "collaboration"],
+            "template": {"name": "企业管理", "department": "企管部", "role_prefix": "企业", "core_objective": "数字化转型"},
+            "specificity": 1,
+            "prd_patterns": ["企业ERP系统", "企业数字化转型", "企业管理系统", "智慧企业建设", "企业信息化平台"],
+        },
+        "marketing": {
+            "keywords": ["营销", "广告", "推广", "品牌", "渠道", "获客",
+                          "投放", "转化", "KOL", "裂变", "私域", "增长黑客",
+                          "marketing", "advertising", "promotion", "brand", "channel",
+                          "conversion", "campaign", "growth"],
+            "template": {"name": "数字营销", "department": "市场部", "role_prefix": "营销", "core_objective": "增长与转化"},
+            "specificity": 3,
+            "prd_patterns": ["数字营销平台", "营销数字化转型", "营销云平台", "增长营销系统", "营销数据分析"],
+        },
+        "energy": {
+            "keywords": ["能源", "电力", "光伏", "风电", "储能", "电网",
+                         "新能源", "充电桩", "碳中和", "环保", "节能减排",
+                         "energy", "power", "solar", "wind", "storage", "grid",
+                         "renewable", "charging", "carbon", "green"],
+            "template": {"name": "新能源", "department": "能源部", "role_prefix": "能源", "core_objective": "绿色低碳发展"},
+            "specificity": 3,
+            "prd_patterns": ["新能源充电桩管理", "能源数字化转型", "智慧能源平台", "新能源项目建设", "能源管理系统"],
+        },
+        "real_estate": {
+            "keywords": ["房地产", "物业", "楼盘", "销售", "租赁", "中介",
+                          "建筑", "装修", "物业管理", "房产交易",
+                          "real estate", "property", "housing", "construction",
+                          "building", "rental", "broker"],
+            "template": {"name": "房地产", "department": "房产部", "role_prefix": "房产", "core_objective": "资产运营"},
+            "specificity": 3,
+            "prd_patterns": ["房地产销售管理", "房地产数字化转型", "智慧房产平台", "房地产项目管理", "房产中介平台"],
+        },
+        "general": {
+            "keywords": [],
+            "template": {"name": "企业服务", "department": "业务部", "role_prefix": "业务", "core_objective": "效率提升"},
+            "specificity": 0,
+            "prd_patterns": [],
+        },
     }
 
-    DOMAIN_TEMPLATES: Dict[str, Dict[str, str]] = {
-        "finance": {"name": "金融服务", "department": "金融部", "role_prefix": "金融", "core_objective": "风险管理与合规"},
-        "healthcare": {"name": "医疗健康", "department": "医疗部", "role_prefix": "医疗", "core_objective": "患者安全与疗效"},
-        "retail": {"name": "零售电商", "department": "电商部", "role_prefix": "电商", "core_objective": "用户体验与转化"},
-        "manufacturing": {"name": "智能制造", "department": "生产部", "role_prefix": "制造", "core_objective": "质量与效率"},
-        "education": {"name": "在线教育", "department": "教学部", "role_prefix": "教育", "core_objective": "学习效果"},
-        "content": {"name": "内容安全", "department": "运营部", "role_prefix": "审核", "core_objective": "内容安全"},
-        "logistics": {"name": "智慧物流", "department": "物流部", "role_prefix": "物流", "core_objective": "配送时效"},
-        "human_resource": {"name": "人力资源", "department": "人事部", "role_prefix": "HR", "core_objective": "人才发展"},
-        "enterprise": {"name": "企业管理", "department": "企管部", "role_prefix": "企业", "core_objective": "数字化转型"},
-        "marketing": {"name": "数字营销", "department": "市场部", "role_prefix": "营销", "core_objective": "增长与转化"},
-        "energy": {"name": "新能源", "department": "能源部", "role_prefix": "能源", "core_objective": "绿色低碳发展"},
-        "real_estate": {"name": "房地产", "department": "房产部", "role_prefix": "房产", "core_objective": "资产运营"},
-        "general": {"name": "企业服务", "department": "业务部", "role_prefix": "业务", "core_objective": "效率提升"},
-    }
+    @classmethod
+    def _get_domain_keywords(cls, domain: str) -> List[str]:
+        return cls.DOMAIN_CONFIG.get(domain, {}).get("keywords", [])
 
-    DOMAIN_SPECIFICITY: Dict[str, int] = {
-        "finance": 3,
-        "healthcare": 3,
-        "retail": 3,
-        "manufacturing": 3,
-        "education": 3,
-        "content": 3,
-        "logistics": 3,
-        "human_resource": 3,
-        "marketing": 3,
-        "energy": 3,
-        "real_estate": 3,
-        "enterprise": 1,
-        "general": 0,
-    }
+    @classmethod
+    def _get_domain_template(cls, domain: str) -> Dict[str, str]:
+        return cls.DOMAIN_CONFIG.get(domain, {}).get("template", cls.DOMAIN_CONFIG["general"]["template"])
+
+    @classmethod
+    def _get_domain_specificity(cls, domain: str) -> int:
+        return cls.DOMAIN_CONFIG.get(domain, {}).get("specificity", 0)
+
+    @classmethod
+    def _get_domain_prd_patterns(cls, domain: str) -> List[str]:
+        return cls.DOMAIN_CONFIG.get(domain, {}).get("prd_patterns", [])
 
     _KEYWORD_DOMAIN_COUNT: Dict[str, int] = {}
     _AVG_KEYWORD_LENGTH: float = 0.0
@@ -177,7 +227,8 @@ class LLMService:
         total_length = 0
         total_count = 0
 
-        for domain, keywords in cls.DOMAIN_KEYWORDS.items():
+        for domain, config in cls.DOMAIN_CONFIG.items():
+            keywords = config.get("keywords", [])
             for kw in keywords:
                 if kw not in kw_to_domains:
                     kw_to_domains[kw] = set()
@@ -345,9 +396,11 @@ class LLMService:
         cls._DOMAIN_VECTORS = domain_vectors
 
     @staticmethod
-    def _tokenize(text: str) -> List[str]:
-        """分词：中英文混合分词"""
+    def _tokenize(text: str, max_length: int = 2000) -> List[str]:
+        """分词：中英文混合分词（优化版，限制文本长度避免O(n²)复杂度）"""
         tokens = []
+        
+        text = text[:max_length]
 
         chinese_pattern = re.findall(r'[\u4e00-\u9fff]+', text)
         for word in chinese_pattern:
@@ -451,8 +504,9 @@ class LLMService:
         "Report Composer": AgentType.GENERATION,
     }
 
-    def __init__(self, provider: str = None):
+    def __init__(self, provider: str = None, force_mock: bool = False):
         self.provider = provider or settings.LLM_PROVIDER
+        self.force_mock = force_mock
         self._configure()
         self._request_id = f"req-{threading.current_thread().ident}-{int(time.time() * 1000)}"
 
@@ -581,7 +635,7 @@ class LLMService:
                     logger.warning(f"Failed to record cache hit metric: {e}")
                 return cached_result
 
-        if provider == ProviderType.MOCK.value:
+        if provider == ProviderType.MOCK.value or self.force_mock:
             result = self._mock(system_prompt, user_prompt)
             elapsed_ms = int((time.perf_counter() - t0) * 1000)
             result["_meta"] = {**context_info, "mode": ProviderType.MOCK.value, "elapsed_ms": elapsed_ms}
@@ -851,14 +905,15 @@ class LLMService:
         return {"content": "mock response", "note": "未匹配到Agent类型"}
 
     def _analyze_input_domain(self, user_prompt: str) -> dict:
-        """分析输入内容，提取业务领域信息（加权评分算法）"""
+        """分析输入内容，提取业务领域信息（混合分类器：关键词评分 + TF-IDF）"""
         self._precompute_keyword_stats()
 
         user_lower = user_prompt.lower()
-        scores = {}
+        keyword_scores = {}
         domain_keywords_found = {}
 
-        for domain, keywords in self.DOMAIN_KEYWORDS.items():
+        for domain, config in self.DOMAIN_CONFIG.items():
+            keywords = config.get("keywords", [])
             found = []
             score = 0.0
 
@@ -878,26 +933,64 @@ class LLMService:
                     score += kw_length_weight * exclusivity_boost
 
             if found:
-                scores[domain] = score
+                keyword_scores[domain] = score
                 domain_keywords_found[domain] = found
 
-        if not scores:
-            template = self.DOMAIN_TEMPLATES["general"]
+        tfidf_scores = self._classify_with_tfidf(user_prompt)
+
+        if not keyword_scores:
+            if not tfidf_scores:
+                template = self.DOMAIN_CONFIG["general"]["template"]
+                return {
+                    "domain": "general",
+                    "domain_name": template["name"],
+                    "department": template["department"],
+                    "role_prefix": template["role_prefix"],
+                    "core_objective": template["core_objective"],
+                    "keywords": [],
+                    "prompt_length": len(user_prompt),
+                    "confidence": 0.0,
+                    "scores": {},
+                    "tfidf_scores": {},
+                }
+
+            sorted_tfidf = sorted(tfidf_scores.items(), key=lambda x: (-x[1], x[0]))
+            top_domain, top_score = sorted_tfidf[0]
+            second_score = sorted_tfidf[1][1] if len(sorted_tfidf) > 1 else 0.0
+
+            if top_score < 0.3:
+                selected_domain = "general"
+                matched_keywords = []
+            else:
+                selected_domain = top_domain
+                matched_keywords = []
+
+            confidence = 0.0
+            if top_score > 0:
+                if second_score == 0:
+                    confidence = 1.0
+                else:
+                    confidence = (top_score - second_score) / top_score
+
+            template = self.DOMAIN_CONFIG.get(selected_domain, {}).get("template", self.DOMAIN_CONFIG["general"]["template"])
+
             return {
-                "domain": "general",
+                "domain": selected_domain,
                 "domain_name": template["name"],
                 "department": template["department"],
                 "role_prefix": template["role_prefix"],
                 "core_objective": template["core_objective"],
-                "keywords": [],
+                "keywords": matched_keywords[:5],
                 "prompt_length": len(user_prompt),
-                "confidence": 0.0,
-                "scores": {},
+                "confidence": round(confidence, 3),
+                "scores": {k: round(v, 3) for k, v in sorted_tfidf[:5]},
+                "tfidf_scores": {k: round(v, 3) for k, v in sorted_tfidf[:5]},
             }
 
-        sorted_domains = sorted(scores.items(), key=lambda x: (-x[1], -self.DOMAIN_SPECIFICITY.get(x[0], 0), x[0]))
+        sorted_domains = sorted(keyword_scores.items(), key=lambda x: (-x[1], -self.DOMAIN_CONFIG.get(x[0], {}).get("specificity", 0), x[0]))
         top_domain, top_score = sorted_domains[0]
         second_score = sorted_domains[1][1] if len(sorted_domains) > 1 else 0.0
+        third_score = sorted_domains[2][1] if len(sorted_domains) > 2 else 0.0
 
         confidence = 0.0
         if top_score > 0:
@@ -907,15 +1000,23 @@ class LLMService:
                 confidence = (top_score - second_score) / top_score
 
         CONFIDENCE_THRESHOLD = 0.15
+        MULTI_DOMAIN_THRESHOLD = 0.6
 
-        if confidence < CONFIDENCE_THRESHOLD and top_score < 2.0:
+        multi_domain_competition = False
+        if len(sorted_domains) >= 3 and top_score > 0:
+            second_ratio = second_score / top_score if top_score > 0 else 0
+            third_ratio = third_score / top_score if top_score > 0 else 0
+            if second_ratio > MULTI_DOMAIN_THRESHOLD and third_ratio > MULTI_DOMAIN_THRESHOLD * 0.5:
+                multi_domain_competition = True
+
+        if (confidence < CONFIDENCE_THRESHOLD and top_score < 2.0) or multi_domain_competition:
             selected_domain = "general"
             matched_keywords = []
         else:
             selected_domain = top_domain
             matched_keywords = domain_keywords_found[top_domain]
 
-        template = self.DOMAIN_TEMPLATES.get(selected_domain, self.DOMAIN_TEMPLATES["general"])
+        template = self.DOMAIN_CONFIG.get(selected_domain, {}).get("template", self.DOMAIN_CONFIG["general"]["template"])
 
         return {
             "domain": selected_domain,
@@ -927,6 +1028,7 @@ class LLMService:
             "prompt_length": len(user_prompt),
             "confidence": round(confidence, 3),
             "scores": {k: round(v, 2) for k, v in sorted_domains[:5]},
+            "tfidf_scores": {k: round(v, 3) for k, v in sorted(tfidf_scores.items(), key=lambda x: -x[1])[:5]},
         }
 
     def _mock_analysis(self, domain_info: dict) -> dict:
@@ -1657,7 +1759,7 @@ flowchart TD
         
         provider = self._get_provider_for_agent(system_prompt)
         
-        if provider == ProviderType.MOCK.value:
+        if provider == ProviderType.MOCK.value or self.force_mock:
             result = self._mock(system_prompt, user_prompt)
             content = json.dumps(result, ensure_ascii=False) if isinstance(result, dict) else str(result)
             for chunk in content.split("\n"):
@@ -1731,7 +1833,7 @@ flowchart TD
         
         provider = self._get_provider_for_agent(system_prompt)
         
-        if provider == ProviderType.MOCK.value:
+        if provider == ProviderType.MOCK.value or self.force_mock:
             result = self._mock(system_prompt, user_prompt)
             content = json.dumps(result, ensure_ascii=False) if isinstance(result, dict) else str(result)
             for chunk in content.split("\n"):

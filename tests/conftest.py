@@ -134,8 +134,8 @@ def test_graph_repository():
 
 @pytest.fixture(scope="function")
 def mock_llm_service():
-    """创建Mock LLM服务"""
-    return LLMService(provider="mock")
+    """创建Mock LLM服务（force_mock=True 保证离线确定性输出）"""
+    return LLMService(provider="mock", force_mock=True)
 
 
 @pytest.fixture(scope="function")
