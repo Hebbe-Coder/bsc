@@ -49,7 +49,7 @@
   - `pptx → ["ppt", "html", "markdown"]`
   - `word → ["html", "markdown"]`
   - `pdf → ["html", "markdown"]`
-  - `xlsx → ["html"]`（可选；默认留空 → 直接 `unimplemented`，见 §6）
+  - `xlsx → []`（默认 `unimplemented`，见 §6；可选配置 `xlsx → ["html"]` 降级到 HTML 表格，默认关）
   - `html → ["markdown"]`、`markdown → ["html"]`、`ppt → []`、`json → []`
 - `classify_failure(fmt: str, exc: Exception) -> dict`：
   - `ExportDependencyError` → `{type:"dependency_missing", missing_package, pip_install}`
