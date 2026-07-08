@@ -55,7 +55,7 @@
    │      ├─ 全成功            → HTTP 200 + success:true
    │      └─ 部分/全部失败     → HTTP 207 + success:false + errors[]（结构化）
    │
-   GET /api/bsc/exports/capabilities → 返回 EXPORT_CAPABILITIES（运维/前端自检）
+   GET /bsc/exports/capabilities → 返回 EXPORT_CAPABILITIES（运维/前端自检）
 ```
 
 ---
@@ -164,9 +164,11 @@ if unavail:
 ### 3.6 自检端点（新增）
 
 ```
-GET /api/bsc/exports/capabilities
+GET /bsc/exports/capabilities
 → 200, { "capabilities": EXPORT_CAPABILITIES }
 ```
+
+> 注：路由前缀来自 `app/api/bsc_api.py:10` 的 `APIRouter(prefix="/bsc")`；无全局前缀（`app/main.py` 的 `include_router` 未加 prefix）。因此完整路径为 `/bsc/exports/capabilities`，与现有 `/bsc/export_results` 同属 `/bsc`。
 
 便于前端/运维在调用前探测可用格式。
 
