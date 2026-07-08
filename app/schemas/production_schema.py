@@ -72,9 +72,31 @@ class RiskItem(BaseModel):
     model_config = ConfigDict(extra="allow")
     risk: str = Field(default="")
     severity: str = Field(default="")
+    level: Optional[str] = Field(default=None, alias="severity")
     probability: Optional[str] = Field(default=None)
     mitigation: str = Field(default="")
     category: Optional[str] = Field(default=None)
+
+    @property
+    def effective_severity(self) -> str:
+        """获取有效的风险等级（优先使用severity，其次使用level）"""
+        return self.severity or self.level or ""
+
+    @effective_severity.setter
+    def effective_severity(self, value: str):
+        """设置风险等级（同时设置severity和level）"""
+        self.severity = value
+        self.level = value
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "RiskItem":
+        """从字典创建，处理severity/level兼容性"""
+        data_copy = data.copy()
+        if "level" in data_copy and "severity" not in data_copy:
+            data_copy["severity"] = data_copy["level"]
+        elif "severity" in data_copy and "level" not in data_copy:
+            data_copy["level"] = data_copy["severity"]
+        return cls(**data_copy)
 
 
 class RiskBreakdown(BaseModel):

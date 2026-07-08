@@ -251,6 +251,98 @@ class TestBSCPipeline:
         assert "risks" in bs
 
 
+class TestBusinessSystemSmoke:
+    """Business System核心字段完整性测试（Smoke测试）"""
+
+    def test_business_system_core_fields_not_empty(self, mock_llm_service):
+        """测试business_system核心字段非空"""
+        from app.core.bsc_pipeline import compile_to_business_system
+        
+        prd = """# 零售电商系统PRD
+业务目标：提升用户转化率至3%
+核心功能：商品管理、订单管理、用户管理
+"""
+        
+        result = compile_to_business_system(prd, llm_service=mock_llm_service)
+        bs = result["business_system"]
+        
+        assert bs.get("business_domain"), "business_domain不能为空"
+        assert len(bs.get("objectives", [])) > 0, "objectives不能为空列表"
+        assert len(bs.get("workflow", [])) > 0, "workflow不能为空列表"
+        assert len(bs.get("roles", [])) > 0, "roles不能为空列表"
+        assert len(bs.get("kpi", [])) > 0 or len(bs.get("metrics", [])) > 0, "kpi或metrics至少有一个非空"
+        assert len(bs.get("risks", [])) > 0 or len(bs.get("risk", {}).get("process_risks", [])) > 0, "risks不能为空"
+        assert bs.get("composed", {}).get("report", {}).get("title"), "composed.report.title不能为空"
+
+    def test_business_system_fallback_on_empty(self, mock_llm_service):
+        """测试空数据时的回退机制"""
+        from app.core.bsc_pipeline import _validate_business_system_integrity, _generate_fallback_business_system
+        
+        empty_bs = {
+            "business_domain": "",
+            "objectives": [],
+            "workflow": [],
+            "roles": [],
+            "kpi": [],
+            "risks": [],
+            "risk": {},
+            "composed": {},
+            "report": {},
+        }
+        
+        assert _validate_business_system_integrity(empty_bs) is False, "空数据应返回False"
+        
+        fallback_bs = _generate_fallback_business_system("在线教育平台PRD")
+        assert fallback_bs.get("business_domain"), "回退数据business_domain不应为空"
+        assert len(fallback_bs.get("objectives", [])) > 0, "回退数据objectives不应为空"
+        assert len(fallback_bs.get("workflow", [])) > 0, "回退数据workflow不应为空"
+        assert _validate_business_system_integrity(fallback_bs) is True, "回退数据应通过完整性校验"
+
+    def test_business_system_risks_structure(self, mock_llm_service):
+        """测试risks数据结构一致性"""
+        from app.core.bsc_pipeline import compile_to_business_system
+        
+        prd = """# 金融风控系统PRD
+业务目标：建立实时风控体系
+核心功能：交易监控、风险评估
+"""
+        
+        result = compile_to_business_system(prd, llm_service=mock_llm_service)
+        bs = result["business_system"]
+        
+        all_risks = bs.get("risks", [])
+        risk_breakdown = bs.get("risk", {})
+        
+        assert isinstance(all_risks, list), "risks应为列表"
+        assert isinstance(risk_breakdown, dict), "risk应为字典"
+        
+        for risk_item in all_risks:
+            assert isinstance(risk_item, dict), "每个risk应为字典"
+            assert "risk" in risk_item, "risk项应包含risk字段"
+            assert "severity" in risk_item or "level" in risk_item, "risk项应包含severity或level字段"
+
+    def test_business_system_workflow_structure(self, mock_llm_service):
+        """测试workflow数据结构"""
+        from app.core.bsc_pipeline import compile_to_business_system
+        
+        prd = """# 客服工单系统PRD
+业务目标：提升客户满意度
+核心功能：工单创建、工单分配、工单处理
+"""
+        
+        result = compile_to_business_system(prd, llm_service=mock_llm_service)
+        workflow = result["business_system"].get("workflow", [])
+        
+        assert isinstance(workflow, list)
+        assert len(workflow) > 0
+        
+        for step in workflow:
+            assert isinstance(step, dict)
+            assert "step" in step, "步骤应包含step序号"
+            assert "name" in step, "步骤应包含name"
+            assert "action" in step, "步骤应包含action"
+
+
 class TestBSCPipelineCache:
     """BSC Pipeline缓存功能测试"""
 
