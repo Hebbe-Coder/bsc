@@ -406,8 +406,28 @@ async def export_results(req: ExportRequest):
     else:
         return ApiResponse.error("请提供business_system或input参数", code=400)
 
+    from exporters.capabilities import unavailable_formats
+    unavail = unavailable_formats(req.output_types)
+    if unavail:
+        return ApiResponse.error(
+            "以下导出格式当前不可用，请先安装对应依赖",
+            code=422,
+        ).model_copy(update={"data": {"unavailable": unavail}})
+
     exports = {}
     errors = []
+
+    def _record_error(fmt, exc):
+        from exporters.errors import ExportDependencyError
+        if isinstance(exc, ExportDependencyError):
+            errors.append({
+                "format": fmt,
+                "message": str(exc),
+                "missing_package": exc.missing_package,
+                "pip_install": exc.pip_install,
+            })
+        else:
+            errors.append({"format": fmt, "message": f"{fmt}导出失败: {str(exc)}"})
 
     if "json" in req.output_types:
         exports["json"] = bs
@@ -424,14 +444,14 @@ async def export_results(req: ExportRequest):
             word_bytes = WordExporter().export(bs)
             exports["word"] = {"content_base64": word_bytes.hex(), "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}
         except Exception as e:
-            errors.append(f"Word导出失败: {str(e)}")
+            _record_error("word", e)
 
     if "markdown" in req.output_types:
         try:
             from exporters.markdown_exporter import MarkdownExporter
             exports["markdown"] = MarkdownExporter().export(bs)
         except Exception as e:
-            errors.append(f"Markdown导出失败: {str(e)}")
+            _record_error("markdown", e)
 
     if "pdf" in req.output_types:
         try:
@@ -439,7 +459,7 @@ async def export_results(req: ExportRequest):
             pdf_bytes = PDFExporter().export(bs)
             exports["pdf"] = {"content_base64": pdf_bytes.hex(), "mime_type": "application/pdf"}
         except Exception as e:
-            errors.append(f"PDF导出失败: {str(e)}")
+            _record_error("pdf", e)
 
     try:
         from app.engines.visual_binding import bind_visuals
@@ -447,12 +467,25 @@ async def export_results(req: ExportRequest):
     except Exception:
         exports["visuals"] = []
 
-    return ApiResponse.ok({
+    payload = {
         "exports": exports,
         "formats": list(exports.keys()),
         "summary": result["summary"],
         "errors": errors,
-    })
+    }
+    if errors:
+        return ApiResponse.partial(payload, message="部分格式导出失败", errors=errors)
+    return ApiResponse.ok(payload)
+
+
+@router.get(
+    "/exports/capabilities",
+    summary="导出能力自检",
+    description="返回各导出格式当前是否可用及缺失依赖的安装命令。",
+)
+async def export_capabilities():
+    from exporters.capabilities import EXPORT_CAPABILITIES
+    return ApiResponse.ok({"capabilities": EXPORT_CAPABILITIES})
 
 
 def _generate_html(business_system: dict, pipeline_info: dict) -> str:

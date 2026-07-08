@@ -79,3 +79,33 @@ def test_apiresponse_partial():
     assert resp.code == 207
     assert resp.message == "部分格式失败"
     assert resp.errors and resp.errors[0]["format"] == "word"
+
+
+def _client():
+    from fastapi.testclient import TestClient
+    from app.main import app
+    return TestClient(app)
+
+
+def test_capabilities_endpoint():
+    resp = _client().get("/bsc/exports/capabilities")
+    assert resp.status_code == 200
+    body = resp.json()
+    caps = body["data"]["capabilities"] if "data" in body else body["capabilities"]
+    assert caps["json"]["available"] is True
+    assert "word" in caps
+
+
+def test_export_gate_422_when_format_unavailable(monkeypatch):
+    from exporters import capabilities as cap
+    patched = dict(cap.EXPORT_CAPABILITIES)
+    patched["word"] = {"available": False, "deps": ["docx"], "missing": "python-docx",
+                       "pip_install": "pip install python-docx", "format": "word"}
+    monkeypatch.setattr(cap, "EXPORT_CAPABILITIES", patched)
+    resp = _client().post("/bsc/export", json={
+        "business_system": {"business_domain": "x"},
+        "output_types": ["json", "word"],
+    })
+    body = resp.json()
+    assert body["code"] == 422
+    assert any(u["format"] == "word" for u in body["data"]["unavailable"])
