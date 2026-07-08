@@ -42,3 +42,7 @@ Thumbs.db
 # ---- Build artifacts ----
 build/
 *.spec
+
+# ---- SQLite runtime artifacts (WAL/SHM sidecars, regenerated every run) ----
+*.db-wal
+*.db-shm
