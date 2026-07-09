@@ -7,6 +7,7 @@ logger = logging.getLogger(__name__)
 
 
 class RAGEvaluator:
+    # 仅作冒烟默认:expected_chunk_ids 为空,真实评估需传入带标注的 gold
     DEFAULT_GOLD: List[dict] = [
         {"query": "内容安全 违规", "expected_chunk_ids": []},
         {"query": "咖啡 烘焙", "expected_chunk_ids": []},
@@ -39,6 +40,7 @@ class RAGEvaluator:
             if with_faithfulness and expected:
                 try:
                     from app.knowledge.answer import RAGAnswerGenerator
+                    # 注:默认 RAG_LLM_PROVIDER=mock 时生成会降级,faithfulness 仅 best-effort
                     gen = RAGAnswerGenerator(service=service)
                     out = gen.answer(item["query"], project_id=project_id, top_k=top_k)
                     entry["faithfulness"] = out.get("metrics", {}).get("citation_rate", None)

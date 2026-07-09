@@ -38,3 +38,13 @@ def test_load_gold_rejects_bad_structure():
     ev = RAGEvaluator()
     with pytest.raises(ValueError):
         ev.load_gold([{"expected_chunk_ids": ["x"]}])  # 缺 query
+
+
+def test_eval_recall_zero_when_expected_missing():
+    svc = _tmp_service()
+    svc.ingest("内容安全平台 过滤 违规 信息 审核 流程", project_id="p1", title="安全制度")
+    # 期望一个不存在的 chunk_id -> 检索非空但命中为 0
+    gold = [{"query": "内容安全 违规", "expected_chunk_ids": ["nonexistent-id"]}]
+    m = RAGEvaluator().evaluate(svc, gold, top_k=5)
+    assert m["recall@k"] == 0.0
+    assert m["precision@k"] == 0.0
