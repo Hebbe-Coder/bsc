@@ -310,7 +310,8 @@ class BrainstormEngine:
             "business_domain": business_domain,
             "generated_at": datetime.now().isoformat(),
             "mindmap": {
-                "center": mindmap.get("center", topic),
+                # 空主题时中心节点应为空，不被 LLM 返回的兜底内容覆盖
+                "center": mindmap.get("center", topic) if topic and topic.strip() else topic,
                 "branches": mindmap.get("branches", []),
                 "total_branches": len(mindmap.get("branches", [])),
             },
