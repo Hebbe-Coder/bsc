@@ -83,3 +83,37 @@ class KnowledgeService:
                     "doc_title": row["doc_title"] or "未知来源",
                 })
         return results
+
+    def list_documents(self, project_id: Optional[str] = None,
+                       limit: int = 100, offset: int = 0) -> dict:
+        where = ""
+        params: list = []
+        if project_id:
+            where = "WHERE d.project_id=? "
+            params.append(project_id)
+        rows = self.repo._execute(
+            f"SELECT d.id, d.title, d.source, d.project_id, d.created_at, "
+            f"COUNT(c.id) AS chunk_count "
+            f"FROM knowledge_docs d LEFT JOIN knowledge_chunks c ON c.doc_id=d.id "
+            f"{where}GROUP BY d.id ORDER BY d.created_at DESC LIMIT ? OFFSET ?",
+            tuple(params + [limit, offset])).fetchall()
+        docs = [dict(r) for r in rows]
+        total_row = self.repo._execute(
+            f"SELECT COUNT(*) AS cnt FROM knowledge_docs d {where}", tuple(params)
+        ).fetchone()
+        total = total_row["cnt"] if total_row else 0
+        return {"documents": docs, "total": total}
+
+    def delete_document(self, doc_id: str) -> bool:
+        if not self.repo._execute(
+                "SELECT id FROM knowledge_docs WHERE id=?", (doc_id,)).fetchone():
+            return False
+        chunk_ids = [r["id"] for r in self.repo._execute(
+            "SELECT id FROM knowledge_chunks WHERE doc_id=?", (doc_id,)).fetchall()]
+        for cid in chunk_ids:
+            self.repo._execute("DELETE FROM knowledge_fts WHERE chunk_id=?", (cid,))
+            self.repo._execute("DELETE FROM knowledge_tfidf WHERE chunk_id=?", (cid,))
+        self.repo._execute("DELETE FROM knowledge_chunks WHERE doc_id=?", (doc_id,))
+        self.repo._execute("DELETE FROM knowledge_docs WHERE id=?", (doc_id,))
+        self.repo._commit()
+        return True
