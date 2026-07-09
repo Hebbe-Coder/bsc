@@ -79,3 +79,9 @@ def test_validate_citations_strips_invalid():
     assert "[9]" not in cleaned
     assert "[1]" in cleaned
     assert rate == 0.5
+
+
+def test_generator_builds_llm_with_only_keys():
+    gen = RAGAnswerGenerator(provider="deepseek", keys=["k1", "k2"])
+    llm = gen._get_llm()  # 不应抛 SOPLLMError(多 Key 优先,无需单 api_key)
+    assert llm.keys == ["k1", "k2"]

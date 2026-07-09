@@ -98,8 +98,8 @@ class SOPLLMClient:
             self.keys = [self.api_key]
         else:
             self.keys = []
-        if not self.api_key:
-            raise SOPLLMError(f"provider={self.provider} 需要配置 {key_attr}")
+        if not self.api_key and not self.keys:
+            raise SOPLLMError(f"provider={self.provider} 需要配置 {key_attr} 或 RAG_LLM_KEYS")
 
     def chat(
         self,

@@ -63,3 +63,9 @@ def test_multikeys_5xx_also_failover():
     c = SOPLLMClient(provider="deepseek", api_key="bad", keys=["bad", "good"],
                      http_client=_FakeClient(handler))
     assert c.chat("sys", "usr")["content"] == '{"answer":"ok"}'
+
+
+def test_multikeys_without_single_api_key_ok():
+    # 多 Key 设计:仅提供 keys、不提供单 key 时也应可构造(keys 优先于单 api_key)
+    c = SOPLLMClient(provider="deepseek", keys=["k1", "k2"])
+    assert c.keys == ["k1", "k2"]
