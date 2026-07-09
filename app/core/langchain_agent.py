@@ -21,6 +21,7 @@ from typing import Dict, Any, Optional, List, ClassVar
 
 from langchain_core.tools import BaseTool
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from app.knowledge.tool import RetrieveKnowledgeTool
 from langchain.agents import create_agent
 from langgraph.checkpoint.memory import MemorySaver
 
@@ -365,6 +366,7 @@ class LangChainAgentService:
                 PRDQualityScorerTool(),
                 PRDRefinerTool(),
                 IndustryTemplateTool(),
+                RetrieveKnowledgeTool(),
             ]
         return self._tools
     
