@@ -10,6 +10,7 @@ from exporters.errors import ExportDependencyError
 from exporters._degrade_ctx import DegradeContext
 from exporters.html_exporter import generate_html
 from exporters.ppt_spec_exporter import generate_ppt_spec
+from exporters.markdown_exporter import MarkdownExporter
 
 
 def test_degradation_rules_present():
@@ -100,3 +101,19 @@ def test_generate_ppt_spec_skips_failing_component():
     spec = generate_ppt_spec(_bs_with("BROKEN"), ctx)
     assert "slides" in spec
     assert ctx.component_failures and ctx.component_failures[0]["component"] == "metrics"
+
+
+def test_markdown_skips_failing_component():
+    ctx = DegradeContext()
+    bs = _bs_with([{"name": "n", "formula": "f", "target": "t", "owner": "o"}])
+    bs["objectives"] = "BROKEN"  # objectives 不是 list，区块渲染会出错
+    md = MarkdownExporter().export(bs, ctx)
+    assert md.startswith("# ")
+    assert ctx.component_failures and ctx.component_failures[0]["component"] == "objectives"
+
+
+def test_markdown_without_ctx_unchanged():
+    bs = _bs_with([{"name": "n", "formula": "f", "target": "t", "owner": "o"}])
+    md = MarkdownExporter().export(bs)  # 无 ctx 行为不变
+    assert md.startswith("# ")
+    assert "业务目标" in md
