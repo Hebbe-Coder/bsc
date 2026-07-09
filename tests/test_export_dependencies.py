@@ -96,16 +96,23 @@ def test_capabilities_endpoint():
     assert "word" in caps
 
 
-def test_export_gate_422_when_format_unavailable(monkeypatch):
-    from exporters import capabilities as cap
-    patched = dict(cap.EXPORT_CAPABILITIES)
-    patched["word"] = {"available": False, "deps": ["docx"], "missing": "python-docx",
-                       "pip_install": "pip install python-docx", "format": "word"}
-    monkeypatch.setattr(cap, "EXPORT_CAPABILITIES", patched)
+def test_export_dep_missing_zero_produced_returns_422(monkeypatch):
+    import exporters.orchestrator as orchestrator
+    from exporters.errors import ExportDependencyError
+
+    def fake(fmt, bs, result, ctx):
+        if fmt in ("word", "html", "markdown"):
+            raise ExportDependencyError("word", "python-docx", "pip install python-docx")
+        raise RuntimeError("no")
+    monkeypatch.setattr(orchestrator, "_produce", fake)
     resp = _client().post("/bsc/export", json={
         "business_system": {"business_domain": "x"},
-        "output_types": ["json", "word"],
+        "output_types": ["word"],
     })
     body = resp.json()
+    # 依赖缺失不再硬 422 门禁，而是走降级；此处 word 及其候补均失败 → 零产出 → 422
     assert body["code"] == 422
-    assert any(u["format"] == "word" for u in body["data"]["unavailable"])
+    st = body["data"]["formats_status"][0]
+    assert st["status"] == "dropped"
+    assert st["reason"] == "dependency_missing"
+    assert st["missing_package"] == "python-docx"
