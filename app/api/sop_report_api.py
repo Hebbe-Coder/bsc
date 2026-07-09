@@ -21,12 +21,17 @@ class BusinessSystemRequest(BaseModel):
     )
 
 
+class GenerateRequest(BusinessSystemRequest):
+    enable_ai_analysis: bool = Field(False, description="是否启用AI分析功能")
+
+
 class ExportRequest(BaseModel):
     business_system: Union[Dict[str, Any], Dict[str, Any]] = Field(
         ...,
         description="已编译的业务系统数据",
     )
     format: str = Field("html", description="导出格式：html, markdown, pptx")
+    enable_ai_analysis: bool = Field(False, description="是否启用AI分析功能")
     
     @field_validator("format")
     def validate_format(cls, v):
@@ -36,7 +41,7 @@ class ExportRequest(BaseModel):
 
 
 @router.post("/generate", summary="生成SOP汇报")
-async def generate_sop_report(req: BusinessSystemRequest):
+async def generate_sop_report(req: GenerateRequest):
     """
     生成完整的SOP汇报
 
@@ -46,7 +51,13 @@ async def generate_sop_report(req: BusinessSystemRequest):
     3. 角色职责 - 各角色负责的步骤、职责范围
     4. SLA汇总 - 各步骤SLA、总耗时预估
     5. 风险评估 - 各步骤风险点、缓解措施
-    6. 流程图 - 可视化流程结构
+    6. 流程图 - 可视化流程结构（支持泳道图）
+    7. 关键成功因素 - 流程成功的关键要素
+    8. 度量指标 - 效率、质量、成本衡量标准
+    9. 里程碑规划 - 流程执行关键节点
+    10. 成本估算 - 人力和时间成本预估
+    11. 智能摘要 - LLM生成的汇报核心要点（需启用AI分析）
+    12. AI优化建议 - LLM生成的改进建议（需启用AI分析）
 
     输入：业务系统数据（包含workflow、roles、objectives、sla、risks等）
     """
@@ -54,7 +65,7 @@ async def generate_sop_report(req: BusinessSystemRequest):
     
     engine = SOPReportEngine()
     bs_data = req.business_system.dict() if hasattr(req.business_system, 'dict') else req.business_system
-    report = engine.generate_full_sop_report(bs_data)
+    report = engine.generate_full_sop_report(bs_data, enable_ai_analysis=req.enable_ai_analysis)
     
     return ApiResponse.ok(report)
 
@@ -75,7 +86,7 @@ async def export_sop_report(req: ExportRequest):
     
     engine = SOPReportEngine()
     bs_data = req.business_system.dict() if hasattr(req.business_system, 'dict') else req.business_system
-    report = engine.generate_full_sop_report(bs_data)
+    report = engine.generate_full_sop_report(bs_data, enable_ai_analysis=req.enable_ai_analysis)
     
     if req.format == "markdown":
         content = engine.export_to_markdown(report)
@@ -242,11 +253,12 @@ async def generate_risk_assessment(req: BusinessSystemRequest):
 @router.post("/flowchart", summary="生成流程图数据")
 async def generate_flowchart(req: BusinessSystemRequest):
     """
-    生成流程图数据
+    生成流程图数据（支持泳道图）
 
     包含：
     - 节点列表（步骤信息）
     - 连线列表
+    - 泳道分组信息
     - 布局信息
 
     可用于前端渲染流程图。
@@ -260,13 +272,195 @@ async def generate_flowchart(req: BusinessSystemRequest):
     return ApiResponse.ok(flowchart)
 
 
+@router.post("/csf", summary="生成关键成功因素")
+async def generate_csf(req: BusinessSystemRequest):
+    """
+    生成关键成功因素(CSF)
+
+    包含：
+    - 关键成功因素列表
+    - 影响程度（高/中/低）
+    - 当前状态（已满足/部分满足/未满足）
+    - 改进行动项
+    """
+    from app.engines.sop_report_engine import SOPReportEngine
+    
+    engine = SOPReportEngine()
+    bs_data = req.business_system.dict() if hasattr(req.business_system, 'dict') else req.business_system
+    csf = engine.generate_csf(bs_data)
+    
+    return ApiResponse.ok(csf)
+
+
+@router.post("/metrics", summary="生成度量指标")
+async def generate_metrics(req: BusinessSystemRequest):
+    """
+    生成度量指标
+
+    包含：
+    - 效率指标（流程周期时间、步骤通过率、SLA达成率）
+    - 质量指标（输出准确率、客户满意度、错误返工率）
+    - 成本指标（单位流程成本、人力投入）
+    """
+    from app.engines.sop_report_engine import SOPReportEngine
+    
+    engine = SOPReportEngine()
+    bs_data = req.business_system.dict() if hasattr(req.business_system, 'dict') else req.business_system
+    metrics = engine.generate_metrics(bs_data)
+    
+    return ApiResponse.ok(metrics)
+
+
+@router.post("/milestones", summary="生成里程碑规划")
+async def generate_milestones(req: BusinessSystemRequest):
+    """
+    生成里程碑规划
+
+    包含：
+    - 里程碑节点列表
+    - 阶段名称
+    - 步骤范围
+    - 截止时间
+    - 状态
+    """
+    from app.engines.sop_report_engine import SOPReportEngine
+    
+    engine = SOPReportEngine()
+    bs_data = req.business_system.dict() if hasattr(req.business_system, 'dict') else req.business_system
+    milestones = engine.generate_milestones(bs_data)
+    
+    return ApiResponse.ok(milestones)
+
+
+@router.post("/cost", summary="生成成本估算")
+async def generate_cost_estimate(req: BusinessSystemRequest):
+    """
+    生成成本估算
+
+    包含：
+    - 总工时估算
+    - 人力成本估算（FTE）
+    - 成本明细（按角色）
+    - 平均小时费率
+    """
+    from app.engines.sop_report_engine import SOPReportEngine
+    
+    engine = SOPReportEngine()
+    bs_data = req.business_system.dict() if hasattr(req.business_system, 'dict') else req.business_system
+    cost = engine.generate_cost_estimate(bs_data)
+    
+    return ApiResponse.ok(cost)
+
+
+@router.post("/gantt-chart", summary="生成甘特图数据")
+async def generate_gantt_chart(req: BusinessSystemRequest):
+    """
+    生成甘特图数据
+
+    包含：
+    - 任务列表
+    - 持续时间
+    - 角色分配
+    - 开始偏移
+    - 状态
+    """
+    from app.engines.sop_report_engine import SOPReportEngine
+    
+    engine = SOPReportEngine()
+    bs_data = req.business_system.dict() if hasattr(req.business_system, 'dict') else req.business_system
+    gantt = engine.generate_gantt_chart(bs_data)
+    
+    return ApiResponse.ok(gantt)
+
+
+@router.post("/role-matrix", summary="生成角色职责矩阵")
+async def generate_role_matrix(req: BusinessSystemRequest):
+    """
+    生成角色职责矩阵
+
+    包含：
+    - 角色列表
+    - 步骤列表
+    - 角色与步骤的对应关系
+    """
+    from app.engines.sop_report_engine import SOPReportEngine
+    
+    engine = SOPReportEngine()
+    bs_data = req.business_system.dict() if hasattr(req.business_system, 'dict') else req.business_system
+    matrix = engine.generate_role_matrix(bs_data)
+    
+    return ApiResponse.ok(matrix)
+
+
+@router.post("/risk-heatmap", summary="生成风险热力图数据")
+async def generate_risk_heatmap(req: BusinessSystemRequest):
+    """
+    生成风险热力图数据
+
+    包含：
+    - 风险点列表
+    - 概率和严重程度评分
+    - 热力图矩阵（3x3）
+    - 高风险项数量
+    """
+    from app.engines.sop_report_engine import SOPReportEngine
+    
+    engine = SOPReportEngine()
+    bs_data = req.business_system.dict() if hasattr(req.business_system, 'dict') else req.business_system
+    heatmap = engine.generate_risk_heatmap(bs_data)
+    
+    return ApiResponse.ok(heatmap)
+
+
+@router.post("/ai-summary", summary="生成智能摘要")
+async def generate_ai_summary(req: BusinessSystemRequest):
+    """
+    生成智能摘要（LLM驱动）
+
+    包含：
+    - 执行摘要（一句话核心摘要）
+    - 关键发现（3-5个）
+    - 建议（2-3条）
+    - 风险亮点（1-2个高风险点）
+    """
+    from app.engines.sop_report_engine import SOPReportEngine
+    
+    engine = SOPReportEngine()
+    bs_data = req.business_system.dict() if hasattr(req.business_system, 'dict') else req.business_system
+    summary = engine.generate_ai_summary(bs_data)
+    
+    return ApiResponse.ok(summary)
+
+
+@router.post("/ai-recommendations", summary="生成AI优化建议")
+async def generate_ai_recommendations(req: BusinessSystemRequest):
+    """
+    生成AI优化建议（LLM驱动）
+
+    包含：
+    - 优化建议列表（4-5条）
+    - 优先级（高/中/低）
+    - 预估改进效果
+    - 实施步骤
+    - 优先级排序的行动项
+    """
+    from app.engines.sop_report_engine import SOPReportEngine
+    
+    engine = SOPReportEngine()
+    bs_data = req.business_system.dict() if hasattr(req.business_system, 'dict') else req.business_system
+    recommendations = engine.generate_ai_recommendations(bs_data)
+    
+    return ApiResponse.ok(recommendations)
+
+
 @router.get("/preview", summary="预览SOP汇报")
-async def preview_report(business_system: Optional[str] = None):
+async def preview_report(business_system: Optional[str] = None, enable_ai_analysis: bool = False):
     """
     预览SOP汇报
 
     参数：
     - business_system: 业务系统JSON字符串（可选，使用mock数据）
+    - enable_ai_analysis: 是否启用AI分析功能
 
     返回完整SOP汇报的HTML预览内容。
     """
@@ -294,7 +488,7 @@ async def preview_report(business_system: Optional[str] = None):
             "risk": llm._mock("你是Risk Agent", ""),
         }
     
-    report = engine.generate_full_sop_report(bs)
+    report = engine.generate_full_sop_report(bs, enable_ai_analysis=enable_ai_analysis)
     html_content = engine.export_to_html(report)
     
     return StreamingResponse(
