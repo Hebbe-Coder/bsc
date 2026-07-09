@@ -117,3 +117,72 @@ def test_markdown_without_ctx_unchanged():
     md = MarkdownExporter().export(bs)  # 无 ctx 行为不变
     assert md.startswith("# ")
     assert "业务目标" in md
+
+
+import exporters.orchestrator as orchestrator
+from exporters.orchestrator import run_export, ExportOutcome
+from exporters.errors import ExportDependencyError
+
+
+def _bs():
+    return {"business_domain": "D", "report": {"executive_summary": "S"}}
+
+
+def test_run_export_substitutes_pptx_to_ppt(monkeypatch):
+    def fake_produce(fmt, bs, result, ctx):
+        if fmt == "pptx":
+            raise ExportDependencyError("pptx", "python-pptx", "pip install python-pptx")
+        if fmt == "ppt":
+            return {"slides": []}
+        raise AssertionError("unexpected fmt " + fmt)
+    monkeypatch.setattr(orchestrator, "_produce", fake_produce)
+    out = run_export(_bs(), ["pptx"], {})
+    assert out.formats_status[0] == {"format": "pptx", "status": "substituted", "source_format": "ppt"}
+    assert "ppt" in out.exports
+
+
+def test_run_export_drops_unimplemented(monkeypatch):
+    def fake_produce(fmt, bs, result, ctx):
+        raise AssertionError("xlsx 不应进入 _produce")
+    monkeypatch.setattr(orchestrator, "_produce", fake_produce)
+    out = run_export(_bs(), ["xlsx"], {})
+    st = out.formats_status[0]
+    assert st["status"] == "dropped"
+    assert st["reason"] == "unimplemented"
+
+
+def test_run_export_drops_dependency_missing(monkeypatch):
+    def fake_produce(fmt, bs, result, ctx):
+        if fmt in ("word", "html", "markdown"):
+            raise ExportDependencyError("word", "python-docx", "pip install python-docx")
+        raise AssertionError(fmt)
+    monkeypatch.setattr(orchestrator, "_produce", fake_produce)
+    out = run_export(_bs(), ["word"], {})
+    st = out.formats_status[0]
+    assert st["status"] == "dropped"
+    assert st["reason"] == "dependency_missing"
+    assert st["missing_package"] == "python-docx"
+
+
+def test_run_export_component_failures_attached(monkeypatch):
+    def fake_produce(fmt, bs, result, ctx):
+        with ctx.component("metrics"):
+            raise ValueError("bad metric")
+        return f"content-{fmt}"
+    monkeypatch.setattr(orchestrator, "_produce", fake_produce)
+    out = run_export(_bs(), ["html"], {})
+    st = out.formats_status[0]
+    assert st["status"] == "produced"
+    assert st["components_degraded"][0]["type"] == "component_failed"
+    assert st["components_degraded"][0]["component"] == "metrics"
+
+
+def test_run_export_zero_produced_all_dropped(monkeypatch):
+    def fake_produce(fmt, bs, result, ctx):
+        if fmt in ("word", "html", "markdown"):
+            raise ExportDependencyError("word", "python-docx", "pip install python-docx")
+        raise RuntimeError("no")
+    monkeypatch.setattr(orchestrator, "_produce", fake_produce)
+    out = run_export(_bs(), ["word"], {})
+    assert all(s["status"] == "dropped" for s in out.formats_status)
+    assert "word" not in out.exports
