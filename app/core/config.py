@@ -61,6 +61,11 @@ class Settings(BaseSettings):
 
     SOP_LLM_PROVIDER: str = "mock"  # SOP AI 段使用的 LLM provider (deepseek/doubao/qwen/kimi/mock)
 
+    EMBEDDING_PROVIDER: str = "mock"  # 向量检索 embedding 来源 (mock/openai)
+    EMBEDDING_API_KEY: str = ""
+    EMBEDDING_BASE_URL: str = "https://api.openai.com/v1"
+    EMBEDDING_MODEL: str = "text-embedding-3-small"
+
     LLM_TIMEOUT: int = 60
     LLM_TEMPERATURE: float = 0.7
     LLM_MAX_TOKENS: int = 8000
