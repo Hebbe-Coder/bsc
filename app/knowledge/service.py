@@ -8,6 +8,7 @@ from app.knowledge.schema import ensure_schema
 from app.knowledge.chunker import chunk_text
 from app.knowledge.backends.keyword import KeywordBackend
 from app.knowledge.backends.tfidf import TfidfBackend
+from app.knowledge.backends.vector import VectorBackend
 from app.knowledge.reranker import rrf_fuse
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,7 @@ class KnowledgeService:
         self.backends = {
             "keyword": KeywordBackend(self.repo),
             "tfidf": TfidfBackend(self.repo),
+            "vector": VectorBackend(self.repo),
         }
 
     def ingest(self, text: str, project_id: str = "", asset_id: str = "",
@@ -58,6 +60,10 @@ class KnowledgeService:
             self.backends["tfidf"].index(chunk_records)
         except Exception as e:
             logger.warning("tfidf index failed: %s", e)
+        try:
+            self.backends["vector"].index(chunk_records)
+        except Exception as e:
+            logger.warning("vector index failed: %s", e)
         return doc_id
 
     def retrieve(self, query: str, top_k: int = 5, project_id: Optional[str] = None) -> List[dict]:
@@ -65,7 +71,8 @@ class KnowledgeService:
             return []
         kw_ids = self.backends["keyword"].search(query)
         tf_ids = self.backends["tfidf"].search(query)
-        fused = rrf_fuse([kw_ids, tf_ids])
+        vec_ids = self.backends["vector"].search(query)
+        fused = rrf_fuse([kw_ids, tf_ids, vec_ids])
         top = fused[:top_k]
         if not top:
             return []
@@ -113,6 +120,7 @@ class KnowledgeService:
         for cid in chunk_ids:
             self.repo._execute("DELETE FROM knowledge_fts WHERE chunk_id=?", (cid,))
             self.repo._execute("DELETE FROM knowledge_tfidf WHERE chunk_id=?", (cid,))
+            self.repo._execute("DELETE FROM knowledge_vectors WHERE chunk_id=?", (cid,))
         self.repo._execute("DELETE FROM knowledge_chunks WHERE doc_id=?", (doc_id,))
         self.repo._execute("DELETE FROM knowledge_docs WHERE id=?", (doc_id,))
         self.repo._commit()
