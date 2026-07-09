@@ -40,8 +40,8 @@ def build_citation_plan_prompt(question: str, context: str) -> str:
     )
 
 
-def build_answer_prompt(question: str, context: str, cite_ids) -> str:
-    ids = ", ".join(f"[{i}]" for i in cite_ids)
+def build_answer_prompt(question: str, context: str, cite_ids: list) -> str:
+    ids = ", ".join(f"[{i}]" for i in (cite_ids or []))
     return (
         f"问题：{question}\n\n"
         f"只允许引用以下编号的知识:{ids}\n\n知识：\n{context}"
