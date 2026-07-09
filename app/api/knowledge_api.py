@@ -94,6 +94,42 @@ def retrieve(
     return ApiResponse.ok({"results": results})
 
 
+class AskRequest(BaseModel):
+    question: str
+    project_id: str = ""
+    top_k: int = 5
+
+
+class EvaluateRequest(BaseModel):
+    gold: Optional[List[dict]] = None
+    top_k: int = 5
+    with_faithfulness: bool = False
+
+
+@router.post("/ask")
+def ask(req: AskRequest, service: KnowledgeService = Depends(get_knowledge_service)):
+    if not req.question or not req.question.strip():
+        return ApiResponse.error("请提供问题", code=400)
+    from app.knowledge.answer import RAGAnswerGenerator
+    gen = RAGAnswerGenerator(service=service)
+    result = gen.answer(req.question, project_id=req.project_id or None, top_k=req.top_k)
+    return ApiResponse.ok(result)
+
+
+@router.post("/evaluate")
+def evaluate(req: EvaluateRequest, service: KnowledgeService = Depends(get_knowledge_service)):
+    from app.knowledge.eval import RAGEvaluator
+    try:
+        gold = req.gold if req.gold else RAGEvaluator.DEFAULT_GOLD
+        if not gold:
+            return ApiResponse.error("gold 为空", code=400)
+        ev = RAGEvaluator()
+        metrics = ev.evaluate(service, gold, top_k=req.top_k, with_faithfulness=req.with_faithfulness)
+        return ApiResponse.ok(metrics)
+    except ValueError as e:
+        return ApiResponse.error(str(e), code=400)
+
+
 @router.delete("/documents/{doc_id}")
 def delete_document(
     doc_id: str,
