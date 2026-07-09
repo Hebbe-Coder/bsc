@@ -4,6 +4,7 @@
 RemoteEmbeddingProvider 走远程 OpenAI 兼容 /v1/embeddings（OpenAI / vLLM / 任意兼容服务）。
 """
 from __future__ import annotations
+import hashlib
 import logging
 from typing import List, Optional
 
@@ -42,7 +43,8 @@ class MockEmbeddingProvider(EmbeddingProvider):
         for text in texts:
             vec = np.zeros(self.dim, dtype=np.float64)
             for tok in tokenize(text or ""):
-                vec[hash(tok) % self.dim] += 1.0
+                # 使用非加盐的稳定哈希,保证跨进程/重启后仍确定(区别于内置 hash())
+                vec[int(hashlib.md5(tok.encode("utf-8")).hexdigest(), 16) % self.dim] += 1.0
             norm = np.linalg.norm(vec)
             if norm > 0:
                 vec = vec / norm
@@ -75,12 +77,16 @@ class RemoteEmbeddingProvider(EmbeddingProvider):
             try:
                 resp = client.post(f"{self.base_url}/embeddings", headers=headers, json=body)
                 resp.raise_for_status()
-                data = resp.json()
             finally:
                 if self._http is None:
                     client.close()
         except httpx.HTTPError as e:
             logger.warning("embedding 请求失败: %s", e)
+            raise
+        try:
+            data = resp.json()
+        except ValueError as e:
+            logger.warning("embedding 响应不是合法 JSON: %s", e)
             raise
         try:
             items = sorted(data["data"], key=lambda d: d["index"])
