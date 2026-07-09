@@ -13,6 +13,8 @@ _SCHEMA = [
         chunk_id TEXT PRIMARY KEY, vector BLOB)""",
     """CREATE TABLE IF NOT EXISTS tfidf_model (
         id INTEGER PRIMARY KEY CHECK (id=1), vocab_json TEXT, idf_json TEXT)""",
+    """CREATE TABLE IF NOT EXISTS knowledge_vectors (
+        chunk_id TEXT PRIMARY KEY, model TEXT, dim INTEGER, vector BLOB)""",
 ]
 
 def ensure_schema(repo: Any) -> None:
