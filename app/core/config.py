@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     QWEN_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     QWEN_MODEL: str = "qwen-plus"
 
+    KIMI_API_KEY: str = ""
+    KIMI_BASE_URL: str = "https://api.moonshot.cn/v1"
+    KIMI_MODEL: str = "moonshot-v1-8k"
+
     OLLAMA_BASE_URL: str = "http://localhost:11434/v1"
     OLLAMA_MODEL: str = "qwen2.5:7b"
 
@@ -54,6 +58,8 @@ class Settings(BaseSettings):
     ANALYSIS_PROVIDER: str = "deepseek"
     GENERATION_PROVIDER: str = "doubao"
     OCR_PROVIDER: str = "doubao"
+
+    SOP_LLM_PROVIDER: str = "mock"  # SOP AI 段使用的 LLM provider (deepseek/doubao/qwen/kimi/mock)
 
     LLM_TIMEOUT: int = 60
     LLM_TEMPERATURE: float = 0.7
