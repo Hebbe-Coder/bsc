@@ -613,3 +613,38 @@ class TestSOPReportAPI:
         
         assert response.status_code == 200
         assert "text/html" in response.headers["content-type"]
+
+
+def test_generate_ai_summary_schema_under_mock():
+    from app.engines.sop_report_engine import SOPReportEngine
+
+    engine = SOPReportEngine()
+    bs = {
+        "business_domain": "测试业务",
+        "workflow": [{"name": "步骤1", "owner": "角色A", "duration": "2h"}],
+        "roles": [{"role": "角色A", "department": "测试部", "headcount": 1}],
+        "risks": [{"risk": "风险X", "severity": "高", "mitigation": "加强监控"}],
+    }
+    out = engine.generate_ai_summary(bs)
+    assert out["title"] == "智能摘要"
+    assert isinstance(out["executive_summary"], str) and out["executive_summary"]
+    assert isinstance(out["key_findings"], list)
+    assert isinstance(out["recommendations"], list)
+    assert isinstance(out["risk_highlights"], list)
+
+
+def test_generate_full_report_includes_ai_when_enabled():
+    from app.engines.sop_report_engine import SOPReportEngine
+
+    engine = SOPReportEngine()
+    bs = {
+        "business_domain": "测试业务",
+        "workflow": [{"name": "步骤1", "owner": "角色A", "duration": "2h"}],
+        "roles": [{"role": "角色A", "department": "测试部", "headcount": 1}],
+        "risks": [{"risk": "风险X", "severity": "高", "mitigation": "加强监控"}],
+    }
+    report = engine.generate_full_sop_report(bs, enable_ai_analysis=True)
+    assert "ai_summary" in report
+    assert "ai_recommendations" in report
+    assert report["ai_summary"]["executive_summary"]
+    assert report["ai_recommendations"]["optimization_suggestions"]

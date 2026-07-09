@@ -39,10 +39,11 @@ class SOPReportEngine:
         self._llm_service = None
     
     def _get_llm_service(self):
-        """延迟加载LLM服务"""
-        if self._llm_service is None:
-            from app.services.llm_service import LLMAgentService
-            self._llm_service = LLMAgentService()
+        """延迟加载 SOP 专用 LLM 客户端(OpenAI 兼容,多厂商)。"""
+        if getattr(self, "_llm_service", None) is None:
+            from app.services.sop_llm_client import SOPLLMClient
+
+            self._llm_service = SOPLLMClient()
         return self._llm_service
 
     def generate_overview(self, business_system: Dict[str, Any]) -> Dict[str, Any]:
@@ -725,6 +726,76 @@ class SOPReportEngine:
             "total_roles": len(breakdown),
         }
 
+    def build_sop_context(self, bs: Dict[str, Any], max_chars: int = 4000) -> str:
+        """把 business_system 的真实内容压成紧凑结构化文本,供 LLM 接地。"""
+        parts = []
+        workflow = bs.get("workflow", [])
+        if workflow:
+            steps = []
+            for i, s in enumerate(workflow[:20], 1):
+                owner = s.get("owner", s.get("role", "—"))
+                dur = s.get("duration", s.get("estimated_time", "—"))
+                steps.append(f"{i}. {s.get('name', s.get('step', '步骤'))} (负责人:{owner}, 时长:{dur})")
+            parts.append("【流程步骤】\n" + "\n".join(steps))
+        roles = bs.get("roles", [])
+        if roles:
+            rtxt = "; ".join(
+                f"{r.get('role', '角色')}({r.get('department', '—')}, {r.get('headcount', '?')}人)"
+                for r in roles[:15]
+            )
+            parts.append("【角色】" + rtxt)
+        sla = bs.get("sla", [])
+        if sla:
+            parts.append("【SLA】" + "; ".join(
+                f"{s.get('step', s.get('name', '环节'))}:{s.get('target', '—')}" for s in sla[:10]
+            ))
+        kpi = bs.get("kpi", [])
+        if kpi:
+            parts.append("【KPI】" + "; ".join(
+                f"{k.get('name', '指标')}:{k.get('target', '—')}" for k in kpi[:10]
+            ))
+        risks = bs.get("risks", [])
+        if risks:
+            rk = [
+                f"{r.get('risk', r.get('name', '风险'))}(严重度:{r.get('severity', '—')}, 缓解:{r.get('mitigation', '—')})"
+                for r in risks[:10]
+            ]
+            parts.append("【风险】\n" + "\n".join(rk))
+        ctx = "\n\n".join(parts)
+        if len(ctx) > max_chars:
+            ctx = ctx[:max_chars] + "\n...（已截断）"
+        return ctx
+
+    def _fallback_summary(self, bs: Dict[str, Any]) -> Dict[str, Any]:
+        workflow = bs.get("workflow", [])
+        roles = bs.get("roles", [])
+        risks = bs.get("risks", [])
+        domain = bs.get("business_domain", "业务")
+        return {
+            "executive_summary": f"{domain}流程共 {len(workflow)} 个步骤、{len(roles)} 个角色参与,需关注效率与风险控制。",
+            "key_findings": [
+                f"流程包含 {len(workflow)} 个步骤",
+                f"涉及 {len(roles)} 个角色 / 部门",
+                f"识别到 {len(risks)} 个风险项",
+            ],
+            "recommendations": ["定期回顾流程执行情况", "加强风险监控与预警", "对高频步骤考虑自动化"],
+            "risk_highlights": [r.get("risk", r.get("name", "风险项")) for r in risks[:2]],
+        }
+
+    def _fallback_recommendations(self, bs: Dict[str, Any]) -> Dict[str, Any]:
+        workflow = bs.get("workflow", [])
+        roles = bs.get("roles", [])
+        return {
+            "optimization_suggestions": [
+                {"id": "opt_001", "title": "流程自动化", "description": "针对重复性步骤引入自动化工具", "priority": "高", "estimated_impact": "节省人力成本", "implementation_steps": ["识别步骤", "选工具", "实施"]},
+                {"id": "opt_002", "title": "建立监控机制", "description": "开发流程执行监控看板", "priority": "中", "estimated_impact": "缩短问题响应时间", "implementation_steps": ["定指标", "开发", "上线"]},
+            ],
+            "prioritized_actions": [
+                {"action": f"优先自动化 {len(workflow)} 个步骤中的高频环节", "timeline": "1-2个月"},
+                {"action": f"为 {len(roles)} 个角色建立职责看板", "timeline": "2-3个月"},
+            ],
+        }
+
     def generate_ai_summary(self, business_system: Dict[str, Any]) -> Dict[str, Any]:
         """
         生成智能摘要（LLM驱动）
@@ -736,69 +807,30 @@ class SOPReportEngine:
         - 风险亮点
         """
         domain = business_system.get("business_domain", "业务")
-        workflow = business_system.get("workflow", [])
-        risks = business_system.get("risks", [])
-        
-        prompt = f"""请基于以下SOP流程数据，生成一份简明扼要的执行摘要：
-
-业务领域：{domain}
-流程步骤数量：{len(workflow)}
-风险项数量：{len(risks)}
-
-要求：
-1. 用一句话概括流程的核心目标
-2. 列出3-5个关键发现
-3. 提出2-3条优化建议
-4. 指出1-2个高风险点
-
-输出格式：JSON
-"""
-        
+        context = self.build_sop_context(business_system)
+        system_prompt = (
+            "你是资深业务流程分析师。仅基于提供的流程数据,输出严格 JSON,不要任何解释性文字。"
+            "字段:executive_summary(一句话核心摘要),key_findings(3-5条字符串),"
+            "recommendations(2-3条字符串),risk_highlights(1-2条字符串)。"
+        )
+        user_prompt = f"业务领域:{domain}\n\n流程数据:\n{context}\n\n请生成执行摘要(JSON)。"
         try:
-            llm_service = self._get_llm_service()
-            result = llm_service.chat(
-                system_prompt="你是一个专业的业务流程分析师",
-                user_prompt=prompt,
-            )
-            
-            content = result.get("content", "{}")
-            try:
-                summary_data = json.loads(content)
-            except json.JSONDecodeError:
-                summary_data = {
-                    "executive_summary": f"{domain}流程包含{len(workflow)}个步骤，涉及{len(risks)}个风险项，需要关注流程效率和风险控制。",
-                    "key_findings": [
-                        f"{domain}流程设计完整，包含多个关键步骤",
-                        "流程设定了明确的SLA目标",
-                        "存在若干风险项需要关注",
-                    ],
-                    "recommendations": [
-                        "建议定期回顾流程执行情况",
-                        "加强风险监控和预警",
-                    ],
-                    "risk_highlights": ["部分步骤存在潜在风险"],
-                }
-        except Exception as e:
-            logger.warning(f"AI摘要生成失败，使用默认摘要: {e}")
-            summary_data = {
-                "executive_summary": f"{domain}流程包含{len(workflow)}个步骤，涉及{len(risks)}个风险项，需要关注流程效率和风险控制。",
-                "key_findings": [
-                    f"{domain}流程设计完整，包含多个关键步骤",
-                    "流程设定了明确的SLA目标",
-                    "存在若干风险项需要关注",
-                ],
-                "recommendations": [
-                    "建议定期回顾流程执行情况",
-                    "加强风险监控和预警",
-                ],
-                "risk_highlights": ["部分步骤存在潜在风险"],
+            client = self._get_llm_service()
+            data = client.chat_structured(system_prompt, user_prompt, temperature=0.3, max_tokens=1200)
+            if data is None:
+                data = self._fallback_summary(business_system)
+            return {
+                "title": "智能摘要",
+                "description": "LLM生成的汇报核心要点",
+                "executive_summary": data.get("executive_summary", ""),
+                "key_findings": data.get("key_findings", []),
+                "recommendations": data.get("recommendations", []),
+                "risk_highlights": data.get("risk_highlights", []),
             }
-        
-        return {
-            "title": "智能摘要",
-            "description": "LLM生成的汇报核心要点",
-            **summary_data,
-        }
+        except Exception as e:
+            logger.warning(f"AI摘要生成异常,使用兜底: {e}")
+            fb = self._fallback_summary(business_system)
+            return {"title": "智能摘要", "description": "LLM生成的汇报核心要点", **fb}
 
     def generate_ai_recommendations(self, business_system: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -809,91 +841,28 @@ class SOPReportEngine:
         - 优先级排序的行动项
         """
         domain = business_system.get("business_domain", "业务")
-        workflow = business_system.get("workflow", [])
-        roles = business_system.get("roles", [])
-        
-        prompt = f"""请基于以下SOP流程数据，提出具体的优化建议：
-
-业务领域：{domain}
-流程步骤数量：{len(workflow)}
-参与角色数量：{len(roles)}
-
-要求：
-1. 分析流程中的瓶颈点
-2. 提出4-5条具体的改进措施
-3. 预估每条建议的改进效果
-4. 给出实施优先级（高/中/低）
-
-输出格式：JSON
-"""
-        
+        context = self.build_sop_context(business_system)
+        system_prompt = (
+            "你是流程优化专家。仅基于提供的流程数据,输出严格 JSON,不要任何解释性文字。"
+            "字段:optimization_suggestions(数组,每项 {id,title,description,priority,estimated_impact,implementation_steps[]}),"
+            "prioritized_actions(数组,每项 {action,timeline})。"
+        )
+        user_prompt = f"业务领域:{domain}\n\n流程数据:\n{context}\n\n请提出优化建议(JSON)。"
         try:
-            llm_service = self._get_llm_service()
-            result = llm_service.chat(
-                system_prompt="你是一个流程优化专家",
-                user_prompt=prompt,
-            )
-            
-            content = result.get("content", "{}")
-            try:
-                recommendations_data = json.loads(content)
-            except json.JSONDecodeError:
-                recommendations_data = {
-                    "optimization_suggestions": [
-                        {
-                            "id": "opt_001",
-                            "title": "流程自动化",
-                            "description": "针对重复性步骤引入自动化工具",
-                            "priority": "高",
-                            "estimated_impact": "节省30%人力成本",
-                            "implementation_steps": ["识别可自动化步骤", "选择工具", "开发实施"],
-                        },
-                        {
-                            "id": "opt_002",
-                            "title": "建立监控机制",
-                            "description": "开发流程执行监控dashboard",
-                            "priority": "中",
-                            "estimated_impact": "问题响应时间缩短50%",
-                            "implementation_steps": ["确定监控指标", "开发界面", "部署上线"],
-                        },
-                    ],
-                    "prioritized_actions": [
-                        {"action": "立即实施流程自动化", "timeline": "1-2个月"},
-                        {"action": "建立监控dashboard", "timeline": "2-3个月"},
-                    ],
-                }
-        except Exception as e:
-            logger.warning(f"AI优化建议生成失败，使用默认建议: {e}")
-            recommendations_data = {
-                "optimization_suggestions": [
-                    {
-                        "id": "opt_001",
-                        "title": "流程自动化",
-                        "description": "针对重复性步骤引入自动化工具",
-                        "priority": "高",
-                        "estimated_impact": "节省30%人力成本",
-                        "implementation_steps": ["识别可自动化步骤", "选择工具", "开发实施"],
-                    },
-                    {
-                        "id": "opt_002",
-                        "title": "建立监控机制",
-                        "description": "开发流程执行监控dashboard",
-                        "priority": "中",
-                        "estimated_impact": "问题响应时间缩短50%",
-                        "implementation_steps": ["确定监控指标", "开发界面", "部署上线"],
-                    },
-                ],
-                "prioritized_actions": [
-                    {"action": "立即实施流程自动化", "timeline": "1-2个月"},
-                    {"action": "建立监控dashboard", "timeline": "2-3个月"},
-                ],
+            client = self._get_llm_service()
+            data = client.chat_structured(system_prompt, user_prompt, temperature=0.5, max_tokens=2000)
+            if data is None:
+                data = self._fallback_recommendations(business_system)
+            return {
+                "title": "AI优化建议",
+                "description": "LLM生成的流程改进建议",
+                "optimization_suggestions": data.get("optimization_suggestions", []),
+                "prioritized_actions": data.get("prioritized_actions", []),
             }
-        
-        return {
-            "title": "AI优化建议",
-            "description": "LLM生成的流程改进建议",
-            **recommendations_data,
-        }
+        except Exception as e:
+            logger.warning(f"AI优化建议生成异常,使用兜底: {e}")
+            fb = self._fallback_recommendations(business_system)
+            return {"title": "AI优化建议", "description": "LLM生成的流程改进建议", **fb}
 
     def generate_full_sop_report(self, business_system: Dict[str, Any], enable_ai_analysis: bool = False) -> Dict[str, Any]:
         """
