@@ -40,3 +40,13 @@ def test_retrieve_empty_corpus():
 def test_ingest_empty_text_returns_none():
     svc = _tmp_service()
     assert svc.ingest("   ") is None
+
+def test_ingest_parse_failure_skips():
+    svc = _tmp_service()
+    # chunk_text 对正常文本不抛；模拟坏数据不崩：
+    assert svc.ingest("") is None          # 空文本跳过
+    assert svc.ingest(None) is None        # None 跳过
+
+def test_retrieve_no_model_safe():
+    svc = _tmp_service()                    # 未摄取，无 tfidf_model
+    assert svc.retrieve("查询") == []       # 不崩，返回空
