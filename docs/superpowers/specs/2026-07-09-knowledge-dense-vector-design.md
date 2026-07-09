@@ -46,7 +46,7 @@ depends_on: 2026-07-09-knowledge-rag-design.md
 | 向量存储 | BLOB（`np.float32.tobytes()`） | 热路径省空间、读取快，与 TF-IDF 表一致 |
 | 索引策略 | 增量（仅新 chunk） | embedding 无全局词表，无需重算 |
 | 模型隔离 | 按 model 名过滤 | 切换模型后旧向量自动忽略，不崩 |
-| 远程失败行为 | 降级回 mock，不向上抛 | 与既有 degrade 哲学一致 |
+| 远程失败行为 | 后端捕获降级（不写/不返向量），不向上抛 | 与既有 degrade 哲学一致；避免误标 mock 向量入库 |
 | 搜索融合 | RRF 第三路 | 复用现有重排，对分数尺度不敏感 |
 
 ## 3. 架构总览
@@ -70,7 +70,7 @@ depends_on: 2026-07-09-knowledge-rag-design.md
 
 EmbeddingProvider 抽象（隔离「文本→向量」）
    MockEmbeddingProvider   → 确定性哈希向量（离线）
-   RemoteEmbeddingProvider → POST {base_url}/embeddings（远程真语义，失败降级 mock）
+   RemoteEmbeddingProvider → POST {base_url}/embeddings（远程真语义，失败抛异常由 VectorBackend 降级）
 ```
 
 **关键解耦点**（与既有一致）：
@@ -96,7 +96,7 @@ EmbeddingProvider 抽象（隔离「文本→向量」）
   - 构造：`base_url`、`api_key`、`model`、`timeout=30.0`、`http_client=None`（可注入）。
   - `embed(texts)`：`POST {base_url}/embeddings`，`json={"model": model, "input": texts}`，`headers={"Authorization": "Bearer {api_key}", "Content-Type": "application/json"}`。
   - 解析 `resp.json()["data"][i]["embedding"]`（按 `index` 对齐顺序）。
-  - **失败降级**：`httpx.HTTPError` / 非 2xx / 解析异常 → `logger.warning` 后用 `MockEmbeddingProvider` 兜底返回向量（不抛），保证检索不中断。
+  - **失败即抛**：`httpx.HTTPError` / 非 2xx / 解析异常 → `logger.warning` 后**原样抛异常**，由 `VectorBackend` 捕获降级（不把 mock 向量误标为 `openai` 写入库）。这避免污染向量表、保证 model 标签诚实。
   - `name="openai"`（协议标识；端点可指向任意兼容服务）。
 - 工厂 `get_embedding_provider(provider=None, **kw)`：
   - `provider=None` → 读 `settings.EMBEDDING_PROVIDER`（默认 `"mock"`）。
@@ -184,14 +184,14 @@ agent 调 knowledge_retrieve(query, top_k=5)
 |---|---|
 | 单 chunk embed 失败 | 跳过该 chunk，记录 warning，其余正常建索引 |
 | 整批 embed 失败（provider 不可用） | 捕获，记录 warning，向量后端为空，不影响 keyword/tfidf |
-| 远程 HTTP 错误 / 超时 | `RemoteEmbeddingProvider` 内部降级回 mock 返回向量（不抛） |
+| 远程 HTTP 错误 / 超时 | `RemoteEmbeddingProvider.embed` 抛异常 → `VectorBackend.index` 捕获，本次不写向量（向量后端为空），不影响 keyword/tfidf |
 
 **检索侧**
 | 场景 | 处理 |
 |---|---|
 | 空语料 / 库无向量 | 返回空，RRF 退化为 keyword+tfidf 两路 |
 | 空 query / 过短 | 直接返回空，不查 |
-| 远程调用失败 | provider 降级 mock，向量可能相关性差但仍返回；或返回空 → RRF 退化 |
+| 远程调用失败 | `VectorBackend.search` 捕获异常返回空 → RRF 退化为 keyword+tfidf 两路 |
 | model 不匹配（切换了 embedding 模型） | 按 `provider.name` 过滤，旧向量忽略，返回空（降级） |
 | 工具调用异常 | 捕获返回安全提示文本，agent 不崩（沿用现有 tool 容错） |
 
@@ -209,7 +209,7 @@ agent 调 knowledge_retrieve(query, top_k=5)
 2. `test_mock_provider_normalized`：输出向量 L2 范数 ≈ 1。
 3. `test_remote_provider_request`：注入 fake client，断言请求 URL 为 `{base_url}/embeddings`、含 `Authorization: Bearer <key>`、`json.model == settings.EMBEDDING_MODEL`、`input` 为文本列表。
 4. `test_remote_provider_parse`：fake 返回 `{"data":[{"index":0,"embedding":[...]},...]}` → `embed` 返回按 index 对齐的向量列表。
-5. `test_remote_provider_fallback_on_error`：fake 抛 `httpx.HTTPError` 或返回 500 → `embed` 不抛，降级回 mock 向量（形态合法）。
+5. `test_remote_provider_raises_on_error`：fake 抛 `httpx.HTTPError` 或返回 500 → `embed` 抛异常（由 `VectorBackend` 捕获降级，不在库中写入误标向量）。
 
 **VectorBackend 测试**
 6. `test_vector_index_and_search_cosine`：摄取若干 chunk → `search(相关 query)` 返回余弦降序的 chunk_id；相关 chunk 排名高于无关。
@@ -238,7 +238,7 @@ agent 调 knowledge_retrieve(query, top_k=5)
 
 ## 10. 风险与权衡
 
-- **依赖网络/key**：真实语义需远程 embedding 服务可用；`mock` 默认保证离线不崩、测试确定性。切换为 `openai` 且 key 无效时，provider 内部降级 mock（相关性差但不崩）。
+- **依赖网络/key**：真实语义需远程 embedding 服务可用；`mock` 默认保证离线不崩、测试确定性。切换为 `openai` 且 key 无效/网络不可达时，`RemoteEmbeddingProvider` 抛异常、`VectorBackend` 捕获降级（不写/不返向量），检索退化为 keyword+tfidf 两路，不崩。
 - **远程延迟**：ingest 批量 embed 摊薄成本；检索单次 query 一次 embed 调用。对超大语料可后续加并发/缓存。
 - **model 切换需重建**：改 `EMBEDDING_MODEL` 后旧向量失配，按 model 名隔离自动忽略旧向量（降级为空）。reindex 接口本期留待后续（提供 `VectorBackend.reindex(repo)` 可后续加）。
 - **mock 非真语义**：mock 是哈希向量，仅架构演示与测试；真实语义必须配置远程 provider。这是设计取舍，非缺陷。
