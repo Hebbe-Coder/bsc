@@ -67,11 +67,15 @@ class TfidfBackend:
             return
         if not vocab:
             return
-        for rec in chunk_records:
-            vec = self._vectorize(rec["content"], vocab, idf)
+        # 模型重建后 vocab 维度已变化，必须为全部 chunk 重新向量化，
+        # 否则旧 chunk 的向量维度与查询向量不一致（shape 不匹配）。
+        all_rows = self.repo._execute(
+            "SELECT id, content FROM knowledge_chunks").fetchall()
+        for r in all_rows:
+            vec = self._vectorize(r["content"], vocab, idf)
             self.repo._execute(
                 "INSERT OR REPLACE INTO knowledge_tfidf (chunk_id, vector) VALUES (?, ?)",
-                (rec["id"], vec.tobytes()))
+                (r["id"], vec.tobytes()))
         self.repo._commit()
 
     def search(self, query: str, limit: int = 20) -> List[str]:
