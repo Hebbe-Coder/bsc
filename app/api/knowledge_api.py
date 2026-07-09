@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import List, Optional
 from pydantic import BaseModel
 
-from fastapi import APIRouter, Depends, UploadFile, File, Form
+from fastapi import APIRouter, Depends, UploadFile, File, Form, Request, HTTPException
 from app.core.document_parser import parse_document
 from app.api.response import ApiResponse
 from app.knowledge.service import KnowledgeService
@@ -13,6 +13,17 @@ router = APIRouter(prefix="/knowledge", tags=["Knowledge"])
 
 def get_knowledge_service() -> KnowledgeService:
     return KnowledgeService()
+
+
+def require_admin(request: Request) -> bool:
+    """RBAC：ingest / delete 等写入型操作仅限 admin Key。"""
+    role = getattr(request.state, "knowledge_role", None)
+    if role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="需要管理员权限：ingest / delete 仅限 admin Key",
+        )
+    return True
 
 
 @router.get("/documents")
@@ -36,6 +47,7 @@ async def ingest(
     title: str = Form(default=""),
     source: str = Form(default="upload"),
     service: KnowledgeService = Depends(get_knowledge_service),
+    _admin: bool = Depends(require_admin),
 ):
     units = []
     parse_errors = []
@@ -86,6 +98,7 @@ def retrieve(
 def delete_document(
     doc_id: str,
     service: KnowledgeService = Depends(get_knowledge_service),
+    _admin: bool = Depends(require_admin),
 ):
     if not service.delete_document(doc_id):
         return ApiResponse.not_found("文档不存在")

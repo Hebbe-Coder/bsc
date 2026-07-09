@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     USE_AGENT: bool = False
 
     API_KEY: str = ""
+    # 仅具「读取/检索」权限的 Key；配置后 API_KEY 退居为 admin（写入/删除）权限。
+    # 仅对 /knowledge/* 端点生效，且不授予非知识库端点的访问权。
+    API_KEY_READER: str = ""
 
     LOG_LEVEL: str = "INFO"
 
