@@ -376,105 +376,70 @@ async def health():
 
 @router.post(
     "/export",
-    summary="导出结果（多格式）",
-    description="""导出编译结果为多种格式。
+    summary="导出结果（多格式，默认容错降级）",
+    description="""导出编译结果为多种格式。任意格式无法产出时默认走降级：
+先尝试替代格式，无替代或替代也失败则丢弃并返回其余成功格式。
+响应 formats_status 逐格式说明 produced / substituted / dropped 及原因。
 
 支持的输出格式：
-- **json** - JSON格式的业务系统数据
-- **html** - HTML报告页面
-- **ppt** - PPT幻灯片规格（JSON格式）
-- **word** - Word文档（Base64编码）
-- **markdown** - Markdown格式报告
-- **pdf** - PDF文档（Base64编码）
+- json / html / ppt / word / markdown / pdf（直接产出）
+- pptx / xlsx（可请求，自动降级到可用替代格式）
 
-使用方式：
-1. 提供input参数，先编译再导出
-2. 直接提供business_system参数，跳过编译直接导出
+未知格式名返回 400。可用 GET /bsc/exports/capabilities 预检依赖可用性。
 """,
-    response_description="导出成功，返回各格式的导出数据",
+    response_description="导出结果，含逐格式状态表",
 )
 async def export_results(req: ExportRequest):
-    """导出结果（多格式）"""
+    """导出结果（多格式，默认容错降级）"""
     from app.core.bsc_pipeline import compile_to_business_system
+    from exporters.orchestrator import run_export
+    from exporters.degrade import VALID_OUTPUT_TYPES
 
     if req.business_system:
         bs = req.business_system
-        result = {"business_system": bs, "summary": bs.get("report", {}).get("executive_summary", ""), "pipeline": {}}
+        result = {
+            "business_system": bs,
+            "summary": bs.get("report", {}).get("executive_summary", ""),
+            "pipeline": {},
+        }
     elif req.input:
         result = compile_to_business_system(req.input)
         bs = result["business_system"]
     else:
         return ApiResponse.error("请提供business_system或input参数", code=400)
 
-    from exporters.capabilities import unavailable_formats
-    unavail = unavailable_formats(req.output_types)
-    if unavail:
-        return ApiResponse.error(
-            "以下导出格式当前不可用，请先安装对应依赖",
-            code=422,
-        ).model_copy(update={"data": {"unavailable": unavail}})
+    # 校验请求格式是否合法（未知格式名 → 400，不降级）
+    unknown = [f for f in req.output_types if f not in VALID_OUTPUT_TYPES]
+    if unknown:
+        return ApiResponse.error(f"不支持的导出格式: {unknown}", code=400)
 
-    exports = {}
-    errors = []
+    # 保持原行为：始终尝试绑定 visuals
+    output_types = list(req.output_types)
+    if "visuals" not in output_types:
+        output_types.append("visuals")
 
-    def _record_error(fmt, exc):
-        from exporters.errors import ExportDependencyError
-        if isinstance(exc, ExportDependencyError):
-            errors.append({
-                "format": fmt,
-                "message": str(exc),
-                "missing_package": exc.missing_package,
-                "pip_install": exc.pip_install,
-            })
-        else:
-            errors.append({"format": fmt, "message": f"{fmt}导出失败: {str(exc)}"})
-
-    if "json" in req.output_types:
-        exports["json"] = bs
-
-    if "html" in req.output_types:
-        exports["html"] = _generate_html(bs, result.get("pipeline", {}))
-
-    if "ppt" in req.output_types:
-        exports["ppt"] = _generate_ppt_spec(bs)
-
-    if "word" in req.output_types:
-        try:
-            from exporters.word_exporter import WordExporter
-            word_bytes = WordExporter().export(bs)
-            exports["word"] = {"content_base64": word_bytes.hex(), "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}
-        except Exception as e:
-            _record_error("word", e)
-
-    if "markdown" in req.output_types:
-        try:
-            from exporters.markdown_exporter import MarkdownExporter
-            exports["markdown"] = MarkdownExporter().export(bs)
-        except Exception as e:
-            _record_error("markdown", e)
-
-    if "pdf" in req.output_types:
-        try:
-            from exporters.pdf_exporter import PDFExporter
-            pdf_bytes = PDFExporter().export(bs)
-            exports["pdf"] = {"content_base64": pdf_bytes.hex(), "mime_type": "application/pdf"}
-        except Exception as e:
-            _record_error("pdf", e)
-
-    try:
-        from app.engines.visual_binding import bind_visuals
-        exports["visuals"] = bind_visuals(bs)
-    except Exception:
-        exports["visuals"] = []
+    outcome = run_export(bs, output_types, result)
 
     payload = {
-        "exports": exports,
-        "formats": list(exports.keys()),
+        "exports": outcome.exports,
+        "formats": list(outcome.exports.keys()),
+        "formats_status": outcome.formats_status,
         "summary": result["summary"],
-        "errors": errors,
+        "errors": outcome.errors,
     }
-    if errors:
-        return ApiResponse.partial(payload, message="部分格式导出失败", errors=errors)
+
+    def _is_degraded(s: dict) -> bool:
+        return s["status"] in ("substituted", "dropped") or bool(s.get("components_degraded"))
+
+    any_produced = any(s["status"] in ("produced", "substituted") for s in outcome.formats_status)
+    any_degraded = any(_is_degraded(s) for s in outcome.formats_status)
+
+    if not any_produced:
+        return ApiResponse.error("所有请求格式均无法产出", code=422).model_copy(
+            update={"data": payload}
+        )
+    if any_degraded:
+        return ApiResponse.partial(payload, message="部分格式经降级/替换处理", errors=outcome.errors)
     return ApiResponse.ok(payload)
 
 
@@ -486,123 +451,3 @@ async def export_results(req: ExportRequest):
 async def export_capabilities():
     from exporters.capabilities import EXPORT_CAPABILITIES
     return ApiResponse.ok({"capabilities": EXPORT_CAPABILITIES})
-
-
-def _generate_html(business_system: dict, pipeline_info: dict) -> str:
-    """生成HTML报告"""
-    from datetime import datetime
-
-    sections = []
-    sections.append(f"<h1>{html.escape(business_system.get('business_domain', '业务系统分析'))}</h1>")
-    sections.append(f"<p class='summary'>{html.escape(business_system.get('report', {}).get('executive_summary', ''))}</p>")
-
-    if business_system.get("objectives"):
-        sections.append("<h2>业务目标</h2>")
-        sections.append("<ul>")
-        for obj in business_system["objectives"]:
-            priority = obj.get("priority", "medium")
-            sections.append(f"<li><strong>{html.escape(obj.get('objective', ''))}</strong>: {html.escape(obj.get('target', ''))} ({html.escape(priority)})</li>")
-        sections.append("</ul>")
-
-    if business_system.get("workflow"):
-        sections.append("<h2>流程步骤</h2>")
-        sections.append("<ol>")
-        for step in business_system["workflow"]:
-            sections.append(f"<li><strong>步骤{html.escape(str(step.get('step', '')))}: {html.escape(step.get('name', ''))}</strong><br>{html.escape(step.get('action', ''))}</li>")
-        sections.append("</ol>")
-
-    if business_system.get("metrics"):
-        sections.append("<h2>关键指标</h2>")
-        sections.append("<table>")
-        sections.append("<tr><th>指标</th><th>公式</th><th>目标</th><th>负责人</th></tr>")
-        for kpi in business_system["metrics"]:
-            sections.append(f"<tr><td>{html.escape(kpi.get('name', ''))}</td><td>{html.escape(kpi.get('formula', ''))}</td><td>{html.escape(kpi.get('target', ''))}</td><td>{html.escape(kpi.get('owner', ''))}</td></tr>")
-        sections.append("</table>")
-
-    if business_system.get("risks"):
-        sections.append("<h2>风险分析</h2>")
-        sections.append("<ul>")
-        for risk in business_system["risks"]:
-            sections.append(f"<li><strong>{html.escape(risk.get('risk', ''))}</strong> ({html.escape(risk.get('severity', ''))}) - {html.escape(risk.get('mitigation', ''))}</li>")
-        sections.append("</ul>")
-
-    html_content = f"""<!DOCTYPE html>
-<html>
-<head>
-    <title>业务系统分析报告</title>
-    <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 40px; background: #12161A; color: #E8E8E8; }}
-        h1 {{ color: #C9A84C; }}
-        h2 {{ color: #5A9E96; margin-top: 30px; }}
-        .summary {{ font-size: 1.1em; color: #B8B8B8; }}
-        table {{ border-collapse: collapse; width: 100%; margin-top: 10px; }}
-        th, td {{ border: 1px solid #2E3338; padding: 10px; text-align: left; }}
-        th {{ background: #1C2024; color: #C9A84C; }}
-        ul, ol {{ line-height: 1.8; }}
-        li {{ margin: 5px 0; }}
-    </style>
-</head>
-<body>
-{''.join(sections)}
-<p style='margin-top: 40px; color: #8A8A86; font-size: 0.9em;'>生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
-</body>
-</html>"""
-
-    return html_content
-
-
-def _generate_ppt_spec(business_system: dict) -> dict:
-    """生成PPT规格"""
-    slides = []
-
-    slides.append({
-        "slide_type": "title",
-        "title": business_system.get("business_domain", "业务系统分析"),
-        "subtitle": "基于PRD的业务系统分析报告",
-    })
-
-    if business_system.get("objectives"):
-        slides.append({
-            "slide_type": "list",
-            "title": "业务目标",
-            "items": [f"{obj.get('objective', '')}: {obj.get('target', '')}" for obj in business_system["objectives"]],
-        })
-
-    if business_system.get("workflow"):
-        slides.append({
-            "slide_type": "flow",
-            "title": "流程设计",
-            "steps": [step.get("name", "") for step in business_system["workflow"]],
-        })
-
-    if business_system.get("metrics"):
-        slides.append({
-            "slide_type": "table",
-            "title": "关键指标",
-            "headers": ["指标", "公式", "目标"],
-            "data": [[kpi.get("name", ""), kpi.get("formula", ""), kpi.get("target", "")] for kpi in business_system["metrics"]],
-        })
-
-    if business_system.get("risks"):
-        slides.append({
-            "slide_type": "list",
-            "title": "风险分析",
-            "items": [f"{risk.get('risk', '')} ({risk.get('severity', '')})" for risk in business_system["risks"][:5]],
-        })
-
-    if business_system.get("strategy"):
-        ops = business_system["strategy"].get("growth_opportunities", [])
-        slides.append({
-            "slide_type": "list",
-            "title": "战略机会",
-            "items": [f"{op.get('opportunity', '')}: {op.get('potential', '')}" for op in ops],
-        })
-
-    if business_system.get("report"):
-        slides.append({
-            "slide_type": "content",
-            "title": "执行摘要",
-            "content": business_system["report"].get("executive_summary", ""),
-        })
-
-    return {"slides": slides, "theme": "dark", "slide_count": len(slides)}

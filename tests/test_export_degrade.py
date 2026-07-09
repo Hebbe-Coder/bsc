@@ -186,3 +186,90 @@ def test_run_export_zero_produced_all_dropped(monkeypatch):
     out = run_export(_bs(), ["word"], {})
     assert all(s["status"] == "dropped" for s in out.formats_status)
     assert "word" not in out.exports
+
+
+from fastapi.testclient import TestClient
+import exporters.orchestrator as orchestrator_mod
+
+
+def _client():
+    from app.main import app
+    return TestClient(app)
+
+
+_FAKE_BS = {"business_domain": "D", "report": {"executive_summary": "S"}}
+
+
+def _req(output_types, bs=None):
+    body = {"output_types": output_types}
+    if bs is not None:
+        body["business_system"] = bs
+    else:
+        body["input"] = "# PRD\n业务目标：提升内容安全准确率到 99%。"
+    return body
+
+
+def test_export_pptx_substituted_to_ppt(monkeypatch):
+    def fake(fmt, bs, result, ctx):
+        if fmt == "pptx":
+            raise ExportDependencyError("pptx", "python-pptx", "pip install python-pptx")
+        if fmt == "ppt":
+            return {"slides": []}
+        if fmt == "html":
+            return "<html></html>"
+        raise AssertionError(fmt)
+    monkeypatch.setattr(orchestrator_mod, "_produce", fake)
+    r = _client().post("/bsc/export", json=_req(["pptx", "html"], bs=_FAKE_BS))
+    assert r.json()["code"] == 207, r.text
+    data = r.json()["data"]
+    by_fmt = {s["format"]: s for s in data["formats_status"]}
+    assert by_fmt["pptx"]["status"] == "substituted"
+    assert by_fmt["pptx"]["source_format"] == "ppt"
+    assert by_fmt["html"]["status"] == "produced"
+
+
+def test_export_word_dep_missing_substituted_to_html(monkeypatch):
+    def fake(fmt, bs, result, ctx):
+        if fmt in ("word", "markdown"):
+            raise ExportDependencyError("word", "python-docx", "pip install python-docx")
+        if fmt == "html":
+            return "<html></html>"
+        raise AssertionError(fmt)
+    monkeypatch.setattr(orchestrator_mod, "_produce", fake)
+    r = _client().post("/bsc/export", json=_req(["word"], bs=_FAKE_BS))
+    assert r.json()["code"] == 207, r.text
+    st = r.json()["data"]["formats_status"][0]
+    assert st["status"] == "substituted" and st["source_format"] == "html"
+
+
+def test_export_zero_produced_returns_422(monkeypatch):
+    def fake(fmt, bs, result, ctx):
+        if fmt in ("word", "html", "markdown"):
+            raise ExportDependencyError("word", "python-docx", "pip install python-docx")
+        raise RuntimeError("no")
+    monkeypatch.setattr(orchestrator_mod, "_produce", fake)
+    r = _client().post("/bsc/export", json=_req(["word"], bs=_FAKE_BS))
+    assert r.json()["code"] == 422, r.text
+    assert r.json()["data"]["formats_status"][0]["status"] == "dropped"
+
+
+def test_export_unknown_format_400():
+    r = _client().post("/bsc/export", json=_req(["zzz"], bs=_FAKE_BS))
+    assert r.json()["code"] == 400, r.text
+
+
+def test_export_component_degraded_reported(monkeypatch):
+    orig = orchestrator_mod._produce
+
+    def fake(fmt, bs, result, ctx):
+        if fmt == "html":
+            with ctx.component("metrics"):
+                raise ValueError("bad metric")
+            return "<html></html>"
+        return orig(fmt, bs, result, ctx)
+    monkeypatch.setattr(orchestrator_mod, "_produce", fake)
+    r = _client().post("/bsc/export", json=_req(["html"], bs=_FAKE_BS))
+    assert r.json()["code"] == 207, r.text
+    st = r.json()["data"]["formats_status"][0]
+    assert st["status"] == "produced"
+    assert st["components_degraded"][0]["component"] == "metrics"
