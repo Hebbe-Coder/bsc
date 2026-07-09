@@ -75,3 +75,14 @@ def test_markdown_consumes_canonical_and_includes_metrics():
     assert "## 六、战略建议" in md
     assert "🔴 高风险" in md                  # 规范标签，字节级统一
     assert "准确率" in md                     # metrics 内容
+
+
+def test_html_consumes_canonical_and_uniform_labels():
+    from exporters.html_exporter import generate_html
+    r = normalize(RAW_CANONICAL)
+    html = generate_html(r, {}, None)
+    assert "内容安全平台" in html
+    for marker in ["业务目标", "角色定义", "业务流程", "关键指标", "风险分析", "战略建议"]:
+        assert marker in html, marker
+    assert "🔴 高风险" in html
+    assert "准确率" in html

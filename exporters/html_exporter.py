@@ -1765,88 +1765,88 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 def generate_html(
-    business_system: dict,
-    pipeline_info: dict,
+    report,
+    pipeline_info: dict = None,
     ctx: Optional[DegradeContext] = None,
 ) -> str:
-    """生成 HTML 报告。ctx 非空时单个区块渲染失败会被跳过而非整页崩溃。"""
-    sections: list = []
+    """生成 HTML 报告。report 为 CanonicalReport；ctx 非空时单区块失败被跳过。"""
+    from exporters.canonical import CanonicalReport, normalize
+    import html as _html
+    if not isinstance(report, CanonicalReport):
+        report = normalize(report)
 
-    def _block(name: str, render):
+    def _esc(s):
+        return _html.escape(str(s))
+
+    parts = [f"<h1>{_esc(report.title)}</h1>"]
+    if report.executive_summary:
+        parts.append(f"<p class='summary'>{_esc(report.executive_summary)}</p>")
+    parts.append("<hr/>")
+
+    def _block(name, build):
         if ctx is None:
-            render()
+            build()
         else:
             with ctx.component(name):
-                render()
-
-    def _header():
-        sections.append(f"<h1>{html.escape(business_system.get('business_domain', '业务系统分析'))}</h1>")
-        sections.append(f"<p class='summary'>{html.escape(business_system.get('report', {}).get('executive_summary', ''))}</p>")
-
-    _block("header", _header)
+                build()
 
     def _objectives():
-        if business_system.get("objectives"):
-            sections.append("<h2>业务目标</h2>")
-            sections.append("<ul>")
-            for obj in business_system["objectives"]:
-                priority = obj.get("priority", "medium")
-                sections.append(f"<li><strong>{html.escape(obj.get('objective', ''))}</strong>: {html.escape(obj.get('target', ''))} ({html.escape(priority)})</li>")
-            sections.append("</ul>")
+        items = "".join(
+            f"<li>{o.priority_label} <b>{_esc(o.objective)}</b>"
+            + (f" - 目标: {_esc(o.target)}" if o.target else "") + "</li>"
+            for o in report.objectives
+        )
+        parts.append(f"<h2>一、业务目标</h2><ul>{items or '<li>暂无业务目标</li>'}</ul>")
 
-    _block("objectives", _objectives)
+    def _roles():
+        rows = "".join(
+            f"<tr><td>{_esc(r.role)}</td><td>{_esc(r.department)}</td>"
+            f"<td>{_esc(r.level)}</td><td>{_esc(r.headcount)}</td></tr>"
+            for r in report.roles
+        )
+        head = "<tr><th>角色</th><th>部门</th><th>级别</th><th>人数</th></tr>"
+        parts.append(f"<h2>二、角色定义</h2><table>{head}{rows or ''}</table>")
 
     def _workflow():
-        if business_system.get("workflow"):
-            sections.append("<h2>流程步骤</h2>")
-            sections.append("<ol>")
-            for step in business_system["workflow"]:
-                sections.append(f"<li><strong>步骤{html.escape(str(step.get('step', '')))}: {html.escape(step.get('name', ''))}</strong><br>{html.escape(step.get('action', ''))}</li>")
-            sections.append("</ol>")
-
-    _block("workflow", _workflow)
+        items = "".join(
+            f"<li><b>{_esc(s.name)}</b>"
+            + (f" - 动作: {_esc(s.action)}" if s.action else "")
+            + (f" - 角色: {_esc(s.role)}" if s.role else "") + "</li>"
+            for s in report.workflow
+        )
+        parts.append(f"<h2>三、业务流程</h2><ul>{items or '<li>暂无业务流程</li>'}</ul>")
 
     def _metrics():
-        if business_system.get("metrics"):
-            sections.append("<h2>关键指标</h2>")
-            sections.append("<table>")
-            sections.append("<tr><th>指标</th><th>公式</th><th>目标</th><th>负责人</th></tr>")
-            for kpi in business_system["metrics"]:
-                sections.append(f"<tr><td>{html.escape(kpi.get('name', ''))}</td><td>{html.escape(kpi.get('formula', ''))}</td><td>{html.escape(kpi.get('target', ''))}</td><td>{html.escape(kpi.get('owner', ''))}</td></tr>")
-            sections.append("</table>")
-
-    _block("metrics", _metrics)
+        rows = "".join(
+            f"<tr><td>{_esc(m.name)}</td><td>{_esc(m.formula)}</td><td>{_esc(m.target)}</td></tr>"
+            for m in report.metrics
+        )
+        head = "<tr><th>指标</th><th>公式</th><th>目标</th></tr>"
+        parts.append(f"<h2>四、关键指标</h2><table>{head}{rows or ''}</table>")
 
     def _risks():
-        if business_system.get("risks"):
-            sections.append("<h2>风险分析</h2>")
-            sections.append("<ul>")
-            for risk in business_system["risks"]:
-                sections.append(f"<li><strong>{html.escape(risk.get('risk', ''))}</strong> ({html.escape(risk.get('severity', ''))}) - {html.escape(risk.get('mitigation', ''))}</li>")
-            sections.append("</ul>")
+        items = "".join(
+            f"<li><b>{_esc(rk.severity_label)}</b>: {_esc(rk.risk)}"
+            + (f" - 应对: {_esc(rk.mitigation)}" if rk.mitigation else "")
+            + (f" - 影响: {_esc(rk.impact)}" if rk.impact else "") + "</li>"
+            for rk in report.risks
+        )
+        parts.append(f"<h2>五、风险分析</h2><ul>{items or '<li>暂无风险分析</li>'}</ul>")
 
+    def _strategy():
+        items = ""
+        for rec in report.strategy.recommendations:
+            items += f"<li>{_esc(rec)}</li>"
+        for g in report.strategy.growth_opportunities:
+            items += f"<li>{_esc(g['opportunity'])}: {_esc(g['potential'])}</li>"
+        for step in report.strategy.roadmap:
+            items += f"<li>{_esc(step)}</li>"
+        parts.append(f"<h2>六、战略建议</h2><ul>{items or '<li>暂无战略建议</li>'}</ul>")
+
+    _block("objectives", _objectives)
+    _block("roles", _roles)
+    _block("workflow", _workflow)
+    _block("metrics", _metrics)
     _block("risks", _risks)
-
-    html_content = f"""<!DOCTYPE html>
-<html>
-<head>
-    <title>业务系统分析报告</title>
-    <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 40px; background: #12161A; color: #E8E8E8; }}
-        h1 {{ color: #C9A84C; }}
-        h2 {{ color: #5A9E96; margin-top: 30px; }}
-        .summary {{ font-size: 1.1em; color: #B8B8B8; }}
-        table {{ border-collapse: collapse; width: 100%; margin-top: 10px; }}
-        th, td {{ border: 1px solid #2E3338; padding: 10px; text-align: left; }}
-        th {{ background: #1C2024; color: #C9A84C; }}
-        ul, ol {{ line-height: 1.8; }}
-        li {{ margin: 5px 0; }}
-    </style>
-</head>
-<body>
-{''.join(sections)}
-<p style='margin-top: 40px; color: #8A8A86; font-size: 0.9em;'>生成时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
-</body>
-</html>"""
-
-    return html_content
+    _block("strategy", _strategy)
+    return "\n".join(parts)

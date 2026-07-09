@@ -1,5 +1,5 @@
 """PDF Exporter - 生成PDF文档报告"""
-from typing import Dict, Any
+from typing import Any
 import io
 import logging
 
@@ -31,21 +31,24 @@ class PDFExporter:
         except ImportError:
             pass
 
-    def export(self, business_system: Dict[str, Any]) -> bytes:
-        """导出为PDF文档"""
-        html_content = self._generate_html_content(business_system)
+    def export(self, report: Any) -> bytes:
+        """导出为PDF文档。report 为 CanonicalReport。"""
+        from exporters.canonical import CanonicalReport, normalize
+        if not isinstance(report, CanonicalReport):
+            report = normalize(report)
+        html_content = self._generate_html_content(report)
 
         if self._weasyprint_available:
             return self._export_with_weasyprint(html_content)
         elif self._pdfkit_available:
             return self._export_with_pdfkit(html_content)
         elif self._reportlab_available:
-            return self._export_with_reportlab(business_system)
+            return self._export_with_reportlab(report)
         else:
             from exporters.errors import ExportDependencyError
             raise ExportDependencyError("pdf", "weasyprint", "pip install weasyprint")
 
-    def _export_with_reportlab(self, business_system: Dict[str, Any]) -> bytes:
+    def _export_with_reportlab(self, report) -> bytes:
         """使用 reportlab 生成 PDF（纯 Python，跨平台，无需系统 GTK）。"""
         from io import BytesIO
         from reportlab.lib.pagesizes import A4
@@ -56,6 +59,9 @@ class PDFExporter:
         )
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+        from exporters.canonical import CanonicalReport, normalize
+        if not isinstance(report, CanonicalReport):
+            report = normalize(report)
 
         try:
             pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
@@ -75,14 +81,12 @@ class PDFExporter:
                                 leftMargin=56, rightMargin=56, title="业务系统分析报告")
         story = []
 
-        title = business_system.get("business_domain", "业务系统分析报告")
-        subtitle = business_system.get("report", {}).get("executive_summary", "")
-        story.append(Paragraph(title, h1))
-        if subtitle:
-            story.append(Paragraph(subtitle, ParagraphStyle("sub", parent=body,
+        story.append(Paragraph(report.title, h1))
+        if report.executive_summary:
+            story.append(Paragraph(report.executive_summary, ParagraphStyle("sub", parent=body,
                                                              alignment=1, textColor=colors.HexColor("#7f8c8d"))))
 
-        def section(t: str, items):
+        def section(t, items):
             story.append(Paragraph(t, h2))
             if not items:
                 story.append(Paragraph("暂无", body))
@@ -90,17 +94,16 @@ class PDFExporter:
             flow = [ListItem(Paragraph(str(i), body), leftIndent=12) for i in items]
             story.append(ListFlowable(flow, bulletType="bullet"))
 
-        objectives = [f"{o.get('objective', '')}"
-                      + (f" - 目标: {o.get('target')}" if o.get("target") else "")
-                      for o in business_system.get("objectives", [])]
+        objectives = [f"{o.priority_label} {o.objective}"
+                      + (f" - 目标: {o.target}" if o.target else "")
+                      for o in report.objectives]
         section("一、业务目标", objectives)
 
-        roles = business_system.get("roles", [])
-        if roles:
+        if report.roles:
             story.append(Paragraph("二、角色定义", h2))
             data = [["角色名称", "部门", "级别", "人数"]] + [
-                [r.get("role", ""), r.get("department", ""), r.get("level", ""), str(r.get("headcount", ""))]
-                for r in roles
+                [r.role, r.department, r.level, str(r.headcount)]
+                for r in report.roles
             ]
             tbl = Table(data, colWidths=[120, 120, 80, 80])
             tbl.setStyle(TableStyle([
@@ -112,156 +115,35 @@ class PDFExporter:
             ]))
             story.append(tbl)
 
-        workflow = [f"<b>{s.get('name', '')}</b>"
-                    + (f"<br/>动作: {s.get('action')}" if s.get("action") else "")
-                    + (f"<br/>负责角色: {s.get('role')}" if s.get("role") else "")
-                    for s in business_system.get("workflow", [])]
+        workflow = [f"<b>{s.name}</b>"
+                    + (f"<br/>动作: {s.action}" if s.action else "")
+                    + (f"<br/>负责角色: {s.role}" if s.role else "")
+                    for s in report.workflow]
         section("三、业务流程", workflow)
 
-        risks = business_system.get("risks", [])
-        if risks:
+        if report.risks:
             story.append(Paragraph("四、风险分析", h2))
-            for risk in risks:
-                lvl = {"high": "高风险", "medium": "中风险", "low": "低风险"}.get(risk.get("level", "medium"), "未知")
-                txt = f"<b>{lvl}: {risk.get('risk', '')}</b>"
-                if risk.get("mitigation"):
-                    txt += f"<br/>应对措施: {risk.get('mitigation')}"
+            for rk in report.risks:
+                txt = f"<b>{rk.severity_label}: {rk.risk}</b>"
+                if rk.mitigation:
+                    txt += f"<br/>应对措施: {rk.mitigation}"
                 story.append(Paragraph(txt, body))
                 story.append(Spacer(1, 4))
 
-        recs = business_system.get("strategy", {}).get("recommendations", [])
-        section("五、战略建议", [str(r) for r in recs])
+        section("五、战略建议", [str(r) for r in report.strategy.recommendations])
 
         story.append(Spacer(1, 24))
         story.append(Paragraph("业务系统分析报告", small))
         doc.build(story)
         return buf.getvalue()
 
-    def _generate_html_content(self, business_system: Dict[str, Any]) -> str:
-        """生成PDF所需的HTML内容"""
-        title = business_system.get("business_domain", "业务系统分析报告")
-        subtitle = business_system.get("report", {}).get("executive_summary", "")
-
-        html = f"""
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>{title}</title>
-    <style>
-        @page {{ margin: 2cm; }}
-        body {{ font-family: 'Microsoft YaHei', 'SimHei', sans-serif; font-size: 11pt; line-height: 1.6; }}
-        h1 {{ text-align: center; font-size: 18pt; margin-bottom: 10px; }}
-        h2 {{ font-size: 14pt; margin-top: 20px; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; }}
-        h3 {{ font-size: 12pt; margin-top: 15px; color: #34495e; }}
-        .subtitle {{ text-align: center; color: #7f8c8d; font-style: italic; margin-bottom: 30px; }}
-        table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
-        th, td {{ border: 1px solid #bdc3c7; padding: 8px; text-align: left; }}
-        th {{ background-color: #f5f5f5; font-weight: bold; }}
-        ul, ol {{ margin: 10px 0; padding-left: 25px; }}
-        li {{ margin-bottom: 5px; }}
-        .priority-high {{ color: #c0392b; font-weight: bold; }}
-        .priority-medium {{ color: #f39c12; }}
-        .priority-low {{ color: #27ae60; }}
-        .risk-high {{ color: #c0392b; }}
-        .risk-medium {{ color: #f39c12; }}
-        .risk-low {{ color: #27ae60; }}
-        .footer {{ text-align: center; font-size: 9pt; color: #95a5a6; margin-top: 30px; }}
-    </style>
-</head>
-<body>
-"""
-
-        html += f"<h1>{title}</h1>"
-        if subtitle:
-            html += f"<p class='subtitle'>{subtitle}</p>"
-
-        html += "<h2>一、业务目标</h2>"
-        objectives = business_system.get("objectives", [])
-        if objectives:
-            html += "<ul>"
-            for obj in objectives:
-                priority = obj.get("priority", "medium")
-                priority_class = f"priority-{priority}"
-                priority_label = {"high": "【高】", "medium": "【中】", "low": "【低】"}.get(priority, "")
-                html += f"<li><span class='{priority_class}'>{priority_label}{obj.get('objective', '')}</span>"
-                if obj.get("target"):
-                    html += f" - 目标: {obj.get('target')}"
-                html += "</li>"
-            html += "</ul>"
-        else:
-            html += "<p>暂无业务目标</p>"
-
-        html += "<h2>二、角色定义</h2>"
-        roles = business_system.get("roles", [])
-        if roles:
-            html += """
-<table>
-    <thead>
-        <tr><th>角色名称</th><th>所属部门</th><th>级别</th><th>人数</th></tr>
-    </thead>
-    <tbody>"""
-            for role in roles:
-                html += f"""
-        <tr>
-            <td>{role.get('role', '')}</td>
-            <td>{role.get('department', '')}</td>
-            <td>{role.get('level', '')}</td>
-            <td>{role.get('headcount', '')}</td>
-        </tr>"""
-            html += """
-    </tbody>
-</table>"""
-        else:
-            html += "<p>暂无角色定义</p>"
-
-        html += "<h2>三、业务流程</h2>"
-        workflow = business_system.get("workflow", [])
-        if workflow:
-            html += "<ol>"
-            for step in workflow:
-                html += f"<li><strong>{step.get('name', '')}</strong>"
-                if step.get('action'):
-                    html += f"<br/>动作: {step.get('action')}"
-                if step.get('role'):
-                    html += f"<br/>负责角色: {step.get('role')}"
-                html += "</li>"
-            html += "</ol>"
-        else:
-            html += "<p>暂无业务流程</p>"
-
-        html += "<h2>四、风险分析</h2>"
-        risks = business_system.get("risks", [])
-        if risks:
-            for risk in risks:
-                level = risk.get("level", "medium")
-                level_class = f"risk-{level}"
-                level_label = {"high": "高风险", "medium": "中风险", "low": "低风险"}.get(level, "未知")
-                html += f"<h3><span class='{level_class}'>{level_label}: {risk.get('risk', '')}</span></h3>"
-                if risk.get("mitigation"):
-                    html += f"<p><strong>应对措施:</strong> {risk.get('mitigation')}</p>"
-        else:
-            html += "<p>暂无风险分析</p>"
-
-        html += "<h2>五、战略建议</h2>"
-        strategy = business_system.get("strategy", {})
-        recommendations = strategy.get("recommendations", [])
-        if recommendations:
-            html += "<ul>"
-            for i, rec in enumerate(recommendations, 1):
-                html += f"<li>{i}. {rec}</li>"
-            html += "</ul>"
-        else:
-            html += "<p>暂无战略建议</p>"
-
-        html += """
-<div class='footer'>
-    业务系统分析报告
-</div>
-</body>
-</html>"""
-
-        return html
+    def _generate_html_content(self, report) -> str:
+        """生成PDF所需的HTML内容（委托统一 generate_html）。"""
+        from exporters.html_exporter import generate_html
+        from exporters.canonical import CanonicalReport, normalize
+        if not isinstance(report, CanonicalReport):
+            report = normalize(report)
+        return generate_html(report, {}, None)
 
     def _export_with_weasyprint(self, html_content: str) -> bytes:
         """使用WeasyPrint生成PDF"""
