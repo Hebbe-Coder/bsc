@@ -57,6 +57,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         "/bsc/compile": {"rate": 10, "burst": 20},
         "/bsc/compile/sync": {"rate": 5, "burst": 10},
         "/bsc/stage": {"rate": 15, "burst": 30},
+        # 知识库端点：ingest 为重操作（解析+向量化文件，且可灌入语料），限速从严；
+        # retrieve 为高频查询，documents 含列出/删除，均细于全局默认 30/60。
+        "/knowledge/ingest": {"rate": 5, "burst": 10},
+        "/knowledge/retrieve": {"rate": 20, "burst": 40},
+        "/knowledge/documents": {"rate": 15, "burst": 30},
     }
     
     def __init__(self, app, rate: int = None, burst: int = None):
