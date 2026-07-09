@@ -1,6 +1,7 @@
 """知识库 API 端点：上传/文本灌入、列出、检索、删除。"""
 from __future__ import annotations
 from typing import List, Optional
+from pydantic import BaseModel
 
 from fastapi import APIRouter, Depends, UploadFile, File, Form
 from app.core.document_parser import parse_document
@@ -36,7 +37,7 @@ async def ingest(
     source: str = Form(default="upload"),
     service: KnowledgeService = Depends(get_knowledge_service),
 ):
-    units = []          # (display_title, text)
+    units = []
     parse_errors = []
     for f in (files or []):
         content = await f.read()
@@ -61,3 +62,21 @@ async def ingest(
             data={"docs": docs, "count": len(docs)},
             message="部分文件解析失败", errors=parse_errors)
     return ApiResponse.ok({"docs": docs, "count": len(docs)})
+
+
+class RetrieveRequest(BaseModel):
+    query: str
+    top_k: int = 5
+    project_id: str = ""
+
+
+@router.post("/retrieve")
+def retrieve(
+    req: RetrieveRequest,
+    service: KnowledgeService = Depends(get_knowledge_service),
+):
+    if not req.query or not req.query.strip():
+        return ApiResponse.error("请提供查询语句", code=400)
+    results = service.retrieve(
+        req.query, top_k=req.top_k, project_id=req.project_id or None)
+    return ApiResponse.ok({"results": results})
