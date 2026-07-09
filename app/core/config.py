@@ -66,6 +66,10 @@ class Settings(BaseSettings):
     EMBEDDING_BASE_URL: str = "https://api.openai.com/v1"
     EMBEDDING_MODEL: str = "text-embedding-3-small"
 
+    RAG_LLM_PROVIDER: str = "mock"  # RAG 问答生成使用的 LLM provider (deepseek/doubao/qwen/kimi/mock)
+    RAG_LLM_KEYS: List[str] = []    # 多 Key 轮询/故障转移;为空则回落该 provider 的单 key
+    RAG_TWO_PHASE: bool = False     # 两阶段生成:先引证规划再作答(更精准,延迟更高)
+
     LLM_TIMEOUT: int = 60
     LLM_TEMPERATURE: float = 0.7
     LLM_MAX_TOKENS: int = 8000
