@@ -1,10 +1,10 @@
 """知识库端点鉴权与限流回归测试。
 
-目的：从代码层面锁死以下保证，防止日后有人把 /knowledge/ 误加进鉴权/限流白名单而静默放开：
-1. 未携带有效 API Key 的请求访问 /knowledge/* 必须被拦截（401）；
-2. 携带错误 Key 同样被拦截（401）；
-3. 携带正确 Bearer Key 才放行（200 + 统一信封 code=0）；
-4. 知识库专属限速档已在 RateLimitMiddleware 中注册。
+目的：从代码层面锁死以下保证，防止日后有人把 /knowledge/ 误加进鉴权白名单而静默放开，
+或误把知识库端点放进开发模式放行逻辑：
+1. 已配置 API_KEY 时：/knowledge/* 无 Key → 401；错 Key → 401；正确 Bearer → 200。
+2. 未配置 API_KEY（开发模式）时：/knowledge/* 仍必须被拒（401），非知识库路径正常放行。
+3. 知识库专属限速档已在 RateLimitMiddleware 中注册。
 
 注：全局 AuthMiddleware 在 TestClient 下会把 401 以 HTTPException 形式抛出，故用 pytest.raises 校验。
 """
@@ -15,34 +15,25 @@ from app.core.config import settings
 from app.middleware.rate_limiter import RateLimitMiddleware
 
 
-@pytest.fixture
-def secured_client(client, monkeypatch):
-    """复用知识库 client（临时库 + DI 覆盖），并强制开启鉴权、关闭限流以隔离验证。"""
-    monkeypatch.setattr(settings, "API_KEY", "test-secret-key")
-    monkeypatch.setattr(settings, "RATE_LIMIT_ENABLED", False)
-    return client
-
-
-def test_knowledge_requires_api_key_401(secured_client):
-    # 无任何 Authorization 头 → 全局 AuthMiddleware 必须拦截
+def test_knowledge_requires_api_key_401(anon_client):
     with pytest.raises(HTTPException) as exc:
-        secured_client.get("/knowledge/documents")
+        anon_client.get("/knowledge/documents")
     assert exc.value.status_code == 401
 
 
-def test_knowledge_wrong_key_401(secured_client):
+def test_knowledge_wrong_key_401(anon_client):
     with pytest.raises(HTTPException) as exc:
-        secured_client.get(
+        anon_client.get(
             "/knowledge/documents",
             headers={"Authorization": "Bearer wrong-key"},
         )
     assert exc.value.status_code == 401
 
 
-def test_knowledge_valid_key_passes(secured_client):
-    r = secured_client.get(
+def test_knowledge_valid_key_passes(client):
+    r = client.get(
         "/knowledge/documents",
-        headers={"Authorization": "Bearer test-secret-key"},
+        headers={"Authorization": "Bearer test-api-key-for-knowledge-suite"},
     )
     assert r.status_code == 200
     body = r.json()
@@ -50,11 +41,21 @@ def test_knowledge_valid_key_passes(secured_client):
     assert "documents" in body["data"]
 
 
-def test_knowledge_ingest_requires_key_401(secured_client):
+def test_knowledge_ingest_requires_key_401(anon_client):
     # 可灌入端点同样必须鉴权（防止未授权灌语料）
     with pytest.raises(HTTPException) as exc:
-        secured_client.post("/knowledge/ingest", data={"text": "x"})
+        anon_client.post("/knowledge/ingest", data={"text": "x"})
     assert exc.value.status_code == 401
+
+
+def test_knowledge_rejected_when_api_key_unset(dev_unset_client):
+    # 即使处于「未配置 API_KEY」的开发模式，知识库端点也必须被拒
+    with pytest.raises(HTTPException) as exc:
+        dev_unset_client.get("/knowledge/documents")
+    assert exc.value.status_code == 401
+    # 非知识库路径（如 /docs）在开发模式仍正常放行，证明收紧是范围限定的
+    r = dev_unset_client.get("/docs")
+    assert r.status_code == 200
 
 
 def test_knowledge_rate_limit_profiles_registered():

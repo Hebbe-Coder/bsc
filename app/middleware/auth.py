@@ -35,11 +35,18 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         if not settings.API_KEY:
+            # 知识库端点无论环境都必须鉴权：缺 API_KEY 时直接拒绝，
+            # 防止企业知识库被未授权灌入/删除（即使处于开发模式也不放行）。
+            if request.url.path.startswith("/knowledge/"):
+                raise HTTPException(
+                    status_code=401,
+                    detail="知识库端点已强制鉴权：请在服务端配置 API_KEY，并在请求头携带 Authorization: Bearer <API_KEY>",
+                )
             if settings.is_production:
                 logger.critical("API_KEY未配置，生产环境拒绝所有请求")
                 raise HTTPException(status_code=500, detail="服务配置不完整，请联系管理员")
             else:
-                logger.warning("API_KEY未配置，所有请求将被允许（仅开发环境）")
+                logger.warning("API_KEY未配置，非知识库请求将被允许（仅开发环境）")
                 return await call_next(request)
 
         auth_header = request.headers.get("Authorization", "")
