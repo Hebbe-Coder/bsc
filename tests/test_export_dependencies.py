@@ -100,7 +100,7 @@ def test_export_dep_missing_zero_produced_returns_422(monkeypatch):
     import exporters.orchestrator as orchestrator
     from exporters.errors import ExportDependencyError
 
-    def fake(fmt, bs, result, ctx):
+    def fake(fmt, bs, canonical, result, ctx):
         if fmt in ("word", "html", "markdown"):
             raise ExportDependencyError("word", "python-docx", "pip install python-docx")
         raise RuntimeError("no")
