@@ -542,13 +542,25 @@ def _render_all(bs):
     return md, html, ppt, word
 
 
+def _ppt_has(text):
+    for s in ppt["slides"]:
+        if text in s.get("title", ""):
+            return True
+        for it in s.get("items", []):
+            if text in it:
+                return True
+        for row in s.get("data", []):
+            if any(text in str(c) for c in row):
+                return True
+    return False
+
+
 def test_boundary_huge_list_all_formats():
     bs = {"metrics": [{"name": f"m{i}", "formula": "x", "target": "y"} for i in range(1000)]}
     md, html, ppt, word = _render_all(bs)
     for out in (md, html, word):
         assert "其余" in out and "已省略" in out
-    assert any("已省略" in s.get("title", "") or any("已省略" in it for it in s.get("items", []))
-               for s in ppt["slides"])
+    assert _ppt_has("已省略")  # 指标省略项落在 PPT 表格 data 中
 
 
 def test_boundary_long_text_truncated_marker():
