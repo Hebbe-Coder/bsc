@@ -1,8 +1,6 @@
 import sys, os, tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from fastapi.testclient import TestClient
-from app.main import app  # 若 main 暴露 app;否则用 app.api.knowledge_api.router 组装
 from app.knowledge.service import KnowledgeService
 
 
