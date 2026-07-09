@@ -61,3 +61,17 @@ def test_normalize_missing_section_safe():
     r = normalize({"business_domain": "X"})
     assert r.objectives == [] and r.risks == [] and r.metrics == []
     assert r.strategy.recommendations == []
+
+
+def test_markdown_consumes_canonical_and_includes_metrics():
+    from exporters.markdown_exporter import MarkdownExporter
+    r = normalize(RAW_CANONICAL)
+    md = MarkdownExporter().export(r, None)
+    assert "## 一、业务目标" in md
+    assert "## 二、角色定义" in md
+    assert "## 三、业务流程" in md
+    assert "## 四、关键指标" in md          # 之前缺失，现在必须出现
+    assert "## 五、风险分析" in md
+    assert "## 六、战略建议" in md
+    assert "🔴 高风险" in md                  # 规范标签，字节级统一
+    assert "准确率" in md                     # metrics 内容
