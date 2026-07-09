@@ -96,3 +96,22 @@ def test_ppt_includes_roles_and_uniform_severity():
     assert "角色定义" in titles          # 之前缺失
     risk_slide = next(s for s in spec["slides"] if s["title"] == "风险分析")
     assert any("🔴 高风险" in it for it in risk_slide["items"])
+
+
+def test_word_consumes_canonical_and_uniform_labels():
+    pytest.importorskip("docx")
+    import io
+    from docx import Document
+    from exporters.word_exporter import WordExporter
+    r = normalize(RAW_CANONICAL)
+    data = WordExporter().export(r)
+    assert isinstance(data, bytes)
+    doc = Document(io.BytesIO(data))
+    text = "\n".join(p.text for p in doc.paragraphs)
+    for tbl in doc.tables:
+        for row in tbl.rows:
+            for cell in row.cells:
+                text += "\n" + cell.text
+    assert "内容安全平台" in text
+    assert "🔴 高风险" in text        # 替换原【高】【中】【低】
+    assert "准确率" in text            # 关键指标段

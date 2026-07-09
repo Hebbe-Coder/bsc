@@ -17,11 +17,14 @@ class WordExporter:
         except ImportError:
             logger.warning("python-docx not installed, Word export will be disabled")
 
-    def export(self, business_system: Dict[str, Any]) -> bytes:
-        """导出为Word文档"""
+    def export(self, report) -> bytes:
+        """导出为Word文档。report 为 CanonicalReport。"""
         if not self._docx_available:
             from exporters.errors import ExportDependencyError
             raise ExportDependencyError("word", "python-docx", "pip install python-docx")
+        from exporters.canonical import CanonicalReport, normalize
+        if not isinstance(report, CanonicalReport):
+            report = normalize(report)
 
         from docx import Document
         from docx.shared import Pt, Inches
@@ -42,79 +45,80 @@ class WordExporter:
         section.top_margin = Inches(1)
         section.bottom_margin = Inches(1)
 
-        title = business_system.get("business_domain", "业务系统分析报告")
-        title_para = doc.add_heading(title, level=0)
+        title_para = doc.add_heading(report.title, level=0)
         title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-        subtitle = business_system.get("report", {}).get("executive_summary", "")
-        if subtitle:
-            doc.add_paragraph(subtitle, style='Intense Quote')
+        if report.executive_summary:
+            doc.add_paragraph(report.executive_summary, style='Intense Quote')
 
         doc.add_heading('一、业务目标', level=1)
-        objectives = business_system.get("objectives", [])
-        if objectives:
-            for obj in objectives:
-                priority = obj.get("priority", "medium")
-                priority_label = {"high": "【高】", "medium": "【中】", "low": "【低】"}.get(priority, "")
-                p = doc.add_paragraph(f"{priority_label}{obj.get('objective', '')}")
-                if obj.get("target"):
-                    p.add_run(f" - 目标: {obj.get('target')}")
+        if report.objectives:
+            for o in report.objectives:
+                p = doc.add_paragraph(f"{o.priority_label}{o.objective}")
+                if o.target:
+                    p.add_run(f" - 目标: {o.target}")
         else:
             doc.add_paragraph("暂无业务目标")
 
         doc.add_heading('二、角色定义', level=1)
-        roles = business_system.get("roles", [])
-        if roles:
+        if report.roles:
             table = doc.add_table(rows=1, cols=4)
             hdr_cells = table.rows[0].cells
             hdr_cells[0].text = '角色名称'
             hdr_cells[1].text = '所属部门'
             hdr_cells[2].text = '级别'
             hdr_cells[3].text = '人数'
-            for role in roles:
+            for r in report.roles:
                 row_cells = table.add_row().cells
-                row_cells[0].text = role.get('role', '')
-                row_cells[1].text = role.get('department', '')
-                row_cells[2].text = role.get('level', '')
-                row_cells[3].text = str(role.get('headcount', ''))
+                row_cells[0].text = r.role
+                row_cells[1].text = r.department
+                row_cells[2].text = r.level
+                row_cells[3].text = str(r.headcount)
         else:
             doc.add_paragraph("暂无角色定义")
 
         doc.add_heading('三、业务流程', level=1)
-        workflow = business_system.get("workflow", [])
-        if workflow:
-            for step in workflow:
-                step_num = step.get('step', '')
-                name = step.get('name', '')
-                action = step.get('action', '')
-                role = step.get('role', '')
-                p = doc.add_paragraph(f"{step_num}. {name}", style='List Number')
-                if action:
-                    p.add_run(f"\n   动作: {action}")
-                if role:
-                    p.add_run(f"\n   负责角色: {role}")
+        if report.workflow:
+            for s in report.workflow:
+                p = doc.add_paragraph(f"{s.step}. {s.name}", style='List Number')
+                if s.action:
+                    p.add_run(f"\n   动作: {s.action}")
+                if s.role:
+                    p.add_run(f"\n   负责角色: {s.role}")
         else:
             doc.add_paragraph("暂无业务流程")
 
-        doc.add_heading('四、风险分析', level=1)
-        risks = business_system.get("risks", [])
-        if risks:
-            for risk in risks:
-                level = risk.get("level", "medium")
-                level_label = {"high": "【高风险】", "medium": "【中风险】", "low": "【低风险】"}.get(level, "")
-                p = doc.add_paragraph(f"{level_label}{risk.get('risk', '')}")
-                if risk.get("mitigation"):
-                    p.add_run(f"\n   应对措施: {risk.get('mitigation')}")
+        doc.add_heading('四、关键指标', level=1)
+        if report.metrics:
+            for m in report.metrics:
+                line = m.name
+                if m.formula:
+                    line += f"（公式: {m.formula}）"
+                if m.target:
+                    line += f" 目标: {m.target}"
+                doc.add_paragraph(line)
+        else:
+            doc.add_paragraph("暂无关键指标")
+
+        doc.add_heading('五、风险分析', level=1)
+        if report.risks:
+            for rk in report.risks:
+                p = doc.add_paragraph(f"{rk.severity_label}: {rk.risk}")
+                if rk.mitigation:
+                    p.add_run(f"\n   应对措施: {rk.mitigation}")
+                if rk.impact:
+                    p.add_run(f"\n   影响: {rk.impact}")
         else:
             doc.add_paragraph("暂无风险分析")
 
-        doc.add_heading('五、战略建议', level=1)
-        strategy = business_system.get("strategy", {})
-        recommendations = strategy.get("recommendations", [])
-        if recommendations:
-            for rec in recommendations:
-                doc.add_paragraph(rec, style='List Bullet')
-        else:
+        doc.add_heading('六、战略建议', level=1)
+        for rec in report.strategy.recommendations:
+            doc.add_paragraph(rec, style='List Bullet')
+        for g in report.strategy.growth_opportunities:
+            doc.add_paragraph(f"{g['opportunity']}: {g['potential']}")
+        for step in report.strategy.roadmap:
+            doc.add_paragraph(step, style='List Bullet')
+        if not (report.strategy.recommendations or report.strategy.growth_opportunities or report.strategy.roadmap):
             doc.add_paragraph("暂无战略建议")
 
         output = io.BytesIO()
