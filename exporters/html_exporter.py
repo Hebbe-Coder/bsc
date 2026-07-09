@@ -1771,12 +1771,9 @@ def generate_html(
 ) -> str:
     """生成 HTML 报告。report 为 CanonicalReport；ctx 非空时单区块失败被跳过。"""
     from exporters.canonical import CanonicalReport, normalize
-    import html as _html
+    from exporters.boundary import escape_html as _esc
     if not isinstance(report, CanonicalReport):
         report = normalize(report)
-
-    def _esc(s):
-        return _html.escape(str(s))
 
     parts = [f"<h1>{_esc(report.title)}</h1>"]
     if report.executive_summary:

@@ -2,6 +2,7 @@ import io
 from docx import Document
 from exporters.canonical import normalize
 from exporters.boundary import MAX_LIST_ITEMS, MAX_TEXT_LEN
+from exporters.html_exporter import generate_html
 
 
 def test_normalize_huge_list_capped():
@@ -46,3 +47,14 @@ def test_normalize_empty_input_safe():
     r = normalize({})
     assert r.title == "业务系统分析报告"
     assert r.objectives == []
+
+
+def test_html_injection_escaped():
+    bs = {"business_domain": "<script>alert(1)</script>",
+          "objectives": [{"objective": "<img src=x onerror=alert(1)>", "priority": "high"}]}
+    r = normalize(bs)
+    html = generate_html(r, {}, None)
+    assert "<script>" not in html
+    assert "<img" not in html
+    assert "&lt;script&gt;" in html
+    assert "&lt;img" in html
