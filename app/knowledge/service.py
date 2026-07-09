@@ -88,7 +88,7 @@ class KnowledgeService:
                     "chunk_id": cid,
                     "content": row["content"],
                     "section": row["section"] or "",
-                    "idx": row["idx"],
+                    "idx": row["idx"] or 0,
                     "score": score,
                     "doc_title": row["doc_title"] or "未知来源",
                 })
