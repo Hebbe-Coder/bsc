@@ -140,8 +140,14 @@ class SOPLLMClient:
                         json=body,
                     )
                     if resp.status_code in (401, 402, 429):
+                        last_err = f"HTTP {resp.status_code} (key 被拒)"
                         logger.warning("LLM key 被拒(%s),切换下一 key", resp.status_code)
                         continue
+                    if resp.status_code >= 500:
+                        last_err = f"HTTP {resp.status_code} (服务端错误)"
+                        logger.warning("LLM 服务端错误(%s),尝试下一 key", resp.status_code)
+                        continue
+                    # 其余 4xx(如 400/403/404/422)为不可重试的客户端错误,直接上报,不切换 key
                     resp.raise_for_status()
                     data = resp.json()
                     return {"content": data["choices"][0]["message"]["content"]}
@@ -149,6 +155,12 @@ class SOPLLMClient:
                     if self._http is None:
                         client.close()
             except httpx.HTTPError as e:
+                status = getattr(getattr(e, "response", None), "status_code", None)
+                if status is not None and 400 <= status < 500 and status not in (401, 402, 429):
+                    raise SOPLLMError(
+                        f"LLM 请求被拒(不可重试的客户端错误 {status}): {e}"
+                    ) from e
+                # 网络/超时等瞬时异常,尝试下一 key
                 last_err = e
                 logger.warning("LLM 请求失败(尝试下一 key): %s", e)
                 continue
