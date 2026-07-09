@@ -77,16 +77,19 @@ class KnowledgeService:
         if not top:
             return []
         results = []
-        for cid in top:
+        for cid, score in top:
             row = self.repo._execute(
-                "SELECT c.content AS content, c.section AS section, d.title AS doc_title "
+                "SELECT c.content AS content, c.section AS section, c.idx AS idx, d.title AS doc_title "
                 "FROM knowledge_chunks c LEFT JOIN knowledge_docs d ON c.doc_id=d.id "
                 "WHERE c.id=? AND (? = '' OR d.project_id = ?)",
                 (cid, project_id or "", project_id or "")).fetchone()
             if row:
                 results.append({
+                    "chunk_id": cid,
                     "content": row["content"],
-                    "section": row["section"],
+                    "section": row["section"] or "",
+                    "idx": row["idx"],
+                    "score": score,
                     "doc_title": row["doc_title"] or "未知来源",
                 })
         return results

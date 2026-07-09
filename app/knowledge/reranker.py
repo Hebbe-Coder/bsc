@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import List
 
 
-def rrf_fuse(ranklists: List[List[str]], k: int = 60) -> List[str]:
+def rrf_fuse(ranklists: List[List[str]], k: int = 60) -> List:
     scores: dict = {}
     for rl in ranklists:
         for rank, cid in enumerate(rl):
             scores[cid] = scores.get(cid, 0.0) + 1.0 / (k + rank + 1)
-    return sorted(scores, key=lambda c: -scores[c])
+    return sorted(scores.items(), key=lambda kv: -kv[1])

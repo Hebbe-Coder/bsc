@@ -4,12 +4,14 @@ from app.knowledge.reranker import rrf_fuse
 
 def test_reranker_rrf_agreement():
     fused = rrf_fuse([["a", "b", "c"], ["a", "b", "c"]])
-    assert fused[0] == "a" and fused[1] == "b"
+    assert fused[0][0] == "a" and fused[1][0] == "b"
+    # 返回 (cid, score) 元组
+    assert isinstance(fused[0], tuple) and isinstance(fused[0][1], float)
 
 def test_reranker_rrf_scale_invariant():
     # 只吃排名不吃分数；a 在两榜都靠前 → 总体靠前
     fused = rrf_fuse([["a", "b"], ["c", "a"]])
-    assert fused[0] == "a"
+    assert fused[0][0] == "a"
     # 缺失后端（空榜）仍鲁棒
     fused2 = rrf_fuse([["a", "b"], []])
-    assert fused2[0] == "a"
+    assert fused2[0][0] == "a"
