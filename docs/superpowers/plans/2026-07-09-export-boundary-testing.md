@@ -211,7 +211,8 @@ from exporters.boundary import MAX_LIST_ITEMS, MAX_TEXT_LEN
 def test_normalize_huge_list_capped():
     bs = {"objectives": [{"objective": f"o{i}", "priority": "high"} for i in range(500)]}
     r = normalize(bs)
-    assert len(r.objectives) == MAX_LIST_ITEMS
+    # 封顶 MAX_LIST_ITEMS 条真实数据 + 1 条"已省略"合成条目
+    assert len(r.objectives) == MAX_LIST_ITEMS + 1
     assert any("其余" in o.objective and "已省略" in o.objective for o in r.objectives)
 
 
