@@ -85,8 +85,10 @@ def test_generate_html_basic():
 
 def test_generate_html_skips_failing_component():
     ctx = DegradeContext()
-    bs = _bs_with("BROKEN")  # metrics 不是 list，区块渲染会出错
-    html = generate_html(bs, {}, ctx)
+    from exporters.canonical import normalize
+    report = normalize(_bs_with([{"name": "n", "formula": "f", "target": "t", "owner": "o"}]))
+    report.metrics = [{"no_name": 1}]  # 渲染时 m.name 抛错，区块被跳过
+    html = generate_html(report, {}, ctx)
     assert "<html>" in html
     assert ctx.component_failures and ctx.component_failures[0]["component"] == "metrics"
 
@@ -98,16 +100,20 @@ def test_generate_ppt_spec_basic():
 
 def test_generate_ppt_spec_skips_failing_component():
     ctx = DegradeContext()
-    spec = generate_ppt_spec(_bs_with("BROKEN"), ctx)
+    from exporters.canonical import normalize
+    report = normalize(_bs_with([{"name": "n", "formula": "f", "target": "t", "owner": "o"}]))
+    report.metrics = [{"no_name": 1}]  # 渲染时 m.name 抛错，区块被跳过
+    spec = generate_ppt_spec(report, ctx)
     assert "slides" in spec
     assert ctx.component_failures and ctx.component_failures[0]["component"] == "metrics"
 
 
 def test_markdown_skips_failing_component():
     ctx = DegradeContext()
-    bs = _bs_with([{"name": "n", "formula": "f", "target": "t", "owner": "o"}])
-    bs["objectives"] = "BROKEN"  # objectives 不是 list，区块渲染会出错
-    md = MarkdownExporter().export(bs, ctx)
+    from exporters.canonical import normalize
+    report = normalize(_bs_with([{"name": "n", "formula": "f", "target": "t", "owner": "o"}]))
+    report.objectives = [{"objective": "x"}]  # 缺 priority_label → 渲染抛错被跳过
+    md = MarkdownExporter().export(report, ctx)
     assert md.startswith("# ")
     assert ctx.component_failures and ctx.component_failures[0]["component"] == "objectives"
 
@@ -129,7 +135,7 @@ def _bs():
 
 
 def test_run_export_substitutes_pptx_to_ppt(monkeypatch):
-    def fake_produce(fmt, bs, result, ctx):
+    def fake_produce(fmt, bs, canonical, result, ctx):
         if fmt == "pptx":
             raise ExportDependencyError("pptx", "python-pptx", "pip install python-pptx")
         if fmt == "ppt":
@@ -142,7 +148,7 @@ def test_run_export_substitutes_pptx_to_ppt(monkeypatch):
 
 
 def test_run_export_drops_unimplemented(monkeypatch):
-    def fake_produce(fmt, bs, result, ctx):
+    def fake_produce(fmt, bs, canonical, result, ctx):
         raise AssertionError("xlsx 不应进入 _produce")
     monkeypatch.setattr(orchestrator, "_produce", fake_produce)
     out = run_export(_bs(), ["xlsx"], {})
@@ -152,7 +158,7 @@ def test_run_export_drops_unimplemented(monkeypatch):
 
 
 def test_run_export_drops_dependency_missing(monkeypatch):
-    def fake_produce(fmt, bs, result, ctx):
+    def fake_produce(fmt, bs, canonical, result, ctx):
         if fmt in ("word", "html", "markdown"):
             raise ExportDependencyError("word", "python-docx", "pip install python-docx")
         raise AssertionError(fmt)
@@ -165,7 +171,7 @@ def test_run_export_drops_dependency_missing(monkeypatch):
 
 
 def test_run_export_component_failures_attached(monkeypatch):
-    def fake_produce(fmt, bs, result, ctx):
+    def fake_produce(fmt, bs, canonical, result, ctx):
         with ctx.component("metrics"):
             raise ValueError("bad metric")
         return f"content-{fmt}"
@@ -178,7 +184,7 @@ def test_run_export_component_failures_attached(monkeypatch):
 
 
 def test_run_export_zero_produced_all_dropped(monkeypatch):
-    def fake_produce(fmt, bs, result, ctx):
+    def fake_produce(fmt, bs, canonical, result, ctx):
         if fmt in ("word", "html", "markdown"):
             raise ExportDependencyError("word", "python-docx", "pip install python-docx")
         raise RuntimeError("no")
@@ -210,7 +216,7 @@ def _req(output_types, bs=None):
 
 
 def test_export_pptx_substituted_to_ppt(monkeypatch):
-    def fake(fmt, bs, result, ctx):
+    def fake(fmt, bs, canonical, result, ctx):
         if fmt == "pptx":
             raise ExportDependencyError("pptx", "python-pptx", "pip install python-pptx")
         if fmt == "ppt":
@@ -229,7 +235,7 @@ def test_export_pptx_substituted_to_ppt(monkeypatch):
 
 
 def test_export_word_dep_missing_substituted_to_html(monkeypatch):
-    def fake(fmt, bs, result, ctx):
+    def fake(fmt, bs, canonical, result, ctx):
         if fmt in ("word", "markdown"):
             raise ExportDependencyError("word", "python-docx", "pip install python-docx")
         if fmt == "html":
@@ -243,7 +249,7 @@ def test_export_word_dep_missing_substituted_to_html(monkeypatch):
 
 
 def test_export_zero_produced_returns_422(monkeypatch):
-    def fake(fmt, bs, result, ctx):
+    def fake(fmt, bs, canonical, result, ctx):
         if fmt in ("word", "html", "markdown"):
             raise ExportDependencyError("word", "python-docx", "pip install python-docx")
         raise RuntimeError("no")
@@ -261,12 +267,12 @@ def test_export_unknown_format_400():
 def test_export_component_degraded_reported(monkeypatch):
     orig = orchestrator_mod._produce
 
-    def fake(fmt, bs, result, ctx):
+    def fake(fmt, bs, canonical, result, ctx):
         if fmt == "html":
             with ctx.component("metrics"):
                 raise ValueError("bad metric")
             return "<html></html>"
-        return orig(fmt, bs, result, ctx)
+        return orig(fmt, bs, canonical, result, ctx)
     monkeypatch.setattr(orchestrator_mod, "_produce", fake)
     r = _client().post("/bsc/export", json=_req(["html"], bs=_FAKE_BS))
     assert r.json()["code"] == 207, r.text

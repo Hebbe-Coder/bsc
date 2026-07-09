@@ -115,3 +115,18 @@ def test_word_consumes_canonical_and_uniform_labels():
     assert "内容安全平台" in text
     assert "🔴 高风险" in text        # 替换原【高】【中】【低】
     assert "准确率" in text            # 关键指标段
+
+
+def test_run_export_uses_canonical_end_to_end():
+    from exporters.orchestrator import run_export
+    outcome = run_export(RAW_CANONICAL, ["markdown", "html", "ppt", "word"], {})
+    assert "markdown" in outcome.exports
+    assert "html" in outcome.exports
+    assert "ppt" in outcome.exports
+    assert "word" in outcome.exports
+    assert all(s["status"] == "produced" for s in outcome.formats_status)
+    md = outcome.exports["markdown"]
+    html = outcome.exports["html"]
+    ppt_items = [it for s in outcome.exports["ppt"]["slides"] for it in s.get("items", [])]
+    assert "🔴 高风险" in md and "🔴 高风险" in html
+    assert any("🔴 高风险" in it for it in ppt_items)

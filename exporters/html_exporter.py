@@ -1849,4 +1849,9 @@ def generate_html(
     _block("metrics", _metrics)
     _block("risks", _risks)
     _block("strategy", _strategy)
-    return "\n".join(parts)
+    return (
+        "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
+        "<title>业务系统分析报告</title></head><body>\n"
+        + "\n".join(parts) +
+        "\n</body></html>"
+    )

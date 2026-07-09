@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from exporters.degrade import DEGRADATION_RULES, classify_failure, is_implemented
 from exporters._degrade_ctx import DegradeContext
+from exporters.canonical import normalize
 
 
 @dataclass
@@ -15,28 +16,29 @@ class ExportOutcome:
     errors: List[dict] = field(default_factory=list)
 
 
-def _produce(fmt: str, bs: dict, result: dict, ctx: DegradeContext):
-    """产出单个格式。成功返回产出物；失败抛异常。"""
+def _produce(fmt: str, bs: dict, canonical, result: dict, ctx: DegradeContext):
+    """产出单个格式。成功返回产出物；失败抛异常。
+    json/visuals 仍用原始 bs；四文档格式消费规范化后的 canonical。"""
     if fmt == "json":
         return bs
     if fmt == "html":
         from exporters.html_exporter import generate_html
-        return generate_html(bs, result.get("pipeline", {}), ctx)
+        return generate_html(canonical, result.get("pipeline", {}), ctx)
     if fmt == "ppt":
         from exporters.ppt_spec_exporter import generate_ppt_spec
-        return generate_ppt_spec(bs, ctx)
+        return generate_ppt_spec(canonical, ctx)
     if fmt == "word":
         from exporters.word_exporter import WordExporter
         return {
-            "content_base64": WordExporter().export(bs).hex(),
+            "content_base64": WordExporter().export(canonical).hex(),
             "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         }
     if fmt == "markdown":
         from exporters.markdown_exporter import MarkdownExporter
-        return MarkdownExporter().export(bs, ctx)
+        return MarkdownExporter().export(canonical, ctx)
     if fmt == "pdf":
         from exporters.pdf_exporter import PDFExporter
-        return {"content_base64": PDFExporter().export(bs).hex(), "mime_type": "application/pdf"}
+        return {"content_base64": PDFExporter().export(canonical).hex(), "mime_type": "application/pdf"}
     if fmt == "visuals":
         from app.engines.visual_binding import bind_visuals
         try:
@@ -48,6 +50,7 @@ def _produce(fmt: str, bs: dict, result: dict, ctx: DegradeContext):
 
 def run_export(bs: dict, output_types: List[str], result: dict) -> ExportOutcome:
     outcome = ExportOutcome()
+    canonical = normalize(bs)
     for fmt in output_types:
         # 1. 未实现且无候补链 → dropped/unimplemented
         #    （pptx 等非直接产出但有候补链的格式，仍进入候补尝试流程）
@@ -69,7 +72,7 @@ def run_export(bs: dict, output_types: List[str], result: dict) -> ExportOutcome
         for cand in candidates:
             ctx = DegradeContext()
             try:
-                value = _produce(cand, bs, result, ctx)
+                value = _produce(cand, bs, canonical, result, ctx)
                 produced_as = cand
                 component_failures = ctx.component_failures
                 break
