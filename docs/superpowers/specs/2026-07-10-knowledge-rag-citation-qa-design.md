@@ -42,6 +42,8 @@ direction: 知识库 / 检索增强生成（RAG）引用溯源 + 问答 + 质量
 | 引用精度 | 分节精准注入 + citations 数组（含 section 路径） | 用户选定；上下文按章节归并注入，溯源到 section |
 | 引用校验 | 后端剔除非命中 `[n]` + 算 `citation_rate` | 防幻觉，质量可度量 |
 | 质量评估 | 引标评估（P@k/R@k/faithfulness） | 用户选定；内置 fixture 离线可算 |
+| 多 Key | **同时支持多个 API Key**（轮询 + 故障转移） | 用户要求；提升配额/吞吐与可用性，单 key 失效自动切换 |
+| 接地提示词 | **细分为多个子提示**（角色/任务/上下文契约/引用规则/输出 schema），可选两阶段（先引证规划再作答） | 用户要求；可控、可维护、可测试 |
 | 架构形态 | 独立 `AnswerGenerator` + 新端点 | 与「检索/生成解耦」一致，改动局部 |
 | 降级 | mock/无 key → 只返上下文+出处 | 与既有 degrade 哲学一致 |
 
@@ -77,9 +79,10 @@ POST /knowledge/evaluate {gold?}   # gold: [{query, expected_chunk_ids?, expecte
 ## 4. 组件
 
 **`RAGAnswerGenerator`（`app/knowledge/answer.py`）**
-- `__init__(provider: Optional[str] = None, service=None, llm_client=None)`：
+- `__init__(provider: Optional[str] = None, service=None, llm_client=None, keys: Optional[List[str]] = None)`：
   - `self.service = service or KnowledgeService()`（允许注入，便于测试用临时 DB）。
-  - `self._llm_client = llm_client`（若提供则直接用，否则懒加载 `SOPLLMClient(provider or settings.RAG_LLM_PROVIDER)`）。
+  - `self._llm_client = llm_client`（若提供则直接用；否则懒加载 `SOPLLMClient(provider or settings.RAG_LLM_PROVIDER, keys=keys or <该 provider 的 key 列表>)`）。
+  - **多 Key**：`keys` 为 key 列表（通常来自 `RAG_LLM_KEYS` 或该 provider 的多个 key）。`SOPLLMClient` 扩展支持多 key——请求时轮询取下一个 key；遇到 `401/429/402`（鉴权/限流/配额）自动切换到下一个 key 重试，全部耗尽才抛 `SOPLLMError`。单 key 场景（列表长度 1）行为不变。
 - `build_context(chunks: List[dict]) -> Tuple[str, List[dict]]`：
   - 按 `section`（空 section 归为「未分节」）归并 chunk，保留 RRF 顺序。
   - 为每个 chunk 分配 `[n]` 序号，生成形如：
@@ -94,13 +97,28 @@ POST /knowledge/evaluate {gold?}   # gold: [{query, expected_chunk_ids?, expecte
   - 调 `self.service.retrieve(question, top_k, project_id)`；空 → `{answer:"", citations:[], degraded:True, note:"未检索到相关知识"}`。
   - `build_context` → `context`。
   - 若 `self.provider == "mock"` 或客户端不可用 → 返回 `{answer:"", citations, degraded:True, note:"未生成答案(无可用模型)"}`。
-  - 否则 `SOPLLMClient.chat_structured(grounded_system_prompt, question+context)`：
-    - system 指令：仅基于提供的 [n] 知识作答，必须引用 `[n]`，不要编造未标注来源，JSON 字段 `answer`。
+  - 否则进入真模型生成，使用**细分的接地提示词**（见 `app/knowledge/prompts.py`）：
+    - `build_system_prompt()` 由多个**独立子提示块**拼装：`ROLE_BLOCK`（角色：基于企业知识库作答的分析师）+ `TASK_BLOCK`（任务：回答用户问题）+ `CONTEXT_CONTRACT_BLOCK`（上下文契约：下方 [n] 与章节的对应规则、必须只引用已提供内容）+ `CITATION_RULES_BLOCK`（引用规则：每事实必标 [n]、禁止无引用断言、禁止编造未标注来源）+ `OUTPUT_SCHEMA_BLOCK`（输出 schema：JSON `{answer}`）。各块为独立常量，可单独测试与调优。
+    - 单阶段（默认）：`SOPLLMClient.chat_structured(system=build_system_prompt(), user=build_user_prompt(question, context))`。
+    - **两阶段（可选，`RAG_TWO_PHASE=True`）**：先调一次 `build_citation_plan_prompt(question, context)` 让模型输出「支撑答案的 [n] 编号列表」（phase-1 引证规划）；再以其为约束调 `build_answer_prompt(question, context, plan)` 生成最终答案（phase-2 作答）。两阶段把「选哪些证据」与「如何组织答案」解耦，引用更精准。
     - 解析失败 → 降级为 `{answer:"", citations, degraded:True}`。
     - `validate_citations` → 返回 `{answer, citations, metrics:{"citation_rate": <float>}}`。
 - `validate_citations(answer_text, citations) -> Tuple[str, float]`：
   - 正则提取答案中所有 `[n]`；仅保留 `n` 在 `citations` index 集合内的编号；移除非法 `[n]`（文本中也删掉编号，保留正文）。
   - `citation_rate = 合法引用数 / 总引用数`（无引用时为 1.0 或 0.0，约定无引用且答案非空记 0.0）。
+
+**`prompts`（`app/knowledge/prompts.py`，新增）**——接地提示词的细分实现
+- 各子提示块为**独立常量**，便于单测与调优：
+  - `ROLE_BLOCK`：你是严格基于企业知识库作答的业务分析师，不得凭空杜撰。
+  - `TASK_BLOCK`：根据用户问题，仅使用下方带编号的 [n] 知识给出答案。
+  - `CONTEXT_CONTRACT_BLOCK`：说明 [n] 与「章节：xxx」下内容的对应关系；未提供编号的知识一律不得使用。
+  - `CITATION_RULES_BLOCK`：每条事实必须带 [n]；禁止出现无 [n] 的来源断言；若知识不足以回答，明确说明「依据现有知识无法回答」。
+  - `OUTPUT_SCHEMA_BLOCK`：只输出 JSON `{"answer": "<含 [n] 的答案>"}`，不要额外解释。
+- 组装函数：
+  - `build_system_prompt() -> str`：`"\n\n".join([ROLE_BLOCK, TASK_BLOCK, CONTEXT_CONTRACT_BLOCK, CITATION_RULES_BLOCK, OUTPUT_SCHEMA_BLOCK])`。
+  - `build_user_prompt(question, context) -> str`：`f"问题：{question}\n\n知识：\n{context}"`。
+  - `build_citation_plan_prompt(question, context) -> str`：仅要求模型返回「支撑回答的 [n] 编号列表」(JSON `{"cite_ids":[...]}`)，用于两阶段 phase-1。
+  - `build_answer_prompt(question, context, plan) -> str`：phase-2，给定 `plan` 中的 cite_ids，要求只基于这些 [n] 撰写答案。
 
 **`RAGEvaluator`（`app/knowledge/eval.py`）**
 - `DEFAULT_GOLD: List[dict]`：内置 fixture（≥3 条，含 query + expected_chunk_ids，可选 expected_answer），离线可跑。
@@ -116,8 +134,10 @@ POST /knowledge/evaluate {gold?}   # gold: [{query, expected_chunk_ids?, expecte
 在 `EMBEDDING_MODEL` 行之后追加（保留上下文空行）：
 ```python
     RAG_LLM_PROVIDER: str = "mock"  # RAG 问答生成使用的 LLM provider (deepseek/doubao/qwen/kimi/mock)
+    RAG_LLM_KEYS: List[str] = []    # 多 Key 轮询/故障转移；为空则回落该 provider 的单 key
+    RAG_TWO_PHASE: bool = False     # 两阶段生成：先引证规划再作答(更精准,延迟更高)
 ```
-复用 `SOPLLMClient` 既有厂商注册表与对应 `*_API_KEY`/`*_BASE_URL`/`*_MODEL` 配置；**不新增一套 embedding/key**。
+复用 `SOPLLMClient` 既有厂商注册表与对应 `*_API_KEY`/`*_BASE_URL`/`*_MODEL` 配置；`RAG_LLM_KEYS` 为该 provider 的**多个 key 列表**（env 用逗号分隔），为空时回落到该 provider 的单 key（`DEEPSEEK_API_KEY` 等）。`SOPLLMClient` 扩展 `keys` 参数以支持多 key 轮询 + 故障转移。
 
 ## 6. 存储
 
@@ -183,17 +203,23 @@ def evaluate(req: EvaluateRequest, service: KnowledgeService = Depends(get_knowl
 7. `test_eval_builtin_gold`：内置 fixture → `precision@k`/`recall@k` 计算正确（用已知 expected_chunk_ids）。
 8. `test_eval_empty_gold_400`：gold 空 → 400。
 9. `test_eval_uploaded_gold`：上传合法 gold JSON → 评估通过；非法结构 → 400。
-10. 全量回归：既有套件无破坏（285 passed 不受影响）。
+10. `test_build_system_prompt_subblocks`：`build_system_prompt()` 含角色/任务/上下文契约/引用规则/输出 schema 五块标志文本；各子块为独立常量可单独断言。
+11. `test_two_phase_citation_plan`：`RAG_TWO_PHASE=True` + 注入 fake llm（phase-1 返回 `cite_ids`、phase-2 返回 answer）→ 最终 answer 仅引用 plan 中编号，`metrics` 正常。
+12. `test_multikeys_failover`：注入 fake client，前几个 key 返回 401/429/402、最后一个成功 → 不抛、返回答案（验证轮询+故障转移命中可用 key）。
+13. `test_multikeys_exhausted_raises`：所有 key 均失败 → 抛 `SOPLLMError`（或降级 `degraded:True`，不静默错答）。
+14. 全量回归：既有套件无破坏（285 passed 不受影响）。
 
 ## 10. 任务拆分（供 writing-plans 参考）
 
 | 任务 | 内容 | 测试 |
 |---|---|---|
-| T1 | `config.py` 新增 `RAG_LLM_PROVIDER` + `tests/test_config_rag.py` | 1 |
-| T2 | `app/knowledge/answer.py`：`build_context` + `validate_citations` + `RAGAnswerGenerator` | 1–6 |
-| T3 | `app/knowledge/eval.py`：`RAGEvaluator` + 内置 gold fixture | 7–9 |
-| T4 | `app/api/knowledge_api.py`：新增 `/ask`、`/evaluate` | 集成 |
-| T5 | 全量回归 | 10 |
+| T1 | `config.py` 新增 `RAG_LLM_PROVIDER`/`RAG_LLM_KEYS`/`RAG_TWO_PHASE` + `tests/test_config_rag.py` | 1 |
+| T2 | `app/services/sop_llm_client.py` 扩展 `keys` 参数：多 key 轮询 + 401/429/402 故障转移 | 12–13 |
+| T3 | `app/knowledge/prompts.py`：五块子提示常量 + 组装/两阶段函数 | 10–11 |
+| T4 | `app/knowledge/answer.py`：`build_context` + `validate_citations` + `RAGAnswerGenerator`（接入多 key + 细分提示词 + 两阶段） | 2–6, 11 |
+| T5 | `app/knowledge/eval.py`：`RAGEvaluator` + 内置 gold fixture | 7–9 |
+| T6 | `app/api/knowledge_api.py`：新增 `/ask`、`/evaluate` | 集成 |
+| T7 | 全量回归 | 14 |
 
 ## 11. 风险与权衡
 
@@ -201,3 +227,6 @@ def evaluate(req: EvaluateRequest, service: KnowledgeService = Depends(get_knowl
 - **faithfulness 依赖 LLM**：`with_faithfulness=True` 且 `RAG_LLM_PROVIDER=mock` 时 faithfulness 退化为不可用（评测返回中省略该字段或记 null）。
 - **gold 质量决定评测意义**：内置 fixture 仅供冒烟；真实评估需业务方提供 gold 集。
 - **引用校验局限**：只校验 `[n]` 编号是否在 citations 内，不校验语义是否真的支撑（深度 faithfulness 需 NLI/LLM-judge，本期不做）。
+- **多 Key 故障转移的边界**：仅对 `401/429/402` 等鉴权/限流/配额错误切换 key；`5xx`/`timeout` 同样可切换（按故障转移统一处理）。所有 key 耗尽才抛错/降级，避免静默错答。
+- **两阶段延迟**：`RAG_TWO_PHASE=True` 会发两次 LLM 请求，延迟约翻倍；默认 `False`，仅在引用精准度要求高时开启。
+- **SOPLLMClient 多 key 为共享增强**：扩展 `keys` 参数对 SOP AI 段同样生效（向后兼容，单 key 不变）；本期仅 RAG 路径显式配置 `RAG_LLM_KEYS`。
