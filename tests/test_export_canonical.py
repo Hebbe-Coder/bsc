@@ -86,3 +86,13 @@ def test_html_consumes_canonical_and_uniform_labels():
         assert marker in html, marker
     assert "🔴 高风险" in html
     assert "准确率" in html
+
+
+def test_ppt_includes_roles_and_uniform_severity():
+    from exporters.ppt_spec_exporter import generate_ppt_spec
+    r = normalize(RAW_CANONICAL)
+    spec = generate_ppt_spec(r, None)
+    titles = [s["title"] for s in spec["slides"]]
+    assert "角色定义" in titles          # 之前缺失
+    risk_slide = next(s for s in spec["slides"] if s["title"] == "风险分析")
+    assert any("🔴 高风险" in it for it in risk_slide["items"])

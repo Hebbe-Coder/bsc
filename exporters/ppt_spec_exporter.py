@@ -7,8 +7,11 @@ from typing import Any, Dict, Optional
 from exporters._degrade_ctx import DegradeContext
 
 
-def generate_ppt_spec(business_system: dict, ctx: Optional[DegradeContext] = None) -> dict:
-    """生成 PPT 规格（JSON）。ctx 非空时单个区块失败被跳过。"""
+def generate_ppt_spec(report, ctx: Optional[DegradeContext] = None) -> dict:
+    """生成 PPT 规格（JSON）。report 为 CanonicalReport；ctx 非空时单区块失败被跳过。"""
+    from exporters.canonical import CanonicalReport, normalize
+    if not isinstance(report, CanonicalReport):
+        report = normalize(report)
     slides: list[dict] = []
 
     def _block(name: str, build):
@@ -21,70 +24,83 @@ def generate_ppt_spec(business_system: dict, ctx: Optional[DegradeContext] = Non
     def _title():
         slides.append({
             "slide_type": "title",
-            "title": business_system.get("business_domain", "业务系统分析"),
+            "title": report.title,
             "subtitle": "基于PRD的业务系统分析报告",
         })
 
     _block("title", _title)
 
     def _objectives():
-        if business_system.get("objectives"):
+        if report.objectives:
             slides.append({
                 "slide_type": "list",
                 "title": "业务目标",
-                "items": [f"{obj.get('objective', '')}: {obj.get('target', '')}" for obj in business_system["objectives"]],
+                "items": [f"{o.priority_label} {o.objective}: {o.target}" for o in report.objectives],
             })
 
     _block("objectives", _objectives)
 
+    def _roles():
+        if report.roles:
+            slides.append({
+                "slide_type": "table",
+                "title": "角色定义",
+                "headers": ["角色", "部门", "级别", "人数"],
+                "data": [[r.role, r.department, r.level, r.headcount] for r in report.roles],
+            })
+
+    _block("roles", _roles)
+
     def _workflow():
-        if business_system.get("workflow"):
+        if report.workflow:
             slides.append({
                 "slide_type": "flow",
                 "title": "流程设计",
-                "steps": [step.get("name", "") for step in business_system["workflow"]],
+                "steps": [s.name for s in report.workflow],
             })
 
     _block("workflow", _workflow)
 
     def _metrics():
-        if business_system.get("metrics"):
+        if report.metrics:
             slides.append({
                 "slide_type": "table",
                 "title": "关键指标",
                 "headers": ["指标", "公式", "目标"],
-                "data": [[kpi.get("name", ""), kpi.get("formula", ""), kpi.get("target", "")] for kpi in business_system["metrics"]],
+                "data": [[m.name, m.formula, m.target] for m in report.metrics],
             })
 
     _block("metrics", _metrics)
 
     def _risks():
-        if business_system.get("risks"):
+        if report.risks:
             slides.append({
                 "slide_type": "list",
                 "title": "风险分析",
-                "items": [f"{risk.get('risk', '')} ({risk.get('severity', '')})" for risk in business_system["risks"][:5]],
+                "items": [f"{rk.severity_label}: {rk.risk}" for rk in report.risks[:5]],
             })
 
     _block("risks", _risks)
 
     def _strategy():
-        if business_system.get("strategy"):
-            ops = business_system["strategy"].get("growth_opportunities", [])
+        items = list(report.strategy.recommendations)
+        items += [f"{g['opportunity']}: {g['potential']}" for g in report.strategy.growth_opportunities]
+        items += list(report.strategy.roadmap)
+        if items:
             slides.append({
                 "slide_type": "list",
-                "title": "战略机会",
-                "items": [f"{op.get('opportunity', '')}: {op.get('potential', '')}" for op in ops],
+                "title": "战略建议",
+                "items": items,
             })
 
     _block("strategy", _strategy)
 
     def _report():
-        if business_system.get("report"):
+        if report.executive_summary:
             slides.append({
                 "slide_type": "content",
                 "title": "执行摘要",
-                "content": business_system["report"].get("executive_summary", ""),
+                "content": report.executive_summary,
             })
 
     _block("report", _report)
