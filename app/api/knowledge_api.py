@@ -80,3 +80,13 @@ def retrieve(
     results = service.retrieve(
         req.query, top_k=req.top_k, project_id=req.project_id or None)
     return ApiResponse.ok({"results": results})
+
+
+@router.delete("/documents/{doc_id}")
+def delete_document(
+    doc_id: str,
+    service: KnowledgeService = Depends(get_knowledge_service),
+):
+    if not service.delete_document(doc_id):
+        return ApiResponse.not_found("文档不存在")
+    return ApiResponse.ok({"deleted": doc_id})
