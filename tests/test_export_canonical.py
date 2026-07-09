@@ -130,3 +130,58 @@ def test_run_export_uses_canonical_end_to_end():
     ppt_items = [it for s in outcome.exports["ppt"]["slides"] for it in s.get("items", [])]
     assert "🔴 高风险" in md and "🔴 高风险" in html
     assert any("🔴 高风险" in it for it in ppt_items)
+
+
+def _render_all(bs):
+    r = normalize(bs)
+    from exporters.markdown_exporter import MarkdownExporter
+    from exporters.html_exporter import generate_html
+    from exporters.ppt_spec_exporter import generate_ppt_spec
+    from exporters.word_exporter import WordExporter
+    md = MarkdownExporter().export(r, None)
+    html = generate_html(r, {}, None)
+    ppt = generate_ppt_spec(r, None)
+    # word 需按 docx 解析
+    import io
+    from docx import Document
+    word_doc = Document(io.BytesIO(WordExporter().export(r)))
+    word_text = "\n".join(p.text for p in word_doc.paragraphs)
+    for tbl in word_doc.tables:
+        for row in tbl.rows:
+            for cell in row.cells:
+                word_text += "\n" + cell.text
+    return md, html, ppt, word_text
+
+
+def test_renderers_same_sections():
+    md, html, ppt, word = _render_all(RAW_CANONICAL)
+    section_markers = ["业务目标", "角色定义", "业务流程", "关键指标", "风险分析", "战略建议"]
+    for m in section_markers:
+        assert m in md and m in html and m in word, f"markdown/html/word 缺 {m}"
+    ppt_titles = [s["title"] for s in ppt["slides"]]
+    for m in section_markers:
+        assert m in ppt_titles, f"ppt 缺 {m}"
+
+
+def test_renderers_same_field_values():
+    md, html, ppt, word = _render_all(RAW_CANONICAL)
+    ppt_items = [it for s in ppt["slides"] for it in s.get("items", [])]
+    for label in ["🔴 高风险"]:
+        assert label in md and label in html and label in word
+        assert any(label in it for it in ppt_items)
+
+
+def test_canonical_order():
+    md, _, _, _ = _render_all(RAW_CANONICAL)
+    nums = ["一", "二", "三", "四", "五", "六"]
+    idx = {m: md.index(f"## {n}、{m}") for n, m in zip(
+        nums, ["业务目标", "角色定义", "业务流程", "关键指标", "风险分析", "战略建议"])}
+    assert idx["业务目标"] < idx["角色定义"] < idx["业务流程"] < idx["关键指标"] < idx["风险分析"] < idx["战略建议"]
+
+
+def test_missing_section_safe():
+    bs = {"business_domain": "X", "objectives": [{"objective": "o", "priority": "high"}]}
+    md, html, ppt, word = _render_all(bs)
+    assert "业务目标" in md and "暂无关键指标" in md
+    assert "关键指标" in html
+    assert any(s["title"] == "关键指标" for s in ppt["slides"])

@@ -31,54 +31,49 @@ def generate_ppt_spec(report, ctx: Optional[DegradeContext] = None) -> dict:
     _block("title", _title)
 
     def _objectives():
-        if report.objectives:
-            slides.append({
-                "slide_type": "list",
-                "title": "业务目标",
-                "items": [f"{o.priority_label} {o.objective}: {o.target}" for o in report.objectives],
-            })
+        slides.append({
+            "slide_type": "list",
+            "title": "业务目标",
+            "items": [f"{o.priority_label} {o.objective}: {o.target}" for o in report.objectives],
+        })
 
     _block("objectives", _objectives)
 
     def _roles():
-        if report.roles:
-            slides.append({
-                "slide_type": "table",
-                "title": "角色定义",
-                "headers": ["角色", "部门", "级别", "人数"],
-                "data": [[r.role, r.department, r.level, r.headcount] for r in report.roles],
-            })
+        slides.append({
+            "slide_type": "table",
+            "title": "角色定义",
+            "headers": ["角色", "部门", "级别", "人数"],
+            "data": [[r.role, r.department, r.level, r.headcount] for r in report.roles],
+        })
 
     _block("roles", _roles)
 
     def _workflow():
-        if report.workflow:
-            slides.append({
-                "slide_type": "flow",
-                "title": "流程设计",
-                "steps": [s.name for s in report.workflow],
-            })
+        slides.append({
+            "slide_type": "flow",
+            "title": "业务流程",
+            "steps": [s.name for s in report.workflow],
+        })
 
     _block("workflow", _workflow)
 
     def _metrics():
-        if report.metrics:
-            slides.append({
-                "slide_type": "table",
-                "title": "关键指标",
-                "headers": ["指标", "公式", "目标"],
-                "data": [[m.name, m.formula, m.target] for m in report.metrics],
-            })
+        slides.append({
+            "slide_type": "table",
+            "title": "关键指标",
+            "headers": ["指标", "公式", "目标"],
+            "data": [[m.name, m.formula, m.target] for m in report.metrics],
+        })
 
     _block("metrics", _metrics)
 
     def _risks():
-        if report.risks:
-            slides.append({
-                "slide_type": "list",
-                "title": "风险分析",
-                "items": [f"{rk.severity_label}: {rk.risk}" for rk in report.risks[:5]],
-            })
+        slides.append({
+            "slide_type": "list",
+            "title": "风险分析",
+            "items": [f"{rk.severity_label}: {rk.risk}" for rk in report.risks[:5]],
+        })
 
     _block("risks", _risks)
 
@@ -86,12 +81,11 @@ def generate_ppt_spec(report, ctx: Optional[DegradeContext] = None) -> dict:
         items = list(report.strategy.recommendations)
         items += [f"{g['opportunity']}: {g['potential']}" for g in report.strategy.growth_opportunities]
         items += list(report.strategy.roadmap)
-        if items:
-            slides.append({
-                "slide_type": "list",
-                "title": "战略建议",
-                "items": items,
-            })
+        slides.append({
+            "slide_type": "list",
+            "title": "战略建议",
+            "items": items,
+        })
 
     _block("strategy", _strategy)
 
