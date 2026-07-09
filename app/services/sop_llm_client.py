@@ -157,7 +157,7 @@ class SOPLLMClient:
                 parsed = _parse_json(raw.get("content", ""))
                 if parsed is not None:
                     return parsed
-            except (SOPLLMError, KeyError) as e:
+            except (SOPLLMError, KeyError, IndexError) as e:
                 logger.warning("SOP LLM 解析失败(retry): %s", e)
         logger.warning("SOP LLM 结构化解析最终失败,返回 None")
         return None

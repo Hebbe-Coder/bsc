@@ -111,6 +111,7 @@ def _validate_settings(settings: Settings):
             ("DOUBAO_API_KEY", settings.DOUBAO_API_KEY),
             ("YUANBAO_API_KEY", settings.YUANBAO_API_KEY),
             ("QWEN_API_KEY", settings.QWEN_API_KEY),
+            ("KIMI_API_KEY", settings.KIMI_API_KEY),
         ]
         
         for name, value in secrets_to_check:
