@@ -163,7 +163,8 @@ class SOPLLMClient:
         return None
 
     def _mock_content(self, system_prompt: str) -> str:
-        if "优化建议" in system_prompt or "recommend" in system_prompt.lower():
+        sp = system_prompt.lower()
+        if "optimization_suggestions" in sp or "优化建议" in system_prompt:
             return json.dumps(
                 {
                     "optimization_suggestions": [
