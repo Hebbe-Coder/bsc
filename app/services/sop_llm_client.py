@@ -73,6 +73,7 @@ class SOPLLMClient:
         model: Optional[str] = None,
         timeout: float = 30.0,
         http_client: Optional[httpx.Client] = None,
+        keys: Optional[list] = None,
     ):
         self.provider = (provider or settings.SOP_LLM_PROVIDER or "mock").lower()
         self.timeout = timeout
@@ -91,6 +92,12 @@ class SOPLLMClient:
         self.base_url = (base_url or getattr(settings, url_attr) or reg["base_url"]).rstrip("/")
         self.model = model or getattr(settings, model_attr) or reg["model"]
         self.api_key = api_key if api_key is not None else getattr(settings, key_attr, "")
+        if keys:
+            self.keys = list(keys)
+        elif self.api_key:
+            self.keys = [self.api_key]
+        else:
+            self.keys = []
         if not self.api_key:
             raise SOPLLMError(f"provider={self.provider} 需要配置 {key_attr}")
 
@@ -118,25 +125,34 @@ class SOPLLMClient:
         if use_json_mode:
             body["response_format"] = {"type": "json_object"}
 
-        try:
-            client = self._http or httpx.Client(timeout=self.timeout)
+        keys = self.keys or [self.api_key]
+        last_err = None
+        for key in keys:
             try:
-                resp = client.post(
-                    f"{self.base_url}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json=body,
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                return {"content": data["choices"][0]["message"]["content"]}
-            finally:
-                if self._http is None:
-                    client.close()
-        except httpx.HTTPError as e:
-            raise SOPLLMError(f"LLM 请求失败: {e}") from e
+                client = self._http or httpx.Client(timeout=self.timeout)
+                try:
+                    resp = client.post(
+                        f"{self.base_url}/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {key}",
+                            "Content-Type": "application/json",
+                        },
+                        json=body,
+                    )
+                    if resp.status_code in (401, 402, 429):
+                        logger.warning("LLM key 被拒(%s),切换下一 key", resp.status_code)
+                        continue
+                    resp.raise_for_status()
+                    data = resp.json()
+                    return {"content": data["choices"][0]["message"]["content"]}
+                finally:
+                    if self._http is None:
+                        client.close()
+            except httpx.HTTPError as e:
+                last_err = e
+                logger.warning("LLM 请求失败(尝试下一 key): %s", e)
+                continue
+        raise SOPLLMError(f"所有 LLM key 均不可用: {last_err}")
 
     def chat_structured(
         self,
