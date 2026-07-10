@@ -164,7 +164,7 @@ class KnowledgeService:
         if do_rerank:
             try:
                 candidates = self._fetch_candidates(fused[:top_n], project_id)
-                return get_reranker().rerank(query, candidates, top_k)
+                return get_reranker(project_id=project_id, repo=self.repo).rerank(query, candidates, top_k)
             except Exception as e:
                 logger.warning("rerank 失败, 回退融合顺序: %s", e)
         return self._fetch_candidates(fused[:top_k], project_id)

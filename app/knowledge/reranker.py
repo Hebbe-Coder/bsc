@@ -1,11 +1,28 @@
 """RRF 融合 + Reranker 抽象（本地 cross-encoder / 云端 / Mock）。"""
 from __future__ import annotations
+import base64
+import hashlib
 import logging
 from typing import List, Dict, Optional
+
+from cryptography.fernet import Fernet
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _b64key(master: str) -> bytes:
+    """任意长度主密钥经 sha256→32 字节→urlsafe_b64 规整为 Fernet 合法 key。"""
+    return base64.urlsafe_b64encode(hashlib.sha256(master.encode()).digest())
+
+
+def _encrypt_key(plain: str, master: str) -> str:
+    return Fernet(_b64key(master)).encrypt(plain.encode()).decode()
+
+
+def _decrypt_key(token: str, master: str) -> str:
+    return Fernet(_b64key(master)).decrypt(token.encode()).decode()
 
 
 def rrf_fuse(ranklists: List[List[str]], k: int = 60) -> List[tuple]:
@@ -80,8 +97,9 @@ class LocalCrossEncoderReranker(Reranker):
             return candidates[:top_k]
 
 
-def get_reranker(provider: Optional[str] = None, keys=None, model: str = None) -> Reranker:
-    provider = (provider or settings.RERANK_PROVIDER or "none").lower()
+def _build(provider: Optional[str], keys=None, model: str = None) -> Reranker:
+    """按 provider 实际构建 reranker（none/false/""/off→NoOp；mock→Mock；local→Local；cloud→Cloud；其它→NoOp）。"""
+    provider = (provider or "none").lower()
     if provider in ("none", "false", "", "off"):
         return NoOpReranker()
     if provider == "mock":
@@ -92,3 +110,25 @@ def get_reranker(provider: Optional[str] = None, keys=None, model: str = None) -
         from app.knowledge.cloud_reranker import CloudReranker
         return CloudReranker(keys=keys or list(settings.RERANK_KEYS or []))
     return NoOpReranker()
+
+
+def get_reranker(provider: Optional[str] = None, keys=None, model: str = None,
+                 project_id: Optional[str] = None, repo=None) -> Reranker:
+    # 1. 显式传 provider → 直接按 provider 构建（保持旧行为）。
+    if provider:
+        return _build(provider, keys=keys, model=model)
+    # 2. 传了 project_id 且 repo 非 None → 走项目配置。
+    if project_id and repo is not None:
+        proj = repo.get_project(project_id)
+        cfg = (proj or {}).get("rerank_config") if proj else None
+        if isinstance(cfg, dict) and cfg.get("enabled") and cfg.get("provider"):
+            pkeys = keys
+            if cfg.get("keys_encrypted") and settings.RERANK_KEY_MASTER:
+                try:
+                    pkeys = _decrypt_key(cfg["keys_encrypted"], settings.RERANK_KEY_MASTER)
+                except Exception as e:
+                    logger.warning("项目云端 rerank key 解密失败, 静默降级: %s", e)
+                    pkeys = None
+            return _build(cfg["provider"], keys=pkeys, model=cfg.get("model"))
+    # 3. 回退全局 settings。
+    return _build(settings.RERANK_PROVIDER, keys=settings.RERANK_KEYS, model=settings.RERANK_MODEL)
