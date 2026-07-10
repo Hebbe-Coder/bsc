@@ -107,20 +107,27 @@ def get_reranker() -> Reranker:
 - `rerank()` 入参 `candidates` 为 `retrieve()` 产出的字典列表（含 `chunk_id`/`content`/`score` 等）；返回同结构列表，额外加 `rerank_score`。
 - 降级语义：**任何异常都回退到「原融合顺序」**，检索因重排失败而中断是禁止的。
 
-### 4.2 DocumentParser（新建 `app/knowledge/parsers.py`）
+### 4.2 DocumentParser（**扩展现有 `app/core/document_parser.py`**，非新建）
+
+> **实现备注（偏差修正）**：代码核查发现 `app/core/document_parser.py` 的 `DocumentParser` + `parse_document()` **已存在且被 `/ingest` 使用**，已支持 `.docx`/`.pdf`/`.txt`/图片，且 PDF 的 OCR 回退已通过 **LLM 视觉服务**（`llm_service.ocr_image`，非 `pytesseract`）实现。因此本设计的「更多文档类型」工作**不是从零新建 parser**，而是**扩展现有 `document_parser`**：
+> - 新增格式：`.md`/`.markdown`（当作纯文本）、`.pptx`（python-pptx）、`.xlsx`/`.xls`（openpyxl）。
+> - PDF/OCR/Word/纯文本/图片 **已具备**，无需重做；OCR 沿用既有 LLM 视觉路径（故 `pytesseract` 从依赖中移除）。
+> - 在所有 parser 返回中补充 `doc_format` 字段，供 `ingest` 落库。
 
 ```python
-def parse(path_or_bytes, filename: str = "") -> str:
-    """按扩展名分派解析器, 返回归一化纯文本。
-    缺依赖 / 解析失败 → 返回 '' + warning, 不影响其他格式。"""
+# 扩展点（在现有 DocumentParser 内新增方法 + 更新 SUPPORTED_EXTENSIONS 与 dispatch）
+SUPPORTED_EXTENSIONS = [".docx", ".pdf", ".txt", ".md", ".markdown",
+                        ".pptx", ".xlsx", ".xls",
+                        ".png", ".jpg", ".jpeg", ".gif", ".webp"]
 
-class DocumentParser:  # 或函数式分派表
-    PDF, WORD, MARKDOWN, PPT, EXCEL 各实现 parse()
+def _parse_md(self, file_bytes, filename) -> dict:   # 同 _parse_txt
+def _parse_pptx(self, file_bytes, filename) -> dict:  # python-pptx 懒导入
+def _parse_xlsx(self, file_bytes, filename) -> dict:  # openpyxl 懒导入
+# 每个方法返回 {"success","text","filename","error","doc_format": "<ext>"}
 ```
 
-- **全部依赖懒导入**：`pypdf`/`pdfplumber`、`pytesseract`(OCR 可选)、`python-docx`、`python-pptx`、`openpyxl`。不装 → 对应格式返回空文本 + warning（延续「门面永不上抛」）。
-- **PDF + OCR**：先抽文本层；若某页文本为空且 OCR 可用（`pytesseract` 已装 + tesseract 可执行）→ 走 OCR；OCR 不可用则跳过该页。OCR 为**可选能力**，非强制依赖。
-- **Office 表格**（PPT/Excel）：抽取文本框/单元格文本，保留自然阅读顺序。
+- 全部**新增依赖懒导入**：`python-pptx`、`openpyxl`；缺依赖 → 该格式返回 `success=False` + warning（延续「门面永不上抛」）。
+- Office 表格（PPT/Excel）：抽取文本框/单元格文本，保留自然阅读顺序。
 
 ### 4.3 KnowledgeService 改动（`app/knowledge/service.py`）
 
@@ -235,13 +242,14 @@ ALTER TABLE knowledge_docs ADD COLUMN version INTEGER DEFAULT 1;
 | 包 | 用途 | 必需 |
 |----|------|------|
 | `sentence-transformers` | 本地 cross-encoder rerank | 否（缺则降级） |
-| `pypdf` / `pdfplumber` | PDF 解析 | 否（缺则 PDF 降级） |
-| `pytesseract` + `tesseract` | PDF OCR | 否（可选） |
-| `python-docx` | Word 解析 | 否（缺则 Word 降级） |
-| `python-pptx` | PPT 解析 | 否（缺则 PPT 降级） |
-| `openpyxl` | Excel 解析 | 否（缺则 Excel 降级） |
+| `python-pptx` | PPT 解析（**新增**） | 否（缺则 PPT 降级） |
+| `openpyxl` | Excel 解析（**新增**） | 否（缺则 Excel 降级） |
+| `pdfplumber` / `pymupdf` / `Pillow` / `python-docx` | PDF/OCR/Word（**已存在**） | 否（缺则对应格式降级） |
 
-所有依赖**懒导入**，不装也能跑（对应功能降级）；测试用 mock 不需要真实安装重模型。
+> **移除 `pytesseract`**：OCR 已通过既有 LLM 视觉服务（`llm_service.ocr_image`）实现，无需本地 tesseract。
+> 所有依赖**懒导入**，不装也能跑（对应功能降级）；测试用 mock 不需要真实安装重模型。
+
+**新增格式支持（扩展 `app/core/document_parser.py`）**：`.md`/`.markdown`（纯文本）、`.pptx`（python-pptx）、`.xlsx`/`.xls`（openpyxl）。PDF/OCR/Word/纯文本/图片沿用现有实现。
 
 ---
 
