@@ -79,7 +79,7 @@ def test_evaluate_endpoint_http_returns_metrics(monkeypatch):
         client = TestClient(app)
         resp = client.post(
             "/knowledge/evaluate",
-            json={"gold": [{"query": "内容安全 违规", "expected_chunk_ids": []}], "top_k": 5},
+            json={"gold": [{"query": "内容安全 违规", "expected_chunk_ids": []}], "top_k": 5, "project_id": "p1"},
             headers={"Authorization": f"Bearer {_TEST_API_KEY}"},
         )
         assert resp.status_code == 200

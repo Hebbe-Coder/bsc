@@ -200,6 +200,7 @@ class EvaluateRequest(BaseModel):
     gold: Optional[List[dict]] = None
     top_k: int = 5
     with_faithfulness: bool = False
+    project_id: Optional[str] = None
 
 
 @router.post("/ask")
@@ -217,14 +218,20 @@ def ask(request: Request, req: AskRequest,
 
 
 @router.post("/evaluate")
-def evaluate(req: EvaluateRequest, service: KnowledgeService = Depends(get_knowledge_service)):
+def evaluate(req: EvaluateRequest,
+             service: KnowledgeService = Depends(get_knowledge_service),
+             _admin: bool = Depends(require_admin)):
+    if not req.project_id:
+        raise HTTPException(status_code=400, detail="project_id 必填")
     from app.knowledge.eval import RAGEvaluator
     try:
         gold = req.gold if req.gold else RAGEvaluator.DEFAULT_GOLD
         if not gold:
             return ApiResponse.error("gold 为空", code=400)
         ev = RAGEvaluator()
-        metrics = ev.evaluate(service, gold, top_k=req.top_k, with_faithfulness=req.with_faithfulness)
+        metrics = ev.evaluate(service, gold, top_k=req.top_k,
+                               project_id=req.project_id,
+                               with_faithfulness=req.with_faithfulness)
         return ApiResponse.ok(metrics)
     except ValueError as e:
         return ApiResponse.error(str(e), code=400)

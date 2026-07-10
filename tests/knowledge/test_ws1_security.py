@@ -56,3 +56,17 @@ def test_admin_without_project_id_sees_all(env):
                 headers={"Authorization": "Bearer ws1-admin"})
     assert r.json()["success"] is True
     assert {d["project_id"] for d in r.json()["data"]["documents"]} == {"PA", "PB"}
+
+
+def test_evaluate_requires_admin(env):
+    r = env.post("/knowledge/evaluate", json={"project_id": "PA"},
+                 headers={"Authorization": "Bearer ws1-reader"})
+    assert r.status_code == 403
+    assert r.json()["code"] == 403
+
+
+def test_evaluate_requires_project_id(env):
+    r = env.post("/knowledge/evaluate", json={},
+                 headers={"Authorization": "Bearer ws1-admin"})
+    assert r.status_code == 400
+    assert r.json()["code"] == 400
