@@ -27,4 +27,14 @@ def ensure_schema(repo: Any) -> None:
     except Exception:
         # FTS5 不可用（极端环境）：keyword 后端将降级为空，不影响其他后端
         pass
+    # 幂等加列：knowledge_docs 增加 RAG 增强所需字段，列已存在时静默忽略
+    for col_sql in (
+        "ALTER TABLE knowledge_docs ADD COLUMN doc_format TEXT",
+        "ALTER TABLE knowledge_docs ADD COLUMN content_hash TEXT",
+        "ALTER TABLE knowledge_docs ADD COLUMN version INTEGER DEFAULT 1",
+    ):
+        try:
+            repo._execute(col_sql)
+        except Exception:
+            pass
     repo._commit()
