@@ -20,7 +20,7 @@ def test_eval_builtin_gold_metrics():
     expected = [r["id"] for r in rows]
     gold = [{"query": "内容安全 违规", "expected_chunk_ids": expected}]
     ev = RAGEvaluator()
-    m = ev.evaluate(svc, gold, top_k=5)
+    m = ev.evaluate(svc, gold, top_k=5, project_id="p1")
     assert m["n"] == 1
     assert m["precision@k"] >= 0.0
     assert m["recall@k"] == 1.0  # 期望块都在 top-k 内

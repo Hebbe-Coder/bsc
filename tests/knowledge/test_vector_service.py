@@ -39,7 +39,7 @@ def test_retrieve_fuses_three_ways():
     svc.backends["vector"] = VectorBackend(svc.repo, provider=ParaphraseProvider())
     svc.ingest("用户反馈应对流程 与 售后 客服 安抚", project_id="p1", title="A")
     svc.ingest("咖啡 烘焙 风味 产地", project_id="p1", title="B")
-    res = svc.retrieve("客户投诉处理")  # 字面无交集，仅向量命中 A
+    res = svc.retrieve("客户投诉处理", project_id="p1")  # 字面无交集，仅向量命中 A
     assert res and res[0]["doc_title"] == "A"
 
 
@@ -55,7 +55,7 @@ def test_remote_unavailable_retrieve_still_works():
     svc.ingest("内容安全平台 过滤 违规 信息", project_id="p1", title="A")
     svc.ingest("咖啡 烘焙 风味 分析", project_id="p1", title="B")
     # 向量后端整批失败 → 不写向量 → 检索退化为 keyword+tfidf，仍可用
-    res = svc.retrieve("内容安全 违规")
+    res = svc.retrieve("内容安全 违规", project_id="p1")
     assert res and res[0]["doc_title"] == "A"
 
 

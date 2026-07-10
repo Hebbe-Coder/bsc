@@ -17,7 +17,7 @@ def client_and_cleanup(monkeypatch):
     svc = KnowledgeService(db_path=tmp)
     # 预灌 b.txt（供 retrieve rerank 测试使用）；不预灌 a.txt，
     # 让 ingest 幂等测试中的 r1 成为首次入库(ingested)、r2 为重复(skipped)。
-    svc.ingest_text("苹果 公司 股价 财报", source="b.txt", doc_format="txt")
+    svc.ingest_text("苹果 公司 股价 财报", source="b.txt", doc_format="txt", project_id="p1")
     app.dependency_overrides[get_knowledge_service] = lambda: svc
     client = TestClient(app)
     headers = {"Authorization": "Bearer test-admin-key-enh"}
@@ -42,7 +42,7 @@ def test_retrieve_rerank_param(client_and_cleanup, monkeypatch):
     client, headers, _ = client_and_cleanup
     monkeypatch.setattr(settings, "RERANK_PROVIDER", "mock")
     resp = client.post("/knowledge/retrieve",
-                       json={"query": "苹果 公司", "top_k": 2, "rerank": True},
+                       json={"query": "苹果 公司", "top_k": 2, "rerank": True, "project_id": "p1"},
                        headers=headers)
     assert resp.status_code == 200
     assert "rerank_score" in resp.json()["data"]["results"][0]

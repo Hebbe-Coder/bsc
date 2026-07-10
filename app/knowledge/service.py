@@ -132,8 +132,8 @@ class KnowledgeService:
             row = self.repo._execute(
                 "SELECT c.content AS content, c.section AS section, c.idx AS idx, d.title AS doc_title "
                 "FROM knowledge_chunks c LEFT JOIN knowledge_docs d ON c.doc_id=d.id "
-                "WHERE c.id=? AND (? = '' OR d.project_id = ?)",
-                (cid, project_id or "", project_id or "")).fetchone()
+                "WHERE c.id=? AND d.project_id = ?",
+                (cid, project_id or "")).fetchone()
             if row:
                 results.append({
                     "chunk_id": cid,
@@ -148,6 +148,8 @@ class KnowledgeService:
     def retrieve(self, query: str, top_k: int = 5, project_id: Optional[str] = None,
                  rerank: Optional[bool] = None, rerank_top_n: Optional[int] = None) -> List[dict]:
         if not query or not query.strip():
+            return []
+        if not project_id:                      # L1: 强隔离，project_id 必填
             return []
         kw_ids = self.backends["keyword"].search(query)
         tf_ids = self.backends["tfidf"].search(query)
