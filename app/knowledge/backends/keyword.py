@@ -47,11 +47,11 @@ class KeywordBackend:
         except Exception:
             try:
                 like = f"%{query}%"
-                sql = ("SELECT c.id AS chunk_id FROM knowledge_chunks c "
-                       "JOIN knowledge_docs d ON c.doc_id=d.id WHERE c.content LIKE ?")
+                sql = "SELECT c.id AS chunk_id FROM knowledge_chunks c WHERE c.content LIKE ?"
                 lparams: list = [like]
                 if project_id:
-                    sql += " AND d.project_id=?"
+                    sql += (" AND c.doc_id IN (SELECT id FROM knowledge_docs "
+                            "WHERE project_id=?)")
                     lparams.append(project_id)
                 sql += " LIMIT ?"
                 lparams.append(limit)

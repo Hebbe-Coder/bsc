@@ -112,3 +112,46 @@ def test_backend_search_respects_project_id(svc_env):
                 "JOIN knowledge_docs d ON c.doc_id=d.id WHERE c.id=?",
                 (cid,)).fetchone()
             assert row["project_id"] == "PA", f"{type(backend).__name__} 跨越了项目边界"
+
+
+def test_retrieve_no_random_truncation(svc_env):
+    svc, repo, p = svc_env
+    # 在 PA 下灌入大量 chunk，其中一个含唯一查询词
+    for i in range(30):
+        svc.ingest_text(f"噪声文档 第{i}篇 无关内容", project_id="PA", title=f"n{i}")
+    svc.ingest_text("唯一标记词 ZZZRELEVANT 关键内容", project_id="PA", title="rel")
+    res = svc.retrieve("ZZZRELEVANT", project_id="PA", top_k=5)
+    assert res, "不应因 SQL LIMIT 随机截断而漏掉相关 chunk"
+    assert any("ZZZRELEVANT" in (r.get("content") or "") for r in res), "相关 chunk 必须被召回"
+
+
+def test_tfidf_search_no_sql_limit_truncation(svc_env):
+    """HIGH 缺陷定向回归：tfidf.search 在 Python 内算余弦，SQL 不得提前 LIMIT
+    截断候选池。相关 chunk 最后插入（rowid 最大），若 SQL LIMIT 先于打分，
+    会被随机丢掉 → 本测试 pre-fix 失败、post-fix 通过。"""
+    svc, repo, p = svc_env
+    for i in range(30):
+        svc.ingest_text(f"噪声文档 第{i}篇 无关内容", project_id="PA", title=f"n{i}")
+    svc.ingest_text("唯一标记词 ZZZRELEVANT 关键内容", project_id="PA", title="rel")
+    got = TfidfBackend(repo).search("ZZZRELEVANT", project_id="PA", limit=20)
+    assert got, "tfidf 不应因 SQL LIMIT 随机截断而漏掉相关 chunk"
+    rows = repo._execute(
+        "SELECT content FROM knowledge_chunks WHERE id IN (%s)" % ",".join("?" * len(got)),
+        tuple(got)).fetchall()
+    assert any("ZZZRELEVANT" in (r["content"] or "") for r in rows), \
+        "tfidf 必须召回含 ZZZRELEVANT 的 chunk（不应被 SQL LIMIT 截断）"
+
+
+def test_vector_search_no_sql_limit_truncation(svc_env):
+    """同 test_tfidf_search_no_sql_limit_truncation，但针对 vector.search。"""
+    svc, repo, p = svc_env
+    for i in range(30):
+        svc.ingest_text(f"噪声文档 第{i}篇 无关内容", project_id="PA", title=f"n{i}")
+    svc.ingest_text("唯一标记词 ZZZRELEVANT 关键内容", project_id="PA", title="rel")
+    got = VectorBackend(repo).search("ZZZRELEVANT", project_id="PA", limit=20)
+    assert got, "vector 不应因 SQL LIMIT 随机截断而漏掉相关 chunk"
+    rows = repo._execute(
+        "SELECT content FROM knowledge_chunks WHERE id IN (%s)" % ",".join("?" * len(got)),
+        tuple(got)).fetchall()
+    assert any("ZZZRELEVANT" in (r["content"] or "") for r in rows), \
+        "vector 必须召回含 ZZZRELEVANT 的 chunk（不应被 SQL LIMIT 截断）"

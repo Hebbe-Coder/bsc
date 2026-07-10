@@ -71,8 +71,6 @@ class VectorBackend:
         if project_id:
             sql += " AND c.doc_id IN (SELECT id FROM knowledge_docs WHERE project_id=?)"
             params.append(project_id)
-        sql += " LIMIT ?"
-        params.append(limit)
         rows = self.repo._execute(sql, tuple(params)).fetchall()
         if not rows:
             return []
