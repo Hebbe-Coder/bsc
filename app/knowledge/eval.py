@@ -23,14 +23,16 @@ class RAGEvaluator:
         return payload
 
     def evaluate(self, service, gold=None, top_k: int = 5,
-                 project_id: Optional[str] = None, with_faithfulness: bool = False) -> dict:
+                 project_id: Optional[str] = None, with_faithfulness: bool = False,
+                 rerank: Optional[bool] = None, rerank_top_n: Optional[int] = None) -> dict:
         gold = self.load_gold(gold if gold is not None else self.DEFAULT_GOLD)
         if not gold:
             raise ValueError("gold 为空")
         per_item = []
         p_sum = r_sum = 0.0
         for item in gold:
-            retrieved = service.retrieve(item["query"], top_k=top_k, project_id=project_id)
+            retrieved = service.retrieve(item["query"], top_k=top_k, project_id=project_id,
+                                          rerank=rerank, rerank_top_n=rerank_top_n)
             got = {r["chunk_id"] for r in retrieved}
             expected = set(item.get("expected_chunk_ids") or [])
             hit = len(got & expected)
@@ -42,7 +44,8 @@ class RAGEvaluator:
                     from app.knowledge.answer import RAGAnswerGenerator
                     # 注:默认 RAG_LLM_PROVIDER=mock 时生成会降级,faithfulness 仅 best-effort
                     gen = RAGAnswerGenerator(service=service)
-                    out = gen.answer(item["query"], project_id=project_id, top_k=top_k)
+                    out = gen.answer(item["query"], project_id=project_id, top_k=top_k,
+                                     rerank=rerank, rerank_top_n=rerank_top_n)
                     entry["faithfulness"] = out.get("metrics", {}).get("citation_rate", None)
                 except Exception as e:
                     logger.warning("faithfulness 计算失败: %s", e)
@@ -58,3 +61,19 @@ class RAGEvaluator:
             "per_item": per_item,
         }
         return result
+
+    def compare_before_after(self, service, gold=None, top_k: int = 5,
+                             project_id: Optional[str] = None,
+                             rerank_top_n: Optional[int] = None) -> dict:
+        before = self.evaluate(service, gold, top_k=top_k, project_id=project_id, rerank=False)
+        after = self.evaluate(service, gold, top_k=top_k, project_id=project_id,
+                              rerank=True, rerank_top_n=rerank_top_n)
+        bp, br = before["precision@k"], before["recall@k"]
+        ap, ar = after["precision@k"], after["recall@k"]
+        return {
+            "before": before,
+            "after": after,
+            "delta_precision": round(ap - bp, 4),
+            "delta_recall": round(ar - br, 4),
+            "rerank_not_worse": (ap >= bp - 1e-9) and (ar >= br - 1e-9),
+        }
