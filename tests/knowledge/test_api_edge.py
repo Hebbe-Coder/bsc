@@ -5,7 +5,8 @@ def test_ingest_partial_failure(client):
         files=[
             ("files", ("ok.txt", "内容安全平台。", "text/plain")),
             ("files", ("bad.xyz", "x", "application/octet-stream")),
-        ])
+        ],
+        data={"project_id": "p1"})
     body = resp.json()
     assert body["code"] == 207
     assert body["data"]["count"] == 1
@@ -24,7 +25,7 @@ def test_ingest_project_filter_end_to_end(client):
 
 
 def test_retrieve_empty_corpus(client):
-    resp = client.post("/knowledge/retrieve", json={"query": "任意"})
+    resp = client.post("/knowledge/retrieve", json={"query": "任意", "project_id": "p1"})
     assert resp.json()["code"] == 200
     assert resp.json()["data"]["results"] == []
 
@@ -32,6 +33,6 @@ def test_retrieve_empty_corpus(client):
 def test_ingest_oversized_text_skipped_not_crash(client):
     # 巨大文本仍应入库（KnowledgeService 内部有定界），不崩
     big = "内容安全。" * 5000
-    resp = client.post("/knowledge/ingest", data={"text": big, "title": "BIG"})
+    resp = client.post("/knowledge/ingest", data={"text": big, "title": "BIG", "project_id": "p1"})
     assert resp.json()["code"] == 200
     assert client.get("/knowledge/documents").json()["data"]["total"] == 1

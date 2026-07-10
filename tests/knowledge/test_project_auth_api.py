@@ -64,3 +64,48 @@ def test_ingest_auto_creates_project():
         assert ra.status_code == 200, ra.text
     finally:
         _cleanup(p)
+
+
+def test_project_reader_isolation_blocks_cross_project():
+    """回归测试：project_reader 令牌的 project_id 必须与令牌绑定项目一致，
+    否则跨项目检索/写入一律 403。"""
+    ga = "ga-iso-1234"
+    c, p, repo, svc = _client(ga)
+    try:
+        # 用 admin 灌入两个项目的数据
+        c.post("/knowledge/ingest",
+               data={"text": "secret-x alpha", "project_id": "PROJX", "title": "X"},
+               headers={"Authorization": f"Bearer {ga}"})
+        c.post("/knowledge/ingest",
+               data={"text": "secret-y beta", "project_id": "PROJY", "title": "Y"},
+               headers={"Authorization": f"Bearer {ga}"})
+
+        # 创建绑定 PROJX 的 project_reader 密钥
+        repo.create_project_key(
+            hashlib.sha256(b"PK_X").hexdigest(), "PROJX", "project_reader", "r")
+
+        # 自己的项目：允许
+        ok = c.post(
+            "/knowledge/retrieve",
+            json={"query": "secret-x", "project_id": "PROJX"},
+            headers={"Authorization": "Bearer PK_X"},
+        )
+        assert ok.status_code == 200, ok.text
+
+        # 跨项目：拒绝（关键回归点）
+        cross = c.post(
+            "/knowledge/retrieve",
+            json={"query": "secret-y", "project_id": "PROJY"},
+            headers={"Authorization": "Bearer PK_X"},
+        )
+        assert cross.status_code == 403, cross.text
+
+        # project_reader 写入：拒绝
+        w = c.post(
+            "/knowledge/ingest",
+            data={"text": "should-fail", "project_id": "PROJX"},
+            headers={"Authorization": "Bearer PK_X"},
+        )
+        assert w.status_code == 403, w.text
+    finally:
+        _cleanup(p)

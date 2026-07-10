@@ -31,8 +31,8 @@ def client_and_cleanup(monkeypatch):
 
 def test_ingest_idempotent_status(client_and_cleanup):
     client, headers, _ = client_and_cleanup
-    r1 = client.post("/knowledge/ingest", data={"text": "苹果 水果 营养 健康", "source": "a.txt"}, headers=headers)
-    r2 = client.post("/knowledge/ingest", data={"text": "苹果 水果 营养 健康", "source": "a.txt"}, headers=headers)
+    r1 = client.post("/knowledge/ingest", data={"text": "苹果 水果 营养 健康", "source": "a.txt", "project_id": "p1"}, headers=headers)
+    r2 = client.post("/knowledge/ingest", data={"text": "苹果 水果 营养 健康", "source": "a.txt", "project_id": "p1"}, headers=headers)
     assert r1.status_code == 200 and r2.status_code == 200
     assert r1.json()["data"]["docs"][0]["status"] == "ingested"
     assert r2.json()["data"]["docs"][0]["status"] == "skipped"

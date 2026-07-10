@@ -1,7 +1,8 @@
 def test_ingest_file(client):
     resp = client.post(
         "/knowledge/ingest",
-        files={"files": ("doc.txt", "内容安全平台过滤违规信息。审核效率提升。", "text/plain")})
+        files={"files": ("doc.txt", "内容安全平台过滤违规信息。审核效率提升。", "text/plain")},
+        data={"project_id": "p1"})
     assert resp.status_code == 200
     body = resp.json()
     assert body["code"] == 200
@@ -11,7 +12,7 @@ def test_ingest_file(client):
 
 
 def test_ingest_text(client):
-    resp = client.post("/knowledge/ingest", data={"text": "咖啡烘焙风味分析流程。"})
+    resp = client.post("/knowledge/ingest", data={"text": "咖啡烘焙风味分析流程。", "project_id": "p1"})
     assert resp.json()["code"] == 200
     assert resp.json()["data"]["count"] == 1
 
@@ -22,7 +23,8 @@ def test_ingest_multi_file(client):
         files=[
             ("files", ("a.txt", "内容安全。", "text/plain")),
             ("files", ("b.txt", "咖啡烘焙。", "text/plain")),
-        ])
+        ],
+        data={"project_id": "p1"})
     assert resp.json()["data"]["count"] == 2
 
 
