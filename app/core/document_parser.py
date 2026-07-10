@@ -5,6 +5,9 @@ Document Parser - 文档解析器
     - .docx (Word文档)
     - .pdf (PDF文档)
     - .txt (纯文本)
+    - .md/.markdown (Markdown)
+    - .pptx (PowerPoint演示文稿)
+    - .xlsx/.xls (Excel电子表格)
     - .png/.jpg/.jpeg/.gif/.webp (图片文件，通过OCR识别)
 
 功能：
@@ -21,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 from app.core.config import settings
 
-SUPPORTED_EXTENSIONS = [".docx", ".pdf", ".txt", ".png", ".jpg", ".jpeg", ".gif", ".webp"]
+SUPPORTED_EXTENSIONS = [".docx", ".pdf", ".txt", ".md", ".markdown", ".pptx", ".xlsx", ".xls", ".png", ".jpg", ".jpeg", ".gif", ".webp"]
 MAX_FILE_SIZE = settings.MAX_FILE_SIZE_MB * 1024 * 1024
 
 
@@ -102,6 +105,12 @@ class DocumentParser:
                 return self._parse_pdf(file_bytes, filename)
             elif ext == ".txt":
                 return self._parse_txt(file_bytes, filename)
+            elif ext in [".md", ".markdown"]:
+                return self._parse_md(file_bytes, filename)
+            elif ext == ".pptx":
+                return self._parse_pptx(file_bytes, filename)
+            elif ext in [".xlsx", ".xls"]:
+                return self._parse_xlsx(file_bytes, filename)
             elif ext in [".png", ".jpg", ".jpeg", ".gif", ".webp"]:
                 return self._parse_image(file_bytes, filename)
         except Exception as e:
@@ -128,6 +137,7 @@ class DocumentParser:
                 "text": "",
                 "filename": filename,
                 "error": "python-docx未安装，请运行: pip install python-docx",
+                "doc_format": "docx",
             }
 
         from io import BytesIO
@@ -146,6 +156,7 @@ class DocumentParser:
                 "text": full_text,
                 "filename": filename,
                 "error": "",
+                "doc_format": "docx",
             }
         except Exception as e:
             return {
@@ -153,6 +164,7 @@ class DocumentParser:
                 "text": "",
                 "filename": filename,
                 "error": f"Word解析失败: {str(e)}",
+                "doc_format": "docx",
             }
 
     def _parse_pdf(self, file_bytes: bytes, filename: str) -> dict:
@@ -163,6 +175,7 @@ class DocumentParser:
                 "text": "",
                 "filename": filename,
                 "error": "pdfplumber未安装，请运行: pip install pdfplumber",
+                "doc_format": "pdf",
             }
 
         from io import BytesIO
@@ -188,6 +201,7 @@ class DocumentParser:
                         "filename": filename,
                         "error": "",
                         "method": "pdfplumber",
+                        "doc_format": "pdf",
                     }
                 else:
                     logger.info(f"PDF {filename} 无文本内容，尝试OCR识别")
@@ -204,6 +218,7 @@ class DocumentParser:
                 "text": "",
                 "filename": filename,
                 "error": "pymupdf未安装，请运行: pip install pymupdf",
+                "doc_format": "pdf",
             }
 
         if not self._llm_service:
@@ -212,6 +227,7 @@ class DocumentParser:
                 "text": "",
                 "filename": filename,
                 "error": "未配置LLM服务，无法进行OCR识别",
+                "doc_format": "pdf",
             }
 
         import fitz
@@ -262,6 +278,7 @@ class DocumentParser:
                     "filename": filename,
                     "error": warning_msg,
                     "method": "ocr",
+                    "doc_format": "pdf",
                     "pages": {"total": len(doc), "success": success_count, "failed": failed_count},
                 }
             else:
@@ -270,6 +287,7 @@ class DocumentParser:
                     "text": "",
                     "filename": filename,
                     "error": f"OCR识别失败，{len(doc)}页均无法提取文本",
+                    "doc_format": "pdf",
                 }
         except Exception as e:
             logger.error(f"OCR解析失败 {filename}: {e}", exc_info=True)
@@ -278,6 +296,7 @@ class DocumentParser:
                 "text": "",
                 "filename": filename,
                 "error": f"OCR解析失败: {str(e)}",
+                "doc_format": "pdf",
             }
 
     def _preprocess_image(self, img_bytes: bytes) -> bytes:
@@ -325,6 +344,7 @@ class DocumentParser:
             "text": text,
             "filename": filename,
             "error": "",
+            "doc_format": "txt",
         }
 
     def _parse_image(self, file_bytes: bytes, filename: str) -> dict:
@@ -335,6 +355,7 @@ class DocumentParser:
                 "text": "",
                 "filename": filename,
                 "error": "Pillow未安装，请运行: pip install Pillow",
+                "doc_format": "image",
             }
 
         if not self._llm_service:
@@ -343,6 +364,7 @@ class DocumentParser:
                 "text": "",
                 "filename": filename,
                 "error": "未配置LLM服务，无法进行OCR识别",
+                "doc_format": "image",
             }
 
         try:
@@ -367,6 +389,7 @@ class DocumentParser:
                     "filename": filename,
                     "error": "",
                     "method": "ocr",
+                    "doc_format": "image",
                 }
             else:
                 return {
@@ -374,6 +397,7 @@ class DocumentParser:
                     "text": "",
                     "filename": filename,
                     "error": f"OCR识别失败: {ocr_result.get('error', '未知错误')}",
+                    "doc_format": "image",
                 }
         except Exception as e:
             return {
@@ -381,6 +405,97 @@ class DocumentParser:
                 "text": "",
                 "filename": filename,
                 "error": f"图片解析失败: {str(e)}",
+                "doc_format": "image",
+            }
+
+    def _parse_md(self, file_bytes: bytes, filename: str) -> dict:
+        """解析Markdown文件"""
+        try:
+            text = file_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            text = file_bytes.decode("gbk", errors="replace")
+        return {
+            "success": True,
+            "text": text,
+            "filename": filename,
+            "error": "",
+            "doc_format": "md",
+        }
+
+    def _parse_pptx(self, file_bytes: bytes, filename: str) -> dict:
+        """解析PPTX演示文稿"""
+        try:
+            from pptx import Presentation
+            from io import BytesIO
+        except ImportError:
+            return {
+                "success": False,
+                "text": "",
+                "filename": filename,
+                "error": "python-pptx未安装，请运行: pip install python-pptx",
+                "doc_format": "pptx",
+            }
+        try:
+            prs = Presentation(BytesIO(file_bytes))
+            slides_text = []
+            for slide in prs.slides:
+                texts = [sh.text.strip() for sh in slide.shapes if sh.has_text_frame and sh.text.strip()]
+                if texts:
+                    slides_text.append("\n".join(texts))
+            return {
+                "success": True,
+                "text": "\n\n".join(slides_text),
+                "filename": filename,
+                "error": "",
+                "doc_format": "pptx",
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "text": "",
+                "filename": filename,
+                "error": f"PPT解析失败: {str(e)}",
+                "doc_format": "pptx",
+            }
+
+    def _parse_xlsx(self, file_bytes: bytes, filename: str) -> dict:
+        """解析XLSX/XLS电子表格"""
+        try:
+            from openpyxl import load_workbook
+            from io import BytesIO
+        except ImportError:
+            return {
+                "success": False,
+                "text": "",
+                "filename": filename,
+                "error": "openpyxl未安装，请运行: pip install openpyxl",
+                "doc_format": "xlsx",
+            }
+        try:
+            wb = load_workbook(BytesIO(file_bytes), read_only=True, data_only=True)
+            sheets_text = []
+            for ws in wb.worksheets:
+                rows = []
+                for row in ws.iter_rows(values_only=True):
+                    cells = [str(c) for c in row if c is not None and str(c).strip()]
+                    if cells:
+                        rows.append(" | ".join(cells))
+                if rows:
+                    sheets_text.append(f"=== {ws.title} ===\n" + "\n".join(rows))
+            return {
+                "success": True,
+                "text": "\n\n".join(sheets_text),
+                "filename": filename,
+                "error": "",
+                "doc_format": "xlsx",
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "text": "",
+                "filename": filename,
+                "error": f"Excel解析失败: {str(e)}",
+                "doc_format": "xlsx",
             }
 
     def parse_multiple(self, files: list) -> dict:
