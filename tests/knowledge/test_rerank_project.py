@@ -71,3 +71,22 @@ def test_backward_compat_positional_provider():
     # test_reranker.py 既有用法必须不破
     assert get_reranker("none").name == "none"
     assert get_reranker("mock").name == "mock"
+
+
+def test_project_cloud_encrypted_key_not_split(monkeypatch):
+    """P1 回归：per-project cloud + 加密 key，解密后必须整体传入而非逐字符拆分。"""
+    r, p = _repo()
+    try:
+        master = "master-secret-abc"
+        monkeypatch.setattr(settings, "RERANK_KEY_MASTER", master)
+        plain = "sk-real-key-123"
+        r.create_project("pC", "C", {}, {
+            "provider": "cloud", "enabled": True,
+            "keys_encrypted": _encrypt_key(plain, master),
+        })
+        rr = get_reranker(project_id="pC", repo=r)
+        assert rr.name == "cloud"
+        # 关键：keys 应为完整单元素列表，绝不能被拆成单字符
+        assert rr.keys == [plain]
+    finally:
+        _rm(r, p)

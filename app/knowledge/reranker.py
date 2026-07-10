@@ -97,6 +97,15 @@ class LocalCrossEncoderReranker(Reranker):
             return candidates[:top_k]
 
 
+def _normalize_keys(keys) -> Optional[list]:
+    """归一化 keys 为 list：单个字符串 → [字符串]（避免被逐字符拆分）；None/空 → None。"""
+    if not keys:
+        return None
+    if isinstance(keys, (list, tuple)):
+        return list(keys)
+    return [keys]
+
+
 def _build(provider: Optional[str], keys=None, model: str = None) -> Reranker:
     """按 provider 实际构建 reranker（none/false/""/off→NoOp；mock→Mock；local→Local；cloud→Cloud；其它→NoOp）。"""
     provider = (provider or "none").lower()
@@ -108,7 +117,7 @@ def _build(provider: Optional[str], keys=None, model: str = None) -> Reranker:
         return LocalCrossEncoderReranker(model_name=model or settings.RERANK_MODEL)
     if provider == "cloud":
         from app.knowledge.cloud_reranker import CloudReranker
-        return CloudReranker(keys=keys or list(settings.RERANK_KEYS or []))
+        return CloudReranker(keys=_normalize_keys(keys) or list(settings.RERANK_KEYS or []))
     return NoOpReranker()
 
 
