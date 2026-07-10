@@ -102,13 +102,15 @@ async def _handle_ask(websocket, data, role, project_id, repo, conn: ConnectionS
         await websocket.send_json({"type": "error", "request_id": rid,
                                    "data": "project_id 必填"})
         return
-    svc = KnowledgeService(repo=repo)
     loop = asyncio.get_running_loop()
+    # 在 worker 线程内构造 KnowledgeService，使 SQLite 连接线程本地，
+    # 避免同一 WS 上并发 ask 共享连接导致跨线程竞态（run_in_executor 路径）。
     retrieved = await loop.run_in_executor(
         None,
-        lambda: svc.retrieve(data.get("query", ""), top_k=data.get("top_k", 5),
-                             project_id=pid, rerank=data.get("rerank"),
-                             rerank_top_n=data.get("rerank_top_n")))
+        lambda: KnowledgeService().retrieve(
+            data.get("query", ""), top_k=data.get("top_k", 5),
+            project_id=pid, rerank=data.get("rerank"),
+            rerank_top_n=data.get("rerank_top_n")))
     await websocket.send_json({"type": "sources", "request_id": rid, "data": retrieved})
     cancel = conn.new_cancel(rid)
     answer_parts = []
