@@ -11,14 +11,22 @@ def _repo():
     return r, p
 
 
+def _cleanup(r, p):
+    r.close()
+    for suffix in ("", "-wal", "-shm"):
+        try:
+            os.remove(p + suffix)
+        except OSError:
+            pass
+
+
 def test_create_and_get_project():
     r, p = _repo()
     r.create_project("p1", "Proj One", {"k": "v"}, {"provider": "local", "enabled": True})
     proj = r.get_project("p1")
     assert proj["name"] == "Proj One"
     assert proj["rerank_config"]["provider"] == "local"
-    r.close()
-    os.remove(p)
+    _cleanup(r, p)
 
 
 def test_project_key_hash_lookup():
@@ -30,8 +38,7 @@ def test_project_key_hash_lookup():
     assert role == "project_admin" and pid == "p1"
     miss = r.get_project_key_by_hash("deadbeef")
     assert miss is None
-    r.close()
-    os.remove(p)
+    _cleanup(r, p)
 
 
 def test_benchmark_crud():
@@ -39,5 +46,13 @@ def test_benchmark_crud():
     r.add_benchmark("p1", "咖啡 烘焙", ["c1", "c2"], "smoke")
     rows = r.list_benchmarks("p1")
     assert len(rows) == 1 and rows[0]["query"] == "咖啡 烘焙"
-    r.close()
-    os.remove(p)
+    _cleanup(r, p)
+
+
+def test_list_projects_decodes_json():
+    r, p = _repo()
+    r.create_project("p1", "Proj One", {"k": "v"}, {"provider": "local", "enabled": True})
+    rows = r.list_projects()
+    assert rows[0]["rerank_config"]["provider"] == "local"
+    assert rows[0]["metadata"]["k"] == "v"
+    _cleanup(r, p)

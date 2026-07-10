@@ -210,11 +210,13 @@ class KnowledgeRepository(BaseRepository):
     # ---- 生产级加固：项目 / 项目密钥 / benchmark ----
     def create_project(self, project_id: str, name: str, metadata: dict = None,
                        rerank_config: dict = None) -> dict:
-        now = self._now()
+        """Upsert (INSERT OR REPLACE) a project, preserving the original created_at."""
+        existing = self.get_project(project_id)
+        created_at = existing["created_at"] if existing else self._now()
         self._execute(
             "INSERT OR REPLACE INTO knowledge_projects (id,name,created_at,metadata,rerank_config) "
             "VALUES (?,?,?,?,?)",
-            (project_id, name, now, self._json_dumps(metadata or {}),
+            (project_id, name, created_at, self._json_dumps(metadata or {}),
              self._json_dumps(rerank_config or {})),
         )
         self._commit()
@@ -232,7 +234,13 @@ class KnowledgeRepository(BaseRepository):
 
     def list_projects(self) -> List[dict]:
         rows = self._execute("SELECT * FROM knowledge_projects ORDER BY created_at DESC").fetchall()
-        return [self._row_to_dict(r) for r in rows]
+        result = []
+        for r in rows:
+            d = self._row_to_dict(r)
+            d["metadata"] = self._json_loads(d.get("metadata", "{}"))
+            d["rerank_config"] = self._json_loads(d.get("rerank_config", "{}"))
+            result.append(d)
+        return result
 
     def create_project_key(self, key_hash: str, project_id: str, role: str,
                            label: str = "") -> None:
@@ -242,7 +250,7 @@ class KnowledgeRepository(BaseRepository):
             (key_hash, project_id, role, label, self._now()))
         self._commit()
 
-    def get_project_key_by_hash(self, key_hash: str):
+    def get_project_key_by_hash(self, key_hash: str) -> Optional[tuple]:
         row = self._execute(
             "SELECT role, project_id FROM project_keys WHERE key_hash=?",
             (key_hash,)).fetchone()
