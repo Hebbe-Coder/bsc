@@ -35,16 +35,6 @@ def _role_and_project(request: Request):
 
 def _enforce_project_access(request: Request, requested_project_id: str,
                             write: bool = False, allow_admin_all: bool = False) -> str:
-    """校验并返回本次请求应使用的 project_id。
-
-    - admin: 可访问任意 project；project_id 必填（除非 allow_admin_all=True 允许空=全部）。
-    - reader（全局 API_KEY_READER）: 系统级只读；可读任意 project，但写操作 403；project_id 必填。
-    - project_admin: 可读写，但仅限自己令牌绑定的 project。
-    - project_reader: 只读；写操作 403；仅限自己的 project。
-    - 其它(None): 403。
-    非 admin 且 requested 为空时，回退为令牌绑定的 project_id。
-    请求的 project_id 与令牌绑定的不一致 → 403（杜绝跨项目越权）。
-    """
     role, token_pid = _role_and_project(request)
     if role == "admin":
         if not requested_project_id and not allow_admin_all:
@@ -53,9 +43,10 @@ def _enforce_project_access(request: Request, requested_project_id: str,
     if role == "reader":
         if write:
             raise HTTPException(status_code=403, detail="只读密钥（reader）无写入权限")
-        if not requested_project_id and not allow_admin_all:
+        eff = requested_project_id or token_pid
+        if not eff:
             raise HTTPException(status_code=400, detail="project_id 必填")
-        return requested_project_id
+        return eff
     if role == "project_admin":
         eff = requested_project_id or token_pid
         if not eff or eff != token_pid:
