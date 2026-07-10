@@ -70,6 +70,13 @@ class Settings(BaseSettings):
     RAG_LLM_KEYS: List[str] = []    # 多 Key 轮询/故障转移;为空则回落该 provider 的单 key
     RAG_TWO_PHASE: bool = False     # 两阶段生成:先引证规划再作答(更精准,延迟更高)
 
+    RERANK_PROVIDER: str = "none"        # 重排提供方: none/mock/local/cloud
+    RERANK_KEYS: List[str] = []          # 云端 rerank 多 key 轮询/故障转移
+    RERANK_MODEL: str = "ms-marco-MiniLM-L-6-v2"  # 本地 cross-encoder 默认(轻量)
+    RERANK_TOP_N: int = 20               # 重排候选池大小(须 >= top_k)
+    RERANK_ENABLED: bool = False         # retrieve 默认是否重排
+    OCR_ENABLED: bool = True             # PDF OCR 总开关(复用既有 LLM 视觉 OCR)
+
     LLM_TIMEOUT: int = 60
     LLM_TEMPERATURE: float = 0.7
     LLM_MAX_TOKENS: int = 8000
