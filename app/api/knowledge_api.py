@@ -1,5 +1,7 @@
 """知识库 API 端点：上传/文本灌入、列出、检索、删除。"""
 from __future__ import annotations
+import hashlib
+import secrets
 from typing import List, Optional
 from pydantic import BaseModel
 
@@ -128,6 +130,51 @@ async def ingest(
             data={"docs": docs, "count": len(docs)},
             message="部分文件解析失败", errors=parse_errors)
     return ApiResponse.ok({"docs": docs, "count": len(docs)})
+
+
+# ---- T6：仅限 admin 的「项目 / 项目密钥签发」端点 ----
+
+class CreateProjectRequest(BaseModel):
+    name: str
+    metadata: dict = {}
+
+
+class IssueKeyRequest(BaseModel):
+    role: str = "project_reader"
+    label: str = ""
+
+
+@router.post("/projects")
+def create_project(
+    req: CreateProjectRequest,
+    _admin: bool = Depends(require_admin),
+    service: KnowledgeService = Depends(get_knowledge_service),
+):
+    """admin 创建项目并一次性返回 project_admin 明文 key。"""
+    pid = f"proj_{secrets.token_hex(6)}"
+    service.repo.create_project(pid, req.name, req.metadata, {})
+    plaintext = f"sk-{secrets.token_urlsafe(24)}"
+    service.repo.create_project_key(
+        hashlib.sha256(plaintext.encode()).hexdigest(), pid, "project_admin", "owner")
+    return ApiResponse.ok({"project_id": pid, "key": plaintext, "role": "project_admin"})
+
+
+@router.post("/projects/{project_id}/keys")
+def issue_project_key(
+    project_id: str,
+    req: IssueKeyRequest,
+    _admin: bool = Depends(require_admin),
+    service: KnowledgeService = Depends(get_knowledge_service),
+):
+    """admin 为已存在项目签发 key。"""
+    if service.repo.get_project(project_id) is None:
+        return ApiResponse.not_found("项目不存在")
+    if req.role not in ("project_admin", "project_reader"):
+        return ApiResponse.error("role 须为 project_admin/project_reader", code=400)
+    plaintext = f"sk-{secrets.token_urlsafe(24)}"
+    service.repo.create_project_key(
+        hashlib.sha256(plaintext.encode()).hexdigest(), project_id, req.role, req.label)
+    return ApiResponse.ok({"project_id": project_id, "key": plaintext, "role": req.role})
 
 
 class RetrieveRequest(BaseModel):
