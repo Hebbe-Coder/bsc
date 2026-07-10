@@ -102,6 +102,7 @@ def test_ws_stream_tokens(monkeypatch):
         app.dependency_overrides.clear(); _rm(p)
 
 def test_ws_cancel_stops_stream(monkeypatch):
+    """真实断言：cancel 后流必须提前中断（token 数远小于 100，且 end 标记 cancelled）。"""
     import asyncio
     class _SlowLLM:
         async def async_stream_chat(self, system_prompt="", user_prompt="", **kw):
@@ -119,13 +120,18 @@ def test_ws_cancel_stops_stream(monkeypatch):
             assert ws.receive_json()["type"] == "sources"
             _ = ws.receive_json()  # 至少一个 token
             ws.send_json({"type":"cancel","request_id":"r2"})
-            # 之后应在有限帧内收到 end（cancel 生效后跳出循环发 end）
-            saw_end = False
+            token_count = 1
+            end = None
             for _ in range(200):
                 f = ws.receive_json()
-                if f["type"] == "end":
-                    saw_end = True
+                if f["type"] == "token":
+                    token_count += 1
+                elif f["type"] == "end":
+                    end = f
                     break
-            assert saw_end
+            assert end is not None, "cancel 后必须收到 end 帧"
+            # cancel 真正生效：绝不应把 100 个 token 全跑完
+            assert token_count < 50, f"cancel 未生效，token_count={token_count}"
+            assert end["data"].get("cancelled") is True
     finally:
         app.dependency_overrides.clear(); _rm(p)
