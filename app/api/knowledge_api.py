@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from fastapi import APIRouter, Depends, UploadFile, File, Form, Request, HTTPException
 from app.core.document_parser import parse_document
@@ -241,7 +241,7 @@ def evaluate(req: EvaluateRequest, service: KnowledgeService = Depends(get_knowl
 
 class BenchmarkGoldRequest(BaseModel):
     project_id: Optional[str] = None
-    query: str
+    query: str = Field(..., min_length=1)
     expected_chunk_ids: List[str] = []
     notes: str = ""
 
@@ -276,8 +276,9 @@ def benchmark(
             service, gold, top_k=top_k, project_id=project_id, rerank_top_n=rerank_top_n)
     except ValueError as e:
         return ApiResponse.error(str(e), code=400)
-    isolation_ok = True
+    isolation_ok = None
     if project_id:
+        isolation_ok = True
         for item in gold:
             got = {r["chunk_id"] for r in service.retrieve(item["query"], top_k=top_k, project_id=project_id)}
             for cid in got:

@@ -27,6 +27,7 @@ from app.knowledge.service import KnowledgeService
 def _c():
     fd, p = tempfile.mkstemp(suffix=".db")
     os.close(fd)
+    orig_api_key = settings.API_KEY
     settings.API_KEY = "ga-bm"
     from app.repositories.knowledge_repository import KnowledgeRepository
     repo = KnowledgeRepository(db_path=p)
@@ -35,15 +36,17 @@ def _c():
     svc = KnowledgeService(db_path=p)
     svc.ingest_text("咖啡 烘焙 温度曲线", project_id="PB", title="coffee")
     app.dependency_overrides[get_knowledge_service] = lambda: svc
-    return TestClient(app), p, svc
+    return TestClient(app), p, svc, orig_api_key
 
 
 def _auth():
     return {"Authorization": "Bearer ga-bm"}
 
 
-def _cleanup(p, svc):
+def _cleanup(p, svc, orig_api_key=None):
     app.dependency_overrides.clear()
+    if orig_api_key is not None:
+        settings.API_KEY = orig_api_key
     try:
         svc.repo._close_connection()
     except Exception:
@@ -66,7 +69,7 @@ def _no_auth_request(method, client, url, **kw):
 
 
 def test_benchmark_resident():
-    c, p, svc = _c()
+    c, p, svc, orig = _c()
     try:
         # 注入常驻 gold
         rg = c.post(
@@ -94,11 +97,11 @@ def test_benchmark_resident():
             assert "precision@k" in data[phase]
             assert "recall@k" in data[phase]
     finally:
-        _cleanup(p, svc)
+        _cleanup(p, svc, orig)
 
 
 def test_benchmark_no_gold_returns_400():
-    c, p, svc = _c()
+    c, p, svc, orig = _c()
     try:
         # 该项目无任何 gold
         r = c.get("/knowledge/evaluate/benchmark", params={"project_id": "PNONE"}, headers=_auth())
@@ -107,11 +110,11 @@ def test_benchmark_no_gold_returns_400():
         assert body["success"] is False
         assert body["code"] == 400
     finally:
-        _cleanup(p, svc)
+        _cleanup(p, svc, orig)
 
 
 def test_benchmark_gold_requires_admin():
-    c, p, svc = _c()
+    c, p, svc, orig = _c()
     try:
         res = _no_auth_request(
             "post",
@@ -131,7 +134,7 @@ def test_benchmark_gold_requires_admin():
 
 
 def test_benchmark_get_requires_admin():
-    c, p, svc = _c()
+    c, p, svc, orig = _c()
     try:
         # 先注入一条 gold（以 admin 身份），证明 GET 端点本身需要鉴权
         c.post(
@@ -151,4 +154,31 @@ def test_benchmark_get_requires_admin():
         else:
             assert res.json()["success"] is False
     finally:
-        _cleanup(p, svc)
+        _cleanup(p, svc, orig)
+
+
+def test_benchmark_rejects_non_admin_key():
+    """真实 admin 门禁：以合法的 reader Key 鉴权（role=reader, 非 admin），
+    require_admin 必须返回 403，而非被全局 AuthMiddleware 在路由前拦截。"""
+    c, p, svc, orig = _c()
+    orig_reader = settings.API_KEY_READER
+    settings.API_KEY_READER = "reader-bm"
+    try:
+        res = _no_auth_request(
+            "get",
+            c,
+            "/knowledge/evaluate/benchmark",
+            params={"project_id": "PB"},
+            headers={"Authorization": "Bearer reader-bm"},
+        )
+        if isinstance(res, Exception):
+            # TestClient 透传的 require_admin 鉴权异常
+            assert isinstance(res, HTTPException)
+            assert res.status_code == 403
+        else:
+            # 经全局异常处理器返回 403 信封（无 success 字段，含 code==403）
+            assert res.status_code == 403
+            assert res.json()["code"] == 403
+    finally:
+        settings.API_KEY_READER = orig_reader
+        _cleanup(p, svc, orig)
