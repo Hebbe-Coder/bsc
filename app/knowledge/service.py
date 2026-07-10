@@ -11,7 +11,8 @@ from app.knowledge.chunker import chunk_text
 from app.knowledge.backends.keyword import KeywordBackend
 from app.knowledge.backends.tfidf import TfidfBackend
 from app.knowledge.backends.vector import VectorBackend
-from app.knowledge.reranker import rrf_fuse
+from app.core.config import settings
+from app.knowledge.reranker import rrf_fuse, get_reranker
 
 logger = logging.getLogger(__name__)
 
@@ -117,18 +118,14 @@ class KnowledgeService:
                                title=title, source=source)
         return res.get("doc_id")
 
-    def retrieve(self, query: str, top_k: int = 5, project_id: Optional[str] = None) -> List[dict]:
-        if not query or not query.strip():
-            return []
-        kw_ids = self.backends["keyword"].search(query)
-        tf_ids = self.backends["tfidf"].search(query)
-        vec_ids = self.backends["vector"].search(query)
-        fused = rrf_fuse([kw_ids, tf_ids, vec_ids])
-        top = fused[:top_k]
-        if not top:
-            return []
+    def _fetch_candidates(self, ids_with_scores, project_id: Optional[str] = None) -> List[dict]:
+        """按 (chunk_id, score) 列表拉取候选结果。
+
+        保留现有 retrieve 的候选拉取逻辑（SQL / 返回字段 / project 过滤 /
+        doc_title 兜底）不变，仅抽成可复用方法。
+        """
         results = []
-        for cid, score in top:
+        for cid, score in ids_with_scores:
             row = self.repo._execute(
                 "SELECT c.content AS content, c.section AS section, c.idx AS idx, d.title AS doc_title "
                 "FROM knowledge_chunks c LEFT JOIN knowledge_docs d ON c.doc_id=d.id "
@@ -144,6 +141,28 @@ class KnowledgeService:
                     "doc_title": row["doc_title"] or "未知来源",
                 })
         return results
+
+    def retrieve(self, query: str, top_k: int = 5, project_id: Optional[str] = None,
+                 rerank: Optional[bool] = None, rerank_top_n: Optional[int] = None) -> List[dict]:
+        if not query or not query.strip():
+            return []
+        kw_ids = self.backends["keyword"].search(query)
+        tf_ids = self.backends["tfidf"].search(query)
+        vec_ids = self.backends["vector"].search(query)
+        fused = rrf_fuse([kw_ids, tf_ids, vec_ids])
+        if not fused:
+            return []
+        do_rerank = rerank if rerank is not None else settings.RERANK_ENABLED
+        top_n = rerank_top_n if rerank_top_n is not None else settings.RERANK_TOP_N
+        if top_n < top_k:
+            top_n = top_k
+        if do_rerank:
+            try:
+                candidates = self._fetch_candidates(fused[:top_n], project_id)
+                return get_reranker().rerank(query, candidates, top_k)
+            except Exception as e:
+                logger.warning("rerank 失败, 回退融合顺序: %s", e)
+        return self._fetch_candidates(fused[:top_k], project_id)
 
     def list_documents(self, project_id: Optional[str] = None,
                        limit: int = 100, offset: int = 0) -> dict:
