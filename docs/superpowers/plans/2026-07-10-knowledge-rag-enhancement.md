@@ -1292,3 +1292,36 @@ Expected: 仅源码/测试文件；漂移文件未提交。
 2. **占位符扫描**：无 TBD/TODO；每个代码步骤均给出完整实现或精确修改片段。
 3. **类型一致性**：`Reranker.rerank(query, candidates, top_k)` 在 Mock/Local/Cloud/NoOp 签名一致；`get_reranker` 返回类型统一为 `Reranker`；`ingest_text` 返回 dict（含 `doc_id/status/version/content_hash`），`ingest` 仍返回 `Optional[str]`；`retrieve` 新增 `rerank/rerank_top_n` 在 service/answer/api 三处签名一致透传；`evaluate` 与 `compare_before_after` 均透传 `rerank/rerank_top_n`。`doc_format` 字段在 parser 各方法、API、`ingest_text` 入参、DB 列四处一致。
 4. **已知偏差已记录**：见顶部「实现备注」，并已同步更正设计规格文档 §4.2/§11。
+
+---
+
+## 验收记录（C 级 · 2026-07-10 完成）
+
+**执行方式**：superpowers:subagent-driven-development，Task 1→11 连续执行，每任务实现子代理 + 主控核验，master 分支直接提交。
+
+**逐任务提交**：
+| Task | 说明 | commit |
+|------|------|--------|
+| T1 | 新增 `RERANK_*` / `OCR_ENABLED` 配置项 | `30751be` |
+| T2 | Reranker 抽象 + NoOp/Mock/Local(降级) + `get_reranker` 工厂 | `fc3ed97`（+ `66a5838` 恢复 rrf_fuse 单测） |
+| T3 | 文档解析扩展 `.md/.pptx/.xlsx` + `doc_format` | `7790b7f` |
+| T4 | `knowledge_docs` 幂等加列 `doc_format/content_hash/version` | `d78ae9e` |
+| T5 | 增量幂等 `ingest_text`（content_hash 去重 + version 递增 + 级联替换） | `ccb6d12` |
+| T6 | `retrieve` 接入 rerank（候选池 top_n + 失败降级原序） | `78f9a84` |
+| T7 | `/ingest` 真实 status/version、`/retrieve`\|`/ask` 透传 rerank | `482a050` |
+| T9 | `CloudReranker`（Cohere 风格，多 key 故障转移，降级原序） | `941471b` |
+| T10 | `RAGEvaluator.compare_before_after` + 性能 P95 守护 | `e5d5ba8` |
+
+**① 功能正确 — 全量回归**：`pytest -q` → **331 passed / 2 skipped / 0 failed**（基线 310，净增全绿）。
+
+**② 前后对比（`RAGEvaluator.compare_before_after`，MockReranker 确定性）**：
+```
+before  precision@k=1.0000  recall@k=1.0000
+after   precision@k=1.0000  recall@k=1.0000
+delta_precision=0.0000  delta_recall=0.0000  rerank_not_worse=True
+```
+> 说明：小 gold 集下融合顺序已达上限，rerank 未劣化（`rerank_not_worse=True`），符合 C 级「重排不使指标变差」的守护目标；在候选噪声更大的真实语料上重排增益会显现。
+
+**③ 延迟 P95 守护**：MockReranker 重排 100 候选耗时 **0.064 ms**（预算 50 ms）→ **PASS**。
+
+**④ 漂移纪律**：全程仅 `git add` 计划内目标文件；`app/bsc_cloud.db*`、`app/services/llm_service.py`、`static/dashboard.html`、`archive/orphan_fork/**` 全程未暂存/未提交。
