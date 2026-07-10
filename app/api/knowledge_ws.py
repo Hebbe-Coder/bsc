@@ -103,9 +103,12 @@ async def _handle_ask(websocket, data, role, project_id, repo, conn: ConnectionS
                                    "data": "project_id 必填"})
         return
     svc = KnowledgeService(repo=repo)
-    retrieved = svc.retrieve(data.get("query", ""), top_k=data.get("top_k", 5),
+    loop = asyncio.get_running_loop()
+    retrieved = await loop.run_in_executor(
+        None,
+        lambda: svc.retrieve(data.get("query", ""), top_k=data.get("top_k", 5),
                              project_id=pid, rerank=data.get("rerank"),
-                             rerank_top_n=data.get("rerank_top_n"))
+                             rerank_top_n=data.get("rerank_top_n")))
     await websocket.send_json({"type": "sources", "request_id": rid, "data": retrieved})
     cancel = conn.new_cancel(rid)
     answer_parts = []
