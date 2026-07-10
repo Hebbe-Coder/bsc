@@ -39,15 +39,20 @@ def test_mock_vector_excluded_from_fusion(svc_env):
 def test_embedding_model_mismatch_excludes_stale(svc_env):
     svc, repo, p = svc_env
     backend = svc.backends["vector"]
-    # 写入一个陈旧模型("old")的向量行
+    # 挂到 P1 下一个真实存在的 chunk 上，使 stale 行能经 JOIN 存活，
+    # 从而真正验证 search 的 WHERE model=? 过滤（而非被孤儿 JOIN 剔除）。
+    cid = backend.repo._execute(
+        "SELECT c.id FROM knowledge_chunks c "
+        "JOIN knowledge_docs d ON c.doc_id=d.id WHERE d.project_id='P1' LIMIT 1"
+    ).fetchone()["id"]
     backend.repo._execute(
         "INSERT OR REPLACE INTO knowledge_vectors (chunk_id, model, dim, vector) "
         "VALUES (?,?,?,?)",
-        ("stale-c1", "old", 2, np.array([1.0, 0.0], dtype=np.float32).tobytes()))
+        (cid, "old", 2, np.array([1.0, 0.0], dtype=np.float32).tobytes()))
     backend.repo._commit()
-    # 当前 provider（test 默认 mock）查询时不得返回陈旧向量
+    # 当前 provider（test 默认 mock）查询时不得返回陈旧模型向量
     got = backend.search("anything", project_id="P1", limit=10)
-    assert "stale-c1" not in got
+    assert cid not in got
 
 
 def test_reindex_stale_clears_old_model(svc_env):
