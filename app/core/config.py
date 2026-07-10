@@ -75,6 +75,7 @@ class Settings(BaseSettings):
     RERANK_MODEL: str = "ms-marco-MiniLM-L-6-v2"  # 本地 cross-encoder 默认(轻量)
     RERANK_TOP_N: int = 20               # 重排候选池大小(须 >= top_k)
     RERANK_ENABLED: bool = False         # retrieve 默认是否重排
+    RERANK_KEY_MASTER: str = ""          # Fernet 主密钥(env 注入);加解密 per-project 云端 rerank key,缺失则该项目降级 local
     OCR_ENABLED: bool = True             # PDF OCR 总开关(复用既有 LLM 视觉 OCR)
 
     LLM_TIMEOUT: int = 60
