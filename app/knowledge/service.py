@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+import time
 from typing import List, Optional
 
 from app.repositories.knowledge_repository import KnowledgeRepository
@@ -13,6 +14,7 @@ from app.knowledge.backends.tfidf import TfidfBackend
 from app.knowledge.backends.vector import VectorBackend
 from app.core.config import settings
 from app.knowledge.reranker import rrf_fuse, get_reranker
+from app.knowledge import metrics as _metrics
 
 logger = logging.getLogger(__name__)
 
@@ -149,29 +151,33 @@ class KnowledgeService:
 
     def retrieve(self, query: str, top_k: int = 5, project_id: Optional[str] = None,
                  rerank: Optional[bool] = None, rerank_top_n: Optional[int] = None) -> List[dict]:
-        if not query or not query.strip():
-            return []
-        if not project_id:                      # L1: 强隔离，project_id 必填
-            return []
-        kw_ids = self.backends["keyword"].search(query, project_id=project_id, limit=top_k*4)
-        tf_ids = self.backends["tfidf"].search(query, project_id=project_id, limit=top_k*4)
-        vec_ids: list = []
-        if settings.VECTOR_FUSE_ENABLED and settings.EMBEDDING_PROVIDER != "mock":
-            vec_ids = self.backends["vector"].search(query, project_id=project_id, limit=top_k*4)
-        fused = rrf_fuse([kw_ids, tf_ids, vec_ids])
-        if not fused:
-            return []
-        do_rerank = rerank if rerank is not None else settings.RERANK_ENABLED
-        top_n = rerank_top_n if rerank_top_n is not None else settings.RERANK_TOP_N
-        if top_n < top_k:
-            top_n = top_k
-        if do_rerank:
-            try:
-                candidates = self._fetch_candidates(fused[:top_n], project_id)
-                return get_reranker(project_id=project_id, repo=self.repo).rerank(query, candidates, top_k)
-            except Exception as e:
-                logger.warning("rerank 失败, 回退融合顺序: %s", e)
-        return self._fetch_candidates(fused[:top_k], project_id)
+        _t0 = time.perf_counter()
+        try:
+            if not query or not query.strip():
+                return []
+            if not project_id:                      # L1: 强隔离，project_id 必填
+                return []
+            kw_ids = self.backends["keyword"].search(query, project_id=project_id, limit=top_k*4)
+            tf_ids = self.backends["tfidf"].search(query, project_id=project_id, limit=top_k*4)
+            vec_ids: list = []
+            if settings.VECTOR_FUSE_ENABLED and settings.EMBEDDING_PROVIDER != "mock":
+                vec_ids = self.backends["vector"].search(query, project_id=project_id, limit=top_k*4)
+            fused = rrf_fuse([kw_ids, tf_ids, vec_ids])
+            if not fused:
+                return []
+            do_rerank = rerank if rerank is not None else settings.RERANK_ENABLED
+            top_n = rerank_top_n if rerank_top_n is not None else settings.RERANK_TOP_N
+            if top_n < top_k:
+                top_n = top_k
+            if do_rerank:
+                try:
+                    candidates = self._fetch_candidates(fused[:top_n], project_id)
+                    return get_reranker(project_id=project_id, repo=self.repo).rerank(query, candidates, top_k)
+                except Exception as e:
+                    logger.warning("rerank 失败, 回退融合顺序: %s", e)
+            return self._fetch_candidates(fused[:top_k], project_id)
+        finally:
+            _metrics.metrics.record_retrieval((time.perf_counter() - _t0) * 1000.0)
 
     def list_documents(self, project_id: Optional[str] = None,
                        limit: int = 100, offset: int = 0) -> dict:

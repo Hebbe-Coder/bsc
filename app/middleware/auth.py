@@ -8,6 +8,7 @@ from typing import Optional, Tuple
 from fastapi import HTTPException, Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from app.core.config import settings
+from app.knowledge import metrics as _metrics
 
 logger = logging.getLogger(__name__)
 
@@ -46,12 +47,14 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # ---- 知识库端点：始终需有效 Key；支持 admin / reader / project_* 多种角色 ----
         if path.startswith("/knowledge/"):
             if not has_bearer:
+                _metrics.metrics.record_auth_failure()
                 raise HTTPException(
                     status_code=401,
                     detail="知识库端点已强制鉴权：请在请求头携带 Authorization: Bearer <API_KEY>",
                 )
             auth = resolve_knowledge_auth(api_key)
             if auth is None:
+                _metrics.metrics.record_auth_failure()
                 raise HTTPException(status_code=401, detail="无效的API密钥")
             request.state.knowledge_role = auth[0]
             request.state.knowledge_project_id = auth[1]

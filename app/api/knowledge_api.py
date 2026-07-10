@@ -62,6 +62,12 @@ def _enforce_project_access(request: Request, requested_project_id: str,
     raise HTTPException(status_code=403, detail="无访问权限")
 
 
+@router.get("/metrics")
+def metrics_endpoint(_admin: bool = Depends(require_admin)):
+    from app.knowledge import metrics as _metrics
+    return ApiResponse.ok(_metrics.metrics.snapshot())
+
+
 @router.get("/documents")
 def list_documents(request: Request, project_id: str = "", limit: int = 100, offset: int = 0,
                    service: KnowledgeService = Depends(get_knowledge_service)):
