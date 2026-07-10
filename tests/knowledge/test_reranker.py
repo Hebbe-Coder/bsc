@@ -1,17 +1,33 @@
-import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from app.knowledge.reranker import rrf_fuse
+from app.knowledge.reranker import (
+    get_reranker, MockReranker, NoOpReranker, LocalCrossEncoderReranker,
+)
 
-def test_reranker_rrf_agreement():
-    fused = rrf_fuse([["a", "b", "c"], ["a", "b", "c"]])
-    assert fused[0][0] == "a" and fused[1][0] == "b"
-    # 返回 (cid, score) 元组
-    assert isinstance(fused[0], tuple) and isinstance(fused[0][1], float)
 
-def test_reranker_rrf_scale_invariant():
-    # 只吃排名不吃分数；a 在两榜都靠前 → 总体靠前
-    fused = rrf_fuse([["a", "b"], ["c", "a"]])
-    assert fused[0][0] == "a"
-    # 缺失后端（空榜）仍鲁棒
-    fused2 = rrf_fuse([["a", "b"], []])
-    assert fused2[0][0] == "a"
+def _cands():
+    return [
+        {"chunk_id": "a", "content": "苹果 香蕉 水果", "score": 0.3},
+        {"chunk_id": "b", "content": "苹果 蔬菜", "score": 0.2},
+        {"chunk_id": "c", "content": "汽车 引擎", "score": 0.1},
+    ]
+
+
+def test_mock_rerank_orders_by_query_hits():
+    out = MockReranker().rerank("苹果", _cands(), top_k=2)
+    assert [c["chunk_id"] for c in out] == ["a", "b"]
+    assert "rerank_score" in out[0]
+
+
+def test_noop_passthrough():
+    out = NoOpReranker().rerank("苹果", _cands(), top_k=2)
+    assert [c["chunk_id"] for c in out] == ["a", "b"]
+
+
+def test_get_reranker_none_returns_noop():
+    assert isinstance(get_reranker("none"), NoOpReranker)
+
+
+def test_local_degrades_when_model_load_fails():
+    r = LocalCrossEncoderReranker()
+    r._model = False  # 模拟加载失败
+    out = r.rerank("苹果", _cands(), top_k=2)
+    assert [c["chunk_id"] for c in out] == ["a", "b"]  # 降级原序
