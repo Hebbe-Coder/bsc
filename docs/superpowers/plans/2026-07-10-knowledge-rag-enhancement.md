@@ -1312,7 +1312,14 @@ Expected: 仅源码/测试文件；漂移文件未提交。
 | T9 | `CloudReranker`（Cohere 风格，多 key 故障转移，降级原序） | `941471b` |
 | T10 | `RAGEvaluator.compare_before_after` + 性能 P95 守护 | `e5d5ba8` |
 
-**① 功能正确 — 全量回归**：`pytest -q` → **331 passed / 2 skipped / 0 failed**（基线 310，净增全绿）。
+**逐任务提交（续）**：
+| T11 fix | 最终整体评审修复 M1/M2 | `ff53a2e` |
+
+**① 功能正确 — 全量回归**：`pytest -q` → **333 passed / 2 skipped / 0 failed**（基线 310，净增全绿；含最终评审后 +2 回归测试）。
+
+**最终整体评审（holistic review）结论**：跨任务集成缝隙 1–7 逐条检查，rerank 透传链、doc_format 贯穿、向后兼容、DB 迁移幂等、漂移纪律均 PASS；发现并修复 2 个 Major（原有测试未覆盖）：
+- **M1（`ff53a2e`）**：`CloudReranker._extract` 忽略 Cohere/Jina 返回的 `index` 字段，真实 API 按相关度降序返回时会把候选与分数错配（结果倒挂）。改为按 `index` 对齐分数 + 越界校验，并补「降序返回 + 乱序 index」回归测试。仅在 `RERANK_PROVIDER=cloud` 时触发。
+- **M2（`ff53a2e`）**：`ingest_text` 更新分支先 `delete_document` 再 `chunk_text`，当新内容切不出 chunk（如纯标题 Markdown）时旧文档已删却未重插 → 静默数据丢失。改为先切分校验，无 chunk 直接返回 `skipped/no_chunks` 且不删旧文档，补回归测试。
 
 **② 前后对比（`RAGEvaluator.compare_before_after`，MockReranker 确定性）**：
 ```
