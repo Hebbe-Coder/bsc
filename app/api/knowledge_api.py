@@ -239,6 +239,59 @@ def evaluate(req: EvaluateRequest, service: KnowledgeService = Depends(get_knowl
         return ApiResponse.error(str(e), code=400)
 
 
+class BenchmarkGoldRequest(BaseModel):
+    project_id: Optional[str] = None
+    query: str
+    expected_chunk_ids: List[str] = []
+    notes: str = ""
+
+
+@router.post("/evaluate/benchmark/gold")
+def add_benchmark_gold(
+    req: BenchmarkGoldRequest,
+    service: KnowledgeService = Depends(get_knowledge_service),
+    _admin: bool = Depends(require_admin),
+):
+    """admin 注入一条常驻 gold benchmark 记录（用于 before/after rerank 对比）。"""
+    service.repo.add_benchmark(req.project_id, req.query, req.expected_chunk_ids, req.notes)
+    return ApiResponse.ok({"added": True})
+
+
+@router.get("/evaluate/benchmark")
+def benchmark(
+    project_id: Optional[str] = None,
+    top_k: int = 5,
+    rerank_top_n: Optional[int] = None,
+    service: KnowledgeService = Depends(get_knowledge_service),
+    _admin: bool = Depends(require_admin),
+):
+    """admin 运行常驻 gold 的 before/after rerank 对比，并报告项目隔离情况。"""
+    gold = service.repo.list_benchmarks(project_id)
+    if not gold:
+        return ApiResponse.error("无常驻 gold（请先 POST /evaluate/benchmark/gold）", code=400)
+    from app.knowledge.eval import RAGEvaluator
+    ev = RAGEvaluator()
+    try:
+        report = ev.compare_before_after(
+            service, gold, top_k=top_k, project_id=project_id, rerank_top_n=rerank_top_n)
+    except ValueError as e:
+        return ApiResponse.error(str(e), code=400)
+    isolation_ok = True
+    if project_id:
+        for item in gold:
+            got = {r["chunk_id"] for r in service.retrieve(item["query"], top_k=top_k, project_id=project_id)}
+            for cid in got:
+                row = service.repo._execute(
+                    "SELECT d.project_id FROM knowledge_chunks c "
+                    "JOIN knowledge_docs d ON c.doc_id=d.id WHERE c.id=?",
+                    (cid,)).fetchone()
+                if row and row["project_id"] != project_id:
+                    isolation_ok = False
+    report["isolation_ok"] = isolation_ok
+    report["gold_count"] = len(gold)
+    return ApiResponse.ok(report)
+
+
 @router.delete("/documents/{doc_id}")
 def delete_document(
     doc_id: str,
