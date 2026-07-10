@@ -28,6 +28,16 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"DB init skipped: {e}")
     
+    try:
+        from app.knowledge.schema import ensure_schema
+        from app.repositories.knowledge_repository import KnowledgeRepository
+        repo = KnowledgeRepository()
+        ensure_schema(repo)
+        repo.close()
+        logger.info("Knowledge schema ensured")
+    except Exception as e:
+        logger.warning(f"Knowledge schema init skipped: {e}")
+    
     logger.info(f"Service started: http://{settings.APP_HOST}:{settings.APP_PORT} | Docs: /docs | Product: /")
     yield
     
