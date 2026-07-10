@@ -1,11 +1,11 @@
 """知识库端点基于角色的细粒度授权（RBAC）测试。
 
-角色模型（修复跨项目越权后的安全模型）：
+角色模型：
 - admin（全局 API_KEY）：可读 / 检索 / 灌入 / 删除；写入需显式 project_id。
+- reader（全局 API_KEY_READER）：系统级只读——可读/检索/问答任意 project，
+  但任何写入（ingest / delete）一律 403；读取需显式 project_id。
 - project_admin：可对自己的 project 读写。
 - project_reader：仅对自己的 project 只读；写入 403。
-- reader（全局 API_KEY_READER）/ 其它：对 /knowledge 内容端点一律 403
-  （全局「读全部」能力已被移除，仅项目级密钥可读自己的项目）。
 reader key 仅对 /knowledge/* 生效，且不授予非知识库端点的访问权（由 AuthMiddleware 保证）。
 """
 import tempfile
@@ -47,21 +47,22 @@ def reader_client(monkeypatch):
     yield from _client_with_key(monkeypatch, READER_KEY)
 
 
-def test_reader_cannot_list(reader_client):
-    # 全局 reader 角色已被移除「读全部」能力，对内容端点一律 403
-    r = reader_client.get("/knowledge/documents")
-    assert r.status_code == 403
+def test_reader_can_list(reader_client):
+    # 全局 reader 系统级只读：提供有效 project_id 时可列出文档
+    r = reader_client.get("/knowledge/documents", params={"project_id": "p1"})
+    assert r.status_code == 200
 
 
-def test_reader_cannot_retrieve(reader_client):
-    # 全局 reader 角色无法越权读取任何项目
-    r = reader_client.post("/knowledge/retrieve", json={"query": "企业知识"})
-    assert r.status_code == 403
+def test_reader_can_retrieve(reader_client):
+    # 全局 reader 系统级只读：提供有效 project_id 时可检索
+    r = reader_client.post("/knowledge/retrieve",
+                           json={"query": "企业知识", "project_id": "p1"})
+    assert r.status_code == 200
 
 
 def test_reader_cannot_ingest(reader_client):
     # 依赖层抛出的 403 会被 FastAPI 异常处理器转成 403 响应（非异常冒泡），故断言状态码
-    r = reader_client.post("/knowledge/ingest", data={"text": "x"})
+    r = reader_client.post("/knowledge/ingest", data={"text": "x", "project_id": "p1"})
     assert r.status_code == 403
 
 
