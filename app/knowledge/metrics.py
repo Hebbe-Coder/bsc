@@ -2,7 +2,6 @@
 from __future__ import annotations
 import logging
 import threading
-import time
 from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
@@ -20,7 +19,7 @@ class Metrics:
         with self._lock:
             s = self.retrieval_latency_ms
             s["count"] += 1; s["sum"] += ms; s["max"] = max(s["max"], ms)
-            logger.info("knowledge.retrieval latency_ms=%.3f", ms)
+            logger.debug("knowledge.retrieval latency_ms=%.3f", ms)
 
     def record_rerank_hit_rate(self, rate: float):
         with self._lock:
@@ -51,7 +50,10 @@ class Metrics:
 
     def reset(self):
         with self._lock:
-            self.__init__()
+            self.retrieval_latency_ms = {"count": 0.0, "sum": 0.0, "max": 0.0}
+            self.rerank_hit_rate = {"count": 0.0, "sum": 0.0}
+            self.eval_regressions = 0
+            self.auth_failures = 0
 
 
 metrics = Metrics()
