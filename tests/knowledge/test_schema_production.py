@@ -16,4 +16,8 @@ def test_production_tables_created():
     idx = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_pm_project_user'").fetchone()
     assert idx is not None
+    # knowledge_docs(project_id) 索引存在
+    idx2 = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_kdocs_project'").fetchone()
+    assert idx2 is not None
     conn.close(); repo.close(); os.remove(path)
