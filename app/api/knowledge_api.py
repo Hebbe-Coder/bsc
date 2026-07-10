@@ -26,6 +26,29 @@ def require_admin(request: Request) -> bool:
     return True
 
 
+def _role_and_project(request: Request):
+    return (getattr(request.state, "knowledge_role", None),
+            getattr(request.state, "knowledge_project_id", None))
+
+
+def require_project_read(request: Request) -> bool:
+    role, _pid = _role_and_project(request)
+    if role == "admin":
+        return True
+    if role in ("project_admin", "project_reader"):
+        return True
+    raise HTTPException(status_code=403, detail="无该项目读取权限")
+
+
+def require_project_write(request: Request, project_id: str = "") -> bool:
+    role, pid = _role_and_project(request)
+    if role == "admin":
+        return True
+    if role == "project_admin" and (not project_id or pid == project_id):
+        return True
+    raise HTTPException(status_code=403, detail="无该项目写入权限（需 project_admin）")
+
+
 @router.get("/documents")
 def list_documents(
     project_id: str = "",
@@ -40,6 +63,7 @@ def list_documents(
 
 @router.post("/ingest")
 async def ingest(
+    request: Request,
     files: Optional[List[UploadFile]] = File(None),
     text: str = Form(default=""),
     project_id: str = Form(default=""),
@@ -50,6 +74,11 @@ async def ingest(
     service: KnowledgeService = Depends(get_knowledge_service),
     _admin: bool = Depends(require_admin),
 ):
+    # 自动建 project（admin 专属；宽松）
+    role, _ = _role_and_project(request)
+    if project_id and role == "admin" and not service.repo.get_project(project_id):
+        service.repo.create_project(project_id, title or project_id, {}, {})
+
     units = []
     parse_errors = []
     for f in (files or []):
