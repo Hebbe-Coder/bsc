@@ -92,7 +92,7 @@ class TfidfBackend:
                 (rec["id"], vec.tobytes()))
         self.repo._commit()
 
-    def search(self, query: str, limit: int = 20) -> List[str]:
+    def search(self, query: str, project_id: Optional[str] = None, limit: int = 20) -> List[str]:
         if not query or not query.strip():
             return []
         vocab, idf = self._load_model()
@@ -105,7 +105,15 @@ class TfidfBackend:
         qnorm = np.linalg.norm(qv)
         if qnorm == 0:
             return []
-        rows = self.repo._execute("SELECT chunk_id, vector FROM knowledge_tfidf").fetchall()
+        sql = ("SELECT t.chunk_id, t.vector FROM knowledge_tfidf t "
+               "JOIN knowledge_chunks c ON t.chunk_id=c.id")
+        params: list = []
+        if project_id:
+            sql += " WHERE c.doc_id IN (SELECT id FROM knowledge_docs WHERE project_id=?)"
+            params.append(project_id)
+        sql += " LIMIT ?"
+        params.append(limit)
+        rows = self.repo._execute(sql, tuple(params)).fetchall()
         scored = []
         for r in rows:
             cv_raw = np.frombuffer(r["vector"], dtype=np.float64)

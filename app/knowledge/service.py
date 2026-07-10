@@ -122,18 +122,20 @@ class KnowledgeService:
         return res.get("doc_id")
 
     def _fetch_candidates(self, ids_with_scores, project_id: Optional[str] = None) -> List[dict]:
-        """按 (chunk_id, score) 列表拉取候选结果。
-
-        保留现有 retrieve 的候选拉取逻辑（SQL / 返回字段 / project 过滤 /
-        doc_title 兜底）不变，仅抽成可复用方法。
-        """
+        if not ids_with_scores:
+            return []
+        ids = [cid for cid, _ in ids_with_scores]
+        placeholders = ",".join("?" for _ in ids)
+        rows = self.repo._execute(
+            f"SELECT c.id AS cid, c.content AS content, c.section AS section, "
+            f"c.idx AS idx, d.title AS doc_title "
+            f"FROM knowledge_chunks c LEFT JOIN knowledge_docs d ON c.doc_id=d.id "
+            f"WHERE c.id IN ({placeholders}) AND d.project_id = ?",
+            tuple(ids + [project_id or ""])).fetchall()
+        by_id = {r["cid"]: r for r in rows}
         results = []
         for cid, score in ids_with_scores:
-            row = self.repo._execute(
-                "SELECT c.content AS content, c.section AS section, c.idx AS idx, d.title AS doc_title "
-                "FROM knowledge_chunks c LEFT JOIN knowledge_docs d ON c.doc_id=d.id "
-                "WHERE c.id=? AND d.project_id = ?",
-                (cid, project_id or "")).fetchone()
+            row = by_id.get(cid)
             if row:
                 results.append({
                     "chunk_id": cid,
@@ -151,9 +153,9 @@ class KnowledgeService:
             return []
         if not project_id:                      # L1: 强隔离，project_id 必填
             return []
-        kw_ids = self.backends["keyword"].search(query)
-        tf_ids = self.backends["tfidf"].search(query)
-        vec_ids = self.backends["vector"].search(query)
+        kw_ids = self.backends["keyword"].search(query, project_id=project_id, limit=top_k*4)
+        tf_ids = self.backends["tfidf"].search(query, project_id=project_id, limit=top_k*4)
+        vec_ids = self.backends["vector"].search(query, project_id=project_id, limit=top_k*4)
         fused = rrf_fuse([kw_ids, tf_ids, vec_ids])
         if not fused:
             return []

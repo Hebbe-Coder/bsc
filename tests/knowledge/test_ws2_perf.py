@@ -65,3 +65,50 @@ def test_tfidf_incremental_add_keeps_search_consistent(tf_env):
     hits = backend.search("hello", limit=10)
     assert hits, "增量追加后检索不应为空"
     assert "c3" in hits, "增量追加的 chunk 必须可被检索到（idf 一致）"
+
+
+import os as _os
+import tempfile as _tempfile
+from app.knowledge.service import KnowledgeService
+from app.knowledge.backends.tfidf import TfidfBackend
+from app.knowledge.backends.vector import VectorBackend
+from app.knowledge.backends.keyword import KeywordBackend
+
+
+@pytest.fixture
+def svc_env():
+    fd, p = _tempfile.mkstemp(suffix=".db"); _os.close(fd)
+    from app.knowledge.schema import ensure_schema
+    from app.repositories.knowledge_repository import KnowledgeRepository
+    repo = KnowledgeRepository(db_path=p); ensure_schema(repo)
+    svc = KnowledgeService(db_path=p)
+    svc.ingest_text("alpha 专属内容 检索词X", project_id="PA", title="a")
+    svc.ingest_text("beta 专属内容 检索词Y", project_id="PB", title="b")
+    yield svc, repo, p
+    svc.repo.close(); repo.close()
+    _os.remove(p)
+    for suf in ("", "-wal", "-shm"):
+        try: _os.remove(p + suf)
+        except OSError: pass
+
+
+def test_retrieve_isolates_projects(svc_env):
+    svc, repo, p = svc_env
+    res = svc.retrieve("alpha", project_id="PA", top_k=5)
+    assert res, "应至少召回 PA 的文档"
+    # 核心断言：PA 检索结果不得包含 PB 的内容
+    pb_hit = any("beta" in (r.get("content") or "") for r in res)
+    assert not pb_hit, "跨项目泄漏：PA 检索不应包含 PB 内容"
+
+
+def test_backend_search_respects_project_id(svc_env):
+    svc, repo, p = svc_env
+    for backend in (KeywordBackend(repo), TfidfBackend(repo), VectorBackend(repo)):
+        got = backend.search("专属内容", project_id="PA", limit=20)
+        # 所有返回 chunk 必须属于 PA
+        for cid in got:
+            row = repo._execute(
+                "SELECT d.project_id FROM knowledge_chunks c "
+                "JOIN knowledge_docs d ON c.doc_id=d.id WHERE c.id=?",
+                (cid,)).fetchone()
+            assert row["project_id"] == "PA", f"{type(backend).__name__} 跨越了项目边界"

@@ -55,7 +55,7 @@ class VectorBackend:
             except Exception as e:
                 logger.warning("vector 写入失败: %s", e)
 
-    def search(self, query: str, limit: int = 20) -> List[str]:
+    def search(self, query: str, project_id: Optional[str] = None, limit: int = 20) -> List[str]:
         if not query or not query.strip():
             return []
         try:
@@ -64,9 +64,16 @@ class VectorBackend:
         except Exception as e:
             logger.warning("vector 检索失败(返回空): %s", e)
             return []
-        rows = self.repo._execute(
-            "SELECT chunk_id, vector FROM knowledge_vectors WHERE model=?",
-            (provider.name,)).fetchall()
+        sql = ("SELECT v.chunk_id, v.vector FROM knowledge_vectors v "
+               "JOIN knowledge_chunks c ON v.chunk_id=c.id "
+               "WHERE v.model=?")
+        params: list = [provider.name]
+        if project_id:
+            sql += " AND c.doc_id IN (SELECT id FROM knowledge_docs WHERE project_id=?)"
+            params.append(project_id)
+        sql += " LIMIT ?"
+        params.append(limit)
+        rows = self.repo._execute(sql, tuple(params)).fetchall()
         if not rows:
             return []
         qnorm = np.linalg.norm(qv)
