@@ -52,6 +52,9 @@ def test_ws_ping_pong(monkeypatch):
 def test_ws_ask_returns_sources_frame(monkeypatch):
     c, p, repo, svc = _c()
     monkeypatch.setattr(ws_mod, "KnowledgeService", lambda *a, **k: svc)
+    # 用假 LLM 服务，避免真实网络；T10 改为 token 流 + end
+    import app.services.async_llm_service as allm
+    monkeypatch.setattr(allm, "get_async_llm_service", lambda: _FakeLLM())
     try:
         with c.websocket_connect("/ws/knowledge/ask",
                                  headers={"Authorization": "Bearer ga-ws-t9"}) as ws:
@@ -59,7 +62,70 @@ def test_ws_ask_returns_sources_frame(monkeypatch):
                           "query": "hello", "project_id": "PA"})
             f1 = ws.receive_json()
             assert f1["type"] == "sources" and f1["request_id"] == "r1"
-            f2 = ws.receive_json()
-            assert f2["type"] == "end"
+            # T10 协议：sources 之后为 token 流，最终以 end 收尾
+            seen_end = False
+            while True:
+                f = ws.receive_json()
+                if f["type"] == "end":
+                    seen_end = True
+                    break
+            assert seen_end
+    finally:
+        app.dependency_overrides.clear(); _rm(p)
+
+class _FakeLLM:
+    async def async_stream_chat(self, system_prompt="", user_prompt="", **kw):
+        for t in ["Hel", "lo", "!"]:
+            yield t
+
+def test_ws_stream_tokens(monkeypatch):
+    c, p, repo, svc = _c()
+    monkeypatch.setattr(ws_mod, "KnowledgeService", lambda *a, **k: svc)
+    import app.services.async_llm_service as allm
+    monkeypatch.setattr(allm, "get_async_llm_service", lambda: _FakeLLM())
+    try:
+        with c.websocket_connect("/ws/knowledge/ask",
+                                 headers={"Authorization": "Bearer ga-ws-t9"}) as ws:
+            ws.send_json({"type":"ask","request_id":"r1","query":"hello","project_id":"PA"})
+            types = []
+            while True:
+                f = ws.receive_json()
+                types.append(f["type"])
+                if f["type"] == "end":
+                    end = f
+                    break
+            assert types[0] == "sources"
+            assert "token" in types
+            assert types[-1] == "end"
+            assert end["data"]["answer"] == "Hello!"
+    finally:
+        app.dependency_overrides.clear(); _rm(p)
+
+def test_ws_cancel_stops_stream(monkeypatch):
+    import asyncio
+    class _SlowLLM:
+        async def async_stream_chat(self, system_prompt="", user_prompt="", **kw):
+            for i in range(100):
+                await asyncio.sleep(0.02)
+                yield f"t{i} "
+    c, p, repo, svc = _c()
+    monkeypatch.setattr(ws_mod, "KnowledgeService", lambda *a, **k: svc)
+    import app.services.async_llm_service as allm
+    monkeypatch.setattr(allm, "get_async_llm_service", lambda: _SlowLLM())
+    try:
+        with c.websocket_connect("/ws/knowledge/ask",
+                                 headers={"Authorization": "Bearer ga-ws-t9"}) as ws:
+            ws.send_json({"type":"ask","request_id":"r2","query":"long","project_id":"PA"})
+            assert ws.receive_json()["type"] == "sources"
+            _ = ws.receive_json()  # 至少一个 token
+            ws.send_json({"type":"cancel","request_id":"r2"})
+            # 之后应在有限帧内收到 end（cancel 生效后跳出循环发 end）
+            saw_end = False
+            for _ in range(200):
+                f = ws.receive_json()
+                if f["type"] == "end":
+                    saw_end = True
+                    break
+            assert saw_end
     finally:
         app.dependency_overrides.clear(); _rm(p)

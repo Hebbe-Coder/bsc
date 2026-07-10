@@ -86,6 +86,32 @@ async def _handle_ask(websocket, data, role, project_id, repo):
                              project_id=pid, rerank=data.get("rerank"),
                              rerank_top_n=data.get("rerank_top_n"))
     await websocket.send_json({"type": "sources", "request_id": rid, "data": retrieved})
-    # 端帧在 T10 接入真实 token 流；T9 先给占位 end
-    await websocket.send_json({"type": "end", "request_id": rid,
-                               "data": {"answer": "", "sources": retrieved}})
+    cancel = manager.new_cancel(rid)
+    answer_parts = []
+    try:
+        from app.services import async_llm_service as _allm
+        system, user = _build_prompts(data.get("query", ""), retrieved)
+        async for token in _allm.get_async_llm_service().async_stream_chat(
+                system_prompt=system, user_prompt=user):
+            if cancel.is_set():
+                break
+            answer_parts.append(token)
+            await websocket.send_json({"type": "token", "request_id": rid, "data": token})
+        answer = "".join(answer_parts)
+        citations = [{"chunk_id": c.get("chunk_id"), "doc_title": c.get("doc_title")}
+                     for c in retrieved]
+        await websocket.send_json({"type": "end", "request_id": rid,
+                                   "data": {"answer": answer, "citations": citations,
+                                            "metrics": {"citation_rate": 0.0}}})
+    except Exception as e:
+        logger.warning("ws stream failed: %s", e)
+        await websocket.send_json({"type": "error", "request_id": rid, "data": str(e)})
+    finally:
+        manager.drop(rid)
+
+
+def _build_prompts(query: str, chunks):
+    ctx = "\n\n".join(f"[{i+1}] {(c.get('content') or '')[:200]}" for i, c in enumerate(chunks))
+    system = "你是知识库问答助手，基于检索片段用[n]引用作答。"
+    user = f"问题：{query}\n\n检索片段：\n{ctx}"
+    return system, user
