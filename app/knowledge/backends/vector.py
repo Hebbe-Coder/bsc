@@ -91,3 +91,24 @@ class VectorBackend:
                 continue
         scored.sort(key=lambda x: -x[1])
         return [cid for cid, _ in scored[:limit]]
+
+    def reindex_stale(self, project_id: Optional[str] = None) -> int:
+        """清除 model 与当前 provider 不一致的陈旧向量行，返回清除数量。
+        下次 ingest 该 doc 时会按新模型重写。"""
+        try:
+            provider = self._get_provider()
+        except Exception:
+            return 0
+        sql = ("DELETE FROM knowledge_vectors "
+               "WHERE model IS NOT NULL AND model <> ?")
+        params: list = [provider.name]
+        if project_id:
+            # 清该项目下的陈旧向量；chunk 已不存在的孤行(无法归属任何项目)
+            # 也视为陈旧一并清除。
+            sql += (" AND (chunk_id IN (SELECT c.id FROM knowledge_chunks c "
+                    "JOIN knowledge_docs d ON c.doc_id=d.id WHERE d.project_id=?) "
+                    "OR chunk_id NOT IN (SELECT id FROM knowledge_chunks))")
+            params.append(project_id)
+        cur = self.repo._execute(sql, tuple(params))
+        self.repo._commit()
+        return cur.rowcount if hasattr(cur, "rowcount") else 0

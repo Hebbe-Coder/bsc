@@ -207,3 +207,6 @@ class KnowledgeService:
         self.repo._execute("DELETE FROM knowledge_docs WHERE id=?", (doc_id,))
         self.repo._commit()
         return True
+
+    def reindex_stale_vectors(self, project_id: Optional[str] = None) -> int:
+        return self.backends["vector"].reindex_stale(project_id)

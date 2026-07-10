@@ -1,4 +1,5 @@
 import os, tempfile
+import numpy as np
 import pytest
 from app.knowledge.service import KnowledgeService
 from app.knowledge.backends.vector import VectorBackend
@@ -33,3 +34,34 @@ def test_mock_vector_excluded_from_fusion(svc_env):
     backend.search = spy
     svc.retrieve("机器学习", project_id="P1", top_k=3)
     assert called["n"] == 0, "mock provider 下 VectorBackend.search 不应被调用"
+
+
+def test_embedding_model_mismatch_excludes_stale(svc_env):
+    svc, repo, p = svc_env
+    backend = svc.backends["vector"]
+    # 写入一个陈旧模型("old")的向量行
+    backend.repo._execute(
+        "INSERT OR REPLACE INTO knowledge_vectors (chunk_id, model, dim, vector) "
+        "VALUES (?,?,?,?)",
+        ("stale-c1", "old", 2, np.array([1.0, 0.0], dtype=np.float32).tobytes()))
+    backend.repo._commit()
+    # 当前 provider（test 默认 mock）查询时不得返回陈旧向量
+    got = backend.search("anything", project_id="P1", limit=10)
+    assert "stale-c1" not in got
+
+
+def test_reindex_stale_clears_old_model(svc_env):
+    svc, repo, p = svc_env
+    backend = svc.backends["vector"]
+    backend.repo._execute(
+        "INSERT OR REPLACE INTO knowledge_vectors (chunk_id, model, dim, vector) "
+        "VALUES (?,?,?,?)",
+        ("stale-c2", "old", 2, np.array([1.0, 0.0], dtype=np.float32).tobytes()))
+    backend.repo._commit()
+    cleared = backend.reindex_stale(project_id="P1")
+    assert cleared >= 1
+    # 清除后该行不复存在
+    remaining = backend.repo._execute(
+        "SELECT chunk_id FROM knowledge_vectors WHERE chunk_id=?",
+        ("stale-c2",)).fetchall()
+    assert remaining == []
