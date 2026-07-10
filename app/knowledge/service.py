@@ -1,6 +1,8 @@
 """知识层门面：ingest / retrieve + 可插拔后端注册表。永不向上抛异常。"""
 from __future__ import annotations
+import hashlib
 import logging
+import re
 from typing import List, Optional
 
 from app.repositories.knowledge_repository import KnowledgeRepository
@@ -24,47 +26,96 @@ class KnowledgeService:
             "vector": VectorBackend(self.repo),
         }
 
+    @staticmethod
+    def _content_hash(text: str) -> str:
+        normalized = re.sub(r"\s+", " ", (text or "")).strip()
+        return hashlib.sha256(normalized.encode()).hexdigest()
+
+    def _resolve_doc_id(self, doc_id: Optional[str], source: str,
+                        project_id: str) -> str:
+        if doc_id:
+            return doc_id
+        if source:
+            return hashlib.sha256(f"{source}|{project_id}".encode()).hexdigest()[:16]
+        return self.repo._generate_id()
+
+    def _index_chunks(self, chunk_records: list) -> None:
+        # 后端各自容错，单后端失败不影响其他
+        for name in ("keyword", "tfidf", "vector"):
+            try:
+                self.backends[name].index(chunk_records)
+            except Exception as e:
+                logger.warning("%s index failed: %s", name, e)
+                if name == "keyword":
+                    self.backends["keyword"].enabled = False
+
+    def ingest_text(self, text: str, project_id: str = "", asset_id: str = "",
+                    title: str = "", source: str = "", doc_format: str = "text",
+                    doc_id: Optional[str] = None) -> dict:
+        """增量幂等写入单篇文档。
+
+        返回 dict，含 doc_id / status / version；成功附 content_hash；
+        跳过/错误时附 reason。永不上抛异常。
+        """
+        try:
+            norm_text = (text or "").strip()
+            if not norm_text:
+                return {"status": "skipped", "reason": "empty"}
+            content_hash = self._content_hash(norm_text)
+            doc_id = self._resolve_doc_id(doc_id, source, project_id)
+
+            existing = self.repo._execute(
+                "SELECT id, content_hash, version FROM knowledge_docs WHERE id=?",
+                (doc_id,)).fetchone()
+            if existing:
+                if existing["content_hash"] == content_hash:
+                    return {"doc_id": doc_id, "status": "skipped",
+                            "version": existing["version"], "reason": "unchanged",
+                            "content_hash": content_hash}
+                # 内容变化：级联清旧 chunk 后重写，version 递增
+                self.delete_document(doc_id)
+                version = (existing["version"] or 1) + 1
+                status = "updated"
+            else:
+                version = 1
+                status = "ingested"
+
+            chunks = chunk_text(norm_text)
+            if not chunks:
+                return {"doc_id": doc_id, "status": "skipped",
+                        "reason": "no_chunks", "content_hash": content_hash}
+
+            self.repo._execute(
+                "INSERT INTO knowledge_docs "
+                "(id, project_id, asset_id, title, source, created_at, "
+                " doc_format, content_hash, version) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                (doc_id, project_id, asset_id, title, source, self.repo._now(),
+                 doc_format, content_hash, version))
+            chunk_records = []
+            for i, ch in enumerate(chunks):
+                cid = self.repo._generate_id()
+                self.repo._execute(
+                    "INSERT INTO knowledge_chunks "
+                    "(id, doc_id, idx, content, section, metadata_json) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (cid, doc_id, i, ch.content, ch.section,
+                     self.repo._json_dumps(ch.meta)))
+                chunk_records.append({"id": cid, "content": ch.content,
+                                      "doc_id": doc_id})
+            self.repo._commit()
+            self._index_chunks(chunk_records)
+            return {"doc_id": doc_id, "status": status, "version": version,
+                    "content_hash": content_hash}
+        except Exception as e:
+            logger.error("ingest_text failed: %s", e)
+            return {"status": "error", "reason": str(e)}
+
     def ingest(self, text: str, project_id: str = "", asset_id: str = "",
                title: str = "", source: str = "") -> Optional[str]:
-        text = (text or "").strip()
-        if not text:
-            return None
-        try:
-            chunks = chunk_text(text)
-        except Exception as e:
-            logger.warning("chunk failed: %s", e)
-            return None
-        if not chunks:
-            return None
-        doc_id = self.repo._generate_id()
-        self.repo._execute(
-            "INSERT INTO knowledge_docs (id, project_id, asset_id, title, source, created_at) "
-            "VALUES (?,?,?,?,?,?)",
-            (doc_id, project_id, asset_id, title, source, self.repo._now()))
-        chunk_records = []
-        for i, ch in enumerate(chunks):
-            cid = self.repo._generate_id()
-            self.repo._execute(
-                "INSERT INTO knowledge_chunks (id, doc_id, idx, content, section, metadata_json) "
-                "VALUES (?,?,?,?,?,?)",
-                (cid, doc_id, i, ch.content, ch.section, self.repo._json_dumps(ch.meta)))
-            chunk_records.append({"id": cid, "content": ch.content, "doc_id": doc_id})
-        self.repo._commit()
-        # 后端各自容错，单后端失败不影响其他
-        try:
-            self.backends["keyword"].index(chunk_records)
-        except Exception as e:
-            logger.warning("keyword index failed: %s", e)
-            self.backends["keyword"].enabled = False
-        try:
-            self.backends["tfidf"].index(chunk_records)
-        except Exception as e:
-            logger.warning("tfidf index failed: %s", e)
-        try:
-            self.backends["vector"].index(chunk_records)
-        except Exception as e:
-            logger.warning("vector index failed: %s", e)
-        return doc_id
+        res = self.ingest_text(text, project_id=project_id, asset_id=asset_id,
+                               title=title, source=source)
+        return res.get("doc_id")
 
     def retrieve(self, query: str, top_k: int = 5, project_id: Optional[str] = None) -> List[dict]:
         if not query or not query.strip():
