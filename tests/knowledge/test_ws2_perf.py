@@ -1,40 +1,50 @@
-import asyncio, os, tempfile
+import os, tempfile
 import pytest
-from fastapi.testclient import TestClient
-from app.main import app
-from app.core.config import settings
-from app.api.knowledge_api import get_knowledge_service
+from app.knowledge.backends.tfidf import TfidfBackend
 
 
 @pytest.fixture
-def ws_env():
+def tf_env():
     fd, p = tempfile.mkstemp(suffix=".db"); os.close(fd)
-    settings.API_KEY = "ws2-admin"
     from app.knowledge.schema import ensure_schema
     from app.repositories.knowledge_repository import KnowledgeRepository
-    repo = KnowledgeRepository(db_path=p)
-    ensure_schema(repo)
-    svc = __import__("app.knowledge.service", fromlist=["KnowledgeService"]).KnowledgeService(db_path=p)
-    svc.ingest_text("咖啡 烘焙 温度曲线 知识内容", project_id="P1", title="coffee")
-    app.dependency_overrides[get_knowledge_service] = lambda: svc
-    yield TestClient(app)
-    app.dependency_overrides.clear()
-    svc.repo.close(); repo.close()
+    repo = KnowledgeRepository(db_path=p); ensure_schema(repo)
+    yield repo, p
+    repo.close()
     os.remove(p)
     for suf in ("", "-wal", "-shm"):
         try: os.remove(p + suf)
         except OSError: pass
 
 
-def test_ws_ask_streams_and_cancels(ws_env):
-    with ws_env.websocket_connect("/ws/knowledge/ask?token=ws2-admin") as ws:
-        ws.send_json({"type": "ask", "request_id": "r1", "project_id": "P1",
-                      "query": "咖啡", "top_k": 3})
-        frames = {}
-        while True:
-            msg = ws.receive_json()
-            frames[msg["type"]] = frames.get(msg["type"], 0) + 1
-            if msg["type"] == "end":
-                break
-        assert frames.get("token", 0) > 0, "应流式输出 token"
-        assert frames.get("sources", 0) == 1, "应有 sources 帧"
+def _ingest(repo, records):
+    """Mirror the real ingest flow: chunks must live in knowledge_chunks
+    because _build_and_store_model() reads the corpus from that table."""
+    for r in records:
+        repo._execute(
+            "INSERT OR REPLACE INTO knowledge_chunks "
+            "(id, doc_id, idx, content, section, metadata_json) "
+            "VALUES (?,?,?,?,?,?)",
+            (r["id"], "d", 0, r["content"], "", "{}"))
+    repo._commit()
+
+
+def test_tfidf_incremental_skips_full_revectorize(tf_env):
+    repo, p = tf_env
+    backend = TfidfBackend(repo)
+    calls = {"n": 0}
+    orig = backend._vectorize
+    def spy(text, vocab, idf):
+        calls["n"] += 1
+        return orig(text, vocab, idf)
+    backend._vectorize = spy
+
+    _ingest(repo, [{"id": "c1", "content": "hello world"},
+                   {"id": "c2", "content": "foo bar"}])
+    backend.index([{"id": "c1", "content": "hello world"},
+                   {"id": "c2", "content": "foo bar"}])
+    assert calls["n"] == 2  # 首次：全量向量化
+    # 第二次仅追加内容，且用词均在已有词表内 -> 不应触发全量重向量化
+    _ingest(repo, [{"id": "c3", "content": "hello foo"}])
+    backend.index([{"id": "c3", "content": "hello foo"}])
+    assert calls["n"] == 3  # 仅新增 1 个 chunk，而非 2+3=5

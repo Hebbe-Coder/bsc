@@ -23,7 +23,7 @@ class TfidfBackend:
             return None, None
         return json.loads(row["vocab_json"]), json.loads(row["idf_json"])
 
-    def _build_and_store_model(self):
+    def _build_and_store_model(self) -> Tuple[Optional[dict], Optional[dict], bool]:
         rows = self.repo._execute("SELECT content FROM knowledge_chunks").fetchall()
         docs = [r["content"] for r in rows]
         vocab: dict = {}
@@ -40,12 +40,23 @@ class TfidfBackend:
         for term in vocab:
             df = sum(1 for dt in doc_term_counts if term in dt)
             idf[term] = float(np.log((num_docs + 1) / (df + 1)) + 1)
-        self.repo._execute("DELETE FROM tfidf_model")
-        self.repo._execute(
-            "INSERT INTO tfidf_model (id, vocab_json, idf_json) VALUES (1, ?, ?)",
-            (json.dumps(vocab, ensure_ascii=False), json.dumps(idf, ensure_ascii=False)))
-        self.repo._commit()
-        return vocab, idf
+        # 仅在词表变化时落库重建，否则复用（changed=False）
+        existing = self.repo._execute(
+            "SELECT vocab_json FROM tfidf_model WHERE id=1").fetchone()
+        changed = True
+        if existing:
+            try:
+                if json.loads(existing["vocab_json"]) == vocab:
+                    changed = False
+            except Exception:
+                changed = True
+        if changed:
+            self.repo._execute("DELETE FROM tfidf_model")
+            self.repo._execute(
+                "INSERT INTO tfidf_model (id, vocab_json, idf_json) VALUES (1, ?, ?)",
+                (json.dumps(vocab, ensure_ascii=False), json.dumps(idf, ensure_ascii=False)))
+            self.repo._commit()
+        return vocab, idf, changed
 
     def _vectorize(self, text: str, vocab: dict, idf: dict) -> np.ndarray:
         vec = np.zeros(len(vocab))
@@ -61,21 +72,25 @@ class TfidfBackend:
         if not chunk_records:
             return
         try:
-            vocab, idf = self._build_and_store_model()
+            vocab, idf, changed = self._build_and_store_model()
         except Exception as e:
             logger.warning("tfidf model build failed: %s", e)
             return
         if not vocab:
             return
-        # 模型重建后 vocab 维度已变化，必须为全部 chunk 重新向量化，
-        # 否则旧 chunk 的向量维度与查询向量不一致（shape 不匹配）。
-        all_rows = self.repo._execute(
-            "SELECT id, content FROM knowledge_chunks").fetchall()
-        for r in all_rows:
-            vec = self._vectorize(r["content"], vocab, idf)
+        if changed:
+            # 词表维度变化，必须为全部 chunk 重新向量化
+            all_rows = self.repo._execute(
+                "SELECT id, content FROM knowledge_chunks").fetchall()
+            targets = [{"id": r["id"], "content": r["content"]} for r in all_rows]
+        else:
+            # 词表不变，仅向量化本次新增/变更 chunk（增量）
+            targets = chunk_records
+        for rec in targets:
+            vec = self._vectorize(rec["content"], vocab, idf)
             self.repo._execute(
                 "INSERT OR REPLACE INTO knowledge_tfidf (chunk_id, vector) VALUES (?, ?)",
-                (r["id"], vec.tobytes()))
+                (rec["id"], vec.tobytes()))
         self.repo._commit()
 
     def search(self, query: str, limit: int = 20) -> List[str]:
