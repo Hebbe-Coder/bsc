@@ -86,8 +86,11 @@ class RAGAnswerGenerator:
         rate = (valid / total) if total else 0.0
         return cleaned, rate
 
-    def answer(self, question: str, project_id: Optional[str] = None, top_k: int = 5) -> dict:
-        chunks = self._get_service().retrieve(question, top_k=top_k, project_id=project_id)
+    def answer(self, question: str, project_id: Optional[str] = None, top_k: int = 5,
+                rerank: Optional[bool] = None, rerank_top_n: Optional[int] = None) -> dict:
+        chunks = self._get_service().retrieve(
+            question, top_k=top_k, project_id=project_id,
+            rerank=rerank, rerank_top_n=rerank_top_n)
         if not chunks:
             return {"answer": "", "citations": [], "degraded": True, "note": "未检索到相关知识"}
         context, citations = self.build_context(chunks)

@@ -46,6 +46,7 @@ async def ingest(
     asset_id: str = Form(default=""),
     title: str = Form(default=""),
     source: str = Form(default="upload"),
+    doc_id: str = Form(default=""),
     service: KnowledgeService = Depends(get_knowledge_service),
     _admin: bool = Depends(require_admin),
 ):
@@ -55,20 +56,26 @@ async def ingest(
         content = await f.read()
         parsed = parse_document(content, f.filename or "unknown")
         if parsed["success"]:
-            units.append((title or f.filename or "unknown", parsed["text"]))
+            units.append((title or f.filename or "unknown", parsed["text"],
+                          parsed.get("doc_format")))
         else:
             parse_errors.append({"filename": f.filename, "error": parsed["error"]})
     if text and text.strip():
-        units.append((title or "text", text))
+        units.append((title or "text", text, "text"))
     if not units:
         return ApiResponse.error("请提供文件或文本内容", code=400)
     docs = []
-    for disp_title, t in units:
-        doc_id = service.ingest(
+    for disp_title, t, doc_format in units:
+        res = service.ingest_text(
             t, project_id=project_id, asset_id=asset_id,
-            title=disp_title, source=source)
-        docs.append({"doc_id": doc_id, "title": disp_title,
-                     "status": "ok" if doc_id else "skipped"})
+            title=disp_title, source=source, doc_format=doc_format or "text",
+            doc_id=doc_id or None)
+        docs.append({
+            "doc_id": res.get("doc_id"),
+            "title": disp_title,
+            "status": res.get("status", "skipped"),
+            "version": res.get("version"),
+        })
     if parse_errors:
         return ApiResponse.partial(
             data={"docs": docs, "count": len(docs)},
@@ -80,6 +87,8 @@ class RetrieveRequest(BaseModel):
     query: str
     top_k: int = 5
     project_id: str = ""
+    rerank: Optional[bool] = None
+    rerank_top_n: Optional[int] = None
 
 
 @router.post("/retrieve")
@@ -90,7 +99,8 @@ def retrieve(
     if not req.query or not req.query.strip():
         return ApiResponse.error("请提供查询语句", code=400)
     results = service.retrieve(
-        req.query, top_k=req.top_k, project_id=req.project_id or None)
+        req.query, top_k=req.top_k, project_id=req.project_id or None,
+        rerank=req.rerank, rerank_top_n=req.rerank_top_n)
     return ApiResponse.ok({"results": results})
 
 
@@ -98,6 +108,8 @@ class AskRequest(BaseModel):
     question: str
     project_id: str = ""
     top_k: int = 5
+    rerank: Optional[bool] = None
+    rerank_top_n: Optional[int] = None
 
 
 class EvaluateRequest(BaseModel):
@@ -112,7 +124,9 @@ def ask(req: AskRequest, service: KnowledgeService = Depends(get_knowledge_servi
         return ApiResponse.error("请提供问题", code=400)
     from app.knowledge.answer import RAGAnswerGenerator
     gen = RAGAnswerGenerator(service=service)
-    result = gen.answer(req.question, project_id=req.project_id or None, top_k=req.top_k)
+    result = gen.answer(
+        req.question, project_id=req.project_id or None, top_k=req.top_k,
+        rerank=req.rerank, rerank_top_n=req.rerank_top_n)
     return ApiResponse.ok(result)
 
 
