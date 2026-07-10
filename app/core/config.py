@@ -62,6 +62,7 @@ class Settings(BaseSettings):
     SOP_LLM_PROVIDER: str = "mock"  # SOP AI 段使用的 LLM provider (deepseek/doubao/qwen/kimi/mock)
 
     EMBEDDING_PROVIDER: str = "mock"  # 向量检索 embedding 来源 (mock/openai)
+    VECTOR_FUSE_ENABLED: bool = True  # 是否将稠密向量后端纳入 RRF 融合（仅当 provider!="mock" 生效）
     EMBEDDING_API_KEY: str = ""
     EMBEDDING_BASE_URL: str = "https://api.openai.com/v1"
     EMBEDDING_MODEL: str = "text-embedding-3-small"

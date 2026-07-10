@@ -155,7 +155,9 @@ class KnowledgeService:
             return []
         kw_ids = self.backends["keyword"].search(query, project_id=project_id, limit=top_k*4)
         tf_ids = self.backends["tfidf"].search(query, project_id=project_id, limit=top_k*4)
-        vec_ids = self.backends["vector"].search(query, project_id=project_id, limit=top_k*4)
+        vec_ids: list = []
+        if settings.VECTOR_FUSE_ENABLED and settings.EMBEDDING_PROVIDER != "mock":
+            vec_ids = self.backends["vector"].search(query, project_id=project_id, limit=top_k*4)
         fused = rrf_fuse([kw_ids, tf_ids, vec_ids])
         if not fused:
             return []
