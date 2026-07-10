@@ -206,3 +206,77 @@ class KnowledgeRepository(BaseRepository):
             return False
         allowed = self.ROLE_PERMISSIONS.get(member["role"], [])
         return action in allowed
+
+    # ---- 生产级加固：项目 / 项目密钥 / benchmark ----
+    def create_project(self, project_id: str, name: str, metadata: dict = None,
+                       rerank_config: dict = None) -> dict:
+        """Upsert (INSERT OR REPLACE) a project, preserving the original created_at."""
+        existing = self.get_project(project_id)
+        created_at = existing["created_at"] if existing else self._now()
+        self._execute(
+            "INSERT OR REPLACE INTO knowledge_projects (id,name,created_at,metadata,rerank_config) "
+            "VALUES (?,?,?,?,?)",
+            (project_id, name, created_at, self._json_dumps(metadata or {}),
+             self._json_dumps(rerank_config or {})),
+        )
+        self._commit()
+        return self.get_project(project_id)
+
+    def get_project(self, project_id: str) -> Optional[dict]:
+        row = self._execute(
+            "SELECT * FROM knowledge_projects WHERE id=?", (project_id,)).fetchone()
+        if not row:
+            return None
+        d = self._row_to_dict(row)
+        d["metadata"] = self._json_loads(d.get("metadata", "{}"))
+        d["rerank_config"] = self._json_loads(d.get("rerank_config", "{}"))
+        return d
+
+    def list_projects(self) -> List[dict]:
+        rows = self._execute("SELECT * FROM knowledge_projects ORDER BY created_at DESC").fetchall()
+        result = []
+        for r in rows:
+            d = self._row_to_dict(r)
+            d["metadata"] = self._json_loads(d.get("metadata", "{}"))
+            d["rerank_config"] = self._json_loads(d.get("rerank_config", "{}"))
+            result.append(d)
+        return result
+
+    def create_project_key(self, key_hash: str, project_id: str, role: str,
+                           label: str = "") -> None:
+        self._execute(
+            "INSERT OR REPLACE INTO project_keys (key_hash,project_id,role,label,created_at) "
+            "VALUES (?,?,?,?,?)",
+            (key_hash, project_id, role, label, self._now()))
+        self._commit()
+
+    def get_project_key_by_hash(self, key_hash: str) -> Optional[tuple]:
+        row = self._execute(
+            "SELECT role, project_id FROM project_keys WHERE key_hash=?",
+            (key_hash,)).fetchone()
+        if not row:
+            return None
+        return (row["role"], row["project_id"])
+
+    def add_benchmark(self, project_id: Optional[str], query: str,
+                      expected_chunk_ids: List[str], notes: str = "") -> None:
+        self._execute(
+            "INSERT INTO knowledge_benchmarks (project_id,query,expected_chunk_ids,notes,created_at) "
+            "VALUES (?,?,?,?,?)",
+            (project_id, query, self._json_dumps(expected_chunk_ids or []), notes, self._now()))
+        self._commit()
+
+    def list_benchmarks(self, project_id: Optional[str] = None) -> List[dict]:
+        if project_id:
+            rows = self._execute(
+                "SELECT * FROM knowledge_benchmarks WHERE project_id=? ORDER BY id",
+                (project_id,)).fetchall()
+        else:
+            rows = self._execute(
+                "SELECT * FROM knowledge_benchmarks ORDER BY id").fetchall()
+        out = []
+        for r in rows:
+            d = self._row_to_dict(r)
+            d["expected_chunk_ids"] = self._json_loads(d.get("expected_chunk_ids", "[]"))
+            out.append(d)
+        return out

@@ -14,7 +14,7 @@ def test_ingest_then_retrieve():
     doc_id = svc.ingest("内容安全平台用于过滤违规信息。审核效率需要提升。",
                         project_id="p1", title="文档A", source="a.txt")
     assert doc_id
-    res = svc.retrieve("内容安全 审核")
+    res = svc.retrieve("内容安全 审核", project_id="p1")
     assert res and "内容安全" in res[0]["content"]
 
 def test_retrieve_project_filter():
@@ -30,7 +30,7 @@ def test_hybrid_beats_single():
     svc = _tmp_service()
     svc.ingest("内容安全平台 违规信息 过滤 审核 风控", project_id="p1", title="A")
     svc.ingest("咖啡 烘焙 风味 产地 杯测", project_id="p1", title="B")
-    res = svc.retrieve("内容安全 审核 风控")
+    res = svc.retrieve("内容安全 审核 风控", project_id="p1")
     assert res and res[0]["doc_title"] == "A"
 
 def test_retrieve_empty_corpus():

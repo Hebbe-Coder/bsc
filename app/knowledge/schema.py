@@ -15,6 +15,20 @@ _SCHEMA = [
         id INTEGER PRIMARY KEY CHECK (id=1), vocab_json TEXT, idf_json TEXT)""",
     """CREATE TABLE IF NOT EXISTS knowledge_vectors (
         chunk_id TEXT PRIMARY KEY, model TEXT, dim INTEGER, vector BLOB)""",
+    """CREATE TABLE IF NOT EXISTS project_members (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL, user_id TEXT NOT NULL,
+        role TEXT NOT NULL, joined_at TEXT NOT NULL)""",
+    """CREATE TABLE IF NOT EXISTS knowledge_projects (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, created_at TEXT NOT NULL,
+        metadata TEXT DEFAULT '{}', rerank_config TEXT DEFAULT '{}')""",
+    """CREATE TABLE IF NOT EXISTS project_keys (
+        key_hash TEXT PRIMARY KEY, project_id TEXT NOT NULL, role TEXT NOT NULL,
+        label TEXT, created_at TEXT NOT NULL,
+        FOREIGN KEY(project_id) REFERENCES knowledge_projects(id))""",
+    """CREATE TABLE IF NOT EXISTS knowledge_benchmarks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT,
+        query TEXT NOT NULL, expected_chunk_ids TEXT DEFAULT '[]',
+        notes TEXT, created_at TEXT NOT NULL)""",
 ]
 
 def ensure_schema(repo: Any) -> None:
@@ -35,6 +49,14 @@ def ensure_schema(repo: Any) -> None:
     ):
         try:
             repo._execute(col_sql)
+        except Exception:
+            pass
+    for idx_sql in (
+        "CREATE INDEX IF NOT EXISTS idx_pm_project_user ON project_members(project_id, user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_kdocs_project ON knowledge_docs(project_id)",
+    ):
+        try:
+            repo._execute(idx_sql)
         except Exception:
             pass
     repo._commit()

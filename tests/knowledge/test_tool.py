@@ -11,7 +11,7 @@ def _tmp_tool():
 def test_retrieve_tool_format():
     tool = _tmp_tool()
     tool._service.ingest("内容安全平台用于过滤违规信息。", project_id="p1", title="文档A")
-    out = tool._run("内容安全")
+    out = tool._run("内容安全", project_id="p1")
     assert "[知识 1]" in out
     assert "出处：文档A" in out
     assert "内容安全平台" in out
@@ -28,5 +28,5 @@ def test_backend_failure_degrades():
     svc.ingest("内容安全平台过滤违规信息。", project_id="p1", title="A")
     svc.repo._execute("DELETE FROM tfidf_model")
     svc.repo._commit()
-    out = tool._run("内容安全")
+    out = tool._run("内容安全", project_id="p1")
     assert "[知识 1]" in out or "未检索到相关知识" in out   # 不崩
