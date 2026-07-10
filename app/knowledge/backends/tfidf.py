@@ -58,14 +58,13 @@ class TfidfBackend:
             self.repo._commit()
         return vocab, idf, changed
 
-    def _vectorize(self, text: str, vocab: dict, idf: dict) -> np.ndarray:
+    def _vectorize(self, text: str, vocab: dict, idf: dict | None = None) -> np.ndarray:
+        """原始词频(TF)向量，不含 idf。idf 统一在 search 时按当前模型加权，
+        以保证增量索引后存储向量稳定、与查询权重一致。"""
         vec = np.zeros(len(vocab))
         for tok, cnt in Counter(tokenize(text)).items():
             if tok in vocab:
-                vec[vocab[tok]] = cnt * idf.get(tok, 1.0)
-        norm = np.linalg.norm(vec)
-        if norm > 0:
-            vec = vec / norm
+                vec[vocab[tok]] = cnt
         return vec
 
     def index(self, chunk_records: List[dict]) -> None:
@@ -99,12 +98,22 @@ class TfidfBackend:
         vocab, idf = self._load_model()
         if not vocab:
             return []
-        qv = self._vectorize(query, vocab, idf)
+        # 查询向量：TF（存储不含 idf，统一此处加权）
+        qv_raw = self._vectorize(query, vocab)
+        idf_arr = np.array([idf.get(tok, 1.0) for tok in vocab], dtype=np.float64)
+        qv = qv_raw * idf_arr
+        qnorm = np.linalg.norm(qv)
+        if qnorm == 0:
+            return []
         rows = self.repo._execute("SELECT chunk_id, vector FROM knowledge_tfidf").fetchall()
         scored = []
         for r in rows:
-            cv = np.frombuffer(r["vector"], dtype=np.float64)
-            sim = float(np.dot(qv, cv))
+            cv_raw = np.frombuffer(r["vector"], dtype=np.float64)
+            cv = cv_raw * idf_arr
+            cnorm = np.linalg.norm(cv)
+            if cnorm == 0:
+                continue
+            sim = float(np.dot(qv, cv) / (qnorm * cnorm))
             if sim > 0:
                 scored.append((r["chunk_id"], sim))
         scored.sort(key=lambda x: -x[1])
