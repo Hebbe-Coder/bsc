@@ -85,10 +85,10 @@ def test_issue_key_unknown_project_404():
         rk = c.post("/knowledge/projects/nope/keys",
                     json={"role": "project_reader"},
                     headers={"Authorization": f"Bearer {ga}"})
-        # ApiResponse.not_found 走统一信封，HTTP 200 但 code 表示未找到
+        # ApiResponse.not_found 走统一信封，HTTP 200 但 code=404 表示未找到
         assert rk.status_code == 200
         body = rk.json()
-        assert body.get("code") in (404, 40400) or body.get("success") is False
+        assert body["success"] is False and body["code"] == 404
     finally:
         _cleanup(p, repo, svc)
 
@@ -103,7 +103,39 @@ def test_issue_key_invalid_role():
                     json={"role": "hacker"},
                     headers={"Authorization": f"Bearer {ga}"})
         assert rk.status_code == 200
-        assert rk.json().get("success") is False
+        body = rk.json()
+        assert body["success"] is False and body["code"] == 400
+    finally:
+        _cleanup(p, repo, svc)
+
+
+def test_project_admin_cannot_create_project():
+    """P1 越权回归：project_admin key 不得创建项目（仅 admin 可）。"""
+    c, p, ga, repo, svc = _c()
+    try:
+        r = c.post("/knowledge/projects", json={"name": "Owner Proj"},
+                   headers={"Authorization": f"Bearer {ga}"})
+        pa_key = r.json()["data"]["key"]  # project_admin key
+        # 依赖层 require_admin 抛 403 → FastAPI 转成 403 响应
+        rp = c.post("/knowledge/projects", json={"name": "Sneaky"},
+                    headers={"Authorization": f"Bearer {pa_key}"})
+        assert rp.status_code == 403
+    finally:
+        _cleanup(p, repo, svc)
+
+
+def test_project_admin_cannot_issue_key():
+    """P1 越权回归：project_admin key 不得为任何项目签发新 key。"""
+    c, p, ga, repo, svc = _c()
+    try:
+        r = c.post("/knowledge/projects", json={"name": "Owner Proj 2"},
+                   headers={"Authorization": f"Bearer {ga}"})
+        data = r.json()["data"]
+        pid, pa_key = data["project_id"], data["key"]
+        rk = c.post(f"/knowledge/projects/{pid}/keys",
+                    json={"role": "project_reader"},
+                    headers={"Authorization": f"Bearer {pa_key}"})
+        assert rk.status_code == 403
     finally:
         _cleanup(p, repo, svc)
 
