@@ -13,6 +13,31 @@ from app.api.knowledge_api import get_knowledge_service
 TEST_API_KEY = "test-api-key-for-knowledge-suite"
 
 
+@pytest.fixture(autouse=True)
+def _isolate_global_state():
+    """快照并还原全局 settings 与 app.dependency_overrides。
+
+    知识库套件中部分用例（含辅助函数 _c()）会直接赋值 settings.API_KEY 等全局字段，
+    若不还原会泄漏到后续非知识库测试模块（如 test_integration / test_sop_report_engine），
+    导致 AuthMiddleware 对无鉴权请求返回 401，出现「单测通过、全量失败」的串扰。
+    该 autouse fixture 对每个知识库用例做全字段快照/还原，隔离全局状态泄漏。
+    """
+    field_names = list(getattr(type(settings), "model_fields", {}).keys())
+    snapshot = {k: getattr(settings, k) for k in field_names if hasattr(settings, k)}
+    import app.main as _main
+    overrides_snapshot = dict(_main.app.dependency_overrides)
+    try:
+        yield
+    finally:
+        for k, v in snapshot.items():
+            try:
+                setattr(settings, k, v)
+            except Exception:
+                pass
+        _main.app.dependency_overrides.clear()
+        _main.app.dependency_overrides.update(overrides_snapshot)
+
+
 def _make_client(monkeypatch, api_key: str, attach_header: bool):
     monkeypatch.setattr(settings, "API_KEY", api_key)
     monkeypatch.setattr(settings, "RATE_LIMIT_ENABLED", False)
