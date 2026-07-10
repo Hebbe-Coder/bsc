@@ -29,22 +29,31 @@ class CloudReranker(Reranker):
     def _payload(self, query: str, texts: List[str]) -> dict:
         return {"model": "rerank-english-v3.0", "query": query, "documents": texts, "top_n": len(texts)}
 
-    def _extract(self, data: dict) -> List[float]:
-        return [float(r["relevance_score"]) for r in data.get("results", [])]
+    def _extract(self, data: dict) -> List[tuple]:
+        # Cohere/Jina: results 按相关度降序，每项含 index 指回原文位置。
+        # 必须按 index 对齐，不能依赖列表顺序。
+        return [(int(r["index"]), float(r["relevance_score"]))
+                for r in data.get("results", [])]
 
     def rerank(self, query, candidates, top_k) -> List[Dict]:
         if not self.keys:
             logger.warning("cloud rerank 无 key, 降级原序")
             return candidates[:top_k]
         texts = [c.get("content") or "" for c in candidates]
+        n = len(candidates)
         last_err = None
         for key in self.keys:
             try:
                 resp = self._post(self.base_url, self._headers(key), self._payload(query, texts))
-                scores = self._extract(resp.json())
-                if len(scores) != len(candidates):
+                pairs = self._extract(resp.json())
+                if len(pairs) != n:
                     raise ValueError("云端返回分数数与候选不一致")
-                scored = [dict(c, rerank_score=float(s)) for c, s in zip(candidates, scores)]
+                scored = []
+                for idx, s in pairs:
+                    if 0 <= idx < n:
+                        scored.append(dict(candidates[idx], rerank_score=s))
+                if len(scored) != n:
+                    raise ValueError("云端返回 index 越界或重复")
                 scored.sort(key=lambda x: -x["rerank_score"])
                 return scored[:top_k]
             except Exception as e:

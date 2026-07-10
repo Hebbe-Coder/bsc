@@ -68,23 +68,26 @@ class KnowledgeService:
             existing = self.repo._execute(
                 "SELECT id, content_hash, version FROM knowledge_docs WHERE id=?",
                 (doc_id,)).fetchone()
+            if existing and existing["content_hash"] == content_hash:
+                return {"doc_id": doc_id, "status": "skipped",
+                        "version": existing["version"], "reason": "unchanged",
+                        "content_hash": content_hash}
+
+            # 先切分并校验，再执行任何破坏性操作，避免更新时新内容无 chunk
+            # 却已删除旧文档导致静默数据丢失。
+            chunks = chunk_text(norm_text)
+            if not chunks:
+                return {"doc_id": doc_id, "status": "skipped",
+                        "reason": "no_chunks", "content_hash": content_hash}
+
             if existing:
-                if existing["content_hash"] == content_hash:
-                    return {"doc_id": doc_id, "status": "skipped",
-                            "version": existing["version"], "reason": "unchanged",
-                            "content_hash": content_hash}
-                # 内容变化：级联清旧 chunk 后重写，version 递增
+                # 内容变化且新内容有效：级联清旧 chunk 后重写，version 递增
                 self.delete_document(doc_id)
                 version = (existing["version"] or 1) + 1
                 status = "updated"
             else:
                 version = 1
                 status = "ingested"
-
-            chunks = chunk_text(norm_text)
-            if not chunks:
-                return {"doc_id": doc_id, "status": "skipped",
-                        "reason": "no_chunks", "content_hash": content_hash}
 
             self.repo._execute(
                 "INSERT INTO knowledge_docs "
