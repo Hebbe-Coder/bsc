@@ -115,6 +115,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return True
         if path.startswith("/output"):
             return True
+        if path.startswith("/api/files"):
+            return True
         return False
     
     async def dispatch(self, request: Request, call_next):

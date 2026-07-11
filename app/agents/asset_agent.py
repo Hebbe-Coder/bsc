@@ -1,5 +1,6 @@
 ﻿"""Asset Agent — generates PPTX, HTML, and JSON deliverables from workspace."""
 from .protocol import BaseAgent, AgentContext, AgentResult, AgentStatus
+from app.api.auth_deps import download_url
 import logging, os, json, time
 
 logger = logging.getLogger("bsc.studio.asset")
@@ -24,7 +25,7 @@ class AssetAgent(BaseAgent):
             json_path = os.path.join(output_dir, f"report_{ts}.json")
             with open(json_path, "w", encoding="utf-8") as f:
                 json.dump(bs, f, ensure_ascii=False, indent=2)
-            assets.append({"type": "json", "path": f"/output/report_{ts}.json", "filename": f"report_{ts}.json"})
+            assets.append({"type": "json", "path": download_url(f"report_{ts}.json"), "filename": f"report_{ts}.json"})
 
         # 2. HTML asset
         if "html" in output_types:
@@ -32,14 +33,14 @@ class AssetAgent(BaseAgent):
             html_path = os.path.join(output_dir, f"report_{ts}.html")
             with open(html_path, "w", encoding="utf-8") as f:
                 f.write(html_content)
-            assets.append({"type": "html", "path": f"/output/report_{ts}.html", "filename": f"report_{ts}.html"})
+            assets.append({"type": "html", "path": download_url(f"report_{ts}.html"), "filename": f"report_{ts}.html"})
 
         # 3. PPT placeholder (uses existing generate_ppt.py or mock)
         if "ppt" in output_types:
             ppt_path = os.path.join(output_dir, f"report_{ts}.pptx")
             try:
                 self._generate_pptx(bs, ppt_path)
-                assets.append({"type": "ppt", "path": f"/output/report_{ts}.pptx", "filename": f"report_{ts}.pptx"})
+                assets.append({"type": "ppt", "path": download_url(f"report_{ts}.pptx"), "filename": f"report_{ts}.pptx"})
             except Exception as e:
                 logger.warning(f"PPTX generation skipped: {e}")
                 assets.append({"type": "ppt", "path": "", "filename": "", "error": str(e)[:100]})

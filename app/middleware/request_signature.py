@@ -50,6 +50,8 @@ class RequestSignatureMiddleware(BaseHTTPMiddleware):
             return True
         if path.startswith("/output"):
             return True
+        if path.startswith("/api/files"):
+            return True
         return False
     
     def _parse_signature(self, auth_header: str) -> dict:

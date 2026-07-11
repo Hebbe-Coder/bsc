@@ -212,7 +212,7 @@ except Exception as e:
 
 # Load routers (fail-safe)
 _try = lambda m: __import__(m, fromlist=["router"])
-for _m in ["app.api.bsc_api","app.api.chat_api","app.api.studio_api","app.api.visual_api","app.api.dashboard","app.api.template_api","app.api.tasks_api","app.api.stream_api","app.api.recommendation_api","app.api.prd_api","app.api.pm_report_api","app.api.dialog_api","app.api.prd_editor_api","app.api.skill_routes","app.api.sop_report_api","app.api.brainstorm_api","app.api.knowledge_api","app.api.knowledge_ws"]:
+for _m in ["app.api.bsc_api","app.api.chat_api","app.api.studio_api","app.api.visual_api","app.api.dashboard","app.api.template_api","app.api.tasks_api","app.api.stream_api","app.api.recommendation_api","app.api.prd_api","app.api.pm_report_api","app.api.dialog_api","app.api.prd_editor_api","app.api.skill_routes","app.api.sop_report_api","app.api.brainstorm_api","app.api.knowledge_api","app.api.knowledge_ws","app.api.files_api"]:
     try: 
         app.include_router(_try(_m).router)
         logger.info(f"Router loaded: {_m}")
@@ -223,11 +223,6 @@ for _m in ["app.api.bsc_api","app.api.chat_api","app.api.studio_api","app.api.vi
 _static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
 if os.path.isdir(_static_dir):
     app.mount("/dashboard", StaticFiles(directory=_static_dir, html=True), name="dashboard")
-
-# Output files mount (for asset downloads)
-_output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "output")
-if os.path.isdir(_output_dir):
-    app.mount("/output", StaticFiles(directory=_output_dir), name="output")
 
 # Root → BSC Chat (conversational interface)
 @app.get("/", include_in_schema=False)

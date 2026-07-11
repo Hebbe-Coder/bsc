@@ -43,3 +43,47 @@ def test_dashboard_router_unauth_401(monkeypatch):
     client = TestClient(app)
     resp = client.get("/dashboard/overview")
     assert resp.status_code == 401
+
+
+import os
+import tempfile
+from app.api import files_api
+from app.agents import asset_agent as asset_module
+
+
+def _client_with_file(monkeypatch, key):
+    d = tempfile.mkdtemp()
+    monkeypatch.setattr(files_api, "_OUTPUT_DIR", d)
+    monkeypatch.setattr(settings, "API_KEY", key)
+    p = os.path.join(d, "report_1.html")
+    with open(p, "w", encoding="utf-8") as f:
+        f.write("<html>ok</html>")
+    app = FastAPI()
+    app.include_router(files_api.router)
+    return TestClient(app), "report_1.html"
+
+
+def test_download_no_token_rejected(monkeypatch):
+    client, name = _client_with_file(monkeypatch, "ws2-admin")
+    assert client.get(f"/api/files/{name}").status_code == 401
+
+
+def test_download_with_token_ok(monkeypatch):
+    client, name = _client_with_file(monkeypatch, "ws2-admin")
+    resp = client.get(f"/api/files/{name}?token=ws2-admin")
+    assert resp.status_code == 200
+    assert resp.text == "<html>ok</html>"
+
+
+def test_download_path_traversal_blocked(monkeypatch):
+    client, name = _client_with_file(monkeypatch, "ws2-admin")
+    resp = client.get("/api/files/..%2f..%2fsecret?token=ws2-admin")
+    assert resp.status_code in (400, 404)
+
+
+def test_asset_agent_returns_protected_url(monkeypatch):
+    monkeypatch.setattr(settings, "API_KEY", "ws2-admin")
+    from app.api.auth_deps import download_url
+    url = download_url("report_x.html")
+    assert url.startswith("/api/files/report_x.html?token=")
+    assert "ws2-admin" in url
