@@ -1,9 +1,12 @@
 # tests/orchestrator/test_agents.py  (Planner 部分)
 import asyncio
+import os
+import tempfile
 from app.orchestrator.agents.planner import PlannerAgent
 from app.orchestrator.agents.business_architect import BusinessArchitectAgent
 from app.orchestrator.agents.sop_builder import SopBuilderAgent
 from app.orchestrator.agents.reviewer import ReviewerAgent
+from app.orchestrator.agents.presenter import PresenterAgent
 from app.orchestrator.schemas import validate_segment
 
 
@@ -78,3 +81,15 @@ def test_reviewer_approves():
     agent = ReviewerAgent(llm_service=FakeLLM(payload))
     out = agent.run(project={}, business_model={}, sop={})
     assert out["review"]["approved"] is True
+
+
+def test_presenter_writes_html_and_ppt():
+    out_dir = tempfile.mkdtemp()
+    payload = {"presentation": {"html_url": "/presentations/s1.html",
+                                "ppt_path": "/presentations/s1.pptx",
+                                "diagram_spec": {"flows": [], "roles": [], "rules": []}}}
+    agent = PresenterAgent(llm_service=FakeLLM(payload))
+    out = agent.run(session_id="s1", state={"project": {"name": "审核中心"}}, out_dir=out_dir)
+    assert out["presentation"]["html_url"].endswith(".html")
+    assert os.path.exists(os.path.join(out_dir, "s1.html"))
+    assert os.path.exists(os.path.join(out_dir, "s1.pptx"))
