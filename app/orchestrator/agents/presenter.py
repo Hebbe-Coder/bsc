@@ -1,6 +1,8 @@
 # app/orchestrator/agents/presenter.py
 from __future__ import annotations
 import os
+import re
+from html import escape
 from app.agents.base_agent import BaseAgent
 
 
@@ -24,9 +26,11 @@ class PresenterAgent(BaseAgent):
 
     def run(self, session_id: str, state: dict, out_dir: str = "static/presentations",
             context: dict = None) -> dict:
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", session_id or ""):
+            raise ValueError(f"invalid session_id: {session_id!r}")
         os.makedirs(out_dir, exist_ok=True)
         user_prompt = f"6 段状态：{state}\n请生成汇报材料（HTML + PPT）的元信息与 diagram_spec。"
-        meta = self.llm_service.chat(self.system_prompt, user_prompt, temperature=0.1)
+        meta = self.llm_service.chat(self.system_prompt, user_prompt, temperature=0.1) or {}
         pres = meta.get("presentation", {})
         html_path = os.path.join(out_dir, f"{session_id}.html")
         ppt_path = os.path.join(out_dir, f"{session_id}.pptx")
@@ -46,11 +50,11 @@ class PresenterAgent(BaseAgent):
         name = state.get("project", {}).get("name", "项目")
         return (
             "<!doctype html><html lang='zh'><head><meta charset='utf-8'>"
-            f"<title>{name} 汇报</title></head><body>"
-            f"<h1>{name} 业务共创汇报</h1>"
-            f"<h2>业务模型</h2><pre>{state.get('business_model', {})!r}</pre>"
-            f"<h2>SOP</h2><pre>{state.get('sop', {})!r}</pre>"
-            f"<h2>审查</h2><pre>{state.get('review', {})!r}</pre>"
+            f"<title>{escape(name)} 汇报</title></head><body>"
+            f"<h1>{escape(name)} 业务共创汇报</h1>"
+            f"<h2>业务模型</h2><pre>{escape(repr(state.get('business_model', {})))}</pre>"
+            f"<h2>SOP</h2><pre>{escape(repr(state.get('sop', {})))}</pre>"
+            f"<h2>审查</h2><pre>{escape(repr(state.get('review', {})))}</pre>"
             "</body></html>"
         )
 
