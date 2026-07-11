@@ -171,7 +171,7 @@ async def compile_prd(req: CompileRequest):
 
 @router.post(
     "/compile/sync",
-    response_model=ApiResponse[CompileResponse],
+    response_model=ApiResponse[Dict[str, Any]],
     summary="BSC Pipeline - 同步流程入口",
     description="""同步串行执行模式。适用于需要确定性执行顺序或调试场景。
 
@@ -200,6 +200,25 @@ async def compile_prd_sync(req: CompileRequest):
             visuals = visual_result.get("visuals", []) if isinstance(visual_result, dict) else visual_result
         except Exception:
             pass
+
+    pipeline = result.get("pipeline", {})
+    stages = pipeline.get("stages", [])
+    failed = []
+    if isinstance(stages, list):
+        failed = [s for s in stages if isinstance(s, dict) and s.get("status") == "failed"]
+    if failed:
+        agents = ", ".join(s.get("agent") or s.get("display") or "?" for s in failed)
+        _LEAK_KEYS = ("traceback", "exception", "stack")
+        safe_stages = [
+            {k: v for k, v in s.items() if k not in _LEAK_KEYS}
+            for s in stages if isinstance(s, dict)
+        ]
+        return ApiResponse(
+            success=False,
+            code=2001,
+            message=f"编译有 {len(failed)} 个分析阶段失败：{agents}",
+            data={"stages": safe_stages, "partial_business_system": bs},
+        )
 
     return ApiResponse.ok({
         "pipeline": result["pipeline"],
