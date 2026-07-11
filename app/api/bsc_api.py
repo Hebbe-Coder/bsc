@@ -101,7 +101,7 @@ class CompileResponse(BaseModel):
 
 @router.post(
     "/compile",
-    response_model=ApiResponse[CompileResponse],
+    response_model=ApiResponse[Dict[str, Any]],
     summary="BSC Pipeline - 完整流程入口（异步并行模式）",
     description="""将PRD文本编译为完整的业务系统分析报告。默认使用异步并行模式，性能提升约50%。
 
@@ -136,6 +136,26 @@ async def compile_prd(req: CompileRequest):
             visuals = visual_result.get("visuals", []) if isinstance(visual_result, dict) else visual_result
         except Exception:
             pass
+
+    pipeline = result.get("pipeline", {})
+    stages = pipeline.get("stages", [])
+    failed = []
+    if isinstance(stages, list):
+        failed = [s for s in stages if isinstance(s, dict) and s.get("status") == "failed"]
+    if failed:
+        agents = ", ".join(s.get("agent") or s.get("display") or "?" for s in failed)
+        # 去除可能泄漏内部路径/堆栈的字段，仅保留阶段状态信息
+        _LEAK_KEYS = ("traceback", "exception", "stack")
+        safe_stages = [
+            {k: v for k, v in s.items() if k not in _LEAK_KEYS}
+            for s in stages if isinstance(s, dict)
+        ]
+        return ApiResponse(
+            success=False,
+            code=2001,
+            message=f"编译有 {len(failed)} 个分析阶段失败：{agents}",
+            data={"stages": safe_stages, "partial_business_system": bs},
+        )
 
     return ApiResponse.ok({
         "pipeline": result["pipeline"],
