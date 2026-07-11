@@ -2,6 +2,7 @@
 import asyncio
 from app.orchestrator.agents.planner import PlannerAgent
 from app.orchestrator.agents.business_architect import BusinessArchitectAgent
+from app.orchestrator.agents.sop_builder import SopBuilderAgent
 from app.orchestrator.schemas import validate_segment
 
 
@@ -40,3 +41,21 @@ def test_ba_produces_business_model():
                                 _compile=FakeCompile()))
     assert "business_model" in out
     assert out["business_model"]["flows"][0]["name"] == "受理"
+
+
+class FakeSopEngine:
+    def generate_full_sop_report(self, business_system, enable_ai_analysis=False):
+        return {"workflow": [{"step": 1, "name": "受理", "action": "收单"}],
+                "roles": [{"role": "审核员"}],
+                "sla": [{"metric": "时效", "target": "5min", "owner": "审核员"}]}
+
+
+def test_sop_builder_produces_sops():
+    payload = {"sop": {"sops": [{"id": "s1", "title": "审核 SOP", "owner_role": "审核员",
+                                  "trigger": "收到内容", "steps": [{"seq": 1, "action": "初审"}],
+                                  "escalation": "升级主管", "review_cycle": "周"}]}}
+    agent = SopBuilderAgent(llm_service=FakeLLM(payload))
+    out = agent.run(business_model={"flows": [], "roles": [], "rules": []},
+                    _engine=FakeSopEngine())
+    assert "sop" in out
+    assert out["sop"]["sops"][0]["title"] == "审核 SOP"
