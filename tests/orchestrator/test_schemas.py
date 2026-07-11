@@ -5,7 +5,7 @@ from app.orchestrator.schemas import validate_segment, ValidationError
 
 def test_validate_business_model_ok():
     data = {"flows": [{"id": "f1", "name": "受理"}], "roles": [], "rules": []}
-    assert validate_segment("business_model", data)["flows"][0]["id"] == "f1"
+    assert validate_segment("business_model", data).flows[0].id == "f1"
 
 
 def test_validate_business_model_missing_required():

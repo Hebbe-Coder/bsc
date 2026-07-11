@@ -18,10 +18,19 @@ class Requirement(BaseModel):
     source: str = ""
 
 
+class Flow(BaseModel):
+    id: str = ""
+    name: str = ""
+    description: str = ""
+    steps: list = Field(default_factory=list)
+    input: str = ""
+    output: str = ""
+
+
 class BusinessModel(BaseModel):
-    flows: list = Field(default_factory=list)    # [{id,name,description,steps[],input,output}]
-    roles: list = Field(default_factory=list)     # [{id,name,responsibility,belongs_to_flow}]
-    rules: list = Field(default_factory=list)     # [{id,statement,applies_to}]
+    flows: list[Flow] = Field(default_factory=list)    # [{id,name,description,steps[],input,output}]
+    roles: list     # [{id,name,responsibility,belongs_to_flow}]
+    rules: list     # [{id,statement,applies_to}]
 
 
 class SopStep(BaseModel):
@@ -67,12 +76,12 @@ class Presentation(BaseModel):
 
 
 _VALIDATORS = {
-    "project": ProjectModel,
+    "project": ProjectModel.model_validate,
     "requirements": lambda v: [Requirement(**r) for r in (v or [])],
-    "business_model": BusinessModel,
-    "sop": SopSet,
-    "review": Review,
-    "presentation": Presentation,
+    "business_model": BusinessModel.model_validate,
+    "sop": SopSet.model_validate,
+    "review": Review.model_validate,
+    "presentation": Presentation.model_validate,
 }
 
 
@@ -85,10 +94,6 @@ def validate_segment(segment: str, data: dict):
         raise ValidationError(f"未知状态段: {segment}")
     try:
         validator = _VALIDATORS[segment]
-        # pydantic v2 BaseModel 不接受单个位置参数 dict，需 model_validate；
-        # requirements 的 lambda 接收位置参数 v，保持原样调用。
-        if isinstance(validator, type) and issubclass(validator, BaseModel):
-            return validator.model_validate(data)
         return validator(data)
     except PydanticValidationError as e:
         raise ValidationError(f"{segment} 校验失败: {e}") from e
