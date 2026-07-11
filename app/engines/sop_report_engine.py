@@ -25,11 +25,25 @@ SOP Report Engine - SOP汇报引擎
 from __future__ import annotations
 import uuid
 import logging
+import html
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+
+
+
+def _esc_deep(obj):
+    """递归转义所有字符串叶子，防止 LLM 派生内容注入 HTML（XSS）。
+    仅转义数据值，不触碰模板结构；非字符串（数字/布尔）原样返回。"""
+    if isinstance(obj, dict):
+        return {k: _esc_deep(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_esc_deep(v) for v in obj]
+    if isinstance(obj, str):
+        return html.escape(obj, quote=True)
+    return obj
 
 class SOPReportEngine:
     """SOP汇报引擎"""
@@ -1407,6 +1421,7 @@ class SOPReportEngine:
 
     def export_to_html(self, report: Dict[str, Any]) -> str:
         """将SOP汇报导出为HTML格式"""
+        report = _esc_deep(report)
         html_lines = []
         html_lines.append("""<!DOCTYPE html>
 <html lang="zh-CN">
