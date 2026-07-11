@@ -1,5 +1,7 @@
 # tests/orchestrator/test_agents.py  (Planner 部分)
+import asyncio
 from app.orchestrator.agents.planner import PlannerAgent
+from app.orchestrator.agents.business_architect import BusinessArchitectAgent
 from app.orchestrator.schemas import validate_segment
 
 
@@ -21,3 +23,20 @@ def test_planner_produces_project_and_requirements():
     validate_segment("project", out["project"])   # 不抛异常
     validate_segment("requirements", out["requirements"])
     assert out["project"]["name"] == "内容审核中心"
+
+
+class FakeCompile:
+    async def __call__(self, prd, llm_service=None, **kw):
+        return {"functions": [{"name": "受理"}], "roles": [{"name": "审核员"}]}
+
+
+def test_ba_produces_business_model():
+    payload = {"business_model": {"flows": [{"id": "f1", "name": "受理", "steps": ["收单"]}],
+                                  "roles": [{"id": "r1", "name": "审核员"}], "rules": []}}
+    agent = BusinessArchitectAgent(llm_service=FakeLLM(payload))
+    out = asyncio.run(agent.run(idea="内容审核中心",
+                                project={"name": "内容审核中心"},
+                                requirements=[],
+                                _compile=FakeCompile()))
+    assert "business_model" in out
+    assert out["business_model"]["flows"][0]["name"] == "受理"
