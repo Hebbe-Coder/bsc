@@ -1,5 +1,5 @@
-import Editor from "./components/Editor";
+import { Workspace } from "./components/Workspace";
 
 export default function App() {
-  return <Editor />;
+  return <Workspace />;
 }
