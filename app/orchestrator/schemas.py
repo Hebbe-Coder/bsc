@@ -50,7 +50,7 @@ class Sop(BaseModel):
 
 
 class SopSet(BaseModel):
-    sops: list = Field(default_factory=list)     # [Sop]
+    sops: list[Sop] = Field(default_factory=list)     # [Sop]
 
 
 class Gap(BaseModel):
@@ -64,7 +64,7 @@ class Gap(BaseModel):
 
 class Review(BaseModel):
     approved: bool = False
-    gaps: list = Field(default_factory=list)     # [Gap]
+    gaps: list[Gap] = Field(default_factory=list)     # [Gap]
     loopback_target: str = None                  # ba|sop|null
     summary: str = ""
 
