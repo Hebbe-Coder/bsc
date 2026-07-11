@@ -3,6 +3,7 @@ import asyncio
 from app.orchestrator.agents.planner import PlannerAgent
 from app.orchestrator.agents.business_architect import BusinessArchitectAgent
 from app.orchestrator.agents.sop_builder import SopBuilderAgent
+from app.orchestrator.agents.reviewer import ReviewerAgent
 from app.orchestrator.schemas import validate_segment
 
 
@@ -59,3 +60,21 @@ def test_sop_builder_produces_sops():
                     _engine=FakeSopEngine())
     assert "sop" in out
     assert out["sop"]["sops"][0]["title"] == "审核 SOP"
+
+
+def test_reviewer_finds_gap_and_loopback():
+    payload = {"review": {"approved": False,
+        "gaps": [{"id": "g1", "severity": "high", "type": "sla",
+                  "desc": "缺 SLA", "suggested_fix": "加 SLA", "target": "sop"}],
+        "loopback_target": "sop", "summary": "需补 SLA"}}
+    agent = ReviewerAgent(llm_service=FakeLLM(payload))
+    out = agent.run(project={}, business_model={}, sop={})
+    assert out["review"]["approved"] is False
+    assert out["review"]["loopback_target"] == "sop"
+
+
+def test_reviewer_approves():
+    payload = {"review": {"approved": True, "gaps": [], "loopback_target": None, "summary": "ok"}}
+    agent = ReviewerAgent(llm_service=FakeLLM(payload))
+    out = agent.run(project={}, business_model={}, sop={})
+    assert out["review"]["approved"] is True
