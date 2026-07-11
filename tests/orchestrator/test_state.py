@@ -31,3 +31,34 @@ def test_patch_unknown_segment_raises():
     repo.save(ProjectDraft(session_id=sid, idea="x"))
     with pytest.raises(ValueError):
         repo.patch(sid, "nope", {})
+
+
+def test_requirements_stays_list_on_roundtrip():
+    repo = ProjectDraftRepository()
+    sid = "sess-req-list"
+    repo.save(ProjectDraft(session_id=sid, idea="y", requirements=[{"id": "r1", "text": "登录"}]))
+    got = repo.get(sid)
+    assert isinstance(got.requirements, list)
+    assert got.requirements[0]["id"] == "r1"
+
+
+def test_empty_requirements_roundtrip_stays_list():
+    repo = ProjectDraftRepository()
+    sid = "sess-req-empty"
+    repo.save(ProjectDraft(session_id=sid, idea="z", requirements=[]))
+    got = repo.get(sid)
+    assert isinstance(got.requirements, list)
+    assert got.requirements == []
+
+
+def test_get_unknown_returns_none():
+    repo = ProjectDraftRepository()
+    assert repo.get("does-not-exist") is None
+
+
+def test_multiple_repo_instances_preserve_data():
+    repo1 = ProjectDraftRepository()
+    repo1.save(ProjectDraft(session_id="shared", idea="keepme"))
+    repo2 = ProjectDraftRepository()  # constructing a 2nd repo MUST NOT wipe data
+    assert repo2.get("shared") is not None
+    assert repo2.get("shared").idea == "keepme"

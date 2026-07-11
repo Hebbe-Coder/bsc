@@ -44,8 +44,8 @@ class ProjectDraft:
                 try:
                     v = json.loads(v)
                 except (json.JSONDecodeError, TypeError):
-                    v = {}
-            d[seg] = v or {}
+                    v = [] if seg == "requirements" else {}
+            d[seg] = v or ([] if seg == "requirements" else {})
         d["messages"] = json.loads(d["messages"]) if isinstance(d.get("messages"), str) else (d.get("messages") or [])
         return cls(**d)
 
@@ -56,15 +56,28 @@ class ProjectDraftRepository:
         self._ensure_table()
 
     def _ensure_table(self):
-        self._db.execute("DROP TABLE IF EXISTS agent_project_drafts")
-        self._db.execute(
-            """CREATE TABLE agent_project_drafts (
-                session_id TEXT PRIMARY KEY, idea TEXT, project TEXT, requirements TEXT,
-                business_model TEXT, sop TEXT, review TEXT, presentation TEXT,
-                status TEXT, messages TEXT, updated_at TEXT
-            )"""
-        )
-        self._db.commit()
+        expected_cols = {"session_id", "idea", "project", "requirements", "business_model",
+                         "sop", "review", "presentation", "status", "messages", "updated_at"}
+        cur = self._db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_project_drafts'"
+        ).fetchone()
+        needs_recreate = False
+        if cur is None:
+            needs_recreate = True
+        else:
+            cols = {r[1] for r in self._db.execute("PRAGMA table_info(agent_project_drafts)").fetchall()}
+            if cols != expected_cols:
+                needs_recreate = True
+        if needs_recreate:
+            self._db.execute("DROP TABLE IF EXISTS agent_project_drafts")
+            self._db.execute(
+                """CREATE TABLE agent_project_drafts (
+                    session_id TEXT PRIMARY KEY, idea TEXT, project TEXT, requirements TEXT,
+                    business_model TEXT, sop TEXT, review TEXT, presentation TEXT,
+                    status TEXT, messages TEXT, updated_at TEXT
+                )"""
+            )
+            self._db.commit()
 
     def save(self, draft: ProjectDraft):
         draft.updated_at = time.strftime("%Y-%m-%dT%H:%M:%S")
