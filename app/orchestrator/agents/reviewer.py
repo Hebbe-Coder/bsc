@@ -18,7 +18,10 @@ class ReviewerAgent(BaseAgent):
             '          "suggested_fix":str,"target":"ba|sop"}],'
             ' "loopback_target":"ba|sop|null",'
             ' "summary":str}}'
-            "\n若存在 high 级漏洞，loopback_target 指向需重做的段（ba 或 sop），否则 null。"
+            "\n约束：\n"
+            "1. 若存在 high 级漏洞，loopback_target 必须等于某个 high 级 gap 的 target；"
+            "若存在多个 high gap 指向不同段，取影响最大者，且 gaps 中须至少有一条 high gap 的 target 与之相同。\n"
+            "2. approved 为 true 当且仅当无 high 级漏洞（此时 loopback_target 必为 null）；否则 approved 为 false。"
         )
 
     @property
