@@ -1,11 +1,12 @@
 """Dashboard API - 业务指标/用户行为看板"""
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 
 from app.api.response import ApiResponse
+from app.api.auth_deps import verify_admin_key
 
-router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+router = APIRouter(prefix="/dashboard", tags=["Dashboard"], dependencies=[Depends(verify_admin_key)])
 
 
 class MetricsOverview(BaseModel):
