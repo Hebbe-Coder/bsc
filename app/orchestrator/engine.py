@@ -22,21 +22,21 @@ class OrchestratorEngine:
         draft = self.repo.get(session_id) or ProjectDraft(session_id=session_id, idea=idea)
         state = draft.to_dict()
         await self._emit(session_id, "planner", "running", "正在识别行业与边界")
-        out = await self._call("planner", session_id, idea=idea)
+        out = await self._call("planner", idea=idea)
         state["project"] = out.get("project", {})
         state["requirements"] = out.get("requirements", [])
         self._save(session_id, state)
         await self._emit(session_id, "planner", "done", "项目与目标已明确")
 
         await self._emit(session_id, "architect", "running", "正在构建流程")
-        out = await self._call("architect", session_id, idea=idea,
+        out = await self._call("architect", idea=idea,
                                project=state["project"], requirements=state["requirements"])
         state["business_model"] = out.get("business_model", {})
         self._save(session_id, state)
         await self._emit(session_id, "architect", "done", "业务架构已生成")
 
         await self._emit(session_id, "sop", "running", "正在生成 SOP")
-        out = await self._call("sop", session_id, business_model=state["business_model"])
+        out = await self._call("sop", business_model=state["business_model"])
         state["sop"] = out.get("sop", {})
         self._save(session_id, state)
         await self._emit(session_id, "sop", "done", "SOP 已生成")
@@ -45,7 +45,7 @@ class OrchestratorEngine:
         loop_count = 0
         while True:
             await self._emit(session_id, "reviewer", "running", "正在审查漏洞")
-            out = await self._call("reviewer", session_id,
+            out = await self._call("reviewer",
                                    project=state["project"], business_model=state["business_model"],
                                    sop=state["sop"])
             review = out.get("review", {})
@@ -57,10 +57,10 @@ class OrchestratorEngine:
             target = review.get("loopback_target")
             await self._emit(session_id, target, "loopback", f"↺ 打回 {target} 重做")
             if target == "sop":
-                out = await self._call("sop", session_id, business_model=state["business_model"])
+                out = await self._call("sop", business_model=state["business_model"])
                 state["sop"] = out.get("sop", {})
             elif target == "architect":
-                out = await self._call("architect", session_id, idea=idea,
+                out = await self._call("architect", idea=idea,
                                        project=state["project"], requirements=state["requirements"])
                 state["business_model"] = out.get("business_model", {})
             self._save(session_id, state)
@@ -84,7 +84,7 @@ class OrchestratorEngine:
         state = draft.to_dict()
         await self._emit(session_id, node, "running", f"定点重跑 {node}")
         kwargs = self._upstream_for(node, state)
-        out = await self._call(node, session_id, **kwargs)
+        out = await self._call(node, **kwargs)
         seg = {"architect": "business_model", "sop": "sop",
                "reviewer": "review", "presenter": "presentation"}[node]
         state[seg] = out.get(seg, out)
@@ -92,7 +92,9 @@ class OrchestratorEngine:
         await self._emit(session_id, node, "done", f"{node} 已重跑")
         return state
 
-    async def _call(self, name, session_id, **kwargs):
+    async def _call(self, name, **kwargs):
+        # 注意：session_id 仅当 agent 真正需要时才放入 kwargs（如 presenter），
+        # 不在本方法签名里保留未使用的 session_id 形参，否则会吞掉 presenter 的 session_id。
         agent = self.agents[name]
         if asyncio.iscoroutinefunction(agent.run):
             return await agent.run(**kwargs)

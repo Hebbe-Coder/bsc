@@ -46,3 +46,17 @@ def test_loopback_once_on_high_gap():
     eng.agents["reviewer"] = LoopReviewer()
     result = asyncio.run(eng.run_pipeline("s2", "内容审核中心"))
     assert result["review"]["approved"] is True   # 回环后通过
+
+
+def test_presenter_receives_session_id():
+    # 回归：engine 必须把 session_id 真正传入 presenter agent（否则真实 PresenterAgent 缺参）
+    eng = make_engine()
+    captured = {}
+    class PresenterSpy:
+        def run(self, *a, **k):
+            captured.update(k)
+            return {"presentation": {"html_url": "u", "ppt_path": "p", "diagram_spec": {}}}
+    eng.agents["presenter"] = PresenterSpy()
+    asyncio.run(eng.run_pipeline("s3", "内容审核中心"))
+    assert captured.get("session_id") == "s3"
+    assert "state" in captured
