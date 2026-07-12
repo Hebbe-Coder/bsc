@@ -8,6 +8,17 @@ export default defineConfig({
   build: {
     sourcemap: 'hidden',
   },
+  server: {
+    proxy: {
+      // 开发环境：前端（:5173）的所有 /api 请求经 vite 代理到后端（:8000），
+      // 规避跨域，同时让 SSE（EventSource）走同源、稳定流式转发。
+      // 生产构建由后端同域托管，相对路径同样生效。
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+    },
+  },
   plugins: [
     react({
       babel: {

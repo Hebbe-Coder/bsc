@@ -1,16 +1,26 @@
-import { fetchWrapper } from "./fetchWrapper";
-import { API_BASE } from "../config";
+// 使用相对路径 + vite dev proxy（/api -> :8000），规避跨域：
+// 开发环境浏览器请求同源的 /api/*，由 vite 代理转发到后端；
+// 生产环境静态资源由后端同域托管，相对路径同样命中后端。SSE（EventSource）亦走同源，稳定流式转发。
 
-export async function startOrchestrate(idea: string): Promise<{ session_id: string; status: string }> {
-  return fetchWrapper.fetch<{ session_id: string; status: string }>("/api/orchestrate", {
+export async function startOrchestrate(
+  idea: string,
+): Promise<{ session_id: string; status: string }> {
+  const res = await fetch("/api/orchestrate", {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ idea }),
   });
+  if (!res.ok) {
+    throw new Error(`orchestrate failed: ${res.status}`);
+  }
+  return res.json();
 }
 
-export function subscribeStream(sessionId: string, onEvent: (e: any) => void) {
-  // 必须用 API_BASE（开发环境指向 :8000 后端），相对路径会被 vite dev server 拦截
-  const url = `${API_BASE}/api/orchestrate/stream?session_id=${encodeURIComponent(sessionId)}`;
+export function subscribeStream(
+  sessionId: string,
+  onEvent: (e: any) => void,
+): EventSource {
+  const url = `/api/orchestrate/stream?session_id=${encodeURIComponent(sessionId)}`;
   const es = new EventSource(url);
   es.onmessage = (ev) => {
     try {
