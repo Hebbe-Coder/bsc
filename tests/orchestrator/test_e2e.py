@@ -29,7 +29,10 @@ def test_golden_content_moderation():
     class P:
         def run(self, *a, **k): return {"presentation": {"html_url": "u", "ppt_path": "p", "diagram_spec": {}}}
         def run_async(self, *a, **k): return self.run(*a, **k)
-    eng = OrchestratorEngine(agents={"planner": A(), "architect": B(), "sop": S(), "reviewer": R(), "presenter": P()},
+    class K:
+        def run(self, *a, **k): return {"risk": {"overall_score": "low", "coverage": {"total": 1, "covered": 1, "coverage_pct": 100, "uncovered_ids": []}, "gate": {"decision": "pass", "reasons": []}, "audit": []}}
+        def run_async(self, *a, **k): return self.run(*a, **k)
+    eng = OrchestratorEngine(agents={"planner": A(), "architect": B(), "sop": S(), "risk": K(), "reviewer": R(), "presenter": P()},
                               bus=FakeBus())
     state = asyncio.run(eng.run_pipeline("golden-1", "我要做一个内容审核中心"))
     assert state["project"]["name"] == "内容审核中心"
@@ -37,3 +40,4 @@ def test_golden_content_moderation():
     assert state["sop"]["sops"][0]["title"] == "审核SOP"
     assert state["review"]["approved"] is True
     assert "presentation" in state
+    assert "risk" in state
