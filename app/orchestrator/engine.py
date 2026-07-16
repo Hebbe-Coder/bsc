@@ -95,6 +95,12 @@ class OrchestratorEngine:
                                        project=state["project"], requirements=state["requirements"],
                                        fix_instructions=fixes)
                 state["business_model"] = out.get("business_model", {})
+            elif target == "risk":
+                await self._emit(session_id, "risk", "loopback",
+                                 f"↺ 打回 Risk 重做（第{loop_count+1}次回环），需补齐 {len(high_gaps)} 项缺口")
+                out = await self._call("risk", business_model=state["business_model"],
+                                       sop=state["sop"], requirements=state.get("requirements", []))
+                state["risk"] = out.get("risk", {})
             else:
                 await self._emit(session_id, "reviewer", "done", "无回环目标，审查完成")
                 break
@@ -111,21 +117,38 @@ class OrchestratorEngine:
         return state
 
     async def rerun_node(self, session_id: str, node: str) -> dict:
-        """定点重跑单节点（仅允许 architect/sop/reviewer/presenter）。"""
-        if node not in ("architect", "sop", "reviewer", "presenter"):
+        """定点重跑节点，并级联其下游闭包（risk->reviewer->presenter）。"""
+        if node not in self.agents:
             raise ValueError(f"不允许重跑 {node}")
         draft = self.repo.get(session_id)
         if draft is None:
             raise KeyError(f"session {session_id} not found")
         state = draft.to_dict()
-        await self._emit(session_id, node, "running", f"定点重跑 {node}")
-        kwargs = self._upstream_for(node, state)
-        out = await self._call(node, **kwargs)
-        seg = {"architect": "business_model", "sop": "sop",
-               "reviewer": "review", "presenter": "presentation"}[node]
-        state[seg] = out.get(seg, out)
-        self._save(session_id, state)
-        await self._emit(session_id, node, "done", f"{node} 已重跑")
+        # 下游闭包（含自身）
+        closure = {
+            "architect": ["sop", "risk", "reviewer", "presenter"],
+            "sop": ["risk", "reviewer", "presenter"],
+            "risk": ["reviewer", "presenter"],
+            "reviewer": ["presenter"],
+            "presenter": [],
+        }
+        order = ["architect", "sop", "risk", "reviewer", "presenter"]
+        targets = [node] + closure.get(node, [])
+        seen, seq = set(), []
+        for t in order:
+            if t in targets and t not in seen:
+                seen.add(t); seq.append(t)
+        for t in seq:
+            if t not in self.agents:
+                continue
+            await self._emit(session_id, t, "running", f"定点重跑 {t}")
+            kwargs = self._upstream_for(t, state)
+            out = await self._call(t, **kwargs)
+            seg = {"architect": "business_model", "sop": "sop", "risk": "risk",
+                   "reviewer": "review", "presenter": "presentation"}[t]
+            state[seg] = out.get(seg, out)
+            self._save(session_id, state)
+            await self._emit(session_id, t, "done", f"{t} 已重跑")
         return state
 
     def _call_sync(self, name, **kwargs):
@@ -143,9 +166,13 @@ class OrchestratorEngine:
             return {"idea": state["idea"], "project": state["project"], "requirements": state["requirements"]}
         if node == "sop":
             return {"business_model": state["business_model"]}
+        if node == "risk":
+            return {"business_model": state["business_model"], "sop": state.get("sop", {}),
+                    "requirements": state.get("requirements", [])}
         if node == "reviewer":
             return {"project": state["project"], "business_model": state["business_model"],
-                    "sop": state["sop"], "requirements": state.get("requirements", [])}
+                    "sop": state["sop"], "risk": state.get("risk", {}),
+                    "requirements": state.get("requirements", [])}
         if node == "presenter":
             return {"session_id": state["session_id"], "state": state}
         return {}
