@@ -1,16 +1,19 @@
 # app/agent/state.py
 from __future__ import annotations
-import json, time, uuid
+import json
+import time
+import uuid
 from typing import Any, Dict, Optional
 from app.db import get_db
 
-SEGMENTS = ("project", "requirements", "business_model", "sop", "review", "presentation")
+SEGMENTS = ("project", "requirements", "business_model", "sop", "risk", "review", "presentation")
 
 
 class ProjectDraft:
     def __init__(self, session_id: str = None, idea: str = "",
                  project: Optional[dict] = None, requirements: Optional[list] = None,
                  business_model: Optional[dict] = None, sop: Optional[dict] = None,
+                 risk: Optional[dict] = None,
                  review: Optional[dict] = None, presentation: Optional[dict] = None,
                  status: str = "planned", messages: Optional[list] = None,
                  updated_at: Optional[str] = None):
@@ -20,6 +23,7 @@ class ProjectDraft:
         self.requirements = requirements or []
         self.business_model = business_model or {}
         self.sop = sop or {}
+        self.risk = risk or {}
         self.review = review or {}
         self.presentation = presentation or {}
         self.status = status
@@ -30,7 +34,7 @@ class ProjectDraft:
         return {
             "session_id": self.session_id, "idea": self.idea,
             "project": self.project, "requirements": self.requirements,
-            "business_model": self.business_model, "sop": self.sop,
+            "business_model": self.business_model, "sop": self.sop, "risk": self.risk,
             "review": self.review, "presentation": self.presentation,
             "status": self.status, "messages": self.messages, "updated_at": self.updated_at,
         }
@@ -57,7 +61,7 @@ class ProjectDraftRepository:
 
     def _ensure_table(self):
         expected_cols = {"session_id", "idea", "project", "requirements", "business_model",
-                         "sop", "review", "presentation", "status", "messages", "updated_at"}
+                         "sop", "risk", "review", "presentation", "status", "messages", "updated_at"}
         cur = self._db.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_project_drafts'"
         ).fetchone()
@@ -73,7 +77,7 @@ class ProjectDraftRepository:
             self._db.execute(
                 """CREATE TABLE agent_project_drafts (
                     session_id TEXT PRIMARY KEY, idea TEXT, project TEXT, requirements TEXT,
-                    business_model TEXT, sop TEXT, review TEXT, presentation TEXT,
+                    business_model TEXT, sop TEXT, risk TEXT, review TEXT, presentation TEXT,
                     status TEXT, messages TEXT, updated_at TEXT
                 )"""
             )
@@ -83,18 +87,19 @@ class ProjectDraftRepository:
         draft.updated_at = time.strftime("%Y-%m-%dT%H:%M:%S")
         self._db.execute(
             """INSERT INTO agent_project_drafts
-               (session_id, idea, project, requirements, business_model, sop, review, presentation, status, messages, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)
+               (session_id, idea, project, requirements, business_model, sop, risk, review, presentation, status, messages, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT(session_id) DO UPDATE SET
                idea=excluded.idea, project=excluded.project, requirements=excluded.requirements,
-               business_model=excluded.business_model, sop=excluded.sop, review=excluded.review,
-               presentation=excluded.presentation, status=excluded.status, messages=excluded.messages,
-               updated_at=excluded.updated_at""",
+               business_model=excluded.business_model, sop=excluded.sop, risk=excluded.risk,
+               review=excluded.review, presentation=excluded.presentation, status=excluded.status,
+               messages=excluded.messages, updated_at=excluded.updated_at""",
             (draft.session_id, draft.idea,
              json.dumps(draft.project, ensure_ascii=False),
              json.dumps(draft.requirements, ensure_ascii=False),
              json.dumps(draft.business_model, ensure_ascii=False),
              json.dumps(draft.sop, ensure_ascii=False),
+             json.dumps(draft.risk, ensure_ascii=False),
              json.dumps(draft.review, ensure_ascii=False),
              json.dumps(draft.presentation, ensure_ascii=False),
              draft.status, json.dumps(draft.messages, ensure_ascii=False), draft.updated_at))
