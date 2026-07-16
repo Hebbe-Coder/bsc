@@ -75,6 +75,47 @@ class Presentation(BaseModel):
     diagram_spec: dict = Field(default_factory=dict)
 
 
+class RiskItem(BaseModel):
+    id: str = ""
+    category: str = ""
+    description: str = ""
+    likelihood: str = "medium"
+    impact: str = "medium"
+    mitigation: str = ""
+    owner_role: str = ""
+
+
+class CoverageModel(BaseModel):
+    total: int = 0
+    covered: int = 0
+    coverage_pct: int = 0
+    uncovered_ids: list = Field(default_factory=list)
+
+
+class GateModel(BaseModel):
+    decision: str = "pass"
+    reasons: list = Field(default_factory=list)
+
+
+class AuditEntryModel(BaseModel):
+    seq: int
+    agent: str
+    action: str
+    input_hash: str
+    output_hash: str
+    hash: str
+    prev_hash: str
+    timestamp: str = ""
+
+
+class RiskModel(BaseModel):
+    overall_score: str = "medium"
+    risks: list[RiskItem] = Field(default_factory=list)
+    coverage: CoverageModel = Field(default_factory=CoverageModel)
+    gate: GateModel = Field(default_factory=GateModel)
+    audit: list[AuditEntryModel] = Field(default_factory=list)
+
+
 _VALIDATORS = {
     "project": ProjectModel.model_validate,
     "requirements": lambda v: [Requirement(**r) for r in (v or [])],
@@ -82,6 +123,7 @@ _VALIDATORS = {
     "sop": SopSet.model_validate,
     "review": Review.model_validate,
     "presentation": Presentation.model_validate,
+    "risk": RiskModel.model_validate,
 }
 
 
