@@ -127,3 +127,17 @@ GET /api/orchestrate/dashboard/{session_id}
 - **不做 LLM 生成式 UI agent**：交付数据驱动的结构化面板，非 LLM 实时拼装。若你后续想要 LLM 拼装，单独立项。
 - **引用 chip 暂显 chunk_id 文本**：真实 `文档/章节/段落` 反查需查 knowledge 库，本任务不接（保持 D 纯前端+单接口）；可作为后续小增强。
 - 若 `ProjectDraftRepository` 在测试中要求真实 DB 且慢，subagent 复用 `tests/conftest.py` 现有 fixture 模式（如内存 repo 或测试 sqlite），不新建重型设施。
+
+## 7. Execution Log（2026-07-17）
+
+- 分支 `feat/generative-ui-dashboard`（基于 master `c550e34`），5 提交：
+  - `66daebb` plan（TDD 计划文档）
+  - `60cd6f0` Task 1：后端 `GET /api/orchestrate/dashboard/{session_id}`（在 CLEAN 的 `app/api/orchestrate.py` 加路由，未碰脏的 main.py）+ 3 测试
+  - `4b8e3fd` Task 2：`src/api/compilerDashboardApi.ts`（新）+ `workspaceStore.ts` 加 `risk` 字段
+  - `7934efc` Task 3：`RiskPanel` / `ConstraintCoveragePanel` / `CitationPanel` 三新组件（premium glass 风格）
+  - `2a56c4d` Task 4：`MethodologyDashboard` 容器（新）+ `App.tsx` 加「工作台/产物仪表盘」tab 切换
+- 全量回归 `tests/constraint tests/orchestrator tests/agent tests/api/test_compiler_dashboard.py` → **56 passed**（A/B 53 + D 3），全绿。
+- 前端 `npm run check`（`tsc -b --noEmit`）→ 0 错误。
+- 脏文件保护：仅改 CLEAN 的 `app/api/orchestrate.py` + `workspaceStore.ts` + `App.tsx` + 新文件；`orchestrateApi.ts` / `Workspace.tsx`（脏）原封未动；256 个无关脏文件全程保留。
+- 偏差：① Task 3 首个 subagent 静默失败（空返回），重派后成功（commit `7934efc`）；② 测试空壳断言适配真实重塑结构（`resp["sop"]["sops"]==[]` 而非 `resp["sop"]=={}`）；③ 引用 chip 暂显 chunk_id 文本（真实反查留待后续）。
+- 待用户点头发合并 master（同 A/B 纪律：不碰 master 无授权）。
