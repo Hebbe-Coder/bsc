@@ -4,6 +4,7 @@ import { fetchCompilerDashboard, type DashboardData } from "../api/compilerDashb
 import { RiskPanel } from "./RiskPanel";
 import { ConstraintCoveragePanel } from "./ConstraintCoveragePanel";
 import { CitationPanel } from "./CitationPanel";
+import { TrustedAuditPanel } from "./TrustedAuditPanel";
 
 export function MethodologyDashboard() {
   const sessionId = useWorkspace((s) => s.sessionId);
@@ -41,6 +42,11 @@ export function MethodologyDashboard() {
         </div>
         <ConstraintCoveragePanel coverage={data.risk.coverage} />
         <CitationPanel sop={data.sop} />
+        {data.trusted_audit && (
+          <div className="md:col-span-2">
+            <TrustedAuditPanel trustedAudit={data.trusted_audit} />
+          </div>
+        )}
       </div>
     </div>
   );
