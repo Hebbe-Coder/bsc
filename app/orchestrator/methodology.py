@@ -9,6 +9,36 @@ from __future__ import annotations
 from typing import List, Optional
 
 
+def derive_methodology_query(business_model: dict) -> str:
+    """根据业务模型启发式构造检索查询字符串。
+
+    提取领域/标题/行业字符串，并拼接前几个流程/工作流名称。
+    始终返回非空字符串，保证检索不会拿到空查询（兜底为 name 或固定文案）。
+    """
+    business_model = business_model or {}
+    parts: List[str] = []
+
+    domain = (
+        business_model.get("name")
+        or business_model.get("title")
+        or business_model.get("domain")
+        or business_model.get("industry")
+    )
+    if domain:
+        parts.append(str(domain))
+
+    # 流程 / 工作流名称优先取 flows，其次 processes
+    flows = business_model.get("flows") or business_model.get("processes") or []
+    if isinstance(flows, list):
+        for f in flows[:3]:
+            name = f.get("name") if isinstance(f, dict) else f
+            if name:
+                parts.append(str(name))
+
+    query = " ".join(parts).strip()
+    return query or (business_model.get("name") or "business methodology")
+
+
 class MethodologyBridge:
     """桥接方法论知识库与编译器 Agent。"""
 
