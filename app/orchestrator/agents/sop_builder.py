@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 from typing import Optional
 from app.agents.base_agent import BaseAgent
-from app.orchestrator.methodology import derive_methodology_query
+from app.orchestrator.methodology import (
+    derive_methodology_query,
+    validate_source_refs,
+)
 
 
 class SopBuilderAgent(BaseAgent):
@@ -58,10 +61,12 @@ class SopBuilderAgent(BaseAgent):
             parts.append("请结构化为 sop 集合。")
 
         # 若提供 project_id，则检索方法论依据并前置到 user_prompt
+        citations = []
         if project_id:
             out = self._get_bridge().retrieve(
                 project_id, derive_methodology_query(business_model)
             )
+            citations = out.get("citations") or []
             if out.get("context_block"):
                 parts.insert(
                     0,
@@ -71,4 +76,8 @@ class SopBuilderAgent(BaseAgent):
 
         user_prompt = "\n".join(parts)
         result = self.llm_service.chat(self.system_prompt, user_prompt, temperature=0.1)
+        # 仅当发生检索时附加溯源覆盖率指标，无 project_id 路径行为保持不变
+        if citations:
+            items = (result.get("sop") or {}).get("sops") or []
+            result["_citation_coverage"] = validate_source_refs(items, citations)
         return result

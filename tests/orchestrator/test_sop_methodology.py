@@ -67,3 +67,21 @@ def test_no_retrieval_when_no_project_id():
     # 未传 project_id：不应触发检索
     assert service.calls == 0
     assert result["sop"]["sops"][0]["source_ref"] == ["c1"]
+
+
+def test_citation_coverage_attached():
+    payload = {"sop": {"sops": [{
+        "id": "s1", "title": "T", "owner_role": "R", "trigger": "x",
+        "steps": [], "escalation": "", "review_cycle": "",
+        "covers_constraints": [], "source_ref": ["c1"],
+    }]}}
+    service = FakeService()
+    agent, _ = _make_agent(payload, service)
+    result = agent.run(business_model={"name": "零售"}, _engine=FakeSopEngine(), project_id="p1")
+
+    # 检索发生（citations 非空），应附加覆盖率指标；单个合法引用 -> 覆盖率 1.0
+    assert service.calls == 1
+    assert "_citation_coverage" in result
+    assert result["_citation_coverage"]["coverage"] == 1.0
+    assert result["_citation_coverage"]["covered"] == 1
+    assert result["_citation_coverage"]["flagged"] == []

@@ -1,7 +1,7 @@
 """MethodologyBridge 单元测试：使用 FakeService 注入，避免依赖真实 DB/向量库。"""
 from __future__ import annotations
 
-from app.orchestrator.methodology import MethodologyBridge
+from app.orchestrator.methodology import MethodologyBridge, validate_source_refs
 
 
 class FakeService:
@@ -50,3 +50,49 @@ def test_retrieve_empty_when_no_project_or_no_results():
     # 2) project_id 存在但检索无结果 -> 同样为空形状
     bridge2 = MethodologyBridge(service=FakeService([]))
     assert bridge2.retrieve("p1", "q") == {"context_block": "", "citations": []}
+
+
+def test_validate_all_covered():
+    items = [
+        {"id": "s1", "source_ref": ["c1"]},
+        {"id": "s2", "source_ref": ["c2"]},
+    ]
+    citations = [{"chunk_id": "c1"}, {"chunk_id": "c2"}]
+    out = validate_source_refs(items, citations)
+
+    assert out["coverage"] == 1.0
+    assert out["total"] == 2
+    assert out["covered"] == 2
+    assert out["flagged"] == []
+
+
+def test_validate_flagged_unknown_and_missing():
+    items = [
+        {"id": "s1", "source_ref": ["c1"]},
+        {"id": "s2", "source_ref": ["zzz"]},  # 未知 id
+        {"id": "s3"},                          # 缺失 source_ref
+    ]
+    citations = [{"chunk_id": "c1"}]
+    out = validate_source_refs(items, citations)
+
+    assert out["coverage"] < 1.0
+    assert out["covered"] == 1
+    assert out["total"] == 3
+    assert "s2" in out["flagged"]
+    assert "s3" in out["flagged"]
+    assert "s1" not in out["flagged"]
+
+
+def test_validate_empty_items_and_no_citations():
+    # 空生成项
+    assert validate_source_refs([], [{"chunk_id": "c1"}]) == {
+        "coverage": 0.0, "total": 0, "covered": 0, "flagged": [],
+    }
+    # 空 citations：任何 source_ref 都非法，空列表也会被标记
+    items = [
+        {"id": "s1", "source_ref": ["c1"]},
+        {"id": "s2", "source_ref": []},
+    ]
+    out = validate_source_refs(items, [])
+    assert out["coverage"] == 0.0
+    assert set(out["flagged"]) == {"s1", "s2"}

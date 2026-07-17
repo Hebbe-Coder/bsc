@@ -92,3 +92,52 @@ class MethodologyBridge:
 
         context_block = "\n".join(lines)
         return {"context_block": context_block, "citations": citations}
+
+
+def validate_source_refs(generated_items: list, citations: list) -> dict:
+    """校验每个生成项的 source_ref 是否指向已检索到的分块。
+
+    Args:
+        generated_items: 生成项列表，每项可携带 "source_ref": [chunk_id, ...]。
+        citations: MethodologyBridge.retrieve 返回的引用列表，每项含 "chunk_id"。
+    Returns:
+        {
+          "coverage": float,   # 0..1，拥有合法非空 source_ref 的项占比
+          "total": int,
+          "covered": int,      # 每个 source_ref 都属于已检索集合的项数
+          "flagged": [str],    # 缺失/非法 source_ref 的项的可读标识
+        }
+    规则：
+      - 合法 chunk_id 集合 = {c["chunk_id"] for c in citations}
+      - 项被「覆盖」当且仅当其拥有非空 source_ref 且每个 id 均在合法集合中。
+      - 无 source_ref 字段、source_ref 为 []，或任一 id 未知 -> 未覆盖 -> 追加到 flagged
+        （标识取 item["id"]/item["name"]，否则回退为 f"item[{i}]"）。
+    边界：
+      - generated_items 为空 -> coverage=0.0, total=0, covered=0, flagged=[]。
+      - citations 为空（未检索）-> 任何 source_ref 均未知均被标记；[] 亦被标记。
+    """
+    generated_items = generated_items or []
+    valid_ids = {c.get("chunk_id") for c in (citations or [])}
+
+    total = len(generated_items)
+    covered = 0
+    flagged: List[str] = []
+
+    for i, item in enumerate(generated_items):
+        item = item if isinstance(item, dict) else {}
+        source_ref = item.get("source_ref")
+        refs = source_ref if isinstance(source_ref, list) else []
+        is_covered = bool(refs) and all(r in valid_ids for r in refs)
+        if is_covered:
+            covered += 1
+        else:
+            label = item.get("id") or item.get("name") or f"item[{i}]"
+            flagged.append(str(label))
+
+    coverage = covered / total if total else 0.0
+    return {
+        "coverage": coverage,
+        "total": total,
+        "covered": covered,
+        "flagged": flagged,
+    }
