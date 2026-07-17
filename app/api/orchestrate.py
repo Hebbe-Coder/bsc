@@ -9,6 +9,7 @@ from app.agent.state import ProjectDraftRepository, ProjectDraft
 from app.orchestrator.engine import OrchestratorEngine
 from app.orchestrator.sse import SessionEventBus
 from app.services.llm_service import LLMService
+from app.audit import build_trusted_audit
 
 router = APIRouter(prefix="/api/orchestrate", tags=["orchestrate"])
 _bus = SessionEventBus()
@@ -65,6 +66,8 @@ async def dashboard(session_id: str):
     # sop 段可能缺失，采用空字典兜底
     sop = state.get("sop") or {}
     risk = state.get("risk") or {}
+    # 方案 E：把 A 的方法论引用 + B 的约束覆盖缝合成单一可验证审计链
+    trusted_audit = build_trusted_audit(state)
     return {
         "session_id": session_id,
         "sop": {
@@ -78,4 +81,5 @@ async def dashboard(session_id: str):
             "risks": risk.get("risks", []),
         },
         "business_model": state.get("business_model", {}),
+        "trusted_audit": trusted_audit,
     }

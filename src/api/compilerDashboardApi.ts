@@ -6,11 +6,35 @@ export interface RiskPayload {
   coverage: { total: number; covered: number; coverage_pct: number; uncovered_ids: string[] };
   risks: RiskItem[];
 }
+export interface AuditEntry {
+  seq: number;
+  agent: string;
+  action: string;
+  input_hash: string;
+  output_hash: string;
+  hash: string;
+  prev_hash: string;
+  timestamp: string;
+}
+export interface TrustedAudit {
+  source_refs: string[];
+  coverage: {
+    coverage_pct: number | null;
+    covered: number | null;
+    total: number | null;
+    uncovered_ids: string[];
+    gate_decision: string | null;
+  };
+  audit: AuditEntry[];
+  chain_hash: string;
+  verified: boolean;
+}
 export interface DashboardData {
   session_id: string;
   sop: { sops: any[]; _citation_coverage: CitationCoverage };
   risk: RiskPayload;
   business_model: any;
+  trusted_audit: TrustedAudit;
 }
 
 export async function fetchCompilerDashboard(sessionId: string): Promise<DashboardData> {
