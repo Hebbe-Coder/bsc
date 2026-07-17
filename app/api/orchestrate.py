@@ -18,12 +18,14 @@ def build_agents(llm):
     from app.orchestrator.agents.planner import PlannerAgent
     from app.orchestrator.agents.business_architect import BusinessArchitectAgent
     from app.orchestrator.agents.sop_builder import SopBuilderAgent
+    from app.orchestrator.agents.risk_architect import RiskArchitectAgent
     from app.orchestrator.agents.reviewer import ReviewerAgent
     from app.orchestrator.agents.presenter import PresenterAgent
     return {
         "planner": PlannerAgent(llm_service=llm),
         "architect": BusinessArchitectAgent(llm_service=llm),
         "sop": SopBuilderAgent(llm_service=llm),
+        "risk": RiskArchitectAgent(llm_service=llm),
         "reviewer": ReviewerAgent(llm_service=llm),
         "presenter": PresenterAgent(llm_service=llm),
     }

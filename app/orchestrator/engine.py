@@ -8,6 +8,7 @@ from app.orchestrator.sse import SessionEventBus
 
 class OrchestratorEngine:
     STAGES = ["planner", "architect", "sop", "reviewer", "presenter"]
+    MAX_LOOP = 3  # 最多回环次数
 
     def __init__(self, agents: dict, repo: Optional[ProjectDraftRepository] = None,
                  bus: Optional[SessionEventBus] = None):
@@ -35,37 +36,84 @@ class OrchestratorEngine:
         self._save(session_id, state)
         await self._emit(session_id, "architect", "done", "业务架构已生成")
 
+        # FORK: sop || risk（二者仅依赖 business_model，真并行）
         await self._emit(session_id, "sop", "running", "正在生成 SOP")
-        out = await self._call("sop", business_model=state["business_model"])
-        state["sop"] = out.get("sop", {})
+        sop_fut = asyncio.to_thread(self._call_sync, "sop", business_model=state["business_model"])
+        if "risk" in self.agents:
+            await self._emit(session_id, "risk", "running", "正在评估约束与风险（并行）")
+            risk_fut = asyncio.to_thread(self._call_sync, "risk",
+                                         business_model=state["business_model"],
+                                         requirements=state.get("requirements", []))
+            sop_out, risk_out = await asyncio.gather(sop_fut, risk_fut)
+            state["risk"] = risk_out.get("risk", {})
+            await self._emit(session_id, "risk", "done", "约束与风险评估完成")
+        else:
+            # 防御：未注册 risk agent 时不阻塞主链路，risk 段留空
+            await self._emit(session_id, "risk", "skipped", "未注册 risk agent，跳过约束与风险评估")
+            sop_out = await sop_fut
+            state["risk"] = {}
+        state["sop"] = sop_out.get("sop", {})
         self._save(session_id, state)
         await self._emit(session_id, "sop", "done", "SOP 已生成")
 
-        # Reviewer + 受控回环（≤1）
+        # Reviewer + 受控回环
         loop_count = 0
         while True:
-            await self._emit(session_id, "reviewer", "running", "正在审查漏洞")
+            await self._emit(session_id, "reviewer", "running", "正在审查约束覆盖率与漏洞")
             out = await self._call("reviewer",
                                    project=state["project"], business_model=state["business_model"],
-                                   sop=state["sop"])
+                                   sop=state["sop"], risk=state["risk"],
+                                   requirements=state.get("requirements", []))
             review = out.get("review", {})
             state["review"] = review
             self._save(session_id, state)
-            if review.get("approved") or loop_count >= 1:
-                await self._emit(session_id, "reviewer", "done", review.get("summary", "审查完成"))
+
+            coverage = review.get("constraint_coverage", {})
+            coverage_pct = coverage.get("coverage_pct", 100)
+            gaps = review.get("gaps", [])
+            high_gaps = [g for g in gaps if g.get("severity") == "high"]
+
+            if review.get("approved") or loop_count >= self.MAX_LOOP:
+                msg = review.get("summary", "审查完成")
+                if coverage_pct < 100:
+                    msg += f" | 约束覆盖率 {coverage_pct}%"
+                if high_gaps and loop_count >= self.MAX_LOOP:
+                    msg += f" | 已达最大回环次数({self.MAX_LOOP})，仍有 {len(high_gaps)} 项高危缺口未覆盖"
+                await self._emit(session_id, "reviewer", "done", msg)
                 break
+
             target = review.get("loopback_target")
-            await self._emit(session_id, target, "loopback", f"↺ 打回 {target} 重做")
+            fixes = review.get("loopback_fixes", [])
+            # 兜底：若无 loopback_fixes，从 gaps 提取 suggested_fix
+            if not fixes:
+                fixes = [g.get("suggested_fix", "") for g in high_gaps if g.get("suggested_fix")]
+
             if target == "sop":
-                out = await self._call("sop", business_model=state["business_model"])
+                await self._emit(session_id, "sop", "loopback",
+                                 f"↺ 打回 SOP 重做（第{loop_count+1}次回环），需补齐 {len(high_gaps)} 项缺口")
+                out = await self._call("sop", business_model=state["business_model"],
+                                       fix_instructions=fixes)
                 state["sop"] = out.get("sop", {})
             elif target == "architect":
+                await self._emit(session_id, "architect", "loopback",
+                                 f"↺ 打回 Architect 重做（第{loop_count+1}次回环），需补齐 {len(high_gaps)} 项缺口")
                 out = await self._call("architect", idea=idea,
-                                       project=state["project"], requirements=state["requirements"])
+                                       project=state["project"], requirements=state["requirements"],
+                                       fix_instructions=fixes)
                 state["business_model"] = out.get("business_model", {})
+            elif target == "risk" and "risk" in self.agents:
+                await self._emit(session_id, "risk", "loopback",
+                                 f"↺ 打回 Risk 重做（第{loop_count+1}次回环），需补齐 {len(high_gaps)} 项缺口")
+                out = await self._call("risk", business_model=state["business_model"],
+                                       sop=state["sop"], requirements=state.get("requirements", []))
+                state["risk"] = out.get("risk", {})
+            else:
+                await self._emit(session_id, "reviewer", "done", "无回环目标，审查完成")
+                break
+
             self._save(session_id, state)
             loop_count += 1
-            await self._emit(session_id, "reviewer", "running", "重新审查")
+            await self._emit(session_id, "reviewer", "running", f"第{loop_count+1}轮审查中…")
 
         await self._emit(session_id, "presenter", "running", "正在生成汇报材料")
         out = await self._call("presenter", session_id=session_id, state=state)
@@ -75,26 +123,45 @@ class OrchestratorEngine:
         return state
 
     async def rerun_node(self, session_id: str, node: str) -> dict:
-        """定点重跑单节点（仅允许 architect/sop/reviewer/presenter）。"""
-        if node not in ("architect", "sop", "reviewer", "presenter"):
+        """定点重跑节点，并级联其下游闭包（risk->reviewer->presenter）。"""
+        if node not in self.agents:
             raise ValueError(f"不允许重跑 {node}")
         draft = self.repo.get(session_id)
         if draft is None:
             raise KeyError(f"session {session_id} not found")
         state = draft.to_dict()
-        await self._emit(session_id, node, "running", f"定点重跑 {node}")
-        kwargs = self._upstream_for(node, state)
-        out = await self._call(node, **kwargs)
-        seg = {"architect": "business_model", "sop": "sop",
-               "reviewer": "review", "presenter": "presentation"}[node]
-        state[seg] = out.get(seg, out)
-        self._save(session_id, state)
-        await self._emit(session_id, node, "done", f"{node} 已重跑")
+        # 下游闭包（含自身）
+        closure = {
+            "architect": ["sop", "risk", "reviewer", "presenter"],
+            "sop": ["risk", "reviewer", "presenter"],
+            "risk": ["reviewer", "presenter"],
+            "reviewer": ["presenter"],
+            "presenter": [],
+        }
+        order = ["architect", "sop", "risk", "reviewer", "presenter"]
+        targets = [node] + closure.get(node, [])
+        seen, seq = set(), []
+        for t in order:
+            if t in targets and t not in seen:
+                seen.add(t); seq.append(t)
+        for t in seq:
+            if t not in self.agents:
+                continue
+            await self._emit(session_id, t, "running", f"定点重跑 {t}")
+            kwargs = self._upstream_for(t, state)
+            out = await self._call(t, **kwargs)
+            seg = {"architect": "business_model", "sop": "sop", "risk": "risk",
+                   "reviewer": "review", "presenter": "presentation"}[t]
+            state[seg] = out.get(seg, out)
+            self._save(session_id, state)
+            await self._emit(session_id, t, "done", f"{t} 已重跑")
         return state
 
+    def _call_sync(self, name, **kwargs):
+        agent = self.agents[name]
+        return agent.run(**kwargs)
+
     async def _call(self, name, **kwargs):
-        # 注意：session_id 仅当 agent 真正需要时才放入 kwargs（如 presenter），
-        # 不在本方法签名里保留未使用的 session_id 形参，否则会吞掉 presenter 的 session_id。
         agent = self.agents[name]
         if asyncio.iscoroutinefunction(agent.run):
             return await agent.run(**kwargs)
@@ -105,8 +172,13 @@ class OrchestratorEngine:
             return {"idea": state["idea"], "project": state["project"], "requirements": state["requirements"]}
         if node == "sop":
             return {"business_model": state["business_model"]}
+        if node == "risk":
+            return {"business_model": state["business_model"], "sop": state.get("sop", {}),
+                    "requirements": state.get("requirements", [])}
         if node == "reviewer":
-            return {"project": state["project"], "business_model": state["business_model"], "sop": state["sop"]}
+            return {"project": state["project"], "business_model": state["business_model"],
+                    "sop": state["sop"], "risk": state.get("risk", {}),
+                    "requirements": state.get("requirements", [])}
         if node == "presenter":
             return {"session_id": state["session_id"], "state": state}
         return {}
@@ -116,7 +188,8 @@ class OrchestratorEngine:
             session_id=session_id, idea=state.get("idea", ""),
             project=state.get("project", {}), requirements=state.get("requirements", []),
             business_model=state.get("business_model", {}), sop=state.get("sop", {}),
-            review=state.get("review", {}), presentation=state.get("presentation", {}),
+            risk=state.get("risk", {}), review=state.get("review", {}),
+            presentation=state.get("presentation", {}),
             status="running", messages=state.get("messages", []),
         )
         self.repo.save(draft)
