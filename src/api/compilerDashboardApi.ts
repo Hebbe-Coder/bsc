@@ -29,12 +29,29 @@ export interface TrustedAudit {
   chain_hash: string;
   verified: boolean;
 }
+export interface QualityDimension {
+  name: string;
+  score: number;
+  max_score: number;
+  weight: number;
+  feedback: string;
+  details: string;
+}
+export interface Evaluation {
+  overall_score: number;
+  dimensions: QualityDimension[];
+  summary: string;
+  suggestions: string[];
+  is_passed: boolean;
+  improvement_points: number;
+}
 export interface DashboardData {
   session_id: string;
   sop: { sops: any[]; _citation_coverage: CitationCoverage };
   risk: RiskPayload;
   business_model: any;
   trusted_audit: TrustedAudit;
+  evaluation: Evaluation;
 }
 
 export async function fetchCompilerDashboard(sessionId: string): Promise<DashboardData> {
