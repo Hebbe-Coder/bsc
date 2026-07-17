@@ -52,3 +52,30 @@ async def stream(session_id: str):
         async for ev in _bus.subscribe(session_id):
             yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
     return StreamingResponse(event_gen(), media_type="text/event-stream")
+
+
+@router.get("/dashboard/{session_id}")
+async def dashboard(session_id: str):
+    """将编译后的 ProjectDraft 重塑为仪表盘可用的负载。"""
+    repo = ProjectDraftRepository()
+    draft = repo.get(session_id)
+    if draft is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    state = draft.to_dict()
+    # sop 段可能缺失，采用空字典兜底
+    sop = state.get("sop") or {}
+    risk = state.get("risk") or {}
+    return {
+        "session_id": session_id,
+        "sop": {
+            "sops": sop.get("sops", []),
+            "_citation_coverage": sop.get("_citation_coverage", {}),
+        },
+        "risk": {
+            "overall_score": risk.get("overall_score"),
+            "gate": risk.get("gate", {}),
+            "coverage": risk.get("coverage", {}),
+            "risks": risk.get("risks", []),
+        },
+        "business_model": state.get("business_model", {}),
+    }
