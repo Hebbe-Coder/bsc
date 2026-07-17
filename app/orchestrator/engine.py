@@ -22,6 +22,8 @@ class OrchestratorEngine:
     async def run_pipeline(self, session_id: str, idea: str) -> dict:
         draft = self.repo.get(session_id) or ProjectDraft(session_id=session_id, idea=idea)
         state = draft.to_dict()
+        # 以 session_id 作为知识库 project_id（生产环境后续会显式传入 knowledge_project_id）
+        project_id = session_id
         await self._emit(session_id, "planner", "running", "正在识别行业与边界")
         out = await self._call("planner", idea=idea)
         state["project"] = out.get("project", {})
@@ -31,14 +33,16 @@ class OrchestratorEngine:
 
         await self._emit(session_id, "architect", "running", "正在构建流程")
         out = await self._call("architect", idea=idea,
-                               project=state["project"], requirements=state["requirements"])
+                               project=state["project"], requirements=state["requirements"],
+                               project_id=project_id)
         state["business_model"] = out.get("business_model", {})
         self._save(session_id, state)
         await self._emit(session_id, "architect", "done", "业务架构已生成")
 
         # FORK: sop || risk（二者仅依赖 business_model，真并行）
         await self._emit(session_id, "sop", "running", "正在生成 SOP")
-        sop_fut = asyncio.to_thread(self._call_sync, "sop", business_model=state["business_model"])
+        sop_fut = asyncio.to_thread(self._call_sync, "sop",
+                                    business_model=state["business_model"], project_id=project_id)
         if "risk" in self.agents:
             await self._emit(session_id, "risk", "running", "正在评估约束与风险（并行）")
             risk_fut = asyncio.to_thread(self._call_sync, "risk",
@@ -168,10 +172,12 @@ class OrchestratorEngine:
         return agent.run(**kwargs)
 
     def _upstream_for(self, node, state):
+        project_id = state.get("session_id")
         if node == "architect":
-            return {"idea": state["idea"], "project": state["project"], "requirements": state["requirements"]}
+            return {"idea": state["idea"], "project": state["project"],
+                    "requirements": state["requirements"], "project_id": project_id}
         if node == "sop":
-            return {"business_model": state["business_model"]}
+            return {"business_model": state["business_model"], "project_id": project_id}
         if node == "risk":
             return {"business_model": state["business_model"], "sop": state.get("sop", {}),
                     "requirements": state.get("requirements", [])}
