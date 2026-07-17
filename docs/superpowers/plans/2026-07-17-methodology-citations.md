@@ -126,3 +126,28 @@
 - `engine.py` 透传 project_id
 - 5+ 测试文件，全绿
 - 编译器产物从"AI 说的"升级为"有据可查"
+
+---
+
+## 6. Execution Log（Subagent-Driven，2026-07-17）
+
+分支 `feat/methodology-citations`（从 master `6ca8a92` 切出，保护 258 个未提交改动）。
+
+| 提交 | 任务 | 内容 |
+|------|------|------|
+| `a40614d` | plan | TDD 计划文档 |
+| `fa98471` | Task 1 | MethodologyBridge + provenance citations + 测试（2 passed） |
+| `93b745d` | Task 2 | SopBuilderAgent 接检索 + source_ref（2 passed） |
+| `23d4892` | Task 3 | BusinessArchitectAgent 接检索 + source_ref（2 passed） |
+| `25f31cc` | Task 4 | validate_source_refs + _citation_coverage 指标（10 passed） |
+| `9393a64` | Task 5 | engine 透传 project_id + golden e2e（8 passed） |
+| `50b9757` | fix | **覆盖率指标存活修复**（见偏差 1） |
+
+**全量回归**：`venv/Scripts/python.exe -m pytest tests/constraint tests/orchestrator tests/agent -q` → **53 passed**（A 前 41）。
+
+### 偏差 / 发现
+1. **覆盖率指标会被引擎丢弃（已修 `50b9757`）**：Task 4 的 subagent 把 `_citation_coverage` 放在 `run()` 返回值的**顶层**，而引擎 `state["sop"] = out.get("sop")` 只取子段 → 指标在生产里丢失（类比 B 那次风险清单被丢）。修复：agent 改为把 `_citation_coverage` **内联进 `sop`/`business_model` 子段**，引擎入库即保留。e2e 测试本就按子段位置断言，故一并修正 sop 单测断言位置。
+2. `derive_methodology_query` 入参不同：sop_builder 用 `business_model`，business_architect 用 `project`（其 `run` 标准入参是 project dict）——两处均合理，保持。
+3. `KnowledgeService.retrieve(project_id, query, ...)` 形参顺序与计划示例不同；桥统一用**关键字参数**调用，兼容真实/Fake 服务。
+4. `ProjectDraft` 无 `project_id` 字段 → 引擎以 `session_id` 作为知识库 `project_id`（已知简化；生产后续显式传 `knowledge_project_id`）。
+5. 仅动 `feat/methodology-citations` 分支；258 个无关 dirty 文件始终未暂存、未丢失。
