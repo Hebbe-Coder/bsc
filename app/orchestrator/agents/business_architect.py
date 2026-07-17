@@ -88,5 +88,7 @@ class BusinessArchitectAgent(BaseAgent):
         if citations:
             bm = result.get("business_model") or {}
             items = (bm.get("flows") or []) + (bm.get("roles") or []) + (bm.get("rules") or [])
-            result["_citation_coverage"] = validate_source_refs(items, citations)
+            cov = validate_source_refs(items, citations)
+            # 内联进 business_model 子段：引擎 state["business_model"] 入库时指标才得以保留
+            result.setdefault("business_model", {})["_citation_coverage"] = cov
         return result

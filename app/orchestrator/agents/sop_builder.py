@@ -79,5 +79,7 @@ class SopBuilderAgent(BaseAgent):
         # 仅当发生检索时附加溯源覆盖率指标，无 project_id 路径行为保持不变
         if citations:
             items = (result.get("sop") or {}).get("sops") or []
-            result["_citation_coverage"] = validate_source_refs(items, citations)
+            cov = validate_source_refs(items, citations)
+            # 内联进 sop 子段：引擎 state["sop"] = out.get("sop") 入库时指标才得以保留
+            result.setdefault("sop", {})["_citation_coverage"] = cov
         return result

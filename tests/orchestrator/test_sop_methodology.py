@@ -80,8 +80,9 @@ def test_citation_coverage_attached():
     result = agent.run(business_model={"name": "零售"}, _engine=FakeSopEngine(), project_id="p1")
 
     # 检索发生（citations 非空），应附加覆盖率指标；单个合法引用 -> 覆盖率 1.0
+    # 指标内联进 sop 子段，引擎 out.get("sop") 入库时得以保留（顶层会被丢弃）
     assert service.calls == 1
-    assert "_citation_coverage" in result
-    assert result["_citation_coverage"]["coverage"] == 1.0
-    assert result["_citation_coverage"]["covered"] == 1
-    assert result["_citation_coverage"]["flagged"] == []
+    assert "_citation_coverage" in result["sop"]
+    assert result["sop"]["_citation_coverage"]["coverage"] == 1.0
+    assert result["sop"]["_citation_coverage"]["covered"] == 1
+    assert result["sop"]["_citation_coverage"]["flagged"] == []
