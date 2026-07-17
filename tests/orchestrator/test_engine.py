@@ -92,3 +92,24 @@ def test_reviewer_receives_risk():
     eng.agents["reviewer"] = ReviewerSpy()
     asyncio.run(eng.run_pipeline("s-risk", "内容审核中心"))
     assert "risk" in captured
+
+
+def test_pipeline_runs_without_risk_agent():
+    # 防御：未注册 risk agent 时主链路不应崩溃，risk 段留空
+    eng = make_engine()
+    del eng.agents["risk"]
+    result = asyncio.run(eng.run_pipeline("s-norisk", "内容审核中心"))
+    assert result["sop"] == {"sops": []}
+    assert result["risk"] == {}
+    assert result["review"]["approved"] is True
+    # reviewer 仍应收到 risk 字段（空字典兜底）
+    captured = {}
+    class ReviewerSpy:
+        def run(self, *a, **k):
+            captured.update(k)
+            return {"review": {"approved": True, "gaps": [], "loopback_target": None, "summary": "ok"}}
+    eng2 = make_engine()
+    del eng2.agents["risk"]
+    eng2.agents["reviewer"] = ReviewerSpy()
+    asyncio.run(eng2.run_pipeline("s-norisk2", "内容审核中心"))
+    assert "risk" in captured and captured["risk"] == {}

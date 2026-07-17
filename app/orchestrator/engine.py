@@ -38,17 +38,23 @@ class OrchestratorEngine:
 
         # FORK: sop || risk（二者仅依赖 business_model，真并行）
         await self._emit(session_id, "sop", "running", "正在生成 SOP")
-        await self._emit(session_id, "risk", "running", "正在评估约束与风险（并行）")
         sop_fut = asyncio.to_thread(self._call_sync, "sop", business_model=state["business_model"])
-        risk_fut = asyncio.to_thread(self._call_sync, "risk",
-                                     business_model=state["business_model"],
-                                     requirements=state.get("requirements", []))
-        sop_out, risk_out = await asyncio.gather(sop_fut, risk_fut)
+        if "risk" in self.agents:
+            await self._emit(session_id, "risk", "running", "正在评估约束与风险（并行）")
+            risk_fut = asyncio.to_thread(self._call_sync, "risk",
+                                         business_model=state["business_model"],
+                                         requirements=state.get("requirements", []))
+            sop_out, risk_out = await asyncio.gather(sop_fut, risk_fut)
+            state["risk"] = risk_out.get("risk", {})
+            await self._emit(session_id, "risk", "done", "约束与风险评估完成")
+        else:
+            # 防御：未注册 risk agent 时不阻塞主链路，risk 段留空
+            await self._emit(session_id, "risk", "skipped", "未注册 risk agent，跳过约束与风险评估")
+            sop_out = await sop_fut
+            state["risk"] = {}
         state["sop"] = sop_out.get("sop", {})
-        state["risk"] = risk_out.get("risk", {})
         self._save(session_id, state)
         await self._emit(session_id, "sop", "done", "SOP 已生成")
-        await self._emit(session_id, "risk", "done", "约束与风险评估完成")
 
         # Reviewer + 受控回环
         loop_count = 0
@@ -95,7 +101,7 @@ class OrchestratorEngine:
                                        project=state["project"], requirements=state["requirements"],
                                        fix_instructions=fixes)
                 state["business_model"] = out.get("business_model", {})
-            elif target == "risk":
+            elif target == "risk" and "risk" in self.agents:
                 await self._emit(session_id, "risk", "loopback",
                                  f"↺ 打回 Risk 重做（第{loop_count+1}次回环），需补齐 {len(high_gaps)} 项缺口")
                 out = await self._call("risk", business_model=state["business_model"],
