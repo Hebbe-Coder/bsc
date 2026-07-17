@@ -27,3 +27,16 @@ def test_sop_covers_constraint():
     sop = {"sops": [{"id": "s1", "title": "受理", "covers_constraints": ["r1"]}]}
     res = evaluate(bm, sop=sop, requirements=reqs)
     assert res.coverage.coverage_pct == 100
+
+
+def test_risk_list_propagates_from_payload():
+    bm = {"flows": [{"id": "f1", "name": "受理"}], "roles": [], "rules": []}
+    reqs = [{"id": "r1", "text": "受理约束", "priority": "mid"}]
+    risk_payload = {"overall_score": "high", "risks": [
+        {"id": "rk1", "category": "compliance", "description": "缺合规",
+         "likelihood": "low", "impact": "medium", "mitigation": "补审计", "owner_role": "法务"}]}
+    res = evaluate(bm, sop={"sops": []}, requirements=reqs, risk_payload=risk_payload)
+    assert res.overall_score == "high"
+    assert res.gate.decision == "block"  # high 风险直接 block
+    assert len(res.risks) == 1
+    assert res.risks[0].id == "rk1"

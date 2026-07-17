@@ -20,3 +20,6 @@ def test_risk_agent_produces_risk_segment():
     assert out["risk"]["coverage"]["coverage_pct"] == 100  # r1 覆盖该 flow（id 匹配）
     assert out["risk"]["gate"]["decision"] in ("pass", "warn", "block")
     assert out["risk"]["audit"]  # 审计链已随段落库
+    # LLM 产出的风险清单必须随 risk 段落地，不能被 evaluate 丢弃
+    assert out["risk"]["risks"], "risk 段不应丢失 LLM 风险清单"
+    assert out["risk"]["risks"][0]["id"] == "rk1"

@@ -74,7 +74,9 @@ def evaluate(business_model: dict, sop: Optional[dict] = None,
     if unsatisfied_high:
         decision = "block"
         reasons.append("存在高危优先级约束未被满足")
-    risk_score = (risk_payload or {}).get("overall_score", "low")
+    rp = risk_payload or {}
+    risk_score = rp.get("overall_score", "low")
+    risks = rp.get("risks", [])
     if risk_score == "high":
         decision = "block"
         reasons.append("风险评估为 high")
@@ -93,6 +95,7 @@ def evaluate(business_model: dict, sop: Optional[dict] = None,
 
     return ConstraintResult(
         overall_score=risk_score,
+        risks=risks,
         coverage=CoverageReport(elements=ecov, total=total_req, covered=satisfied_n,
                                 coverage_pct=cov_pct,
                                 uncovered_ids=[c.id for c in unsatisfied]),
