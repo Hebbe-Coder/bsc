@@ -11,6 +11,7 @@ from app.orchestrator.sse import SessionEventBus
 from app.services.llm_service import LLMService
 from app.audit import build_trusted_audit
 from app.evaluation import CompilerOutputEvaluator
+from app.evolution import get_default_bridge
 
 router = APIRouter(prefix="/api/orchestrate", tags=["orchestrate"])
 _bus = SessionEventBus()
@@ -71,6 +72,10 @@ async def dashboard(session_id: str):
     trusted_audit = build_trusted_audit(state)
     # 方案 C Phase 1：把 A/B/E 的质量信号聚合成编译器产物评分（QualityReport）
     evaluation = CompilerOutputEvaluator().evaluate(state, trusted_audit=trusted_audit).model_dump()
+    # 方案 C Phase 2：把评测结果接进现有 FeedbackStore 自进化闭环
+    bridge = get_default_bridge()
+    bridge.record(evaluation, state, session_id)
+    evolution = {"recent_feedback": bridge.recent(limit=5), "stats": bridge.stats()}
     return {
         "session_id": session_id,
         "sop": {
@@ -86,4 +91,5 @@ async def dashboard(session_id: str):
         "business_model": state.get("business_model", {}),
         "trusted_audit": trusted_audit,
         "evaluation": evaluation,
+        "evolution": evolution,
     }

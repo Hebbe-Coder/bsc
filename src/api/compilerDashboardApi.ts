@@ -45,6 +45,26 @@ export interface Evaluation {
   is_passed: boolean;
   improvement_points: number;
 }
+export interface EvolutionFeedback {
+  trace_id: string;
+  user_id: string;
+  feedback_type: string;
+  query: string;
+  answer: string;
+  comment: string | null;
+  timestamp: number;
+  processed: boolean;
+}
+export interface EvolutionStats {
+  total: number;
+  by_type: { thumbs_up: number; thumbs_down: number; correction: number; comment: number };
+  by_user: Record<string, number>;
+  positive_rate: number;
+}
+export interface Evolution {
+  recent_feedback: EvolutionFeedback[];
+  stats: EvolutionStats;
+}
 export interface DashboardData {
   session_id: string;
   sop: { sops: any[]; _citation_coverage: CitationCoverage };
@@ -52,6 +72,7 @@ export interface DashboardData {
   business_model: any;
   trusted_audit: TrustedAudit;
   evaluation: Evaluation;
+  evolution: Evolution;
 }
 
 export async function fetchCompilerDashboard(sessionId: string): Promise<DashboardData> {
