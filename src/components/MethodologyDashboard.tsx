@@ -6,6 +6,7 @@ import { ConstraintCoveragePanel } from "./ConstraintCoveragePanel";
 import { CitationPanel } from "./CitationPanel";
 import { TrustedAuditPanel } from "./TrustedAuditPanel";
 import { CompilerEvalPanel } from "./CompilerEvalPanel";
+import { EvolutionPanel } from "./EvolutionPanel";
 
 export function MethodologyDashboard() {
   const sessionId = useWorkspace((s) => s.sessionId);
@@ -51,6 +52,11 @@ export function MethodologyDashboard() {
         {data.evaluation && (
           <div className="md:col-span-2">
             <CompilerEvalPanel evaluation={data.evaluation} />
+          </div>
+        )}
+        {data.evolution && (
+          <div className="md:col-span-2">
+            <EvolutionPanel evolution={data.evolution} />
           </div>
         )}
       </div>
