@@ -1,5 +1,7 @@
 # app/orchestrator/agents/business_architect.py
 from __future__ import annotations
+import asyncio
+import inspect
 import json
 from typing import Optional
 from app.agents.base_agent import BaseAgent
@@ -56,7 +58,12 @@ class BusinessArchitectAgent(BaseAgent):
         if _compile is None:
             from app.core.async_pipeline import compile_to_business_system_async
             _compile = compile_to_business_system_async
-        bs = await _compile(idea, llm_service=self.llm_service)
+
+        def compile_sync():
+            result = _compile(idea, llm_service=self.llm_service)
+            return asyncio.run(result) if inspect.isawaitable(result) else result
+
+        bs = await asyncio.to_thread(compile_sync)
         parts = [
             f"项目：{json.dumps(project, ensure_ascii=False)}",
             f"需求：{json.dumps(requirements, ensure_ascii=False)}",
@@ -83,7 +90,12 @@ class BusinessArchitectAgent(BaseAgent):
                 )
 
         user_prompt = "\n".join(parts)
-        result = self.llm_service.chat(self.system_prompt, user_prompt, temperature=0.1)
+        result = await asyncio.to_thread(
+            self.llm_service.chat,
+            self.system_prompt,
+            user_prompt,
+            temperature=0.1,
+        )
         # 仅当发生检索时附加溯源覆盖率指标，无 project_id 路径行为保持不变
         if citations:
             bm = result.get("business_model") or {}

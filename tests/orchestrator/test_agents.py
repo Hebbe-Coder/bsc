@@ -2,12 +2,15 @@
 import asyncio
 import os
 import tempfile
+import threading
+import time
 from app.orchestrator.agents.planner import PlannerAgent
 from app.orchestrator.agents.business_architect import BusinessArchitectAgent
 from app.orchestrator.agents.sop_builder import SopBuilderAgent
 from app.orchestrator.agents.reviewer import ReviewerAgent
 from app.orchestrator.agents.presenter import PresenterAgent
 from app.orchestrator.schemas import validate_segment
+from app.agents.unified_agent import AgentContext, LLMAgentAdapter
 
 
 class FakeLLM:
@@ -45,6 +48,58 @@ def test_ba_produces_business_model():
                                 _compile=FakeCompile()))
     assert "business_model" in out
     assert out["business_model"]["flows"][0]["name"] == "受理"
+
+
+def test_ba_legacy_compile_does_not_block_event_loop():
+    release = threading.Event()
+
+    class BlockingCompile:
+        async def __call__(self, prd, llm_service=None, **kwargs):
+            release.wait(timeout=0.5)
+            return {"functions": [], "roles": []}
+
+    async def scenario():
+        agent = BusinessArchitectAgent(
+            llm_service=FakeLLM({"business_model": {}})
+        )
+        started = time.perf_counter()
+        task = asyncio.create_task(agent.run(
+            idea="x",
+            project={},
+            requirements=[],
+            _compile=BlockingCompile(),
+        ))
+        await asyncio.sleep(0.05)
+        elapsed = time.perf_counter() - started
+        release.set()
+        await task
+        return elapsed
+
+    assert asyncio.run(scenario()) < 0.2
+
+
+def test_llm_adapter_injects_service_into_wrapped_agent():
+    service = object()
+
+    class InjectableAgent:
+        name = "injectable"
+        system_prompt = "test"
+
+        def __init__(self):
+            self.service = None
+
+        def set_llm_service(self, llm_service):
+            self.service = llm_service
+
+        def run(self, chunks, context):
+            return {"injected": self.service is service}
+
+    adapter = LLMAgentAdapter(InjectableAgent())
+    adapter._llm_service = service
+
+    result = adapter.run(AgentContext(chunks=[]))
+
+    assert result.data["injected"] is True
 
 
 class FakeSopEngine:

@@ -1,5 +1,10 @@
 import { useWorkspace } from "../store/workspaceStore";
-import { startOrchestrate, subscribeStream } from "../api/orchestrateApi";
+import { fetchCompilerDashboard } from "../api/compilerDashboardApi";
+import {
+  startOrchestrate,
+  subscribeStream,
+  type OrchestratorEvent,
+} from "../api/orchestrateApi";
 import { ChatPanel } from "./ChatPanel";
 import { BusinessGraph } from "./BusinessGraph";
 import { SopPanel } from "./SopPanel";
@@ -9,16 +14,38 @@ export function Workspace() {
   const set = useWorkspace((s) => s.set);
   const pushLog = useWorkspace((s) => s.pushLog);
   const setStage = useWorkspace((s) => s.setStage);
+  const applyDashboard = useWorkspace((s) => s.applyDashboard);
   const businessModel = useWorkspace((s) => s.businessModel);
   const sop = useWorkspace((s) => s.sop);
 
   const start = async (idea: string) => {
     const res = await startOrchestrate(idea);
     set({ sessionId: res.session_id, idea });
-    subscribeStream(res.session_id, (e: any) => {
-      setStage(e.stage, e.status);
-      pushLog(e.stage, e.msg || "");
-    });
+    let source: EventSource | null = null;
+    source = subscribeStream(
+      res,
+      (event: OrchestratorEvent) => {
+        const status = event.status === "done" ? "completed" : event.status;
+        setStage(event.stage, status);
+        pushLog(event.stage, event.message);
+        if (!event.terminal) return;
+
+        source?.close();
+        if (event.type === "pipeline.completed") {
+          void fetchCompilerDashboard(res.session_id)
+            .then(applyDashboard)
+            .catch((error: unknown) => {
+              const message = error instanceof Error
+                ? error.message
+                : "Dashboard request failed";
+              pushLog("error", message);
+            });
+          return;
+        }
+        pushLog("error", event.message || `Pipeline ended with ${event.status}`);
+      },
+      () => pushLog("system", "Event stream disconnected; browser will retry"),
+    );
   };
 
   return (

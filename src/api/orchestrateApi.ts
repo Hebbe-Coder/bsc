@@ -1,33 +1,77 @@
-// 使用相对路径 + vite dev proxy（/api -> :8000），规避跨域：
-// 开发环境浏览器请求同源的 /api/*，由 vite 代理转发到后端；
-// 生产环境静态资源由后端同域托管，相对路径同样命中后端。SSE（EventSource）亦走同源，稳定流式转发。
+export type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+
+export interface StartOrchestrateResponse {
+  session_id: string;
+  status: JobStatus;
+  status_url: string;
+  events_url: string;
+}
+
+export interface OrchestratorEvent {
+  session_id: string;
+  seq: number;
+  type:
+    | 'pipeline.started'
+    | 'stage.started'
+    | 'stage.completed'
+    | 'stage.loopback'
+    | 'pipeline.completed'
+    | 'pipeline.failed'
+    | 'pipeline.cancelled';
+  stage: string;
+  status: string;
+  message: string;
+  terminal: boolean;
+  timestamp: string;
+  data: Record<string, unknown>;
+}
 
 export async function startOrchestrate(
   idea: string,
-): Promise<{ session_id: string; status: string }> {
-  const res = await fetch("/api/orchestrate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+): Promise<StartOrchestrateResponse> {
+  const response = await fetch('/api/orchestrate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ idea }),
   });
-  if (!res.ok) {
-    throw new Error(`orchestrate failed: ${res.status}`);
+  if (!response.ok) {
+    throw new Error(`orchestrate failed: ${response.status}`);
   }
-  return res.json();
+  return response.json() as Promise<StartOrchestrateResponse>;
+}
+
+export async function cancelOrchestrate(sessionId: string): Promise<void> {
+  const response = await fetch(
+    `/api/orchestrate/${encodeURIComponent(sessionId)}`,
+    { method: 'DELETE' },
+  );
+  if (!response.ok) {
+    throw new Error(`cancel failed: ${response.status}`);
+  }
 }
 
 export function subscribeStream(
-  sessionId: string,
-  onEvent: (e: any) => void,
+  response: StartOrchestrateResponse | string,
+  onEvent: (event: OrchestratorEvent) => void,
+  onTransportError: () => void = () => undefined,
 ): EventSource {
-  const url = `/api/orchestrate/stream?session_id=${encodeURIComponent(sessionId)}`;
-  const es = new EventSource(url);
-  es.onmessage = (ev) => {
-    try {
-      onEvent(JSON.parse(ev.data));
-    } catch {
-      /* 忽略格式错误的帧 */
-    }
+  const url = typeof response === 'string'
+    ? `/api/orchestrate/stream?session_id=${encodeURIComponent(response)}`
+    : response.events_url;
+  const source = new EventSource(url);
+  const eventTypes: OrchestratorEvent['type'][] = [
+    'pipeline.started',
+    'stage.started',
+    'stage.completed',
+    'stage.loopback',
+    'pipeline.completed',
+    'pipeline.failed',
+    'pipeline.cancelled',
+  ];
+  const handle = (raw: MessageEvent<string>) => {
+    onEvent(JSON.parse(raw.data) as OrchestratorEvent);
   };
-  return es;
+  eventTypes.forEach((type) => source.addEventListener(type, handle as EventListener));
+  source.onerror = onTransportError;
+  return source;
 }

@@ -13,7 +13,7 @@ Design goals:
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, List, Callable
+from typing import Any, Dict, Optional, List
 import time
 import logging
 
@@ -127,6 +127,8 @@ class LLMAgentAdapter(UnifiedBaseAgent):
             if self._llm_service is None:
                 from app.services.llm_service import LLMService
                 self._llm_service = LLMService()
+            if hasattr(self._agent, "set_llm_service"):
+                self._agent.set_llm_service(self._llm_service)
             
             chunks = ctx.chunks if ctx.chunks else [{"chunk_id": "001", "content": str(ctx.business_system)}]
             context = ctx.previous_output or {}

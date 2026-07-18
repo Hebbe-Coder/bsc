@@ -2,10 +2,13 @@
 from __future__ import annotations
 import asyncio
 import json
+import logging
 import uuid
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import StreamingResponse
 from app.agent.state import ProjectDraftRepository, ProjectDraft
+from app.core.config import settings
+from app.orchestrator.contracts import EventType, JobStatus, is_terminal
 from app.orchestrator.engine import OrchestratorEngine
 from app.orchestrator.sse import SessionEventBus
 from app.services.llm_service import LLMService
@@ -15,6 +18,45 @@ from app.evolution import get_default_bridge
 
 router = APIRouter(prefix="/api/orchestrate", tags=["orchestrate"])
 _bus = SessionEventBus()
+_tasks: dict[str, asyncio.Task] = {}
+logger = logging.getLogger(__name__)
+
+
+def _retain_task(session_id: str, coro) -> asyncio.Task:
+    task = asyncio.create_task(coro)
+    _tasks[session_id] = task
+
+    def done(completed: asyncio.Task):
+        if _tasks.get(session_id) is completed:
+            _tasks.pop(session_id, None)
+        if completed.cancelled():
+            repo = ProjectDraftRepository()
+            draft = repo.get(session_id)
+            if draft is not None and not is_terminal(draft.status):
+                try:
+                    repo.transition(session_id, JobStatus.CANCELLED)
+                except (KeyError, ValueError):
+                    logger.exception(
+                        "failed to persist pre-start orchestrator cancellation"
+                    )
+                else:
+                    completed.get_loop().create_task(_bus.publish(
+                        session_id,
+                        EventType.PIPELINE_CANCELLED,
+                        status=JobStatus.CANCELLED.value,
+                        message="Pipeline cancelled",
+                        terminal=True,
+                    ))
+            return
+        error = completed.exception()
+        if error is not None:
+            logger.error(
+                "orchestrator background task failed",
+                exc_info=(type(error), error, error.__traceback__),
+            )
+
+    task.add_done_callback(done)
+    return task
 
 
 def build_agents(llm):
@@ -34,27 +76,102 @@ def build_agents(llm):
     }
 
 
-@router.post("")
+@router.post("", status_code=202)
 async def orchestrate(request: Request):
     body = await request.json()
     idea = body.get("idea")
-    if not idea:
+    if not isinstance(idea, str) or not idea.strip():
         raise HTTPException(400, "idea required")
     sid = body.get("session_id") or uuid.uuid4().hex[:12]
+    repo = ProjectDraftRepository()
+    if repo.get(sid) is not None:
+        raise HTTPException(status_code=409, detail="session already exists")
     # 立即落库，保证客户端拿到的 session_id 可立即查询（流水线在后台跑）
-    ProjectDraftRepository().save(ProjectDraft(session_id=sid, idea=idea, status="running"))
-    llm = LLMService()
-    eng = OrchestratorEngine(agents=build_agents(llm), bus=_bus)
-    asyncio.create_task(eng.run_pipeline(sid, idea))
-    return {"session_id": sid, "status": "running"}
+    repo.save(ProjectDraft(
+        session_id=sid,
+        idea=idea.strip(),
+        status=JobStatus.QUEUED.value,
+    ))
+    llm = LLMService(force_mock=settings.LLM_PROVIDER == "mock")
+    engine = OrchestratorEngine(agents=build_agents(llm), repo=repo, bus=_bus)
+    _retain_task(sid, engine.run_pipeline(sid, idea.strip()))
+    return {
+        "session_id": sid,
+        "status": JobStatus.QUEUED.value,
+        "status_url": f"/api/orchestrate/{sid}",
+        "events_url": f"/api/orchestrate/{sid}/events",
+    }
 
 
 @router.get("/stream")
-async def stream(session_id: str):
+async def stream(request: Request, session_id: str, after: int = 0):
+    if ProjectDraftRepository().get(session_id) is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    return _event_response(session_id, _resume_after(request, after))
+
+
+@router.get("/{session_id}")
+async def get_status(session_id: str):
+    draft = ProjectDraftRepository().get(session_id)
+    if draft is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    return {
+        "session_id": session_id,
+        "status": draft.status,
+        "terminal": is_terminal(draft.status),
+    }
+
+
+@router.delete("/{session_id}", status_code=202)
+async def cancel(session_id: str):
+    draft = ProjectDraftRepository().get(session_id)
+    if draft is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    if is_terminal(draft.status):
+        return {
+            "session_id": session_id,
+            "status": draft.status,
+            "cancel_requested": False,
+        }
+    task = _tasks.get(session_id)
+    if task is None:
+        raise HTTPException(status_code=409, detail="task is not active")
+    task.cancel()
+    return {
+        "session_id": session_id,
+        "status": draft.status,
+        "cancel_requested": True,
+    }
+
+
+def _resume_after(request: Request, after: int) -> int:
+    raw = request.headers.get("last-event-id")
+    if raw is None:
+        return after
+    try:
+        return max(after, int(raw))
+    except ValueError:
+        return after
+
+
+def _event_response(session_id: str, after: int):
     async def event_gen():
-        async for ev in _bus.subscribe(session_id):
-            yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+        async for event in _bus.subscribe(session_id, after=after):
+            payload = event.model_dump(mode="json")
+            yield (
+                f"id: {event.seq}\n"
+                f"event: {event.type.value}\n"
+                f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            )
+
     return StreamingResponse(event_gen(), media_type="text/event-stream")
+
+
+@router.get("/{session_id}/events")
+async def events(request: Request, session_id: str, after: int = 0):
+    if ProjectDraftRepository().get(session_id) is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    return _event_response(session_id, _resume_after(request, after))
 
 
 @router.get("/dashboard/{session_id}")

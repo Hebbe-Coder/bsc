@@ -18,7 +18,8 @@ try:
 except Exception:  # pragma: no cover
     class FakeBus:
         def __init__(self): self.events = []
-        async def publish(self, session_id, event): self.events.append(event)
+        async def publish(self, session_id, event_type, **kwargs):
+            self.events.append({"type": str(event_type), **kwargs})
 
 
 class FakeLLM:
@@ -89,7 +90,7 @@ def _make_agents(sop_payload, bm_payload, bridge):
     }
 
 
-def test_pipeline_carries_source_ref_with_docs():
+def test_pipeline_carries_source_ref_with_docs(draft_repo):
     # 两个 chunk：c1/c2；sop 与 business_model 均引用 c1
     chunks = [
         {"chunk_id": "c1", "doc_title": "奶茶店运营手册", "section": "SOP", "idx": 0, "score": 0.9, "content": "出杯标准"},
@@ -102,7 +103,11 @@ def test_pipeline_carries_source_ref_with_docs():
     bm_payload = {"business_model": {"flows": [{"id": "f1", "name": "出杯", "description": "x",
                                                "steps": ["a"], "input": "i", "output": "o",
                                                "source_ref": ["c1"]}], "roles": [], "rules": []}}
-    eng = OrchestratorEngine(agents=_make_agents(sop_payload, bm_payload, bridge), bus=FakeBus())
+    eng = OrchestratorEngine(
+        agents=_make_agents(sop_payload, bm_payload, bridge),
+        repo=draft_repo,
+        bus=FakeBus(),
+    )
     result = asyncio.run(eng.run_pipeline("sess-1", "开个奶茶店"))
 
     # sop 携带 source_ref 与覆盖率
@@ -113,7 +118,7 @@ def test_pipeline_carries_source_ref_with_docs():
     assert result["business_model"]["_citation_coverage"]["coverage"] > 0
 
 
-def test_pipeline_degrades_without_docs():
+def test_pipeline_degrades_without_docs(draft_repo):
     # 无文档：FakeService 返回空列表，流水线应优雅降级、不崩溃
     bridge = MethodologyBridge(service=FakeService([]))
     sop_payload = {"sop": {"sops": [{"id": "s1", "title": "T", "owner_role": "R", "trigger": "x",
@@ -122,7 +127,11 @@ def test_pipeline_degrades_without_docs():
     bm_payload = {"business_model": {"flows": [{"id": "f1", "name": "出杯", "description": "x",
                                                "steps": ["a"], "input": "i", "output": "o",
                                                "source_ref": []}], "roles": [], "rules": []}}
-    eng = OrchestratorEngine(agents=_make_agents(sop_payload, bm_payload, bridge), bus=FakeBus())
+    eng = OrchestratorEngine(
+        agents=_make_agents(sop_payload, bm_payload, bridge),
+        repo=draft_repo,
+        bus=FakeBus(),
+    )
     result = asyncio.run(eng.run_pipeline("sess-2", "开个奶茶店"))
 
     # SOP 仍被产出（sop agent 始终返回其输出）

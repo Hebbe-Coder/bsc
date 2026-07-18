@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import Optional
 from app.agent.state import ProjectDraftRepository, ProjectDraft
+from app.orchestrator.contracts import EventType, JobStatus
 from app.orchestrator.sse import SessionEventBus
 
 
@@ -16,10 +17,84 @@ class OrchestratorEngine:
         self.repo = repo or ProjectDraftRepository()
         self.bus = bus or SessionEventBus()
 
-    async def _emit(self, sid, stage, status, msg=""):
-        await self.bus.publish(sid, {"stage": stage, "status": status, "msg": msg})
+    async def _emit(
+        self,
+        sid,
+        stage,
+        status,
+        msg="",
+        *,
+        event_type=None,
+        terminal=False,
+        data=None,
+    ):
+        if event_type is None:
+            event_type = {
+                "running": EventType.STAGE_STARTED,
+                "done": EventType.STAGE_COMPLETED,
+                "loopback": EventType.STAGE_LOOPBACK,
+            }.get(status, EventType.STAGE_COMPLETED)
+        return await self.bus.publish(
+            sid,
+            event_type,
+            stage=stage,
+            status=status,
+            message=msg,
+            terminal=terminal,
+            data=data,
+        )
 
     async def run_pipeline(self, session_id: str, idea: str) -> dict:
+        if self.repo.get(session_id) is None:
+            self.repo.save(ProjectDraft(
+                session_id=session_id,
+                idea=idea,
+                status=JobStatus.QUEUED.value,
+            ))
+        self.repo.transition(session_id, JobStatus.RUNNING)
+        await self._emit(
+            session_id,
+            "pipeline",
+            "running",
+            "Pipeline started",
+            event_type=EventType.PIPELINE_STARTED,
+        )
+        try:
+            state = await self._run_stages(session_id, idea)
+            self.repo.transition(session_id, JobStatus.COMPLETED)
+            await self._emit(
+                session_id,
+                "pipeline",
+                "completed",
+                "Pipeline completed",
+                event_type=EventType.PIPELINE_COMPLETED,
+                terminal=True,
+            )
+            return state
+        except asyncio.CancelledError:
+            self.repo.transition(session_id, JobStatus.CANCELLED)
+            await self._emit(
+                session_id,
+                "pipeline",
+                "cancelled",
+                "Pipeline cancelled",
+                event_type=EventType.PIPELINE_CANCELLED,
+                terminal=True,
+            )
+            raise
+        except Exception:
+            self.repo.transition(session_id, JobStatus.FAILED)
+            await self._emit(
+                session_id,
+                "pipeline",
+                "failed",
+                "Pipeline failed",
+                event_type=EventType.PIPELINE_FAILED,
+                terminal=True,
+            )
+            raise
+
+    async def _run_stages(self, session_id: str, idea: str) -> dict:
         draft = self.repo.get(session_id) or ProjectDraft(session_id=session_id, idea=idea)
         state = draft.to_dict()
         # 以 session_id 作为知识库 project_id（生产环境后续会显式传入 knowledge_project_id）
@@ -169,7 +244,7 @@ class OrchestratorEngine:
         agent = self.agents[name]
         if asyncio.iscoroutinefunction(agent.run):
             return await agent.run(**kwargs)
-        return agent.run(**kwargs)
+        return await asyncio.to_thread(agent.run, **kwargs)
 
     def _upstream_for(self, node, state):
         project_id = state.get("session_id")
@@ -190,12 +265,14 @@ class OrchestratorEngine:
         return {}
 
     def _save(self, session_id, state):
+        current = self.repo.get(session_id)
         draft = ProjectDraft(
             session_id=session_id, idea=state.get("idea", ""),
             project=state.get("project", {}), requirements=state.get("requirements", []),
             business_model=state.get("business_model", {}), sop=state.get("sop", {}),
             risk=state.get("risk", {}), review=state.get("review", {}),
             presentation=state.get("presentation", {}),
-            status="running", messages=state.get("messages", []),
+            status=current.status if current else JobStatus.RUNNING.value,
+            messages=state.get("messages", []),
         )
         self.repo.save(draft)

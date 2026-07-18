@@ -5,10 +5,11 @@ from app.orchestrator.engine import OrchestratorEngine
 
 class FakeBus:
     def __init__(self): self.events = []
-    async def publish(self, session_id, event): self.events.append(event)
+    async def publish(self, session_id, event_type, **kwargs):
+        self.events.append({"type": str(event_type), **kwargs})
 
 
-def make_engine():
+def make_engine(repo):
     # 每个 agent 直接返回正确段名的固定 payload
     class StubAgent:
         def __init__(self, payload): self.payload = payload
@@ -22,19 +23,19 @@ def make_engine():
         "reviewer": StubAgent({"review": {"approved": True, "gaps": [], "loopback_target": None, "summary": "ok"}}),
         "presenter": StubAgent({"presentation": {"html_url": "u", "ppt_path": "p", "diagram_spec": {}}}),
     }
-    return OrchestratorEngine(agents=agents, repo=None, bus=FakeBus())
+    return OrchestratorEngine(agents=agents, repo=repo, bus=FakeBus())
 
 
-def test_pipeline_writes_six_segments():
-    eng = make_engine()
+def test_pipeline_writes_six_segments(draft_repo):
+    eng = make_engine(draft_repo)
     result = asyncio.run(eng.run_pipeline("s1", "内容审核中心"))
     assert result["project"]["name"] == "x"
     assert "business_model" in result
     assert result["review"]["approved"] is True
 
 
-def test_loopback_once_on_high_gap():
-    eng = make_engine()
+def test_loopback_once_on_high_gap(draft_repo):
+    eng = make_engine(draft_repo)
     # 让 reviewer 第一次返回 high 漏洞打回 sop，第二次通过
     class LoopReviewer:
         def __init__(self): self.n = 0
@@ -49,9 +50,9 @@ def test_loopback_once_on_high_gap():
     assert result["review"]["approved"] is True   # 回环后通过
 
 
-def test_presenter_receives_session_id():
+def test_presenter_receives_session_id(draft_repo):
     # 回归：engine 必须把 session_id 真正传入 presenter agent（否则真实 PresenterAgent 缺参）
-    eng = make_engine()
+    eng = make_engine(draft_repo)
     captured = {}
     class PresenterSpy:
         def run(self, *a, **k):
@@ -63,9 +64,9 @@ def test_presenter_receives_session_id():
     assert "state" in captured
 
 
-def test_sop_and_risk_run_in_parallel():
+def test_sop_and_risk_run_in_parallel(draft_repo):
     import time
-    eng = make_engine()
+    eng = make_engine(draft_repo)
 
     class SlowStub:
         def __init__(self, payload, delay):
@@ -82,8 +83,8 @@ def test_sop_and_risk_run_in_parallel():
     assert elapsed < 0.35, f"并行应 <0.35s，实际 {elapsed:.2f}s"
 
 
-def test_reviewer_receives_risk():
-    eng = make_engine()
+def test_reviewer_receives_risk(draft_repo):
+    eng = make_engine(draft_repo)
     captured = {}
     class ReviewerSpy:
         def run(self, *a, **k):
@@ -94,9 +95,9 @@ def test_reviewer_receives_risk():
     assert "risk" in captured
 
 
-def test_pipeline_runs_without_risk_agent():
+def test_pipeline_runs_without_risk_agent(draft_repo):
     # 防御：未注册 risk agent 时主链路不应崩溃，risk 段留空
-    eng = make_engine()
+    eng = make_engine(draft_repo)
     del eng.agents["risk"]
     result = asyncio.run(eng.run_pipeline("s-norisk", "内容审核中心"))
     assert result["sop"] == {"sops": []}
@@ -108,7 +109,7 @@ def test_pipeline_runs_without_risk_agent():
         def run(self, *a, **k):
             captured.update(k)
             return {"review": {"approved": True, "gaps": [], "loopback_target": None, "summary": "ok"}}
-    eng2 = make_engine()
+    eng2 = make_engine(draft_repo)
     del eng2.agents["risk"]
     eng2.agents["reviewer"] = ReviewerSpy()
     asyncio.run(eng2.run_pipeline("s-norisk2", "内容审核中心"))

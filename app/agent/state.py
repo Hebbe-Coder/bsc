@@ -55,8 +55,8 @@ class ProjectDraft:
 
 
 class ProjectDraftRepository:
-    def __init__(self):
-        self._db = get_db()
+    def __init__(self, connection=None):
+        self._db = connection or get_db()
         self._ensure_table()
 
     def _ensure_table(self):
@@ -84,6 +84,17 @@ class ProjectDraftRepository:
             self._db.commit()
 
     def save(self, draft: ProjectDraft):
+        from app.orchestrator.contracts import is_terminal
+
+        existing = self.get(draft.session_id)
+        if (
+            existing is not None
+            and is_terminal(existing.status)
+            and draft.status != existing.status
+        ):
+            raise ValueError(
+                f"session {draft.session_id} already terminal: {existing.status}"
+            )
         draft.updated_at = time.strftime("%Y-%m-%dT%H:%M:%S")
         self._db.execute(
             """INSERT INTO agent_project_drafts
@@ -108,6 +119,21 @@ class ProjectDraftRepository:
     def get(self, session_id: str):
         row = self._db.execute("SELECT * FROM agent_project_drafts WHERE session_id=?", (session_id,)).fetchone()
         return ProjectDraft.from_row(row) if row else None
+
+    def transition(self, session_id: str, status) -> ProjectDraft:
+        from app.orchestrator.contracts import JobStatus, is_terminal
+
+        target = status if isinstance(status, JobStatus) else JobStatus(status)
+        draft = self.get(session_id)
+        if draft is None:
+            raise KeyError(f"session {session_id} not found")
+        if is_terminal(draft.status):
+            raise ValueError(
+                f"session {session_id} already terminal: {draft.status}"
+            )
+        draft.status = target.value
+        self.save(draft)
+        return draft
 
     def patch(self, session_id: str, segment: str, value: Any):
         if segment not in SEGMENTS:

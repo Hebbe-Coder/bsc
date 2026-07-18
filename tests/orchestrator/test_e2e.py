@@ -6,12 +6,13 @@ try:
 except Exception:
     class FakeBus:
         def __init__(self): self.events = []
-        async def publish(self, session_id, event): self.events.append(event)
+        async def publish(self, session_id, event_type, **kwargs):
+            self.events.append({"type": str(event_type), **kwargs})
 
 from app.orchestrator.engine import OrchestratorEngine
 
 
-def test_golden_content_moderation():
+def test_golden_content_moderation(draft_repo):
     # 用贴近「内容审核中心」语义的 stub agents，断言 6 段状态正确演进
     class A:
         def run(self, *a, **k): return {"project": {"name": "内容审核中心", "industry": "互联网"},
@@ -32,8 +33,11 @@ def test_golden_content_moderation():
     class K:
         def run(self, *a, **k): return {"risk": {"overall_score": "low", "coverage": {"total": 1, "covered": 1, "coverage_pct": 100, "uncovered_ids": []}, "gate": {"decision": "pass", "reasons": []}, "audit": []}}
         def run_async(self, *a, **k): return self.run(*a, **k)
-    eng = OrchestratorEngine(agents={"planner": A(), "architect": B(), "sop": S(), "risk": K(), "reviewer": R(), "presenter": P()},
-                              bus=FakeBus())
+    eng = OrchestratorEngine(
+        agents={"planner": A(), "architect": B(), "sop": S(), "risk": K(), "reviewer": R(), "presenter": P()},
+        repo=draft_repo,
+        bus=FakeBus(),
+    )
     state = asyncio.run(eng.run_pipeline("golden-1", "我要做一个内容审核中心"))
     assert state["project"]["name"] == "内容审核中心"
     assert state["business_model"]["flows"][0]["name"] == "受理"
