@@ -896,6 +896,7 @@ class LLMService:
             ("你是Report Composer", self._mock_report_composer),
             ("你是一个专业的产品需求分析师", lambda d: self._mock_dialog_question(user_prompt)),
             ("你是一个资深的产品经理", lambda d: self._mock_prd_generation(user_prompt)),
+            ("你是一个创意专家", lambda d: self._mock_brainstorm(d, user_prompt)),
         ]
 
         for agent_prefix, mock_method in agent_mock_map:
@@ -1038,6 +1039,29 @@ class LLMService:
     def _mock_generation(self, domain_info: dict) -> dict:
         """生成生成类Agent的默认mock数据"""
         return {"generation_result": f"Generation for {domain_info['domain_name']}"}
+
+    def _mock_brainstorm(self, domain_info: dict, user_prompt: str) -> dict:
+        """Generate deterministic structured ideas for offline brainstorm flows."""
+        match = re.search(r"请生成(\d+)个创意", user_prompt)
+        count = max(1, min(int(match.group(1)) if match else 5, 20))
+        categories = ["技术创新", "流程优化", "用户体验", "运营策略"]
+        ideas = []
+        for index in range(count):
+            number = index + 1
+            title = f"{domain_info['domain_name']}创新方案{number}"
+            ideas.append({
+                "id": f"idea-{number}",
+                "title": title,
+                "idea": title,
+                "description": f"围绕{domain_info['core_objective']}形成可验证的改进方案",
+                "category": categories[index % len(categories)],
+                "impact": "高" if index == 0 else "中",
+                "feasibility": "高",
+                "score": max(6, 10 - index),
+                "keywords": [domain_info["domain_name"], "创新", "验证"],
+                "implementation_steps": ["定义目标", "小范围验证", "评估推广"],
+            })
+        return {"content": json.dumps(ideas, ensure_ascii=False)}
 
     def _mock_business_understanding(self, domain_info: dict) -> dict:
         """生成业务理解mock数据"""

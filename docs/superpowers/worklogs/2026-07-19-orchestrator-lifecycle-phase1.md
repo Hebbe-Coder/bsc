@@ -130,6 +130,18 @@
 - The merge closure includes the lifecycle backend, contracts, focused tests, documentation and the tracked `Workspace` frontend integration.
 - Experimental `UnifiedWorkspace`/Agent OS files, broad UI restyling, database changes, archive cleanup and unrelated project edits remain unstaged and are not part of this merge.
 
+### 2026-07-19 - Clean-Checkout Verification
+
+- Created a detached clean worktree at commit `a7ac1ba` so ignored and untracked workspace files could not mask missing dependencies.
+- The initial focused gate stopped during collection because tracked `app.evolution.feedback_bridge` imports the untracked `app.knowledge.feedback` module; this dependency predates Phase 1 and is already required by `master`.
+- The initial clean TypeScript check found that tracked `src/components/Empty.tsx` imports ignored and absent `src/lib/utils`; this dependency also predates Phase 1.
+- Merge closure added the existing feedback module and replaced the static `cn(...)` use with a direct class string.
+- Full collection then exposed ten leading BOM markers in `app/agents/protocol.py` and stale, unused `AgentStatus` imports in two tracked agents; the closure normalizes the BOM and removes only those stale imports while retaining the broader workspace refactor.
+- Clean collection now completes with 509 tests.
+- The first actual full-suite run reached 504 passed and 2 skipped, with three pre-existing BrainstormEngine failures caused by the mock LLM dispatcher returning unparseable `mock response` for the Brainstorm prompt.
+- Added a deterministic structured Brainstorm mock at the dispatcher boundary; the three focused RED cases and all 28 Brainstorm tests now pass.
+- Final clean full-suite regression: 507 passed, 2 skipped, with only three existing dependency deprecation warnings.
+
 ## Deviations
 
 - A linked worktree was not created because the user's extensive uncommitted state is required by this implementation; isolation is provided by the `codex/` branch in the existing checkout.

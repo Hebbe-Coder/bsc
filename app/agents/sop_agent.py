@@ -1,5 +1,5 @@
 """SOP Agent — generates standard operating procedures from business model."""
-from .protocol import BaseAgent, AgentContext, AgentResult, AgentStatus
+from .protocol import BaseAgent, AgentContext, AgentResult
 import logging
 
 logger = logging.getLogger("bsc.studio.sop")

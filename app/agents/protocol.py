@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿'''Protocol types for BSC Studio agents - unified interface.
+'''Protocol types for BSC Studio agents - unified interface.
 
 This module now uses the unified agent interface from unified_agent.py
 to ensure type consistency across the entire system.
