@@ -29,6 +29,26 @@ def test_sop_covers_constraint():
     assert res.coverage.coverage_pct == 100
 
 
+def test_business_rule_explicitly_covers_constraint():
+    bm = {
+        "flows": [],
+        "roles": [],
+        "rules": [{
+            "id": "rule-review",
+            "statement": "关键结果交付前必须复核",
+            "covers_constraints": ["req-review"],
+        }],
+    }
+    reqs = [{"id": "req-review", "text": "关键结果必须复核", "priority": "high"}]
+
+    res = evaluate(bm, sop={"sops": []}, requirements=reqs)
+
+    assert res.coverage.coverage_pct == 100
+    assert res.coverage.uncovered_ids == []
+    assert res.gate.decision == "pass"
+    assert res.coverage.elements[0].governed_by == ["req-review"]
+
+
 def test_risk_list_propagates_from_payload():
     bm = {"flows": [{"id": "f1", "name": "受理"}], "roles": [], "rules": []}
     reqs = [{"id": "r1", "text": "受理约束", "priority": "mid"}]

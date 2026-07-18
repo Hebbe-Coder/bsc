@@ -1587,17 +1587,17 @@ git commit -m "docs: define orchestrator lifecycle contract"
 
 ## Phase 1 Definition of Done
 
-- [ ] `POST /api/orchestrate` returns HTTP 202 with status and event URLs.
-- [ ] Every job reaches exactly one persisted terminal status.
-- [ ] Success, failure and cancellation emit exactly one terminal event.
-- [ ] Events have strictly increasing per-session sequence numbers.
-- [ ] Reconnecting with `after` replays retained events.
-- [ ] Two subscribers receive identical event sequences.
-- [ ] The React Workspace has no fixed completion timer.
-- [ ] Completed jobs fetch and render the dashboard projection.
-- [ ] Failed jobs stop the spinner and show a safe error.
-- [ ] Existing orchestrator and dashboard tests pass.
-- [ ] `npm run check` passes.
+- [x] `POST /api/orchestrate` returns HTTP 202 with status and event URLs.
+- [x] Every job reaches exactly one persisted terminal status.
+- [x] Success, failure and cancellation emit exactly one terminal event.
+- [x] Events have strictly increasing per-session sequence numbers.
+- [x] Reconnecting with `after` replays retained events.
+- [x] Two subscribers receive identical event sequences.
+- [x] The React Workspace has no fixed completion timer.
+- [x] Completed jobs fetch and render the dashboard projection.
+- [x] Failed jobs stop the spinner and show a safe error.
+- [x] Existing orchestrator and dashboard tests pass.
+- [x] `npm run check` passes.
 
 ## Self-Review
 

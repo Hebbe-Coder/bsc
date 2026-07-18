@@ -897,6 +897,10 @@ class LLMService:
             ("你是一个专业的产品需求分析师", lambda d: self._mock_dialog_question(user_prompt)),
             ("你是一个资深的产品经理", lambda d: self._mock_prd_generation(user_prompt)),
             ("你是一个创意专家", lambda d: self._mock_brainstorm(d, user_prompt)),
+            ("你是 Planner Agent", lambda d: self._mock_orchestrator_planner(d, user_prompt)),
+            ("你是 Business Architect Agent", self._mock_orchestrator_architect),
+            ("你是 SOP Builder Agent", self._mock_orchestrator_sop),
+            ("你是 Reviewer Agent", lambda d: self._mock_orchestrator_reviewer(d, user_prompt)),
         ]
 
         for agent_prefix, mock_method in agent_mock_map:
@@ -1062,6 +1066,122 @@ class LLMService:
                 "implementation_steps": ["定义目标", "小范围验证", "评估推广"],
             })
         return {"content": json.dumps(ideas, ensure_ascii=False)}
+
+    def _mock_orchestrator_planner(self, domain_info: dict, user_prompt: str) -> dict:
+        """Return a complete offline project projection for the lifecycle runtime."""
+        match = re.search(r"用户的业务点子：(.+?)(?:\n|$)", user_prompt)
+        idea = match.group(1).strip() if match else domain_info["domain_name"]
+        project_name = idea[:32] or f"{domain_info['domain_name']}业务系统"
+        return {
+            "project": {
+                "name": project_name,
+                "goal": domain_info["core_objective"],
+                "industry": domain_info["domain_name"],
+                "scope": {
+                    "in_scope": ["业务受理", "流程执行", "质量复核"],
+                    "out_scope": ["外部财务结算"],
+                },
+                "actors": [
+                    {"role": f"{domain_info['role_prefix']}专员", "description": "执行核心业务流程"},
+                    {"role": "质检员", "description": "复核结果并处理升级"},
+                ],
+            },
+            "requirements": [
+                {"id": "req-1", "text": "所有业务请求必须可追踪", "priority": "high", "source": "mock"},
+                {"id": "req-2", "text": "关键结果必须经过质量复核", "priority": "high", "source": "mock"},
+                {"id": "req-3", "text": "处理时效必须满足 SLA", "priority": "mid", "source": "mock"},
+            ],
+        }
+
+    def _mock_orchestrator_architect(self, domain_info: dict) -> dict:
+        """Return a renderable business model for offline lifecycle runs."""
+        role = f"{domain_info['role_prefix']}专员"
+        return {
+            "business_model": {
+                "flows": [
+                    {
+                        "id": "flow-intake",
+                        "name": "业务受理",
+                        "description": "记录、校验并分类业务请求",
+                        "steps": ["登记请求", "完整性校验", "分配处理人"],
+                        "input": "业务请求",
+                        "output": "已分配任务",
+                        "source_ref": [],
+                    },
+                    {
+                        "id": "flow-delivery",
+                        "name": "执行与交付",
+                        "description": "完成处理、质量复核与结果交付",
+                        "steps": ["执行处理", "质量复核", "结果交付"],
+                        "input": "已分配任务",
+                        "output": "可审计结果",
+                        "source_ref": [],
+                    },
+                ],
+                "roles": [
+                    {"id": "role-operator", "name": role, "responsibility": "执行业务处理", "belongs_to_flow": "flow-delivery", "source_ref": []},
+                    {"id": "role-reviewer", "name": "质检员", "responsibility": "复核关键结果", "belongs_to_flow": "flow-delivery", "source_ref": []},
+                ],
+                "rules": [
+                    {"id": "rule-trace", "statement": "所有请求保留完整处理记录", "applies_to": "flow-intake", "covers_constraints": ["req-1"], "source_ref": []},
+                    {"id": "rule-review", "statement": "关键结果交付前必须复核", "applies_to": "flow-delivery", "covers_constraints": ["req-2"], "source_ref": []},
+                    {"id": "rule-sla", "statement": "超时任务自动升级", "applies_to": "flow-delivery", "covers_constraints": ["req-3"], "source_ref": []},
+                ],
+            }
+        }
+
+    def _mock_orchestrator_sop(self, domain_info: dict) -> dict:
+        """Return a renderable SOP collection for offline lifecycle runs."""
+        role = f"{domain_info['role_prefix']}专员"
+        return {
+            "sop": {
+                "sops": [
+                    {
+                        "id": "sop-request-delivery",
+                        "title": "业务请求处理 SOP",
+                        "owner_role": role,
+                        "trigger": "收到已校验的业务请求",
+                        "steps": [
+                            {"seq": 1, "action": "确认请求范围与优先级", "sla": "5 分钟"},
+                            {"seq": 2, "action": "执行处理并记录依据", "sla": "30 分钟"},
+                            {"seq": 3, "action": "提交质检员复核", "sla": "10 分钟"},
+                            {"seq": 4, "action": "交付结果并归档", "sla": "5 分钟"},
+                        ],
+                        "escalation": "任一步骤超时即升级至业务经理",
+                        "review_cycle": "每月复审一次",
+                        "covers_constraints": ["req-1", "req-2", "req-3"],
+                        "source_ref": [],
+                    }
+                ]
+            }
+        }
+
+    def _mock_orchestrator_reviewer(self, domain_info: dict, user_prompt: str) -> dict:
+        """Return an explicit deterministic approval for covered mock artifacts."""
+        match = re.search(r"需求/约束列表：(.*?)\n业务模型：", user_prompt, re.DOTALL)
+        requirements = []
+        if match:
+            try:
+                requirements = json.loads(match.group(1))
+            except (json.JSONDecodeError, TypeError):
+                requirements = []
+        requirement_ids = [str(item.get("id")) for item in requirements if item.get("id")]
+        total = len(requirement_ids)
+        return {
+            "review": {
+                "approved": True,
+                "constraint_coverage": {
+                    "total": total,
+                    "covered": total,
+                    "uncovered_ids": [],
+                    "coverage_pct": 100,
+                },
+                "gaps": [],
+                "loopback_target": None,
+                "loopback_fixes": [],
+                "summary": f"Mock review approved for {domain_info['domain_name']}",
+            }
+        }
 
     def _mock_business_understanding(self, domain_info: dict) -> dict:
         """生成业务理解mock数据"""

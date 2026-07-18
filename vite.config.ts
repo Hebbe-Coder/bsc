@@ -9,6 +9,9 @@ export default defineConfig({
     sourcemap: 'hidden',
   },
   server: {
+    watch: {
+      ignored: ['**/static/presentations/**', '**/output/**'],
+    },
     proxy: {
       // 开发环境：前端（:5173）的所有 /api 请求经 vite 代理到后端（:8000），
       // 规避跨域，同时让 SSE（EventSource）走同源、稳定流式转发。

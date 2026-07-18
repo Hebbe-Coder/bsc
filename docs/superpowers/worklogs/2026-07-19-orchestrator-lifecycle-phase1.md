@@ -142,6 +142,22 @@
 - Added a deterministic structured Brainstorm mock at the dispatcher boundary; the three focused RED cases and all 28 Brainstorm tests now pass.
 - Final clean full-suite regression: 507 passed, 2 skipped, with only three existing dependency deprecation warnings.
 
+### 2026-07-19 - Release Candidate Certification
+
+- Live browser evidence exposed four release-candidate gaps after the initial clean verification: presenter output reloaded the Vite page, orchestrator mock agents returned empty dashboard artifacts, explicit business-rule constraint coverage was ignored, and responsive workspace/dashboard layouts clipped content.
+- Added deterministic Planner, Business Architect, SOP Builder and Reviewer mock projections. The four regression tests failed with missing payload keys before the fix and passed afterward.
+- Added explicit business-element `covers_constraints` support. Its regression test failed with 0% coverage before the fix and passed with 100% coverage afterward.
+- Ignored generated presenter/output directories in Vite watch mode, stacked Workspace panels below 1024px, refit React Flow on resize, and constrained dashboard grid min-content sizing.
+- Fresh clean full suite: `512 passed, 2 skipped` from 514 collected in 114.03 seconds.
+- Fresh Phase 1 focused gate: `93 passed` across orchestrator, constraint and dashboard suites.
+- `npm run check`, `npm run build`, `python -m compileall -q app exporters`, the intended-file `git diff --check`, and the fixed-completion-timer scan all passed.
+- Live protocol certification: POST 202 with discovery URLs; completed persisted terminal; 14 strictly increasing events; two identical subscriber sequences; exact `after=7` replay; compatibility alias parity; duplicate 409; unknown status/events 404; cancellation persisted with exactly one `pipeline.cancelled` terminal event.
+- Live dashboard projection: 2 business flows, 1 SOP, 100% constraint coverage, risk gate `pass`, and verified trusted audit.
+- Fresh browser QA: dashboard HTTP 200; success and safe-failure states rendered; failure requested no dashboard and left no busy indicator; no console errors, page errors or failed responses.
+- Responsive QA at 1440/768/375: zero page overflow, clipped controls or clipped graph nodes. Dashboard at 768/375: zero page overflow, clipped controls or clipped visible elements.
+- Final screenshots are in `C:/Users/34216/.codex/visualizations/2026/07/18/019f7612-e37a-71f0-9f4a-32b7be0d3476`.
+- All Phase 1 Definition of Done items are checked against fresh automated and live evidence.
+
 ## Deviations
 
 - A linked worktree was not created because the user's extensive uncommitted state is required by this implementation; isolation is provided by the `codex/` branch in the existing checkout.
@@ -149,8 +165,7 @@
 - Browser Use CLI could not find a supported local Chromium and had no cloud key; smoke testing used the bundled Playwright runtime with local Microsoft Edge.
 - Final self-review added pre-start cancellation, terminal-cursor close, non-blocking sync/legacy agent execution and mock-service injection coverage beyond the original plan because live evidence showed Definition-of-Done gaps.
 
-## Deferred Confirmations
+## Remaining Scope
 
-- Whether to commit the completed Phase 1 changes after final verification.
-- Whether to proceed immediately into Subproject B (BusinessRuntime convergence) after Phase 1.
-- Whether the verified branch should be merged locally, pushed for a pull request, kept as-is, or discarded.
+- Commit and local merge are authorized by the user's instruction to continue and merge the completed work. Remote push remains intentionally out of scope.
+- Subproject B (BusinessRuntime convergence) is a separate project and is not part of the Phase 1 Definition of Done certified here.

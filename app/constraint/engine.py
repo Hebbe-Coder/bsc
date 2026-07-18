@@ -20,13 +20,16 @@ def build_constraints(requirements: list) -> list[Constraint]:
 def _elements(bm: dict) -> list[tuple]:
     els = []
     for f in bm.get("flows", []) or []:
-        els.append(("flow", str(f.get("id", "")), f.get("name", "")))
+        els.append(("flow", str(f.get("id", "")), f.get("name", ""),
+                    f.get("covers_constraints", []) or []))
     for r in bm.get("roles", []) or []:
         if isinstance(r, dict):
-            els.append(("role", str(r.get("id", "")), r.get("name", "")))
+            els.append(("role", str(r.get("id", "")), r.get("name", ""),
+                        r.get("covers_constraints", []) or []))
     for ru in bm.get("rules", []) or []:
         if isinstance(ru, dict):
-            els.append(("rule", str(ru.get("id", "")), ru.get("statement", "")))
+            els.append(("rule", str(ru.get("id", "")), ru.get("statement", ""),
+                        ru.get("covers_constraints", []) or []))
     return els
 
 
@@ -36,20 +39,24 @@ def evaluate(business_model: dict, sop: Optional[dict] = None,
     bm = business_model or {}
     constraints = build_constraints(requirements)
     sop = sop or {}
-    covers = set()
+    sop_covers = set()
     for s in sop.get("sops", []) or []:
         for cid in (s.get("covers_constraints", []) or []):
-            covers.add(cid)
+            sop_covers.add(cid)
 
     elements = _elements(bm)
+    constraint_ids = {constraint.id for constraint in constraints if constraint.id}
     referenced: set[str] = set()
     ecov: list[ElementCoverage] = []
     uncovered_elements: list[str] = []
-    for (etype, eid, ename) in elements:
+    for (etype, eid, ename, explicit_covers) in elements:
         low_id, low_name = eid.lower(), ename.lower()
         governed = [c.id for c in constraints
                     if c.id and (c.id in low_id or c.id in low_name)]
-        covered = bool(governed) or (eid in covers)
+        for cid in explicit_covers:
+            if cid in constraint_ids and cid not in governed:
+                governed.append(cid)
+        covered = bool(governed)
         referenced.update(governed)
         ecov.append(ElementCoverage(element_type=etype, element_id=eid,
                                      element_name=ename, governed_by=governed,
@@ -58,7 +65,7 @@ def evaluate(business_model: dict, sop: Optional[dict] = None,
             uncovered_elements.append(f"{etype}:{eid or ename}")
 
     # 约束满足度（驱动 coverage_pct 与门禁）：被某元素引用 或 被 SOP 显式覆盖
-    satisfied = referenced | covers
+    satisfied = referenced | sop_covers
     unsatisfied = [c for c in constraints if c.id and c.id not in satisfied]
     unsatisfied_high = [c for c in unsatisfied if c.priority in HIGH]
 

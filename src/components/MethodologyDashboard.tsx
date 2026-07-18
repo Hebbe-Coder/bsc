@@ -38,24 +38,24 @@ export function MethodologyDashboard() {
 
   return (
     <div className="h-full overflow-auto p-4">
-      <div className="mx-auto grid max-w-5xl gap-4 md:grid-cols-2">
-        <div className="md:col-span-2">
+      <div className="mx-auto grid min-w-0 max-w-5xl grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2">
+        <div className="min-w-0 md:col-span-2">
           <RiskPanel risk={data.risk} />
         </div>
         <ConstraintCoveragePanel coverage={data.risk.coverage} />
         <CitationPanel sop={data.sop} />
         {data.trusted_audit && (
-          <div className="md:col-span-2">
+          <div className="min-w-0 md:col-span-2">
             <TrustedAuditPanel trustedAudit={data.trusted_audit} />
           </div>
         )}
         {data.evaluation && (
-          <div className="md:col-span-2">
+          <div className="min-w-0 md:col-span-2">
             <CompilerEvalPanel evaluation={data.evaluation} />
           </div>
         )}
         {data.evolution && (
-          <div className="md:col-span-2">
+          <div className="min-w-0 md:col-span-2">
             <EvolutionPanel evolution={data.evolution} />
           </div>
         )}

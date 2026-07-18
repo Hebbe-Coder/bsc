@@ -11,6 +11,7 @@ from app.orchestrator.agents.reviewer import ReviewerAgent
 from app.orchestrator.agents.presenter import PresenterAgent
 from app.orchestrator.schemas import validate_segment
 from app.agents.unified_agent import AgentContext, LLMAgentAdapter
+from app.services.llm_service import LLMService
 
 
 class FakeLLM:
@@ -118,6 +119,55 @@ def test_sop_builder_produces_sops():
                     _engine=FakeSopEngine())
     assert "sop" in out
     assert out["sop"]["sops"][0]["title"] == "审核 SOP"
+
+
+def test_mock_planner_produces_project_and_requirements():
+    llm = LLMService(provider="mock", force_mock=True)
+    out = PlannerAgent(llm_service=llm).run(idea="建设零售门店运营平台")
+
+    assert out["project"]["name"]
+    assert out["requirements"]
+
+
+def test_mock_architect_produces_renderable_business_model():
+    llm = LLMService(provider="mock", force_mock=True)
+    agent = BusinessArchitectAgent(llm_service=llm)
+
+    out = asyncio.run(agent.run(
+        idea="建设零售门店运营平台",
+        project={"name": "零售门店运营平台"},
+        requirements=[],
+        _compile=FakeCompile(),
+    ))
+
+    assert out["business_model"]["flows"]
+    assert out["business_model"]["flows"][0]["name"]
+
+
+def test_mock_sop_builder_produces_renderable_sops():
+    llm = LLMService(provider="mock", force_mock=True)
+    agent = SopBuilderAgent(llm_service=llm)
+
+    out = agent.run(
+        business_model={"flows": [{"id": "flow-1", "name": "门店巡检"}]},
+        _engine=FakeSopEngine(),
+    )
+
+    assert out["sop"]["sops"]
+    assert out["sop"]["sops"][0]["steps"]
+
+
+def test_mock_reviewer_returns_explicit_approval():
+    llm = LLMService(provider="mock", force_mock=True)
+    out = ReviewerAgent(llm_service=llm).run(
+        project={"name": "零售门店运营平台"},
+        business_model={"flows": [{"id": "flow-1", "name": "门店巡检"}]},
+        sop={"sops": [{"id": "sop-1", "title": "门店巡检 SOP"}]},
+        requirements=[{"id": "req-1", "text": "结果必须复核"}],
+    )
+
+    assert out["review"]["approved"] is True
+    assert out["review"]["constraint_coverage"]["coverage_pct"] == 100
 
 
 def test_reviewer_finds_gap_and_loopback():

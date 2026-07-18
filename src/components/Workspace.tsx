@@ -49,11 +49,11 @@ export function Workspace() {
   };
 
   return (
-    <div className="grid grid-cols-[1fr_2fr_1fr] grid-rows-[1fr_200px] h-screen gap-2 p-2">
-      <div className="row-span-1 border rounded"><ChatPanel onSend={start} /></div>
-      <div className="border rounded overflow-hidden"><BusinessGraph model={businessModel} /></div>
-      <div className="border rounded overflow-auto"><SopPanel sop={sop} /></div>
-      <div className="col-span-3 border rounded bg-gray-50"><AgentLog /></div>
+    <div className="grid h-full min-h-0 grid-cols-1 auto-rows-[minmax(280px,auto)] gap-2 overflow-y-auto p-2 lg:grid-cols-[minmax(240px,1fr)_minmax(0,2fr)_minmax(240px,1fr)] lg:grid-rows-[minmax(0,1fr)_200px] lg:auto-rows-auto lg:overflow-hidden">
+      <div className="min-h-[280px] border rounded lg:min-h-0"><ChatPanel onSend={start} /></div>
+      <div className="min-h-[320px] border rounded overflow-hidden lg:min-h-0"><BusinessGraph model={businessModel} /></div>
+      <div className="min-h-[280px] border rounded overflow-auto lg:min-h-0"><SopPanel sop={sop} /></div>
+      <div className="min-h-[200px] border rounded bg-gray-50 lg:col-span-3"><AgentLog /></div>
     </div>
   );
 }
