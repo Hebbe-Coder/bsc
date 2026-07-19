@@ -3,7 +3,6 @@ import numpy as np
 import pytest
 
 from app.knowledge.embeddings import (
-    EmbeddingProvider,
     MockEmbeddingProvider,
     RemoteEmbeddingProvider,
     get_embedding_provider,

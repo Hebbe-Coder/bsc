@@ -1,5 +1,7 @@
 from app.repositories.knowledge_repository import KnowledgeRepository
-import hashlib, tempfile, os
+import hashlib
+import tempfile
+import os
 
 
 def _repo():

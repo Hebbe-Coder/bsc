@@ -32,10 +32,12 @@ BSC Pipeline - BSC流程编排器
     - 缓存层集成，减少重复LLM调用
 """
 from __future__ import annotations
-import time, logging, concurrent.futures
+import time, logging
 from typing import List, Dict, Any, Optional
 
 from app.utils.common import flatten_risks, build_cache_key
+from app.core.agent_pool import AgentPool, AgentTask, RetryPolicy, FallbackPolicy
+from app.enums import PipelineStage
 
 logger = logging.getLogger(__name__)
 
@@ -59,16 +61,16 @@ class BSCPipeline:
     """
 
     SERIAL_STAGES = [
-        ("business_understanding", "Business Understanding Agent", "业务理解"),
-        ("composer", "Business Composer", "结果组装"),
+        (PipelineStage.BUSINESS_UNDERSTANDING, "Business Understanding Agent", "业务理解"),
+        (PipelineStage.COMPOSER, "Business Composer", "结果组装"),
     ]
 
     AGENT_INFO_MAP = {
-        "sop": ("SOP Agent", "流程设计"),
-        "risk": ("Risk Agent", "风险分析"),
-        "strategy": ("Strategy Agent", "战略分析"),
-        "optimization": ("Optimization Agent", "优化建议"),
-        "root_cause": ("Root Cause Agent", "根因分析"),
+        PipelineStage.SOP: ("SOP Agent", "流程设计"),
+        PipelineStage.RISK: ("Risk Agent", "风险分析"),
+        PipelineStage.STRATEGY: ("Strategy Agent", "战略分析"),
+        PipelineStage.OPTIMIZATION: ("Optimization Agent", "优化建议"),
+        PipelineStage.ROOT_CAUSE: ("Root Cause Agent", "根因分析"),
     }
 
     def __init__(self, llm_service=None):
@@ -307,20 +309,58 @@ class BSCPipeline:
                     },
                 }
 
+        def _require_success(stage_result):
+            stage = stage_result.get("stage", {})
+            if stage.get("status") != "success":
+                raise RuntimeError(
+                    stage.get("error") or "agent returned a failed stage"
+                )
+            return stage_result
+
         results = {}
+
+        # AgentPool: ?? ThreadPoolExecutor, ????+??+??
+        from app.core.agent_pool import AgentPool, AgentTask, RetryPolicy, FallbackPolicy
         
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, len(agent_keys))) as executor:
-            futures = {}
-            for key in agent_keys:
-                agent_info = self.AGENT_INFO_MAP.get(key)
-                if agent_info:
-                    agent_name, display_name = agent_info
-                    exec_context_copy = type(self._exec_context)(llm_service=self.llm_service)
-                    futures[executor.submit(_run_agent, exec_context_copy, key, agent_name, display_name)] = key
-            
-            for future in concurrent.futures.as_completed(futures):
-                key, result = future.result()
-                results[key] = result
+        pool = AgentPool(
+            max_workers=min(4, len(agent_keys)),
+            default_timeout=120.0,
+            default_retry=RetryPolicy.EXPONENTIAL,
+            default_max_retries=2,
+        )
+        
+        tasks = {}
+        for key in agent_keys:
+            agent_info = self.AGENT_INFO_MAP.get(key)
+            if agent_info:
+                agent_name, display_name = agent_info
+                exec_context_copy = type(self._exec_context)(llm_service=self.llm_service)
+                tasks[key] = AgentTask(
+                    name=key,
+                    fn=lambda ctx=exec_context_copy, k=key, an=agent_name, dn=display_name:
+                        _require_success(_run_agent(ctx, k, an, dn)[1]),
+                    timeout=120.0,
+                    retry_policy=RetryPolicy.EXPONENTIAL,
+                    max_retries=2,
+                    fallback=FallbackPolicy.EMPTY,
+                )
+        
+        pool_result = pool.execute_all(tasks)
+        for name, agent_result in pool_result.results.items():
+            if agent_result.status == "success":
+                results[name] = agent_result.data
+            else:
+                results[name] = {
+                    "result": agent_result.data or {},
+                    "stage": {
+                        "agent": self.AGENT_INFO_MAP.get(name, (name, name))[0],
+                        "display": self.AGENT_INFO_MAP.get(name, (name, name))[1],
+                        "status": agent_result.status,
+                        "duration_ms": agent_result.duration_ms,
+                        "error": agent_result.error,
+                        "retries": agent_result.retries,
+                    },
+                }
 
         return results
 
@@ -431,7 +471,7 @@ class BSCPipeline:
                 "result": composed,
                 "stage": {
                     "agent": "Business Composer",
-                    "key": "composer",
+                    "key": PipelineStage.COMPOSER,
                     "display": "结果组装",
                     "status": "success",
                     "duration_ms": duration_ms,
@@ -444,7 +484,7 @@ class BSCPipeline:
                 "result": {},
                 "stage": {
                     "agent": "Business Composer",
-                    "key": "composer",
+                    "key": PipelineStage.COMPOSER,
                     "display": "结果组装",
                     "status": "failed",
                     "duration_ms": duration_ms,

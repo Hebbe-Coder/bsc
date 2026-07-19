@@ -25,6 +25,7 @@ import logging
 from typing import List, Dict, Any, Optional
 
 from app.utils.common import flatten_risks, build_cache_key
+from app.enums import PipelineStage
 
 logger = logging.getLogger(__name__)
 
@@ -39,11 +40,11 @@ class AsyncBSCPipeline:
     """
 
     AGENT_INFO_MAP = {
-        "sop": ("SOP Agent", "流程设计"),
-        "risk": ("Risk Agent", "风险分析"),
-        "strategy": ("Strategy Agent", "战略分析"),
-        "optimization": ("Optimization Agent", "优化建议"),
-        "root_cause": ("Root Cause Agent", "根因分析"),
+        PipelineStage.SOP: ("SOP Agent", "流程设计"),
+        PipelineStage.RISK: ("Risk Agent", "风险分析"),
+        PipelineStage.STRATEGY: ("Strategy Agent", "战略分析"),
+        PipelineStage.OPTIMIZATION: ("Optimization Agent", "优化建议"),
+        PipelineStage.ROOT_CAUSE: ("Root Cause Agent", "根因分析"),
     }
 
     def __init__(self, llm_service=None, stream_id: str = None):

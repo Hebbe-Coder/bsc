@@ -1,5 +1,4 @@
 """Markdown Exporter - 生成Markdown格式报告"""
-from typing import Dict, Any
 import logging
 
 logger = logging.getLogger(__name__)

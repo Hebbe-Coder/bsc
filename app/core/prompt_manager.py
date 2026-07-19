@@ -13,10 +13,11 @@ Features:
   - Prompt rollback
 """
 from __future__ import annotations
-import os, json, time, re
+import os
+import json
+import time
 from dataclasses import dataclass, field
 from typing import Optional
-from pathlib import Path
 
 # ── Data Classes ──
 

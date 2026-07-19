@@ -6,8 +6,7 @@ Visual API - 可视化图表生成接口
 from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Body
 from fastapi.responses import PlainTextResponse, FileResponse
-from typing import Dict, Any, Optional
-import os
+from typing import Dict, Any
 
 from app.visual.flow_chart_generator import FlowChartGenerator
 

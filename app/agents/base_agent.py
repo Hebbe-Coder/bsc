@@ -20,9 +20,10 @@ BaseAgent - Agent基类
     - 支持setter方法动态注入
 """
 from __future__ import annotations
-import json, time, logging
+import json
+import time
+import logging
 from abc import ABC, abstractmethod
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 

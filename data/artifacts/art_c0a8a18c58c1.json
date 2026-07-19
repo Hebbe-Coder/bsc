@@ -1,0 +1,26 @@
+{
+  "artifact_id": "art_c0a8a18c58c1",
+  "artifact_type": "gap",
+  "project_id": "",
+  "label": "",
+  "description": "",
+  "parent_ids": [
+    "art_652051f5e979"
+  ],
+  "confidence": 1.0,
+  "status": "active",
+  "source_agent": "",
+  "evidence_refs": [],
+  "tags": [],
+  "metadata": {},
+  "created_at": "2026-07-18T00:47:58",
+  "updated_at": "2026-07-18T00:47:58",
+  "gap_statement": "Decision '董事会裁决: NO_GO (加权得分: 0.31, 共识: majority)' has low assumption confidence (31%)",
+  "category": "evidence_missing",
+  "severity": "high",
+  "affected_artifact_ids": [
+    "art_652051f5e979"
+  ],
+  "resolution": "Queued evidence_validation via business_understanding",
+  "resolved": true
+}

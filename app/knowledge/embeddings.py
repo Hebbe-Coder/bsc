@@ -2,6 +2,7 @@
 
 默认 MockEmbeddingProvider（离线确定性，非真语义，仅供测试与零配置运行）；
 RemoteEmbeddingProvider 走远程 OpenAI 兼容 /v1/embeddings（OpenAI / vLLM / 任意兼容服务）。
+SiliconFlowEmbeddingProvider 走硅基流动 OpenAI 兼容接口，支持 BGE 等中文 embedding 模型。
 """
 from __future__ import annotations
 import hashlib
@@ -44,7 +45,7 @@ class MockEmbeddingProvider(EmbeddingProvider):
             vec = np.zeros(self.dim, dtype=np.float64)
             for tok in tokenize(text or ""):
                 # 使用非加盐的稳定哈希,保证跨进程/重启后仍确定(区别于内置 hash())
-                vec[int(hashlib.md5(tok.encode("utf-8")).hexdigest(), 16) % self.dim] += 1.0
+                vec[int(hashlib.md5(tok.encode("utf-8"), usedforsecurity=False).hexdigest(), 16) % self.dim] += 1.0
             norm = np.linalg.norm(vec)
             if norm > 0:
                 vec = vec / norm
@@ -55,15 +56,15 @@ class MockEmbeddingProvider(EmbeddingProvider):
 class RemoteEmbeddingProvider(EmbeddingProvider):
     """远程 OpenAI 兼容 /v1/embeddings（真语义）。失败即抛，由 VectorBackend 捕获降级。"""
 
-    name = "openai"
-
     def __init__(self, api_key: str, base_url: str, model: str,
-                 timeout: float = 30.0, http_client: Optional[httpx.Client] = None):
+                 timeout: float = 30.0, http_client: Optional[httpx.Client] = None,
+                 provider_name: str = "openai"):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout = timeout
         self._http = http_client
+        self.name = provider_name
         self.dim = 0
 
     def embed(self, texts: List[str]) -> List[List[float]]:
@@ -110,5 +111,15 @@ def get_embedding_provider(provider: Optional[str] = None, **kwargs) -> Embeddin
             model=kwargs.get("model", settings.EMBEDDING_MODEL),
             timeout=kwargs.get("timeout", 30.0),
             http_client=kwargs.get("http_client"),
+            provider_name="openai",
+        )
+    if name == "siliconflow":
+        return RemoteEmbeddingProvider(
+            api_key=kwargs.get("api_key", settings.SILICONFLOW_API_KEY),
+            base_url=kwargs.get("base_url", settings.SILICONFLOW_BASE_URL),
+            model=kwargs.get("model", settings.SILICONFLOW_EMBEDDING_MODEL),
+            timeout=kwargs.get("timeout", 30.0),
+            http_client=kwargs.get("http_client"),
+            provider_name="siliconflow",
         )
     raise ValueError(f"未知 EMBEDDING provider: {name}")

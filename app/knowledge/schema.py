@@ -46,6 +46,16 @@ def ensure_schema(repo: Any) -> None:
         "ALTER TABLE knowledge_docs ADD COLUMN doc_format TEXT",
         "ALTER TABLE knowledge_docs ADD COLUMN content_hash TEXT",
         "ALTER TABLE knowledge_docs ADD COLUMN version INTEGER DEFAULT 1",
+        "ALTER TABLE knowledge_docs ADD COLUMN domain TEXT DEFAULT 'general'",
+        "ALTER TABLE knowledge_docs ADD COLUMN access_level TEXT DEFAULT 'public'",
+    ):
+        try:
+            repo._execute(col_sql)
+        except Exception:
+            pass
+    # 幂等加列：knowledge_chunks 增加权限和元数据字段
+    for col_sql in (
+        "ALTER TABLE knowledge_chunks ADD COLUMN access_level TEXT DEFAULT 'public'",
     ):
         try:
             repo._execute(col_sql)
@@ -54,6 +64,10 @@ def ensure_schema(repo: Any) -> None:
     for idx_sql in (
         "CREATE INDEX IF NOT EXISTS idx_pm_project_user ON project_members(project_id, user_id)",
         "CREATE INDEX IF NOT EXISTS idx_kdocs_project ON knowledge_docs(project_id)",
+        "CREATE INDEX IF NOT EXISTS idx_kdocs_domain ON knowledge_docs(domain)",
+        "CREATE INDEX IF NOT EXISTS idx_kdocs_access ON knowledge_docs(access_level)",
+        "CREATE INDEX IF NOT EXISTS idx_chunks_doc ON knowledge_chunks(doc_id)",
+        "CREATE INDEX IF NOT EXISTS idx_chunks_access ON knowledge_chunks(access_level)",
     ):
         try:
             repo._execute(idx_sql)

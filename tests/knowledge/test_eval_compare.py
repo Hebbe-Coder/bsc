@@ -1,4 +1,7 @@
-import sys, os, tempfile, pytest
+import sys
+import os
+import tempfile
+import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from app.knowledge.service import KnowledgeService
 from app.knowledge.eval import RAGEvaluator

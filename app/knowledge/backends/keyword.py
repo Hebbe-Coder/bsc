@@ -1,7 +1,7 @@
 """关键词后端：FTS5 trigram + BM25，不可用时退回 LIKE，再不行降级为空。"""
 from __future__ import annotations
 import logging
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ class KeywordBackend:
             rows = self.repo._execute(
                 "SELECT chunk_id, bm25(knowledge_fts) AS s FROM knowledge_fts "
                 f"WHERE knowledge_fts MATCH ?{pid_filter} ORDER BY s LIMIT ?",
-                tuple(params)).fetchall()
+                tuple(params)).fetchall()  # nosec B608 - pid_filter is hardcoded
             return [r["chunk_id"] for r in rows]
         except Exception:
             try:

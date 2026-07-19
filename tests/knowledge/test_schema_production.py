@@ -1,4 +1,6 @@
-import sqlite3, os, tempfile
+import sqlite3
+import os
+import tempfile
 from app.repositories.knowledge_repository import KnowledgeRepository
 from app.knowledge.schema import ensure_schema
 

@@ -7,7 +7,6 @@ Repository层单元测试
 - GraphRepository: 保存图快照、节点、边
 - CacheService: 缓存设置、获取、过期、删除等操作
 """
-import pytest
 from app.core.cache_service import MemoryCache
 
 

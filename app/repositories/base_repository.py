@@ -12,7 +12,6 @@ import uuid
 import time
 from typing import Optional, List, Dict, Any
 
-from app.core.config import settings
 
 
 class BaseRepository:
@@ -48,7 +47,7 @@ class BaseRepository:
         conn = self._get_connection()
         try:
             return conn.execute(sql, params)
-        except sqlite3.Error as e:
+        except sqlite3.Error:
             conn.rollback()
             raise
 
@@ -57,7 +56,7 @@ class BaseRepository:
         conn = self._get_connection()
         try:
             return conn.executemany(sql, params)
-        except sqlite3.Error as e:
+        except sqlite3.Error:
             conn.rollback()
             raise
 

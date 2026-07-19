@@ -12,9 +12,8 @@ Logger - 结构化JSON日志
 from __future__ import annotations
 import logging
 import json
-import time
 import os
-from typing import Dict, Any, Optional
+from typing import Dict
 from datetime import datetime, timezone
 
 from app.core.metrics import get_trace_id

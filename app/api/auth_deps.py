@@ -4,13 +4,17 @@
 """
 import hmac
 import logging
+import secrets
+import time
 from typing import Optional
 
-from fastapi import Depends, HTTPException, Query, Request
+from fastapi import HTTPException, Query, Request
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+_DOWNLOAD_TOKENS = {}
 
 
 def _extract_bearer(request: Request) -> Optional[str]:
@@ -41,13 +45,34 @@ def verify_admin_key(request: Request) -> bool:
     return _check_admin(_extract_bearer(request))
 
 
+def _validate_download_token(token: str) -> Optional[str]:
+    """验证一次性下载token，返回对应的文件名或None。"""
+    if token in _DOWNLOAD_TOKENS:
+        entry = _DOWNLOAD_TOKENS[token]
+        if time.time() < entry["expires"]:
+            filename = entry["filename"]
+            del _DOWNLOAD_TOKENS[token]
+            return filename
+        else:
+            del _DOWNLOAD_TOKENS[token]
+    return None
+
+
 def verify_download_auth(request: Request, token: Optional[str] = Query(default=None)) -> bool:
-    """下载端点鉴权：Bearer 或 ?token= 二选一（token 仅用于浏览器 <a> 下载）。"""
-    return _check_admin(_extract_bearer(request) or token)
+    """下载端点鉴权：Bearer API_KEY 或一次性 ?token= 二选一。"""
+    if token:
+        if _validate_download_token(token):
+            return True
+    return _check_admin(_extract_bearer(request))
 
 
 def download_url(filename: str) -> str:
-    """构建受保护下载 URL，供各 export 端点返回。token = admin API_KEY。"""
+    """构建受保护下载 URL，使用一次性token代替API_KEY明文。"""
     import os
     safe = os.path.basename(filename)
-    return f"/api/files/{safe}?token={settings.API_KEY}"
+    token = secrets.token_urlsafe(32)
+    _DOWNLOAD_TOKENS[token] = {
+        "filename": safe,
+        "expires": time.time() + 3600
+    }
+    return f"/api/files/{safe}?token={token}"

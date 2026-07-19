@@ -1,7 +1,5 @@
-import pytest
 from exporters.degrade import (
     DEGRADATION_RULES,
-    IMPLEMENTED_FORMATS,
     VALID_OUTPUT_TYPES,
     is_implemented,
     classify_failure,
@@ -126,8 +124,7 @@ def test_markdown_without_ctx_unchanged():
 
 
 import exporters.orchestrator as orchestrator
-from exporters.orchestrator import run_export, ExportOutcome
-from exporters.errors import ExportDependencyError
+from exporters.orchestrator import run_export
 
 
 def _bs():

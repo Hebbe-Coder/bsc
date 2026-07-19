@@ -15,11 +15,11 @@ def _compile_sync(prd_content: str, template_id: str = None):
     """同步执行BSC编译"""
     from app.core.bsc_pipeline import compile_to_business_system
     
-    logger.info(f"Starting BSC compile task")
+    logger.info("Starting BSC compile task")
     
     try:
         result = compile_to_business_system(prd_content, template_id=template_id)
-        logger.info(f"BSC compile task completed")
+        logger.info("BSC compile task completed")
         return result
     except Exception as e:
         logger.error(f"BSC compile task failed: {e}")
@@ -31,11 +31,11 @@ def _compile_async_sync(prd_content: str, template_id: str = None):
     import asyncio
     from app.core.async_pipeline import compile_to_business_system_async
     
-    logger.info(f"Starting async BSC compile task")
+    logger.info("Starting async BSC compile task")
     
     try:
         result = asyncio.run(compile_to_business_system_async(prd_content, template_id=template_id))
-        logger.info(f"Async BSC compile task completed")
+        logger.info("Async BSC compile task completed")
         return result
     except Exception as e:
         logger.error(f"Async BSC compile task failed: {e}")

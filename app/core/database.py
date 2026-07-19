@@ -18,11 +18,8 @@ Database Abstraction Layer - 数据库抽象层
 from __future__ import annotations
 import sqlite3
 import os
-import json
-import uuid
-import time
 import threading
-from typing import Optional, List, Dict, Any, Protocol
+from typing import List, Dict, Any, Protocol
 
 from app.core.config import settings
 
@@ -108,7 +105,7 @@ class SQLiteBackend:
         conn = self._get_connection()
         try:
             return conn.execute(sql, params)
-        except sqlite3.Error as e:
+        except sqlite3.Error:
             conn.rollback()
             raise
     
@@ -116,7 +113,7 @@ class SQLiteBackend:
         conn = self._get_connection()
         try:
             return conn.executemany(sql, params)
-        except sqlite3.Error as e:
+        except sqlite3.Error:
             conn.rollback()
             raise
     
@@ -158,7 +155,6 @@ class PostgreSQLBackend:
     def connect(self):
         try:
             import psycopg2
-            from psycopg2.extras import RealDictCursor
             
             if self._connection is None:
                 self._connection = psycopg2.connect(self._db_url)
@@ -179,7 +175,7 @@ class PostgreSQLBackend:
             cursor = self._connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             cursor.execute(sql, params)
             return cursor
-        except psycopg2.Error as e:
+        except psycopg2.Error:
             self._connection.rollback()
             raise
     
@@ -189,7 +185,7 @@ class PostgreSQLBackend:
             cursor = self._connection.cursor()
             cursor.executemany(sql, params)
             return cursor
-        except psycopg2.Error as e:
+        except psycopg2.Error:
             self._connection.rollback()
             raise
     
@@ -421,7 +417,7 @@ def init_database():
             backend.execute(sql)
         backend.commit()
         backend.close()
-    except Exception as e:
+    except Exception:
         backend.rollback()
         backend.close()
         raise

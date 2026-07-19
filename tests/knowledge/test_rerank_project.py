@@ -1,4 +1,5 @@
-import os, tempfile
+import os
+import tempfile
 from app.knowledge.reranker import get_reranker, _encrypt_key, _decrypt_key
 from app.repositories.knowledge_repository import KnowledgeRepository
 from app.knowledge.schema import ensure_schema

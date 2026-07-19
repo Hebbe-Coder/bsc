@@ -6,14 +6,13 @@ Async LLM Service - 异步大模型调用层
 """
 from __future__ import annotations
 import asyncio
-import json
 import time
 import logging
 import threading
-from typing import Dict, Optional, Any, List, Tuple
+from typing import Dict, Optional, Any, List
 
 from app.core.config import settings
-from app.services.llm_service import LLMService, AgentType, ProviderType, get_llm_service
+from app.services.llm_service import LLMService
 
 logger = logging.getLogger(__name__)
 

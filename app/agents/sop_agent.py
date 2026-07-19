@@ -1,5 +1,5 @@
 """SOP Agent — generates standard operating procedures from business model."""
-from .protocol import BaseAgent, AgentContext, AgentResult
+from .protocol import BaseAgent, AgentContext
 import logging
 
 logger = logging.getLogger("bsc.studio.sop")
@@ -46,7 +46,6 @@ class SOPAgent(BaseAgent):
 
         bs = ctx.business_system or params.get("business_system", {})
         processes = bs.get("processes", [])
-        objectives = bs.get("objectives", [])
         roles = bs.get("roles", [])
 
         role_names = self._extract_role_names(roles)

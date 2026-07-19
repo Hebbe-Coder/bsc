@@ -4,7 +4,8 @@ XLSX Exporter v3 — Professional data report with Swiss International design.
 Styled with proper headers, alternating rows, conditional formatting, and chart data.
 """
 from __future__ import annotations
-import os as _os, uuid as _uuid
+import os as _os
+import uuid as _uuid
 
 def _parse_target(t):
     if not t: return (None, None)

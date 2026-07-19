@@ -21,8 +21,6 @@ Capabilities:
 
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Optional, Literal
-import json as _json, math as _math
 
 # ============================================================
 # THEME SYSTEM (neo-kinpaku -- light + dark variants)

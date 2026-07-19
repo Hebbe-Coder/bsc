@@ -1,23 +1,40 @@
-﻿﻿﻿﻿﻿﻿﻿﻿fastapi>=0.110.0
-uvicorn[standard]>=0.27.1
-openai>=1.30.0
-pydantic>=2.6.0
-pydantic-settings>=2.2.0
-python-pptx>=0.6.20
-openpyxl>=3.1.0
-python-docx>=1.1.0
-pdfplumber>=0.11.0
-python-multipart>=0.0.10
-weasyprint>=62.0        # optional; PDF also renders via reportlab (no system GTK needed)
-reportlab>=4.0.0        # PDF export (pure-Python, primary cross-platform backend)
-numpy>=1.26.0           # used by LLM service domain analysis
+﻿﻿fastapi>=0.110.0
 
-# LangChain dependencies
+uvicorn[standard]>=0.27.1
+
+openai>=1.30.0
+
+pydantic>=2.6.0
+
+pydantic-settings>=2.2.0
+
+python-pptx>=0.6.20
+
+openpyxl>=3.1.0
+
+python-docx>=1.1.0
+
+pdfplumber>=0.11.0
+
+python-multipart>=0.0.10
+
+weasyprint>=62.0
+
+reportlab>=4.0.0
+
+numpy>=1.26.0
+
+
+
 langchain-core>=0.3.0
+
 langchain-openai>=0.2.0
+
 langchain>=0.3.0
+
 langgraph>=0.2.0
 
-# Optional dependencies (enable via environment)
-# celery==5.4.0          # Required for async task processing (CELERY_ENABLED=True)
-# redis==5.0.1           # Required for Redis cache or Celery broker
+
+
+cryptography>=43.0.0
+

@@ -516,6 +516,47 @@ function renderDashboard(bs, composed) {
   });
   html.push('</ul></div>');
 
+  if (bs.report?.csf) {
+    html.push('<div class="section"><div class="section-title"><span class="icon">🎯</span> 关键成功因素</div>');
+    html.push('<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">');
+    bs.report.csf.factors.forEach(factor => {
+      const statusColors = {'已满足':'var(--green)','部分满足':'var(--warning)','待改进':'var(--danger)'};
+      const impactColors = {'高':'var(--danger)','中':'var(--warning)','低':'var(--info)'};
+      html.push(`<div class="card" style="padding:14px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span style="font-weight:600;font-size:14px">${escapeHtml(factor.name)}</span><span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(201,168,76,0.15);color:var(--gold)">${escapeHtml(factor.impact)}</span></div>`);
+      html.push(`<p style="font-size:12px;color:var(--text-dim);line-height:1.5;margin-bottom:8px">${escapeHtml(factor.description)}</p>`);
+      if (factor.data_points && factor.data_points.length) {
+        html.push('<div style="display:flex;flex-wrap:gap:4px;margin-bottom:8px">');
+        factor.data_points.forEach(dp => {
+          html.push(`<span style="font-size:11px;padding:2px 6px;border-radius:4px;background:var(--raised);color:var(--text-dim)">${escapeHtml(dp.label)}: ${escapeHtml(dp.value)}</span>`);
+        });
+        html.push('</div>');
+      }
+      html.push(`<div style="font-size:12px"><span style="color:${statusColors[factor.status] || 'var(--text-dim)'};font-weight:500">状态: ${escapeHtml(factor.status)}</span></div>`);
+      html.push('</div>');
+    });
+    html.push('</div></div>');
+  }
+
+  if (bs.report?.cost_estimate) {
+    const ce = bs.report.cost_estimate;
+    html.push('<div class="section"><div class="section-title"><span class="icon">💰</span> 成本估算</div>');
+    html.push('<div class="stat-grid">');
+    html.push(`<div class="stat-card"><div class="stat-value" style="color:var(--gold)">${escapeHtml(ce.estimated_cost)}</div><div class="stat-label">总成本</div></div>`);
+    html.push(`<div class="stat-card"><div class="stat-value" style="color:var(--blue)">${escapeHtml(ce.total_hours)}h</div><div class="stat-label">总工时</div></div>`);
+    html.push(`<div class="stat-card"><div class="stat-value" style="color:var(--patina)">${escapeHtml(ce.total_fte)}</div><div class="stat-label">FTE</div></div>`);
+    html.push(`<div class="stat-card"><div class="stat-value" style="color:var(--text-dim)">${escapeHtml(ce.average_hourly_rate)}</div><div class="stat-label">平均费率</div></div>`);
+    html.push('</div>');
+    
+    if (ce.breakdown && ce.breakdown.length) {
+      html.push('<div class="card" style="margin-top:12px"><table style="width:100%;border-collapse:collapse"><thead><tr><th style="border-bottom:1px solid var(--border);padding:8px;text-align:left;font-size:12px;color:var(--gold)">角色</th><th style="border-bottom:1px solid var(--border);padding:8px;text-align:left;font-size:12px;color:var(--gold)">级别</th><th style="border-bottom:1px solid var(--border);padding:8px;text-align:left;font-size:12px;color:var(--gold)">工时</th><th style="border-bottom:1px solid var(--border);padding:8px;text-align:left;font-size:12px;color:var(--gold)">费率</th><th style="border-bottom:1px solid var(--border);padding:8px;text-align:right;font-size:12px;color:var(--gold)">成本</th></tr></thead><tbody>');
+      ce.breakdown.forEach(b => {
+        html.push(`<tr><td style="border-bottom:1px solid var(--border);padding:8px;font-size:13px">${escapeHtml(b.role)}</td><td style="border-bottom:1px solid var(--border);padding:8px;font-size:13px;color:var(--text-dim)">${escapeHtml(b.level)}</td><td style="border-bottom:1px solid var(--border);padding:8px;font-size:13px">${escapeHtml(b.hours)}h</td><td style="border-bottom:1px solid var(--border);padding:8px;font-size:13px;color:var(--text-dim)">${escapeHtml(b.hourly_rate)}</td><td style="border-bottom:1px solid var(--border);padding:8px;font-size:13px;text-align:right;color:var(--gold)">${escapeHtml(b.cost)}</td></tr>`);
+      });
+      html.push('</tbody></table></div>');
+    }
+    html.push('</div>');
+  }
+
   document.getElementById('tab-dashboard').innerHTML = html.join('');
 }
 

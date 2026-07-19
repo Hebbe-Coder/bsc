@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from exporters.degrade import DEGRADATION_RULES, classify_failure, is_implemented
 from exporters._degrade_ctx import DegradeContext

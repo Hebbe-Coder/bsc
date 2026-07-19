@@ -25,9 +25,8 @@ import json
 import logging
 import hashlib
 import threading
-from typing import Dict, Optional, Any, Callable, List
+from typing import Dict, Optional, Any, Callable
 from functools import wraps
-from datetime import timedelta
 
 logger = logging.getLogger(__name__)
 

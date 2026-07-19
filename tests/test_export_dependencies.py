@@ -35,7 +35,8 @@ def test_unavailable_formats_shape():
 
 
 def test_package_imports_without_pptx(monkeypatch):
-    import sys, importlib
+    import sys
+    import importlib
     monkeypatch.setitem(sys.modules, "pptx", None)
     for name in [n for n in list(sys.modules) if n == "exporters" or n.startswith("exporters.")]:
         monkeypatch.delitem(sys.modules, name, raising=False)
@@ -46,7 +47,8 @@ def test_package_imports_without_pptx(monkeypatch):
 
 
 def test_pptx_exporter_missing_dep_raises_structured(monkeypatch):
-    import sys, importlib
+    import sys
+    import importlib
     monkeypatch.setitem(sys.modules, "pptx", None)
     for name in [n for n in list(sys.modules) if n == "exporters" or n.startswith("exporters.")]:
         monkeypatch.delitem(sys.modules, name, raising=False)

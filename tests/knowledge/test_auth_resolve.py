@@ -1,4 +1,6 @@
-import hashlib, tempfile, os
+import hashlib
+import tempfile
+import os
 from app.middleware.auth import resolve_knowledge_auth
 from app.repositories.knowledge_repository import KnowledgeRepository
 from app.knowledge.schema import ensure_schema

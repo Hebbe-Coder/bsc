@@ -1,5 +1,6 @@
 from app.knowledge.service import KnowledgeService
-import tempfile, os
+import tempfile
+import os
 
 
 def _svc():

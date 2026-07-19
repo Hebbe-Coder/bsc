@@ -1,7 +1,8 @@
-import sys, os, tempfile
+import sys
+import os
+import tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import pytest
 from fastapi.testclient import TestClient
 from app.knowledge.service import KnowledgeService
 from app.main import app

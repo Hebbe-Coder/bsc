@@ -38,7 +38,6 @@ class OptimizationAgent(BaseAgent):
         processes = bs.get("processes", [])
         metrics = bs.get("metrics", [])
         risks = bs.get("risks", [])
-        objectives = bs.get("objectives", [])
 
         bottlenecks = self._identify_bottlenecks(processes, metrics, risks)
         efficiency_recs = self._generate_efficiency_recommendations(processes, metrics, bottlenecks)

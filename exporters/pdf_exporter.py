@@ -1,6 +1,5 @@
 """PDF Exporter - 生成PDF文档报告"""
 from typing import Any
-import io
 import logging
 
 logger = logging.getLogger(__name__)

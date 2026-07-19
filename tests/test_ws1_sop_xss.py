@@ -1,4 +1,3 @@
-import pytest
 from app.engines.sop_report_engine import SOPReportEngine
 
 

@@ -1,6 +1,5 @@
 import os
 import tempfile
-import pytest
 
 from app.core.config import settings
 

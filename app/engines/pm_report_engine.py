@@ -14,10 +14,8 @@ PM Report Engine - 产品经理专业报告引擎
 - Markdown（版本控制友好）
 """
 from __future__ import annotations
-import json
-import uuid
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -461,7 +459,7 @@ class PMReportEngine:
                     md_lines.append(f"- 时间线: {phase['timeline']}")
                     md_lines.append(f"- 目标: {phase['goal']}")
                     if phase["deliverables"]:
-                        md_lines.append(f"- 交付物:")
+                        md_lines.append("- 交付物:")
                         for deliverable in phase["deliverables"]:
                             md_lines.append(f"  - {deliverable}")
                     md_lines.append("")
@@ -474,7 +472,7 @@ class PMReportEngine:
                     md_lines.append(f"- 权力: {stakeholder['power']} | 利益: {stakeholder['interest']}")
                     md_lines.append(f"- 策略: {stakeholder['strategy']}")
                     if stakeholder["responsibilities"]:
-                        md_lines.append(f"- 职责:")
+                        md_lines.append("- 职责:")
                         for duty in stakeholder["responsibilities"]:
                             md_lines.append(f"  - {duty}")
                     md_lines.append("")

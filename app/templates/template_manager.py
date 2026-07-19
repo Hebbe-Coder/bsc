@@ -1,5 +1,4 @@
 """Template Manager - 统一管理内置模板和自定义模板"""
-import os
 import json
 import uuid
 import logging
@@ -194,7 +193,7 @@ class TemplateManager:
             self._backend.execute(
                 f"UPDATE templates SET {', '.join(update_fields)} WHERE id = ?",
                 tuple(update_values)
-            )
+            )  # nosec B608 - update_fields are hardcoded whitelist
             self._backend.commit()
             self._backend.close()
             logger.info(f"更新模板: {template_id}")

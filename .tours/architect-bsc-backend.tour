@@ -1,0 +1,119 @@
+﻿{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "BSC Backend — Architecture Tour",
+  "description": "Guided walkthrough of the BSC Backend codebase: from FastAPI entry through the Agent Pipeline to export layers.",
+  "ref": "main",
+  "steps": [
+    {
+      "directory": "app",
+      "title": "Application Root",
+      "description": "All backend Python code lives here. Key subdirectories: core/ (pipeline+services), agents/ (LLM agents), api/ (routes), knowledge/ (RAG), chains/ (skills), engines/ (local compute), schemas/ (data models), exporters/ (output formats)."
+    },
+    {
+      "file": "app/main.py",
+      "line": 1,
+      "title": "FastAPI Entry Point",
+      "description": "The application boot sequence: lifespan handler initializes DB + knowledge schema, CORS middleware is configured, 20 router modules are loaded lazily with fail-safe import, and static React build is mounted at root."
+    },
+    {
+      "file": "app/main.py",
+      "line": 24,
+      "title": "Lifespan & Startup",
+      "description": "During startup: init_db() → knowledge schema → log service info. On shutdown: close database connections + metrics store. All wrapped in try/except for graceful degradation."
+    },
+    {
+      "file": "app/main.py",
+      "line": 243,
+      "title": "Health Check Endpoint",
+      "description": "GET /health returns status of all dependencies: database, Redis, Celery, LLM service, document parser. Each dependency independently checked; degraded status if any fail."
+    },
+    {
+      "file": "app/core/config.py",
+      "line": 9,
+      "title": "Configuration Hub",
+      "description": "Pydantic Settings class with ~160 configuration keys: 7 LLM providers (DeepSeek/Doubao/Qwen/Kimi/Yuanbao/Ollama/LocalAI), RAG settings, embedding providers, cache tiers, CORS, auth, rate limiting, and deployment environment detection. Key design: stage-based LLM routing via ANALYSIS_PROVIDER / GENERATION_PROVIDER / OCR_PROVIDER / SOP_LLM_PROVIDER / RAG_LLM_PROVIDER."
+    },
+    {
+      "file": "app/agents/base_agent.py",
+      "line": 31,
+      "title": "Agent Base Class",
+      "description": "Abstract BaseAgent enforces every agent to define: name, system_prompt (LLM persona), output_schema (JSON schema for structured output). The run() method orchestrates prompt assembly → LLM call → JSON parse → schema validation. Key design: dependency injection via constructor (llm_service), supporting thread-safe parallel execution."
+    },
+    {
+      "file": "app/core/bsc_pipeline.py",
+      "line": 47,
+      "title": "BSC Pipeline Orchestrator",
+      "description": "The heart of the system. BSCPipeline executes a 6-stage workflow: (1) Business Understanding serial, (2-5) SOP/Risk/Strategy/Optimization in parallel via ThreadPoolExecutor, (6) Business Composer serial. Thread-safe design with independent LLM service instances per agent."
+    },
+    {
+      "file": "app/core/bsc_pipeline.py",
+      "line": 63,
+      "title": "Pipeline Stage Configuration",
+      "description": "SERIAL_STAGES defines sequential phases (business_understanding, composer). AGENT_INFO_MAP defines parallel phases (sop, risk, strategy, optimization, root_cause). The pipeline dynamically detects which parallel agents to dispatch based on PRD content."
+    },
+    {
+      "file": "app/core/bsc_pipeline.py",
+      "line": 577,
+      "title": "compile_to_business_system() — Production Entry",
+      "description": "The primary public API. Accepts PRD text → runs full pipeline → validates output against ProductionBusinessSystem schema → returns {business_system, pipeline, output_files}. Validation failures are downgraded to warnings (never blocks production)."
+    },
+    {
+      "file": "app/agents/studio_orchestrator.py",
+      "line": 32,
+      "title": "Studio Orchestrator v4",
+      "description": "Unified entry point for the Studio workspace. v4 wraps the main BSCPipeline (LLM-driven) rather than using separate engine-based agents. Adds template detection, asset generation, and workspace-format output on top of pipeline results."
+    },
+    {
+      "file": "app/schemas/production_schema.py",
+      "line": 1,
+      "title": "Canonical Data Model",
+      "description": "ProductionBusinessSystem is the authoritative data model matching actual LLM agent output. All fields are optional (extra='allow'), reflecting the non-deterministic nature of LLM generation. Includes sub-models for ObjectiveItem, WorkflowStep, RoleItem, SLAItem, KpiItem, RiskItem — each mapped directly to a specific agent's JSON output structure."
+    },
+    {
+      "file": "app/api/bsc_api.py",
+      "line": 1,
+      "title": "BSC Compile API",
+      "description": "POST /bsc/compile — the primary API endpoint. Accepts PRD text (or file path), output_types (json/html/ppt), and optional template_id. Returns compiled business system with requested export formats. Also supports stage-by-stage execution for debugging."
+    },
+    {
+      "file": "app/api/studio_api.py",
+      "line": 1,
+      "title": "Studio Ask API",
+      "description": "POST /studio/ask — natural language interface. Accepts a question → dispatches full analysis pipeline → returns workspace-ready structured data with domain detection, agent stages, and report content."
+    },
+    {
+      "file": "app/core/document_parser.py",
+      "line": 1,
+      "title": "Multi-Format Document Parser",
+      "description": "Thread-local parser supporting PDF (pdfplumber), Word (python-docx), PowerPoint (python-pptx), Excel (openpyxl), Markdown, and plain text. Parses structured content from uploaded files into text chunks for the LLM pipeline."
+    },
+    {
+      "file": "app/knowledge/service.py",
+      "line": 1,
+      "title": "RAG Knowledge Service",
+      "description": "Full retrieval-augmented generation pipeline: document chunking → embedding → hybrid search (keyword + vector) → reranking → self-RAG answer generation. Supports domain isolation, project-scoped knowledge bases, and feedback collection."
+    },
+    {
+      "file": "app/chains/__init__.py",
+      "line": 1,
+      "title": "LangChain Skill Chains",
+      "description": "8 independent LangChain-based skill chains for objective extraction, KPI extraction, risk assessment, strategy analysis, PRD analysis, report generation, chart generation, and presentation generation — providing an alternative skill-based execution path distinct from the agent pipeline."
+    },
+    {
+      "file": "exporters/__init__.py",
+      "line": 1,
+      "title": "Export Layer",
+      "description": "7 output format exporters: HTML (interactive report), PPT (v1 + v2), Word (docx), PDF (WeasyPrint + ReportLab), XLSX (openpyxl), Markdown, JSON. Each exporter consumes the canonical business_system dict and produces format-specific output files."
+    },
+    {
+      "file": "src/App.tsx",
+      "line": 1,
+      "title": "React Frontend Entry",
+      "description": "Single-page React 18 application with two tabs: Workbench (Workspace component — compiler panel + chat) and Dashboard (MethodologyDashboard — metrics overview). Built with Vite, Tailwind CSS, Zustand state management, and ECharts visualization."
+    },
+    {
+      "title": "Next Steps",
+      "description": "You can now trace any request end-to-end: start from the API route (app/api/), follow through the pipeline (app/core/bsc_pipeline.py), see agent implementations (app/agents/), check the data model (app/schemas/), and explore exports (exporters/)."
+    }
+  ]
+}

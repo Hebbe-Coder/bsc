@@ -18,7 +18,10 @@ Document Parser - 文档解析器
     5. 支持OCR处理扫描件和图片
 """
 from __future__ import annotations
-import os, logging, traceback, base64, threading
+import os
+import logging
+import base64
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -231,7 +234,6 @@ class DocumentParser:
             }
 
         import fitz
-        from io import BytesIO
 
         try:
             doc = fitz.open(stream=file_bytes, filetype="pdf")

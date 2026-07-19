@@ -11,9 +11,8 @@ Dialog API - 对话式需求确认接口
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
+from typing import Optional
 import logging
-import uuid
 
 from app.core.dialog_engine import DialogEngine
 from app.api.response import ApiResponse

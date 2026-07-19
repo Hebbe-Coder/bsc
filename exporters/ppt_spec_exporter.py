@@ -2,7 +2,7 @@
 """PPT 规格生成器（含组件级降级）。从 bsc_api._generate_ppt_spec 迁入。"""
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from exporters._degrade_ctx import DegradeContext
 

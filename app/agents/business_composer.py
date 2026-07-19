@@ -1,6 +1,5 @@
-﻿"""Business Composer — synthesizes all agent outputs into a unified workspace."""
+"""Business Composer — synthesizes all agent outputs into a unified workspace."""
 from dataclasses import dataclass, field
-from typing import Optional
 import logging
 
 logger = logging.getLogger("bsc.studio.composer")

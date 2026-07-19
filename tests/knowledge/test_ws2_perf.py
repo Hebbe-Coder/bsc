@@ -1,4 +1,5 @@
-import os, tempfile
+import os
+import tempfile
 import pytest
 from app.knowledge.backends.tfidf import TfidfBackend
 
@@ -70,7 +71,6 @@ def test_tfidf_incremental_add_keeps_search_consistent(tf_env):
 import os as _os
 import tempfile as _tempfile
 from app.knowledge.service import KnowledgeService
-from app.knowledge.backends.tfidf import TfidfBackend
 from app.knowledge.backends.vector import VectorBackend
 from app.knowledge.backends.keyword import KeywordBackend
 

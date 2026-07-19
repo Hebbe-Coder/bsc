@@ -6,10 +6,9 @@ Chat API - 对话式入口
 使用Repository模式替代内存存储，支持数据持久化。
 """
 from __future__ import annotations
-import json, time
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict
+from typing import Optional
 
 from app.repositories.conversation_repository import get_conversation_repository
 
@@ -137,7 +136,7 @@ def _handle_compile(msg: str) -> dict:
 
     strategy = result.get("strategy", {})
     if strategy:
-        lines.append(f"**战略机会:**")
+        lines.append("**战略机会:**")
         for opp in strategy.get("growth_opportunities", [])[:3]:
             lines.append(f"  - {opp.get('opportunity','')} ({opp.get('potential','')})")
         lines.append("")
@@ -229,6 +228,6 @@ def _help() -> dict:
 
 def _default(msg: str) -> dict:
     return {
-        "content": f'您可以粘贴一段PRD文档，或输入"帮助"查看功能。',
+        "content": '您可以粘贴一段PRD文档，或输入"帮助"查看功能。',
         "suggestions": ["分析内容审核系统PRD", "帮助"],
     }

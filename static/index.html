@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+﻿﻿﻿﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -414,6 +414,115 @@ function render(d){
       html+='<a class="'+cls+'" href="'+esc(a.path||"/output/"+fn)+'" download>↓ '+esc(fn)+'</a>';
     });
     html+='</div></div>';
+  }
+
+  // 8. Critical Success Factors (CSF)
+  var csf=rp.csf||{};
+  if(csf.factors&&csf.factors.length){
+    html+='<div class="card"><div class="card-label">Critical Success Factors</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px">';
+    csf.factors.forEach(function(f){
+      var statusColors={"已满足":"var(--green)","部分满足":"var(--amber)","待改进":"var(--red)"};
+      var impactColors={"高":"var(--red)","中":"var(--amber)","低":"var(--text-secondary)"};
+      html+='<div style="background:var(--bg-secondary);border-radius:10px;padding:14px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+      html+='<span style="font-weight:600;font-size:13px">'+esc(f.name)+'</span>';
+      html+='<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(201,168,76,0.15);color:var(--gold)">'+esc(f.impact)+'</span></div>';
+      html+='<p style="font-size:12px;color:var(--text-secondary);line-height:1.5;margin-bottom:8px">'+esc(f.description)+'</p>';
+      if(f.data_points&&f.data_points.length){
+        html+='<div style="display:flex;flex-wrap:gap:4px;margin-bottom:8px">';
+        f.data_points.forEach(function(dp){
+          html+='<span style="font-size:11px;padding:2px 6px;border-radius:4px;background:var(--bg);color:var(--text-secondary);margin-right:4px">'+esc(dp.label)+': '+esc(dp.value)+'</span>';
+        });
+        html+='</div>';
+      }
+      html+='<div style="font-size:12px"><span style="color:'+(statusColors[f.status]||"var(--text-secondary)")+';font-weight:500">Status: '+esc(f.status)+'</span></div></div>';
+    });
+    html+='</div></div>';
+  }
+
+  // 9. Metrics
+  var metricsData=rp.metrics||{};
+  if(metricsData.efficiency_metrics||metricsData.quality_metrics||metricsData.cost_metrics){
+    html+='<div class="card"><div class="card-label">Metrics Dashboard</div>';
+    
+    if(metricsData.efficiency_metrics&&metricsData.efficiency_metrics.length){
+      html+='<div style="margin-bottom:var(--sp-5)"><div style="font-size:.75rem;font-weight:600;color:var(--text-secondary);margin-bottom:var(--sp-4)">Efficiency Metrics</div>';
+      html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">';
+      metricsData.efficiency_metrics.forEach(function(m){
+        html+='<div style="background:var(--bg-secondary);border-radius:8px;padding:12px"><div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px">'+esc(m.name)+'</div>';
+        html+='<div style="font-size:18px;font-weight:700;color:var(--accent)">'+esc(m.current)+'</div>';
+        html+='<div style="font-size:11px;color:var(--text-secondary)">Target: '+esc(m.target)+'</div></div>';
+      });
+      html+='</div></div>';
+    }
+    
+    if(metricsData.quality_metrics&&metricsData.quality_metrics.length){
+      html+='<div style="margin-bottom:var(--sp-5)"><div style="font-size:.75rem;font-weight:600;color:var(--text-secondary);margin-bottom:var(--sp-4)">Quality Metrics</div>';
+      html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">';
+      metricsData.quality_metrics.forEach(function(m){
+        html+='<div style="background:var(--bg-secondary);border-radius:8px;padding:12px"><div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px">'+esc(m.name)+'</div>';
+        html+='<div style="font-size:18px;font-weight:700;color:var(--green)">'+esc(m.current)+'</div>';
+        html+='<div style="font-size:11px;color:var(--text-secondary)">Target: '+esc(m.target)+'</div></div>';
+      });
+      html+='</div></div>';
+    }
+    
+    if(metricsData.cost_metrics&&metricsData.cost_metrics.length){
+      html+='<div><div style="font-size:.75rem;font-weight:600;color:var(--text-secondary);margin-bottom:var(--sp-4)">Cost Metrics</div>';
+      html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">';
+      metricsData.cost_metrics.forEach(function(m){
+        html+='<div style="background:var(--bg-secondary);border-radius:8px;padding:12px"><div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px">'+esc(m.name)+'</div>';
+        html+='<div style="font-size:18px;font-weight:700;color:var(--gold)">'+esc(m.current)+'</div>';
+        html+='<div style="font-size:11px;color:var(--text-secondary)">Target: '+esc(m.target)+'</div></div>';
+      });
+      html+='</div></div>';
+    }
+    html+='</div>';
+  }
+
+  // 10. Milestones
+  var milestones=rp.milestones||{};
+  if(milestones.milestones&&milestones.milestones.length){
+    html+='<div class="card"><div class="card-label">Milestone Planning</div>';
+    html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px">';
+    milestones.milestones.forEach(function(m){
+      var statusColors={"已完成":"var(--green)","进行中":"var(--accent)","即将到期":"var(--amber)","待开始":"var(--text-secondary)"};
+      html+='<div style="background:var(--bg-secondary);border-radius:10px;padding:14px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+      html+='<span style="font-weight:600;font-size:13px">'+esc(m.name)+'</span>';
+      html+='<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(0,0,0,.1);color:'+(statusColors[m.status]||"var(--text-secondary)")+'">'+esc(m.status)+'</span></div>';
+      html+='<div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">Phase: '+esc(m.phase)+'</div>';
+      html+='<div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">Steps: '+esc(m.step_range)+'</div>';
+      html+='<div style="font-size:14px;font-weight:600;color:var(--gold)">Deadline: '+esc(m.deadline)+'</div>';
+      if(m.data_points&&m.data_points.length){
+        html+='<div style="margin-top:8px">';
+        m.data_points.forEach(function(dp){
+          html+='<span style="font-size:11px;color:var(--text-secondary)">'+esc(dp.label)+': '+esc(dp.value)+'</span>';
+        });
+        html+='</div>';
+      }
+      html+='</div>';
+    });
+    html+='</div></div>';
+  }
+
+  // 11. Cost Estimate
+  var costEst=rp.cost_estimate||{};
+  if(costEst.estimated_cost){
+    html+='<div class="card"><div class="card-label">Cost Estimation</div>';
+    html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px">';
+    html+='<div style="background:var(--bg-secondary);border-radius:8px;padding:14px;text-align:center"><div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px">Total Cost</div><div style="font-size:22px;font-weight:700;color:var(--gold)">'+esc(costEst.estimated_cost)+'</div></div>';
+    html+='<div style="background:var(--bg-secondary);border-radius:8px;padding:14px;text-align:center"><div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px">Total Hours</div><div style="font-size:22px;font-weight:700;color:var(--accent)">'+esc(costEst.total_hours)+'h</div></div>';
+    html+='<div style="background:var(--bg-secondary);border-radius:8px;padding:14px;text-align:center"><div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px">FTE</div><div style="font-size:22px;font-weight:700;color:var(--green)">'+esc(costEst.total_fte)+'</div></div>';
+    html+='<div style="background:var(--bg-secondary);border-radius:8px;padding:14px;text-align:center"><div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px">Avg Rate</div><div style="font-size:22px;font-weight:700;color:var(--text-secondary)">'+esc(costEst.average_hourly_rate)+'</div></div>';
+    html+='</div>';
+    
+    if(costEst.breakdown&&costEst.breakdown.length){
+      html+='<table class="table"><thead><tr><th>Role</th><th>Level</th><th>Hours</th><th>Rate</th><th>Cost</th></tr></thead><tbody>';
+      costEst.breakdown.forEach(function(b){
+        html+='<tr><td>'+esc(b.role)+'</td><td><span class="tag tag-blue">'+esc(b.level)+'</span></td><td>'+esc(b.hours)+'h</td><td>'+esc(b.hourly_rate)+'</td><td style="color:var(--gold)">'+esc(b.cost)+'</td></tr>';
+      });
+      html+='</tbody></table>';
+    }
+    html+='</div>';
   }
 
   document.getElementById("resultContent").innerHTML=html;

@@ -1,4 +1,4 @@
-﻿"""Keyword-based template classifier. No LLM dependency."""
+"""Keyword-based template classifier. No LLM dependency."""
 from typing import Optional
 from dataclasses import dataclass
 

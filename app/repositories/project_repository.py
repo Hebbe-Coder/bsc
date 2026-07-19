@@ -66,7 +66,7 @@ class ProjectRepository(BaseRepository):
         self._execute(
             f"UPDATE projects SET {sets} WHERE id=?",
             list(updates.values()) + [pid],
-        )
+        )  # nosec B608 - keys are from hardcoded whitelist
         self._commit()
         return self.get_project(pid)
 
@@ -74,7 +74,7 @@ class ProjectRepository(BaseRepository):
         """删除项目"""
         for table in ["knowledge_index", "assets", "projects"]:
             id_col = "project_id" if table != "projects" else "id"
-            self._execute(f"DELETE FROM {table} WHERE {id_col}=?", (pid,))
+            self._execute(f"DELETE FROM {table} WHERE {id_col}=?", (pid,))  # nosec B608 - table names are hardcoded
         self._commit()
         return True
 

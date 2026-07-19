@@ -3,7 +3,6 @@
 基于PRD Document模型实现PDF/PPT/Word等多格式导出
 """
 import os
-import io
 import uuid
 from typing import Optional
 
@@ -109,9 +108,7 @@ class PRDPPTExporter:
             raise RuntimeError("需要安装python-pptx来生成PPT")
         
         from pptx import Presentation
-        from pptx.util import Inches, Pt
-        from pptx.dml.color import RGBColor
-        from pptx.enum.text import PP_ALIGN
+        from pptx.util import Inches
         
         prs = Presentation()
         prs.slide_width = Inches(13.333)
@@ -167,8 +164,6 @@ class PRDPPTExporter:
         """递归添加章节幻灯片"""
         from pptx.util import Inches, Pt
         from pptx.dml.color import RGBColor
-        from pptx.enum.text import PP_ALIGN
-        from pptx.enum.shapes import MSO_SHAPE
         
         slide_layout = prs.slide_layouts[6]
         slide = prs.slides.add_slide(slide_layout)
@@ -251,7 +246,7 @@ class PRDWordExporter:
             raise RuntimeError("需要安装python-docx来生成Word")
         
         from docx import Document
-        from docx.shared import Pt, Inches
+        from docx.shared import Pt
         from docx.enum.text import WD_ALIGN_PARAGRAPH
         from docx.oxml.ns import qn
         
@@ -284,9 +279,7 @@ class PRDWordExporter:
     
     def _add_sections_to_doc(self, doc, sections, depth: int = 0):
         """递归添加章节到文档"""
-        from docx import Document
         from docx.shared import Pt
-        from docx.enum.text import WD_ALIGN_PARAGRAPH
         
         for section in sorted(sections, key=lambda s: s.order):
             heading_level = min(depth + 1, 9)

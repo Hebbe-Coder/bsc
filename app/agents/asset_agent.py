@@ -1,7 +1,10 @@
-﻿"""Asset Agent — generates PPTX, HTML, and JSON deliverables from workspace."""
-from .protocol import BaseAgent, AgentContext, AgentResult
+"""Asset Agent — generates PPTX, HTML, and JSON deliverables from workspace."""
+from .protocol import BaseAgent, AgentContext
 from app.api.auth_deps import download_url
-import logging, os, json, time
+import logging
+import os
+import json
+import time
 
 logger = logging.getLogger("bsc.studio.asset")
 
@@ -140,7 +143,6 @@ footer{{text-align:center;padding:40px 0;color:#484F58;font-size:0.85rem;border-
         from pptx import Presentation
         from pptx.util import Inches, Pt
         from pptx.dml.color import RGBColor
-        from pptx.enum.text import PP_ALIGN
 
         prs = Presentation()
         prs.slide_width = Inches(13.333)
