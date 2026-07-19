@@ -48,7 +48,6 @@ def test_dashboard_router_unauth_401(monkeypatch):
 import os
 import tempfile
 from app.api import files_api
-from app.agents import asset_agent as asset_module
 
 
 def _client_with_file(monkeypatch, key):

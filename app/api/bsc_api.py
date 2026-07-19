@@ -1,13 +1,15 @@
 """BSC API - BSC Pipeline 唯一入口"""
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, UploadFile, File
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
-import html
 import os
 
 from app.api.response import ApiResponse
+from app.core.config import settings
 
 router = APIRouter(prefix="/bsc", tags=["BSC Pipeline"])
+
+MAX_FILE_SIZE = settings.MAX_FILE_SIZE_MB * 1024 * 1024
 
 
 class CompileRequest(BaseModel):
@@ -231,9 +233,6 @@ async def compile_prd_sync(req: CompileRequest):
         "parallel": False,
     })
 
-
-from app.core.config import settings
-MAX_FILE_SIZE = settings.MAX_FILE_SIZE_MB * 1024 * 1024
 
 _ALLOWED_EXTENSIONS = {".docx", ".pdf", ".txt", ".png", ".jpg", ".jpeg"}
 _ALLOWED_MIME_TYPES = {

@@ -21,9 +21,8 @@ from __future__ import annotations
 import json
 import logging
 import time
-import traceback
 from abc import ABC, abstractmethod
-from typing import Dict, Optional, Any, List
+from typing import Dict, Any, List
 
 logger = logging.getLogger(__name__)
 

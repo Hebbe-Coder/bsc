@@ -18,10 +18,9 @@
 - Agent增强：使用LangChain Agent实现工具调用和记忆能力
 """
 from __future__ import annotations
-import uuid
 import logging
 import json
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List
 from enum import Enum
 
 from app.core.preference_db import get_preference_db

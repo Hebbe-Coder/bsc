@@ -21,7 +21,9 @@ try:
 except ImportError:
     Presentation = Inches = Pt = Emu = RGBColor = PP_ALIGN = MSO_ANCHOR = MSO_SHAPE = None
     _PPTX_OK = False
-import os, uuid, datetime
+import os
+import uuid
+import datetime
 
 
 def _require_pptx():
@@ -429,7 +431,7 @@ def qa_check(output_path: str) -> dict:
     - Slide count verification
     - Structural validation
     """
-    import subprocess, json
+    import subprocess
     
     results = {"path": output_path, "checks": [], "passed": True}
     
@@ -479,7 +481,6 @@ def qa_check(output_path: str) -> dict:
     # Check 4: Design rule violations
     try:
         from pptx import Presentation
-        from pptx.util import Inches
         prs = Presentation(output_path)
         violations = []
         for i, slide in enumerate(prs.slides):

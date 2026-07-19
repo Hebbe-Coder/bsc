@@ -1,4 +1,4 @@
-﻿'''Asset Schema — Pydantic models for the unified asset generation pipeline.
+'''Asset Schema — Pydantic models for the unified asset generation pipeline.
 
 Asset Types: ppt | html | pdf | word | xlsx
 Template Categories: consulting_strategy | product_pitch | operation_report | bidding_proposal
@@ -7,9 +7,9 @@ All outputs derive from a single BusinessGraph to ensure consistency across form
 '''
 from __future__ import annotations
 from pydantic import BaseModel, Field
-from typing import Optional, Literal
 from enum import Enum
-import uuid, time
+import uuid
+import time
 
 # ── Asset Types ──
 

@@ -5,7 +5,6 @@ Planner - 根据PRD内容决定执行哪些Agent
 输出：Agent执行计划
 """
 from __future__ import annotations
-import json
 
 
 class Planner:

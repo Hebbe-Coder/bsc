@@ -59,7 +59,7 @@ class StudioOrchestrator:
                 })
 
             if not stages:
-                stages.append({"agent": "business_understanding", "display": "Business Understanding",
+                stages.append({"agent": PipelineStage.BUSINESS_UNDERSTANDING, "display": "Business Understanding",
                                "status": "done", "duration_ms": round((time.perf_counter()-t1)*1000, 1)})
 
             logger.info(f"✓ BSC Pipeline (LLM) completed: domain={domain}")
@@ -85,14 +85,14 @@ class StudioOrchestrator:
                                          adapted_strategy, adapted_opt, domain)
             ws = workspace.to_dict()
             summary = workspace.summary
-            stages.append({"agent": "composer", "display": "Business Composer",
+            stages.append({"agent": PipelineStage.COMPOSER, "display": "Business Composer",
                            "status": "done", "duration_ms": round((time.perf_counter()-t2)*1000, 1)})
         except Exception as e:
             logger.exception("Composer failed")
             ws = {"business_model": adapted_bm, "sop": adapted_sop, "risks": adapted_risk,
                   "strategy": adapted_strategy, "optimization": adapted_opt,
                   "dashboard": {}, "summary": "Composition failed"}
-            stages.append({"agent": "composer", "display": "Business Composer",
+            stages.append({"agent": PipelineStage.COMPOSER, "display": "Business Composer",
                            "status": "error", "error": str(e)[:100], "duration_ms": 0})
 
         # ------ Stage 3: Asset Generation (PPT/HTML) ------

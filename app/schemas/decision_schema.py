@@ -1,4 +1,4 @@
-﻿"""Decision Center Schema — Unified dashboard data model for executive decision-making.
+"""Decision Center Schema — Unified dashboard data model for executive decision-making.
 
 The Decision Center aggregates:
   - Real-time KPIs from KPI Computation Engine
@@ -9,9 +9,10 @@ The Decision Center aggregates:
 """
 from __future__ import annotations
 from pydantic import BaseModel, Field
-from typing import Optional, Literal
+from typing import Literal
 from enum import Enum
-import uuid, time
+import uuid
+import time
 
 # ── KPI Components ──
 

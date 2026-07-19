@@ -14,6 +14,10 @@ mode:
     analyze   -> 领域识别（关键词 + TF-IDF 混合分类器），返回领域/部门/置信度
     ask       -> 知识库 RAG 问答，返回 answer / citations / 降级标记
 
+资源限制：
+    BSC_MCP_MAX_MEM_MB - 最大内存限制（默认512MB）
+    BSC_MCP_TIMEOUT_SEC - 超时时间（默认600秒）
+
 默认使用 .env 中配置的真实提供方（deepseek 等已充值）；
 仅当显式设置 BSC_MCP_FORCE_MOCK=1 时才强制 mock 提供方，
 便于离线/无密钥/测试场景。结果以 JSON 打到 stdout（单行），便于父进程解析。
@@ -24,6 +28,7 @@ import asyncio
 import json
 import os
 import sys
+import time
 
 _MOCK_PROVIDERS = [
     "LLM_PROVIDER",
@@ -90,8 +95,6 @@ _MODES = {
 
 
 def main():
-    # Windows 默认 stdout 编码为 GBK，报告里的 ¥ 等字符会抛 UnicodeEncodeError。
-    # 强制 UTF-8，保证产物 JSON 能正确写出（父进程也按 UTF-8 解码）。
     try:
         sys.stdout.reconfigure(encoding="utf-8")
         sys.stderr.reconfigure(encoding="utf-8")
@@ -106,11 +109,34 @@ def main():
     if fn is None:
         raise SystemExit(f"unknown mode: {mode}")
 
-    # compile/sop 是协程，其余为同步函数
-    if mode in ("compile", "sop"):
-        result = asyncio.run(fn(payload))
-    else:
-        result = fn(payload)
+    timeout_sec = int(os.environ.get("BSC_MCP_TIMEOUT_SEC", "600"))
+    start_time = time.time()
+
+    async def run_with_timeout():
+        if mode in ("compile", "sop"):
+            return await asyncio.wait_for(fn(payload), timeout=timeout_sec)
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, fn, payload)
+
+    try:
+        result = asyncio.run(run_with_timeout())
+    except asyncio.TimeoutError:
+        elapsed = time.time() - start_time
+        error_result = {
+            "error": f"Task timeout after {elapsed:.1f}s (limit: {timeout_sec}s)",
+            "mode": mode,
+            "timeout_sec": timeout_sec,
+        }
+        sys.stdout.write(json.dumps(error_result, ensure_ascii=False))
+        sys.exit(1)
+    except Exception as e:
+        error_result = {
+            "error": str(e),
+            "mode": mode,
+            "exception_type": type(e).__name__,
+        }
+        sys.stdout.write(json.dumps(error_result, ensure_ascii=False))
+        sys.exit(1)
 
     sys.stdout.write(json.dumps(result, ensure_ascii=False, default=str))
 

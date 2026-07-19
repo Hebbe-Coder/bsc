@@ -1,4 +1,6 @@
-import os, tempfile, pytest
+import os
+import tempfile
+import pytest
 from fastapi.testclient import TestClient
 from app.main import app
 from app.core.config import settings
@@ -18,7 +20,6 @@ def _c():
     app.dependency_overrides[get_knowledge_service] = lambda: svc
     # WS 端点内部 new KnowledgeService()/resolve_knowledge_auth 默认查默认库；
     # 用 monkeypatch 让 WS 用同一临时库
-    import app.knowledge.service as svc_mod
     return TestClient(app), p, repo, svc
 
 def _rm(p):

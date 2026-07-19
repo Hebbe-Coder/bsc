@@ -1,4 +1,3 @@
-import pytest
 from exporters.boundary import (
     MAX_TEXT_LEN, MAX_LIST_ITEMS, coerce_str, strip_control,
     truncate_text, cap_list, normalize_text, escape_html,

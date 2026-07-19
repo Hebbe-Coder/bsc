@@ -8,10 +8,9 @@
 - 图数据相关请求
 """
 from __future__ import annotations
-from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import Optional, Literal, Union
+from pydantic import BaseModel, Field, field_validator
+from typing import Optional
 from enum import Enum
-import uuid
 
 
 class ProjectRole(str, Enum):

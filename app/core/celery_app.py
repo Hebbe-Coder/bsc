@@ -15,10 +15,8 @@ Celery App - 异步任务队列
 
 当CELERY_ENABLED=False时，自动回退到同步执行模式，无需Redis依赖。
 """
-import os
-import sys
 import logging
-from typing import Optional, Callable, Any, Dict
+from typing import Optional, Callable, Any
 import uuid
 
 logger = logging.getLogger(__name__)

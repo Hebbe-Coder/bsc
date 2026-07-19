@@ -18,7 +18,7 @@ from __future__ import annotations
 import os
 import subprocess
 import tempfile
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 
 
 class FlowChartGenerator:
@@ -92,7 +92,7 @@ class FlowChartGenerator:
         for from_node, to_node in edges:
             mermaid_lines.append(f"    {from_node} --> {to_node}")
         
-        mermaid_lines.append(f"\n    subgraph 业务目标\n")
+        mermaid_lines.append("\n    subgraph 业务目标\n")
         for obj in objectives[:3]:
             obj_text = obj.get("objective", "")
             if obj_text:
@@ -100,7 +100,7 @@ class FlowChartGenerator:
         mermaid_lines.append("    end")
         
         if domain:
-            mermaid_lines.append(f"\n    style subgraph fill:#f5f5f5,stroke:#ccc\n")
+            mermaid_lines.append("\n    style subgraph fill:#f5f5f5,stroke:#ccc\n")
         
         return "\n".join(mermaid_lines)
     

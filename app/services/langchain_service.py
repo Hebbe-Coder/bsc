@@ -27,10 +27,9 @@ from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser, StrOutputParser
 from langchain_core.runnables import (
-    RunnableLambda, RunnableSequence, RunnableParallel,
-    RunnableBranch, RunnablePassthrough,
+    RunnableLambda,
 )
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_openai import ChatOpenAI
 from langchain_core.callbacks import AsyncCallbackHandler
 
@@ -753,7 +752,6 @@ PRD结构要求：
         if self.use_mock:
             return chain
         try:
-            from langchain_core.runnables import RunnableWithMessageHistory
             return chain.with_config(cache=self._cache)
         except Exception as e:
             logger.warning(f"Failed to add cache to chain: {e}")

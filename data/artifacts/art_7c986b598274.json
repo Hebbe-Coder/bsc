@@ -1,0 +1,30 @@
+{
+  "artifact_id": "art_7c986b598274",
+  "artifact_type": "gap",
+  "project_id": "",
+  "label": "",
+  "description": "",
+  "parent_ids": [],
+  "confidence": 1.0,
+  "status": "active",
+  "source_agent": "",
+  "evidence_refs": [],
+  "tags": [],
+  "metadata": {},
+  "created_at": "2026-07-18T00:47:58",
+  "updated_at": "2026-07-18T00:47:58",
+  "gap_statement": "Business model has no risk analysis",
+  "category": "analysis_insufficient",
+  "severity": "high",
+  "affected_artifact_ids": [
+    "art_7a76c0bfd73b",
+    "art_f49c86a8d9fe",
+    "art_6563af9f1883",
+    "art_cbb071978b57",
+    "art_15eb8198b611",
+    "art_f4d51df04c19",
+    "art_0a9cba21a86e"
+  ],
+  "resolution": "Additional analysis capability queued for next iteration",
+  "resolved": true
+}

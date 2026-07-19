@@ -17,10 +17,10 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from typing import Dict, Any, Optional, List, ClassVar
+from typing import Dict, Any, ClassVar
 
 from langchain_core.tools import BaseTool
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage
 from app.knowledge.tool import RetrieveKnowledgeTool
 from langchain.agents import create_agent
 from langgraph.checkpoint.memory import MemorySaver

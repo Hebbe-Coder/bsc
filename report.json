@@ -1,0 +1,280 @@
+{
+  "business_domain": "general",
+  "objectives": [],
+  "roles": [],
+  "workflow": [],
+  "responsibilities": [],
+  "sla": [],
+  "metrics": [],
+  "kpi": [],
+  "risks": [],
+  "risk": {
+    "process": [],
+    "organization": [],
+    "system": [],
+    "compliance": [],
+    "market": [],
+    "financial": [],
+    "technology": [],
+    "legal": [],
+    "operational": [],
+    "strategic": []
+  },
+  "strategy": {},
+  "optimization": {},
+  "composed": {},
+  "report": {},
+  "status": "legacy_export",
+  "_version": 2,
+  "_artifact_graph": {
+    "total_artifacts": 2,
+    "biz_models": [
+      {
+        "artifact_id": "art_0a9cba21a86e",
+        "artifact_type": "business_model",
+        "project_id": "cli_run",
+        "label": "Business Analysis (Static Plan)",
+        "description": "",
+        "parent_ids": [],
+        "confidence": 1.0,
+        "status": "active",
+        "source_agent": "",
+        "evidence_refs": [],
+        "tags": [],
+        "metadata": {},
+        "created_at": "2026-07-17T23:44:53",
+        "updated_at": "2026-07-17T23:44:53",
+        "domain": "general",
+        "value_proposition": "",
+        "revenue_model": "",
+        "customer_segments": [],
+        "key_partners": [],
+        "key_activities": [],
+        "key_resources": [],
+        "cost_structure": [],
+        "channels": [],
+        "objectives": []
+      }
+    ],
+    "assumptions": [],
+    "risks": [],
+    "constraints": [],
+    "evidences": [],
+    "coverages": [],
+    "gaps": [
+      {
+        "artifact_id": "art_dcc0422f672c",
+        "artifact_type": "gap",
+        "project_id": "",
+        "label": "",
+        "description": "",
+        "parent_ids": [],
+        "confidence": 1.0,
+        "status": "active",
+        "source_agent": "",
+        "evidence_refs": [],
+        "tags": [],
+        "metadata": {},
+        "created_at": "2026-07-17T23:44:53",
+        "updated_at": "2026-07-17T23:44:53",
+        "gap_statement": "Business model has no risk analysis",
+        "category": "analysis_insufficient",
+        "severity": "high",
+        "affected_artifact_ids": [
+          "art_0a9cba21a86e"
+        ],
+        "resolution": "Additional analysis capability queued for next iteration",
+        "resolved": true
+      }
+    ],
+    "decisions": []
+  },
+  "mission": {
+    "mission_id": "static_fallback",
+    "mission": "evaluate_business_model",
+    "title": "Business Analysis (Static Plan)",
+    "domain": "general",
+    "goals": [
+      {
+        "goal_id": "g1",
+        "description": "Comprehensive business analysis",
+        "priority": "medium",
+        "success_criteria": []
+      }
+    ],
+    "steps": [
+      {
+        "step_id": "static_s0",
+        "capability_name": "business_understanding",
+        "depends_on": [],
+        "artifact_inputs": [],
+        "artifact_outputs": [
+          "business_model"
+        ],
+        "reasoning": "Static fallback DAG",
+        "parallel_group": 0
+      },
+      {
+        "step_id": "static_s1",
+        "capability_name": "assumption_reasoning",
+        "depends_on": [
+          "business_understanding"
+        ],
+        "artifact_inputs": [
+          "business_model"
+        ],
+        "artifact_outputs": [
+          "assumption"
+        ],
+        "reasoning": "Static fallback DAG",
+        "parallel_group": 1
+      },
+      {
+        "step_id": "static_s2",
+        "capability_name": "risk_analysis",
+        "depends_on": [
+          "business_understanding"
+        ],
+        "artifact_inputs": [
+          "business_model",
+          "assumption"
+        ],
+        "artifact_outputs": [
+          "risk"
+        ],
+        "reasoning": "Static fallback DAG",
+        "parallel_group": 1
+      },
+      {
+        "step_id": "static_s3",
+        "capability_name": "constraint_generation",
+        "depends_on": [
+          "risk_analysis"
+        ],
+        "artifact_inputs": [
+          "business_model",
+          "risk"
+        ],
+        "artifact_outputs": [
+          "constraint"
+        ],
+        "reasoning": "Static fallback DAG",
+        "parallel_group": 2
+      },
+      {
+        "step_id": "static_s4",
+        "capability_name": "coverage_analysis",
+        "depends_on": [
+          "risk_analysis",
+          "assumption_reasoning"
+        ],
+        "artifact_inputs": [
+          "business_model",
+          "risk",
+          "assumption"
+        ],
+        "artifact_outputs": [
+          "coverage"
+        ],
+        "reasoning": "Static fallback DAG",
+        "parallel_group": 3
+      },
+      {
+        "step_id": "static_s5",
+        "capability_name": "gap_detection",
+        "depends_on": [
+          "coverage_analysis"
+        ],
+        "artifact_inputs": [
+          "coverage",
+          "assumption",
+          "risk"
+        ],
+        "artifact_outputs": [
+          "gap"
+        ],
+        "reasoning": "Static fallback DAG",
+        "parallel_group": 4
+      },
+      {
+        "step_id": "static_s6",
+        "capability_name": "decision_support",
+        "depends_on": [
+          "coverage_analysis"
+        ],
+        "artifact_inputs": [
+          "business_model",
+          "risk",
+          "coverage"
+        ],
+        "artifact_outputs": [
+          "decision"
+        ],
+        "reasoning": "Static fallback DAG",
+        "parallel_group": 5
+      },
+      {
+        "step_id": "static_s7",
+        "capability_name": "report_composition",
+        "depends_on": [
+          "decision_support"
+        ],
+        "artifact_inputs": [
+          "business_model",
+          "risk",
+          "decision"
+        ],
+        "artifact_outputs": [],
+        "reasoning": "Static fallback DAG",
+        "parallel_group": 6
+      }
+    ],
+    "required_capabilities": [
+      "business_understanding",
+      "assumption_reasoning",
+      "risk_analysis",
+      "constraint_generation",
+      "coverage_analysis",
+      "gap_detection",
+      "decision_support",
+      "report_composition"
+    ],
+    "planning_mode": "static",
+    "confidence": 1.0,
+    "reasoning": "Static DAG fallback — guaranteed to produce valid output"
+  },
+  "reflection": {
+    "stages": {
+      "reflect": {
+        "gaps_found": 1
+      },
+      "analyze": {
+        "total": 1,
+        "by_category": {
+          "analysis_insufficient": 1
+        },
+        "by_severity": {
+          "high": 1
+        },
+        "requires_replan": true,
+        "recommendations": [
+          "Add capability for: Business model has no risk analysis"
+        ]
+      },
+      "resolve": {
+        "resolved": 1,
+        "needs_replan": true
+      }
+    },
+    "summary": "Reflection found 1 gaps ({'analysis_insufficient': 1}), resolved 1, replan=YES.",
+    "gaps": [
+      {
+        "statement": "Business model has no risk analysis",
+        "category": "analysis_insufficient",
+        "severity": "high",
+        "resolution": "Additional analysis capability queued for next iteration",
+        "resolved": true
+      }
+    ]
+  }
+}

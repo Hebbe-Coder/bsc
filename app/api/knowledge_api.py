@@ -297,6 +297,155 @@ def benchmark(
     return ApiResponse.ok(report)
 
 
+# ── 用户反馈 API ────────────────────────────────────────────────
+
+class FeedbackRequest(BaseModel):
+    trace_id: str
+    feedback_type: str  # thumbs_up / thumbs_down / correction / comment
+    user_id: str = ""
+    comment: str = ""
+    corrected_answer: str = ""
+
+
+@router.post("/feedback")
+def add_feedback(req: FeedbackRequest):
+    """提交用户对 RAG 答案的反馈。"""
+    from app.knowledge.feedback import get_feedback_store
+    store = get_feedback_store()
+    store.add_feedback(
+        trace_id=req.trace_id,
+        feedback_type=req.feedback_type,
+        user_id=req.user_id,
+        comment=req.comment,
+        corrected_answer=req.corrected_answer,
+    )
+    return ApiResponse.ok({"added": True})
+
+
+@router.get("/feedback/stats")
+def feedback_stats():
+    """获取反馈统计。"""
+    from app.knowledge.feedback import get_feedback_store
+    store = get_feedback_store()
+    stats = store.get_stats()
+    return ApiResponse.ok(stats)
+
+
+@router.get("/feedback/suggestions")
+def feedback_suggestions():
+    """获取问题查询分析和改进建议。"""
+    from app.knowledge.feedback import get_feedback_store, FeedbackAnalyzer
+    store = get_feedback_store()
+    analyzer = FeedbackAnalyzer(store)
+    problematic = analyzer.analyze_problematic_queries()
+    suggestions = analyzer.suggest_improvements(problematic)
+    return ApiResponse.ok({
+        "problematic_queries": problematic,
+        "suggestions": suggestions,
+    })
+
+
+# ── RAG Trace API ───────────────────────────────────────────────
+
+class TraceListRequest(BaseModel):
+    limit: int = 20
+
+
+@router.get("/trace")
+def list_traces(limit: int = 20):
+    """获取最近的 RAG Trace 记录。"""
+    from app.knowledge.rag_trace import get_trace_store
+    store = get_trace_store()
+    traces = store.list_recent(limit=limit)
+    return ApiResponse.ok({"traces": traces, "count": len(traces)})
+
+
+@router.get("/trace/{trace_id}")
+def get_trace(trace_id: str):
+    """获取指定 Trace 的详细信息。"""
+    from app.knowledge.rag_trace import get_trace_store
+    store = get_trace_store()
+    trace = store.get(trace_id)
+    if not trace:
+        return ApiResponse.error("Trace 不存在", code=404)
+    return ApiResponse.ok(trace)
+
+
+# ── 知识域管理 API ──────────────────────────────────────────────
+
+@router.get("/domains")
+def list_domains():
+    """列出所有已注册的知识域。"""
+    from app.knowledge.knowledge_domains import get_domain_registry
+    registry = get_domain_registry()
+    domains = []
+    for domain_id, config in registry.all().items():
+        domains.append({
+            "id": domain_id,
+            "name": config.get("name", ""),
+            "description": config.get("description", ""),
+            "keywords": config.get("keywords", []),
+            "tools": config.get("tools", []),
+        })
+    return ApiResponse.ok({"domains": domains, "count": len(domains)})
+
+
+# ── 权限管理 API ────────────────────────────────────────────────
+
+@router.get("/permissions/domains")
+def list_allowed_domains(user_id: str = ""):
+    """获取用户可访问的知识域列表。"""
+    from app.knowledge.permission import get_permission_manager
+    pm = get_permission_manager(mock=True)
+    if not user_id:
+        return ApiResponse.error("user_id 必填", code=400)
+    role = pm.get_user_role(user_id)
+    allowed = pm.list_allowed_domains(user_id)
+    return ApiResponse.ok({
+        "user_id": user_id,
+        "role": role,
+        "allowed_domains": allowed,
+        "count": len(allowed),
+    })
+
+
+@router.get("/permissions/check")
+def check_permission(
+    user_id: str = "",
+    domain: str = "",
+    doc_access: str = "",
+    chunk_access: str = "",
+):
+    """检查用户对指定资源的访问权限。"""
+    from app.knowledge.permission import get_permission_manager
+    pm = get_permission_manager(mock=True)
+    if not user_id:
+        return ApiResponse.error("user_id 必填", code=400)
+
+    result = {
+        "user_id": user_id,
+        "role": pm.get_user_role(user_id),
+    }
+
+    if domain:
+        result["domain"] = domain
+        result["can_access_domain"] = pm.can_access_domain(user_id, domain)
+
+    if domain and doc_access:
+        effective = pm.effective_doc_access_level(domain, doc_access)
+        result["doc_access"] = doc_access
+        result["effective_doc_access"] = effective
+        result["can_access_document"] = pm.can_access_document(user_id, domain, doc_access)
+
+    if domain and doc_access and chunk_access:
+        effective = pm.effective_chunk_access_level(domain, doc_access, chunk_access)
+        result["chunk_access"] = chunk_access
+        result["effective_chunk_access"] = effective
+        result["can_access_chunk"] = pm.can_access_chunk(user_id, domain, doc_access, chunk_access)
+
+    return ApiResponse.ok(result)
+
+
 @router.delete("/documents/{doc_id}")
 def delete_document(
     doc_id: str,

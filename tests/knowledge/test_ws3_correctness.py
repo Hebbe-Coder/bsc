@@ -1,8 +1,8 @@
-import os, tempfile
+import os
+import tempfile
 import numpy as np
 import pytest
 from app.knowledge.service import KnowledgeService
-from app.knowledge.backends.vector import VectorBackend
 
 
 @pytest.fixture

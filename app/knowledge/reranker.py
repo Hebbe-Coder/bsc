@@ -8,6 +8,7 @@ from typing import List, Dict, Optional
 from cryptography.fernet import Fernet
 
 from app.core.config import settings
+from app.knowledge.knowledge_domains import get_domain_registry
 
 logger = logging.getLogger(__name__)
 
@@ -49,19 +50,43 @@ class NoOpReranker(Reranker):
 
 
 class MockReranker(Reranker):
-    """确定性重排：按 query 词在 content 中的命中数降序，便于测试断言。"""
+    """确定性重排：保持原始顺序，只做阈值过滤和域匹配增强。"""
     name = "mock"
 
     def rerank(self, query, candidates, top_k):
         q_tokens = [t for t in (query or "").lower().split() if t]
+        if not q_tokens:
+            return candidates[:top_k]
 
-        def score(c):
+        registry = get_domain_registry()
+        query_domains = registry.infer_from_query(query)
+
+        scored = []
+        for c in candidates:
             text = (c.get("content") or "").lower()
-            return float(sum(text.count(t) for t in q_tokens))
-
-        ranked = [dict(c, rerank_score=score(c)) for c in candidates]
-        ranked.sort(key=lambda x: -x["rerank_score"])
-        return ranked[:top_k]
+            title = (c.get("doc_title") or "").lower()
+            
+            has_content_match = any(t in text for t in q_tokens)
+            has_title_match = any(t in title for t in q_tokens)
+            
+            domain_match_bonus = 0
+            if query_domains and query_domains != ["general"]:
+                chunk_domain = c.get("domain") or registry.infer_from_doc_title(c.get("doc_title", ""))
+                if chunk_domain in query_domains:
+                    domain_match_bonus = 1.0
+            
+            base_score = c.get("score", 0.0)
+            bonus = 0.5 if has_title_match else 0
+            bonus += 0.3 if has_content_match else 0
+            bonus += domain_match_bonus
+            
+            scored.append(dict(c, rerank_score=base_score + bonus))
+        
+        scored.sort(key=lambda x: -x["rerank_score"])
+        
+        filtered = [c for c in scored if c["rerank_score"] > 0.01]
+        
+        return filtered[:top_k]
 
 
 class LocalCrossEncoderReranker(Reranker):

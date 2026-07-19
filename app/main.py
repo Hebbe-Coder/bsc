@@ -6,10 +6,11 @@ Start: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import RedirectResponse, Response, HTMLResponse
 import os, time, logging
 
 from app.core.config import settings
+from pydantic import BaseModel
 from app.core.logger import setup_logging, get_logger
 
 _START_TIME = time.time()
@@ -203,6 +204,21 @@ try:
 except Exception as e:
     logger.warning(f"Tracing middleware skipped: {e}")
 
+# MIME-type fix: Windows registry overrides Python mimetypes for .js files.
+from starlette.requests import Request
+class MimeFixMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        if path.endswith('.js') or path.endswith('.mjs'):
+            response.headers['Content-Type'] = 'application/javascript; charset=utf-8'
+        elif path.endswith('.css'):
+            response.headers['Content-Type'] = 'text/css; charset=utf-8'
+        return response
+
+app.add_middleware(MimeFixMiddleware)
+logger.info('MIME fix middleware enabled')
+
 try:
     from app.exceptions import register_exception_handlers
     register_exception_handlers(app)
@@ -224,9 +240,27 @@ _static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
 if os.path.isdir(_static_dir):
     app.mount("/dashboard", StaticFiles(directory=_static_dir, html=True), name="dashboard")
 
-# Root → BSC Chat (conversational interface)
+# SPA assets (React build) ? ensure correct MIME types for JS modules
+import mimetypes
+mimetypes.add_type("application/javascript", ".js")
+mimetypes.add_type("application/javascript", ".mjs")
+mimetypes.add_type("text/css", ".css")
+
+_dist_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dist")
+if os.path.isdir(_dist_dir):
+    _assets_dir = os.path.join(_dist_dir, "assets")
+    if os.path.isdir(_assets_dir):
+        app.mount("/assets", StaticFiles(directory=_assets_dir), name="assets")
+
+# Root -> React SPA (BSC Studio)
 @app.get("/", include_in_schema=False)
 async def root():
+    _index = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dist", "index.html")
+    if os.path.isfile(_index):
+        with open(_index, "r", encoding="utf-8") as f:
+            html = f.read()
+        return HTMLResponse(content=html)
+    # Fallback to legacy dashboard
     ts = str(int(time.time()))
     return RedirectResponse(url=f"/dashboard/index.html?v={ts}")
 
@@ -305,6 +339,119 @@ async def metrics_prometheus():
     """获取性能监控指标（Prometheus格式）"""
     from app.core.metrics import get_prometheus_format
     return Response(content=get_prometheus_format(), media_type="text/plain")
+
+
+
+# ============================================================
+# Agent OS Routes (ADR-010)
+# ============================================================
+
+class AgentOSRequest(BaseModel):
+    input: str
+    mode: str = "llm"
+    domain: str = ""
+    board: bool = False
+
+
+@app.get("/agent/analyze", include_in_schema=False)
+async def agent_analyze_page():
+    """Agent OS info page"""
+    from app.capabilities import build_default_registry
+    from app.services.llm_adapter import get_llm_adapter, reset_llm_adapter
+    reset_llm_adapter()
+    llm = get_llm_adapter()
+    reg = build_default_registry()
+    return HTMLResponse("""<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Business Agent OS</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0d1117;color:#c9d1d9;display:flex;justify-content:center;align-items:center;min-height:100vh}
+.card{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:40px;max-width:600px;text-align:center}
+h1{color:#58a6ff;margin-bottom:8px;font-size:28px}
+.sub{color:#8b949e;margin-bottom:24px}
+.badge{display:inline-block;background:#1f6feb22;color:#58a6ff;border:1px solid #1f6feb44;border-radius:20px;padding:4px 12px;font-size:13px;margin:4px}
+.endpoint{background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:16px;margin:12px 0;text-align:left;font-family:monospace}
+.method{display:inline-block;padding:2px 8px;border-radius:4px;font-weight:bold;font-size:12px;margin-right:8px}
+.get{background:#1f6feb;color:#fff}
+.post{background:#238636;color:#fff}
+.path{color:#c9d1d9}
+a{color:#58a6ff}
+.btn{display:inline-block;background:#238636;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;margin-top:16px}
+.btn:hover{background:#2ea043}
+.btn-alt{background:#30363d;margin-left:8px}
+.btn-alt:hover{background:#484f58}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>Business Agent OS</h1>
+<p class="sub">ADR-010 Architecture | Nanobot Kernel | BSC Reasoning Engine</p>
+<div>
+<span class="badge">""" + str(reg.count()) + """ Capabilities</span>
+<span class="badge">LLM: """ + ("Ready" if llm.is_ready else "Offline") + """</span>
+<span class="badge">Multi-Agent Board</span>
+</div>
+<div class="endpoint"><span class="method get">GET</span><span class="path">/agent/health</span><div style="color:#8b949e;margin-top:4px">Health check</div></div>
+<div class="endpoint"><span class="method post">POST</span><span class="path">/agent/analyze</span><div style="color:#8b949e;margin-top:4px">Run full business analysis pipeline</div></div>
+<a class="btn" href="/docs">Open Swagger UI</a>
+<a class="btn btn-alt" href="/">BSC Studio</a>
+</div>
+</body>
+</html>""")
+
+
+@app.get("/agent/health", tags=["Agent OS"])
+async def agent_health():
+    """Agent OS health check"""
+    from app.capabilities import build_default_registry
+    from app.services.llm_adapter import get_llm_adapter, reset_llm_adapter
+    reset_llm_adapter()
+    llm = get_llm_adapter()
+    reg = build_default_registry()
+    return {
+        "status": "ok", "version": "2.0.0",
+        "architecture": "ADR-010 Business Agent OS",
+        "capabilities": reg.count(), "llm_ready": llm.is_ready,
+        "endpoints": {"analyze": "POST /agent/analyze", "health": "GET /agent/health"},
+    }
+
+
+@app.post("/agent/analyze", tags=["Agent OS"])
+async def agent_analyze(req: AgentOSRequest):
+    """Run full Agent OS pipeline: Plan -> Execute -> Reflect -> Board -> Report"""
+    from app.artifacts import ArtifactGraphStore, BusinessModelArtifact
+    from app.capabilities import build_default_registry, MissionPlanner, ReflectionPipeline
+
+    store = ArtifactGraphStore(data_dir="./data/artifacts")
+    reg = build_default_registry()
+    planner = MissionPlanner(registry=reg, mode=req.mode)
+
+    mission = await planner.plan(req.input, domain_hint=req.domain)
+    bm = BusinessModelArtifact(label=mission.title, project_id="api", domain=mission.domain)
+    store.add(bm)
+    pipe = ReflectionPipeline(store, reg)
+    reflection = pipe.run()
+    board_result = None
+    if req.board:
+        from app.capabilities.board import MultiAgentBoard
+        board = MultiAgentBoard(store)
+        board_result = await board.convene(project_id="api")
+    return {
+        "status": "completed",
+        "mission": {"title": mission.title, "steps": len(mission.steps), "mode": mission.planning_mode},
+        "artifacts": store.count(),
+        "gaps": reflection["stages"]["reflect"]["gaps_found"],
+        "gap_details": reflection["gaps"],
+        "board": {
+            "verdict": board_result.final_verdict,
+            "consensus": board_result.consensus,
+            "votes": board_result.votes,
+        } if board_result else None,
+        "report": store.export(),
+    }
 
 if __name__ == "__main__":
     import uvicorn

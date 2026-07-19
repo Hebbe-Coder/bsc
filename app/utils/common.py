@@ -11,7 +11,7 @@ import uuid
 import json
 import time
 import hashlib
-from typing import Any, Dict, Optional, List, Union
+from typing import Any, Dict, Optional, List
 
 
 def generate_id() -> str:
@@ -117,7 +117,7 @@ def hash_content(content: str, algorithm: str = "md5", length: int = 16) -> str:
     if algorithm == "sha256":
         hash_obj = hashlib.sha256(content.encode("utf-8"))
     else:
-        hash_obj = hashlib.md5(content.encode("utf-8"))
+        hash_obj = hashlib.md5(content.encode("utf-8"), usedforsecurity=False)
     return hash_obj.hexdigest()[:length]
 
 

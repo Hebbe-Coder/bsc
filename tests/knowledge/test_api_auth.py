@@ -11,7 +11,6 @@
 import pytest
 from fastapi import HTTPException
 
-from app.core.config import settings
 from app.middleware.rate_limiter import RateLimitMiddleware
 
 

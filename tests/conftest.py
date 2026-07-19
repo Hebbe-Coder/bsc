@@ -14,8 +14,8 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.repositories import ProjectRepository, KnowledgeRepository, GraphRepository
-from app.core.llm_service import LLMService
-from app.core.cache_service import MemoryCache, get_cache_service
+from app.services.llm_service import LLMService
+from app.services.cache_service import MemoryCache, get_cache_service
 
 
 def _init_test_db(db_path):

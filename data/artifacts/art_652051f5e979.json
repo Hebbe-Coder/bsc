@@ -1,0 +1,33 @@
+{
+  "artifact_id": "art_652051f5e979",
+  "artifact_type": "decision",
+  "project_id": "api",
+  "label": "Board Decision: NO_GO",
+  "description": "",
+  "parent_ids": [],
+  "confidence": 1.0,
+  "status": "active",
+  "source_agent": "board_review",
+  "evidence_refs": [],
+  "tags": [],
+  "metadata": {},
+  "created_at": "2026-07-18T00:46:08",
+  "updated_at": "2026-07-18T00:46:08",
+  "decision_statement": "董事会裁决: NO_GO (加权得分: 0.31, 共识: majority)",
+  "alternatives": [
+    "Go (0 票)",
+    "No-Go (0 票)"
+  ],
+  "rationale": "Board投票: 0 Go / 3 Conditional / 2 No-Go. 加权得分: 0.31. 共识: majority. 最终裁决: NO_GO. ",
+  "assumption_confidence": 0.31,
+  "risk_acceptable": false,
+  "coverage_pct": 100.0,
+  "recommendation": "",
+  "decision_makers": [
+    "CEO Agent",
+    "CFO Agent",
+    "CTO Agent",
+    "COO Agent",
+    "合规 Agent"
+  ]
+}

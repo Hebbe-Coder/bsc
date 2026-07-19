@@ -1,4 +1,4 @@
-﻿"""Business Graph Schema - Formal Pydantic models for the enterprise knowledge graph.
+"""Business Graph Schema - Formal Pydantic models for the enterprise knowledge graph.
 
 Node types (6): process | role | metric | system | strategy | risk
 Edge types (4): depends_on | triggers | inputs_to | outputs_to
@@ -13,9 +13,10 @@ The Business Graph is the union of:
 """
 from __future__ import annotations
 from pydantic import BaseModel, Field
-from typing import Optional, Literal
+from typing import Literal
 from enum import Enum
-import uuid, time
+import uuid
+import time
 
 # ── Node Types ──
 

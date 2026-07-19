@@ -3,6 +3,7 @@ import logging
 import hmac
 import hashlib
 import sqlite3
+import os
 from typing import Optional, Tuple
 
 from fastapi import HTTPException, Request
@@ -12,17 +13,9 @@ from app.knowledge import metrics as _metrics
 
 logger = logging.getLogger(__name__)
 
-_WHITELIST_PATHS = {
-    "/docs",
-    "/redoc",
-    "/openapi.json",
-    "/health",
-    "/metrics",
-    "/metrics/prometheus",
-    "/dashboard/",
-    "/static/",
-    "/output/",
-}
+def _normalize_path(path: str) -> str:
+    """规范化路径，防止路径遍历攻击"""
+    return os.path.normpath(path).replace("\\", "/")
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -91,9 +84,15 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
     def _is_whitelisted(self, request: Request) -> bool:
         """判断请求路径是否在白名单中"""
-        path = request.url.path
-        for whitelist_path in _WHITELIST_PATHS:
-            if path == whitelist_path or path.startswith(whitelist_path):
+        path = _normalize_path(request.url.path)
+        if ".." in path:
+            logger.warning(f"路径遍历尝试被拒绝: {request.url.path}")
+            return False
+        for whitelist_path in (settings.AUTH_WHITELIST_PATHS if hasattr(settings, 'AUTH_WHITELIST_PATHS') else ['/health', '/docs', '/openapi.json', '/agent/']):
+            if path == whitelist_path:
+                return True
+        for prefix in (settings.AUTH_WHITELIST_PREFIXES if hasattr(settings, 'AUTH_WHITELIST_PREFIXES') else ['/health', '/docs', '/openapi', '/agent', '/static']):
+            if path.startswith(prefix):
                 return True
         return False
 
@@ -105,7 +104,7 @@ def _global_role(api_key: str) -> Optional[str]:
     """
     if settings.API_KEY and hmac.compare_digest(api_key, settings.API_KEY):
         return "admin"
-    reader_key = getattr(settings, "API_KEY_READER", "") or ""
+    reader_key = settings.API_KEY_READER if hasattr(settings, "API_KEY_READER") else ""
     if reader_key and hmac.compare_digest(api_key, reader_key):
         return "reader"
     return None

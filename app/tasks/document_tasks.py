@@ -24,7 +24,7 @@ def _parse_document_sync(file_content: str, filename: str):
         parser = DocumentParser()
         result = parser.parse(BytesIO(file_bytes), filename)
         
-        logger.info(f"Document parse task completed")
+        logger.info("Document parse task completed")
         return result
     except Exception as e:
         logger.error(f"Document parse task failed: {e}")
@@ -44,7 +44,7 @@ def _ocr_sync(image_content: str, page_number: int = 0):
         parser = DocumentParser()
         result = parser._parse_pdf_with_ocr(BytesIO(image_bytes))
         
-        logger.info(f"OCR task completed")
+        logger.info("OCR task completed")
         return result
     except Exception as e:
         logger.error(f"OCR task failed: {e}")

@@ -1,0 +1,197 @@
+{
+  "artifacts": {
+    "art_0a9cba21a86e": {
+      "artifact_type": "business_model",
+      "project_id": "cli_run",
+      "label": "Business Analysis (Static Plan)",
+      "parent_ids": [],
+      "confidence": 1.0,
+      "status": "active",
+      "tags": [],
+      "created_at": "2026-07-17T23:44:53",
+      "updated_at": "2026-07-17T23:44:53"
+    },
+    "art_dcc0422f672c": {
+      "artifact_type": "gap",
+      "project_id": "",
+      "label": "",
+      "parent_ids": [],
+      "confidence": 1.0,
+      "status": "active",
+      "tags": [],
+      "created_at": "2026-07-17T23:44:53",
+      "updated_at": "2026-07-17T23:44:53"
+    },
+    "art_f4d51df04c19": {
+      "artifact_type": "business_model",
+      "project_id": "api",
+      "label": "Business Analysis (Static Plan)",
+      "parent_ids": [],
+      "confidence": 1.0,
+      "status": "active",
+      "tags": [],
+      "created_at": "2026-07-18T00:05:26",
+      "updated_at": "2026-07-18T00:05:26"
+    },
+    "art_f579bea0919b": {
+      "artifact_type": "gap",
+      "project_id": "",
+      "label": "",
+      "parent_ids": [],
+      "confidence": 1.0,
+      "status": "active",
+      "tags": [],
+      "created_at": "2026-07-18T00:05:26",
+      "updated_at": "2026-07-18T00:05:26"
+    },
+    "art_15eb8198b611": {
+      "artifact_type": "business_model",
+      "project_id": "api",
+      "label": "Business Analysis (Static Plan)",
+      "parent_ids": [],
+      "confidence": 1.0,
+      "status": "active",
+      "tags": [],
+      "created_at": "2026-07-18T00:42:50",
+      "updated_at": "2026-07-18T00:42:50"
+    },
+    "art_bcb524af5004": {
+      "artifact_type": "gap",
+      "project_id": "",
+      "label": "",
+      "parent_ids": [],
+      "confidence": 1.0,
+      "status": "active",
+      "tags": [],
+      "created_at": "2026-07-18T00:42:50",
+      "updated_at": "2026-07-18T00:42:50"
+    },
+    "art_cbb071978b57": {
+      "artifact_type": "business_model",
+      "project_id": "api",
+      "label": "Business Analysis (Static Plan)",
+      "parent_ids": [],
+      "confidence": 1.0,
+      "status": "active",
+      "tags": [],
+      "created_at": "2026-07-18T00:44:59",
+      "updated_at": "2026-07-18T00:44:59"
+    },
+    "art_1a6e36ffbcc2": {
+      "artifact_type": "gap",
+      "project_id": "",
+      "label": "",
+      "parent_ids": [],
+      "confidence": 1.0,
+      "status": "active",
+      "tags": [],
+      "created_at": "2026-07-18T00:44:59",
+      "updated_at": "2026-07-18T00:44:59"
+    },
+    "art_f49c86a8d9fe": {
+      "artifact_type": "business_model",
+      "project_id": "api",
+      "label": "Business Analysis (Static Plan)",
+      "parent_ids": [],
+      "confidence": 1.0,
+      "status": "active",
+      "tags": [],
+      "created_at": "2026-07-18T00:46:03",
+      "updated_at": "2026-07-18T00:46:03"
+    },
+    "art_7a7983fa2a5b": {
+      "artifact_type": "gap",
+      "project_id": "",
+      "label": "",
+      "parent_ids": [],
+      "confidence": 1.0,
+      "status": "active",
+      "tags": [],
+      "created_at": "2026-07-18T00:46:03",
+      "updated_at": "2026-07-18T00:46:03"
+    },
+    "art_6563af9f1883": {
+      "artifact_type": "business_model",
+      "project_id": "api",
+      "label": "Business Analysis (Static Plan)",
+      "parent_ids": [],
+      "confidence": 1.0,
+      "status": "active",
+      "tags": [],
+      "created_at": "2026-07-18T00:46:03",
+      "updated_at": "2026-07-18T00:46:03"
+    },
+    "art_620a8a515f1a": {
+      "artifact_type": "gap",
+      "project_id": "",
+      "label": "",
+      "parent_ids": [],
+      "confidence": 1.0,
+      "status": "active",
+      "tags": [],
+      "created_at": "2026-07-18T00:46:03",
+      "updated_at": "2026-07-18T00:46:03"
+    },
+    "art_652051f5e979": {
+      "artifact_type": "decision",
+      "project_id": "api",
+      "label": "Board Decision: NO_GO",
+      "parent_ids": [],
+      "confidence": 1.0,
+      "status": "active",
+      "tags": [],
+      "created_at": "2026-07-18T00:46:08",
+      "updated_at": "2026-07-18T00:46:08"
+    },
+    "art_7a76c0bfd73b": {
+      "artifact_type": "business_model",
+      "project_id": "api",
+      "label": "Business Model Evaluation for PRD",
+      "parent_ids": [],
+      "confidence": 1.0,
+      "status": "active",
+      "tags": [],
+      "created_at": "2026-07-18T00:47:58",
+      "updated_at": "2026-07-18T00:47:58"
+    },
+    "art_7c986b598274": {
+      "artifact_type": "gap",
+      "project_id": "",
+      "label": "",
+      "parent_ids": [],
+      "confidence": 1.0,
+      "status": "active",
+      "tags": [],
+      "created_at": "2026-07-18T00:47:58",
+      "updated_at": "2026-07-18T00:47:58"
+    },
+    "art_2e5331a21843": {
+      "artifact_type": "gap",
+      "project_id": "",
+      "label": "",
+      "parent_ids": [
+        "art_652051f5e979"
+      ],
+      "confidence": 1.0,
+      "status": "active",
+      "tags": [],
+      "created_at": "2026-07-18T00:47:58",
+      "updated_at": "2026-07-18T00:47:58"
+    },
+    "art_c0a8a18c58c1": {
+      "artifact_type": "gap",
+      "project_id": "",
+      "label": "",
+      "parent_ids": [
+        "art_652051f5e979"
+      ],
+      "confidence": 1.0,
+      "status": "active",
+      "tags": [],
+      "created_at": "2026-07-18T00:47:58",
+      "updated_at": "2026-07-18T00:47:58"
+    }
+  },
+  "updated_at": "2026-07-18T00:47:58",
+  "total": 17
+}

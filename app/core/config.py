@@ -1,6 +1,7 @@
 import os
 import logging
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from app.enums import LLMProvider, CacheType, EmbeddingProvider, RerankProvider, EventBackend, DBType, Environment
 from typing import List, Optional
 
 logger = logging.getLogger(__name__)

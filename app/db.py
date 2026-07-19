@@ -7,7 +7,11 @@
 
 此模块仅作为兼容层保留，供现有代码逐步迁移使用。
 """
-import sqlite3, os, json, uuid, time
+import sqlite3
+import os
+import json
+import uuid
+import time
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "bsc_cloud.db")
 _connection = None
@@ -150,7 +154,6 @@ def get_member(project_id, user_id):
 
 def list_members(project_id):
     """列出成员（委托给KnowledgeRepository）"""
-    from app.repositories import KnowledgeRepository
     db = get_db()
     return [_row_to_dict(r) for r in db.execute("SELECT * FROM project_members WHERE project_id=?", (project_id,)).fetchall()]
 

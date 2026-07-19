@@ -8,21 +8,27 @@ from app.api.auth_deps import verify_download_auth, download_url  # noqa: F401  
 
 router = APIRouter(prefix="/api", tags=["Files"])
 
-_OUTPUT_DIR = os.path.join(
+_OUTPUT_DIR = os.path.abspath(os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "output"
-)
+))
 
 
 @router.get("/files/{filename}")
 async def download_file(filename: str, _auth: bool = Depends(verify_download_auth)):
-    safe = os.path.basename(filename)
-    if not safe or safe != filename:
+    if ".." in filename or "/" in filename or "\\" in filename:
         raise HTTPException(status_code=400, detail="非法文件名")
-    path = os.path.join(_OUTPUT_DIR, safe)
-    abs_output = os.path.abspath(_OUTPUT_DIR)
+    
+    safe = os.path.basename(filename)
+    if not safe:
+        raise HTTPException(status_code=400, detail="非法文件名")
+    
+    path = os.path.normpath(os.path.join(_OUTPUT_DIR, safe))
     abs_path = os.path.abspath(path)
-    if abs_path != abs_output and not abs_path.startswith(abs_output + os.sep):
+    
+    if not abs_path.startswith(_OUTPUT_DIR + os.sep):
         raise HTTPException(status_code=400, detail="非法路径")
+    
     if not os.path.isfile(path):
         raise HTTPException(status_code=404, detail="文件不存在")
+    
     return FileResponse(path, filename=safe)

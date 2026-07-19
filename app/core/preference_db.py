@@ -20,7 +20,6 @@ import uuid
 import os
 import logging
 from typing import Dict, Any, Optional, List
-from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -203,7 +202,7 @@ class PreferenceDB:
             if fields:
                 cursor.execute(f'''
                     UPDATE users SET {", ".join(fields)} WHERE user_id = ?
-                ''', values)
+                ''', values)  # nosec B608 - fields are hardcoded whitelist
                 
                 conn.commit()
             
@@ -450,7 +449,7 @@ class PreferenceDB:
             if fields:
                 cursor.execute(f'''
                     UPDATE dialog_sessions SET {", ".join(fields)} WHERE session_id = ?
-                ''', values)
+                ''', values)  # nosec B608 - fields are hardcoded whitelist
                 
                 conn.commit()
             

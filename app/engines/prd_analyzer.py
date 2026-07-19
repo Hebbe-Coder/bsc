@@ -13,7 +13,6 @@ PRD Analyzer - PRD智能解析器
 """
 from __future__ import annotations
 import re
-import json
 import logging
 from typing import Dict, List, Any, Optional
 

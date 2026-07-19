@@ -16,7 +16,7 @@
 from __future__ import annotations
 import json
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, List
 
 logger = logging.getLogger(__name__)
 

@@ -17,10 +17,8 @@ Key improvements in v3.0:
 Every element is dynamically generated from business_system data.
 """
 import json
-import uuid
 import datetime
-import html
-from typing import Dict, Any, List, Optional
+from typing import Dict, List, Optional
 
 from exporters._degrade_ctx import DegradeContext
 

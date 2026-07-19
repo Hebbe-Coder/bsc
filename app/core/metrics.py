@@ -20,7 +20,7 @@ import threading
 import os
 import uuid
 import logging
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any
 from collections import defaultdict
 
 logger = logging.getLogger(__name__)
@@ -395,103 +395,103 @@ class MetricsStore:
         metrics = self.get_metrics()
         lines = []
         
-        lines.append(f"# HELP bsc_uptime_seconds Service uptime in seconds")
-        lines.append(f"# TYPE bsc_uptime_seconds gauge")
+        lines.append("# HELP bsc_uptime_seconds Service uptime in seconds")
+        lines.append("# TYPE bsc_uptime_seconds gauge")
         lines.append(f"bsc_uptime_seconds {metrics['uptime_sec']}")
         
-        lines.append(f"\n# HELP bsc_total_requests Total requests")
-        lines.append(f"# TYPE bsc_total_requests counter")
+        lines.append("\n# HELP bsc_total_requests Total requests")
+        lines.append("# TYPE bsc_total_requests counter")
         lines.append(f"bsc_total_requests {metrics['total_requests']}")
         
-        lines.append(f"\n# HELP bsc_total_errors Total errors")
-        lines.append(f"# TYPE bsc_total_errors counter")
+        lines.append("\n# HELP bsc_total_errors Total errors")
+        lines.append("# TYPE bsc_total_errors counter")
         lines.append(f"bsc_total_errors {metrics['total_errors']}")
         
-        lines.append(f"\n# HELP bsc_total_llm_calls Total LLM calls")
-        lines.append(f"# TYPE bsc_total_llm_calls counter")
+        lines.append("\n# HELP bsc_total_llm_calls Total LLM calls")
+        lines.append("# TYPE bsc_total_llm_calls counter")
         lines.append(f"bsc_total_llm_calls {metrics['total_llm_calls']}")
         
-        lines.append(f"\n# HELP bsc_total_agent_executions Total agent executions")
-        lines.append(f"# TYPE bsc_total_agent_executions counter")
+        lines.append("\n# HELP bsc_total_agent_executions Total agent executions")
+        lines.append("# TYPE bsc_total_agent_executions counter")
         lines.append(f"bsc_total_agent_executions {metrics['total_agent_executions']}")
         
         for status_code, count in metrics["requests_by_status"].items():
-            lines.append(f"\n# HELP bsc_requests_by_status_total Requests by status code")
-            lines.append(f"# TYPE bsc_requests_by_status_total counter")
+            lines.append("\n# HELP bsc_requests_by_status_total Requests by status code")
+            lines.append("# TYPE bsc_requests_by_status_total counter")
             lines.append(f"bsc_requests_by_status_total{{status=\"{status_code}\"}} {count}")
         
         for error_type, count in metrics["errors_by_type"].items():
-            lines.append(f"\n# HELP bsc_errors_by_type_total Errors by type")
-            lines.append(f"# TYPE bsc_errors_by_type_total counter")
+            lines.append("\n# HELP bsc_errors_by_type_total Errors by type")
+            lines.append("# TYPE bsc_errors_by_type_total counter")
             lines.append(f"bsc_errors_by_type_total{{error_type=\"{error_type}\"}} {count}")
         
         for endpoint, stats in metrics["endpoints"].items():
             endpoint_label = f'endpoint="{endpoint}"'
             
-            lines.append(f"\n# HELP bsc_request_duration_ms Request duration in milliseconds")
-            lines.append(f"# TYPE bsc_request_duration_ms histogram")
+            lines.append("\n# HELP bsc_request_duration_ms Request duration in milliseconds")
+            lines.append("# TYPE bsc_request_duration_ms histogram")
             lines.append(f"bsc_request_duration_ms{{{endpoint_label},stat=\"min\"}} {stats['min']}")
             lines.append(f"bsc_request_duration_ms{{{endpoint_label},stat=\"max\"}} {stats['max']}")
             lines.append(f"bsc_request_duration_ms{{{endpoint_label},stat=\"avg\"}} {stats['avg']}")
             lines.append(f"bsc_request_duration_ms{{{endpoint_label},stat=\"p95\"}} {stats['p95']}")
             lines.append(f"bsc_request_duration_ms{{{endpoint_label},stat=\"p99\"}} {stats['p99']}")
             
-            lines.append(f"\n# HELP bsc_requests_total Total requests per endpoint")
-            lines.append(f"# TYPE bsc_requests_total counter")
+            lines.append("\n# HELP bsc_requests_total Total requests per endpoint")
+            lines.append("# TYPE bsc_requests_total counter")
             lines.append(f"bsc_requests_total{{{endpoint_label}}} {stats['total_requests']}")
             
-            lines.append(f"\n# HELP bsc_error_rate Error rate per endpoint")
-            lines.append(f"# TYPE bsc_error_rate gauge")
+            lines.append("\n# HELP bsc_error_rate Error rate per endpoint")
+            lines.append("# TYPE bsc_error_rate gauge")
             lines.append(f"bsc_error_rate{{{endpoint_label}}} {stats['error_rate']}")
         
         for llm_key, stats in metrics["llm"].items():
             llm_label = f'llm="{llm_key}"'
             
-            lines.append(f"\n# HELP bsc_llm_call_duration_ms LLM call duration in milliseconds")
-            lines.append(f"# TYPE bsc_llm_call_duration_ms histogram")
+            lines.append("\n# HELP bsc_llm_call_duration_ms LLM call duration in milliseconds")
+            lines.append("# TYPE bsc_llm_call_duration_ms histogram")
             lines.append(f"bsc_llm_call_duration_ms{{{llm_label},stat=\"min\"}} {stats['min']}")
             lines.append(f"bsc_llm_call_duration_ms{{{llm_label},stat=\"max\"}} {stats['max']}")
             lines.append(f"bsc_llm_call_duration_ms{{{llm_label},stat=\"avg\"}} {stats['avg']}")
             
-            lines.append(f"\n# HELP bsc_llm_calls_total Total LLM calls per provider/model")
-            lines.append(f"# TYPE bsc_llm_calls_total counter")
+            lines.append("\n# HELP bsc_llm_calls_total Total LLM calls per provider/model")
+            lines.append("# TYPE bsc_llm_calls_total counter")
             lines.append(f"bsc_llm_calls_total{{{llm_label}}} {stats['total_calls']}")
         
         for agent_key, stats in metrics["agents"].items():
             agent_label = f'agent="{agent_key}"'
             
-            lines.append(f"\n# HELP bsc_agent_execution_duration_ms Agent execution duration in milliseconds")
-            lines.append(f"# TYPE bsc_agent_execution_duration_ms histogram")
+            lines.append("\n# HELP bsc_agent_execution_duration_ms Agent execution duration in milliseconds")
+            lines.append("# TYPE bsc_agent_execution_duration_ms histogram")
             lines.append(f"bsc_agent_execution_duration_ms{{{agent_label},stat=\"min\"}} {stats['min']}")
             lines.append(f"bsc_agent_execution_duration_ms{{{agent_label},stat=\"max\"}} {stats['max']}")
             lines.append(f"bsc_agent_execution_duration_ms{{{agent_label},stat=\"avg\"}} {stats['avg']}")
             
-            lines.append(f"\n# HELP bsc_agent_executions_total Total agent executions")
-            lines.append(f"# TYPE bsc_agent_executions_total counter")
+            lines.append("\n# HELP bsc_agent_executions_total Total agent executions")
+            lines.append("# TYPE bsc_agent_executions_total counter")
             lines.append(f"bsc_agent_executions_total{{{agent_label}}} {stats['total_executions']}")
             
-            lines.append(f"\n# HELP bsc_agent_error_rate Agent error rate")
-            lines.append(f"# TYPE bsc_agent_error_rate gauge")
+            lines.append("\n# HELP bsc_agent_error_rate Agent error rate")
+            lines.append("# TYPE bsc_agent_error_rate gauge")
             lines.append(f"bsc_agent_error_rate{{{agent_label}}} {stats['error_rate']}")
         
         for stage_key, stats in metrics["pipeline_stages"].items():
             stage_label = f'stage="{stage_key}"'
             
-            lines.append(f"\n# HELP bsc_pipeline_stage_duration_ms Pipeline stage duration in milliseconds")
-            lines.append(f"# TYPE bsc_pipeline_stage_duration_ms histogram")
+            lines.append("\n# HELP bsc_pipeline_stage_duration_ms Pipeline stage duration in milliseconds")
+            lines.append("# TYPE bsc_pipeline_stage_duration_ms histogram")
             lines.append(f"bsc_pipeline_stage_duration_ms{{{stage_label},stat=\"min\"}} {stats['min']}")
             lines.append(f"bsc_pipeline_stage_duration_ms{{{stage_label},stat=\"max\"}} {stats['max']}")
             lines.append(f"bsc_pipeline_stage_duration_ms{{{stage_label},stat=\"avg\"}} {stats['avg']}")
             
-            lines.append(f"\n# HELP bsc_pipeline_stage_executions_total Total pipeline stage executions")
-            lines.append(f"# TYPE bsc_pipeline_stage_executions_total counter")
+            lines.append("\n# HELP bsc_pipeline_stage_executions_total Total pipeline stage executions")
+            lines.append("# TYPE bsc_pipeline_stage_executions_total counter")
             lines.append(f"bsc_pipeline_stage_executions_total{{{stage_label}}} {stats['total_executions']}")
         
         for mode, stats in metrics["pipeline_executions"].items():
             mode_label = f'mode="{mode}"'
             
-            lines.append(f"\n# HELP bsc_pipeline_execution_duration_ms Pipeline execution duration in milliseconds")
-            lines.append(f"# TYPE bsc_pipeline_execution_duration_ms histogram")
+            lines.append("\n# HELP bsc_pipeline_execution_duration_ms Pipeline execution duration in milliseconds")
+            lines.append("# TYPE bsc_pipeline_execution_duration_ms histogram")
             lines.append(f"bsc_pipeline_execution_duration_ms{{{mode_label},stat=\"min\"}} {stats['min']}")
             lines.append(f"bsc_pipeline_execution_duration_ms{{{mode_label},stat=\"max\"}} {stats['max']}")
             lines.append(f"bsc_pipeline_execution_duration_ms{{{mode_label},stat=\"avg\"}} {stats['avg']}")
@@ -499,33 +499,33 @@ class MetricsStore:
         for cache_type, stats in metrics["cache"].items():
             cache_label = f'cache="{cache_type}"'
             
-            lines.append(f"\n# HELP bsc_cache_hits_total Total cache hits")
-            lines.append(f"# TYPE bsc_cache_hits_total counter")
+            lines.append("\n# HELP bsc_cache_hits_total Total cache hits")
+            lines.append("# TYPE bsc_cache_hits_total counter")
             lines.append(f"bsc_cache_hits_total{{{cache_label}}} {stats['hits']}")
             
-            lines.append(f"\n# HELP bsc_cache_misses_total Total cache misses")
-            lines.append(f"# TYPE bsc_cache_misses_total counter")
+            lines.append("\n# HELP bsc_cache_misses_total Total cache misses")
+            lines.append("# TYPE bsc_cache_misses_total counter")
             lines.append(f"bsc_cache_misses_total{{{cache_label}}} {stats['misses']}")
             
-            lines.append(f"\n# HELP bsc_cache_hit_rate Cache hit rate")
-            lines.append(f"# TYPE bsc_cache_hit_rate gauge")
+            lines.append("\n# HELP bsc_cache_hit_rate Cache hit rate")
+            lines.append("# TYPE bsc_cache_hit_rate gauge")
             lines.append(f"bsc_cache_hit_rate{{{cache_label}}} {stats['hit_rate']}")
         
         system = metrics["system"]
-        lines.append(f"\n# HELP bsc_system_cpu_percent CPU usage percentage")
-        lines.append(f"# TYPE bsc_system_cpu_percent gauge")
+        lines.append("\n# HELP bsc_system_cpu_percent CPU usage percentage")
+        lines.append("# TYPE bsc_system_cpu_percent gauge")
         lines.append(f"bsc_system_cpu_percent {system['cpu_percent']}")
         
-        lines.append(f"\n# HELP bsc_system_memory_mb Memory usage in MB")
-        lines.append(f"# TYPE bsc_system_memory_mb gauge")
+        lines.append("\n# HELP bsc_system_memory_mb Memory usage in MB")
+        lines.append("# TYPE bsc_system_memory_mb gauge")
         lines.append(f"bsc_system_memory_mb {system['memory_mb']}")
         
-        lines.append(f"\n# HELP bsc_system_thread_count Thread count")
-        lines.append(f"# TYPE bsc_system_thread_count gauge")
+        lines.append("\n# HELP bsc_system_thread_count Thread count")
+        lines.append("# TYPE bsc_system_thread_count gauge")
         lines.append(f"bsc_system_thread_count {system['thread_count']}")
         
-        lines.append(f"\n# HELP bsc_system_open_files Open file count")
-        lines.append(f"# TYPE bsc_system_open_files gauge")
+        lines.append("\n# HELP bsc_system_open_files Open file count")
+        lines.append("# TYPE bsc_system_open_files gauge")
         lines.append(f"bsc_system_open_files {system['open_files']}")
         
         return "\n".join(lines)

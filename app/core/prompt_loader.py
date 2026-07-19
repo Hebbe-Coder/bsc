@@ -3,7 +3,6 @@
 import os as _os
 import json as _json
 from functools import lru_cache
-from typing import Optional
 
 _PROMPT_DIR = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))), "prompts")
 

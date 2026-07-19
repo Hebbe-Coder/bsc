@@ -4,6 +4,7 @@
 远程 embedding 失败 → 抛出 → 本后端捕获降级为空（不把 mock 向量误标入库）。
 """
 from __future__ import annotations
+import hashlib
 import logging
 from typing import List, Optional
 
@@ -13,20 +14,49 @@ from app.knowledge.embeddings import EmbeddingProvider, get_embedding_provider
 
 logger = logging.getLogger(__name__)
 
+_CACHE_SIZE = 1000
+
 
 class VectorBackend:
     def __init__(self, repo, provider: Optional[EmbeddingProvider] = None):
         self.repo = repo
         self._provider = provider
+        self._cache = {}
+        self._cache_order = []
+        self._vector_cache = {}
 
     def _get_provider(self) -> EmbeddingProvider:
         if self._provider is None:
             self._provider = get_embedding_provider()
         return self._provider
 
+    def _clear_cache(self):
+        self._cache.clear()
+        self._cache_order.clear()
+        self._vector_cache.clear()
+
+    def _cache_get(self, key: str):
+        if key in self._cache:
+            idx = self._cache_order.index(key)
+            self._cache_order.pop(idx)
+            self._cache_order.insert(0, key)
+            return self._cache[key]
+        return None
+
+    def _cache_set(self, key: str, value):
+        if key in self._cache:
+            idx = self._cache_order.index(key)
+            self._cache_order.pop(idx)
+        elif len(self._cache_order) >= _CACHE_SIZE:
+            oldest = self._cache_order.pop()
+            self._cache.pop(oldest)
+        self._cache_order.insert(0, key)
+        self._cache[key] = value
+
     def index(self, chunk_records: List[dict]) -> None:
         if not chunk_records:
             return
+        self._clear_cache()
         try:
             provider = self._get_provider()
         except Exception as e:
@@ -36,7 +66,6 @@ class VectorBackend:
             texts = [r.get("content", "") for r in chunk_records]
             vectors = provider.embed(texts)
         except Exception as e:
-            # 远程失败：抛出由此处捕获，本次不写向量（向量后端为空），不影响其他后端
             logger.warning("vector embed 失败(整批跳过): %s", e)
             return
         rows = []
@@ -58,12 +87,19 @@ class VectorBackend:
     def search(self, query: str, project_id: Optional[str] = None, limit: int = 20) -> List[str]:
         if not query or not query.strip():
             return []
+        
+        cache_key = hashlib.md5(f"{query}|{project_id}|{limit}".encode()).hexdigest()
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
+        
         try:
             provider = self._get_provider()
             qv = np.asarray(provider.embed([query])[0], dtype=np.float64)
         except Exception as e:
             logger.warning("vector 检索失败(返回空): %s", e)
             return []
+        
         sql = ("SELECT v.chunk_id, v.vector FROM knowledge_vectors v "
                "JOIN knowledge_chunks c ON v.chunk_id=c.id "
                "WHERE v.model=?")
@@ -73,7 +109,9 @@ class VectorBackend:
             params.append(project_id)
         rows = self.repo._execute(sql, tuple(params)).fetchall()
         if not rows:
+            self._cache_set(cache_key, [])
             return []
+        
         qnorm = np.linalg.norm(qv)
         scored = []
         for r in rows:
@@ -89,8 +127,11 @@ class VectorBackend:
                     scored.append((r["chunk_id"], sim))
             except Exception:
                 continue
+        
         scored.sort(key=lambda x: -x[1])
-        return [cid for cid, _ in scored[:limit]]
+        result = [cid for cid, _ in scored[:limit]]
+        self._cache_set(cache_key, result)
+        return result
 
     def reindex_stale(self, project_id: Optional[str] = None) -> int:
         """清除 model 与当前 provider 不一致的陈旧向量行，返回清除数量。

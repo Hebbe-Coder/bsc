@@ -6,7 +6,6 @@
 - BSCPipeline: 完整流程执行、缓存验证、阶段执行
 - 异常处理: 错误格式化、异常回退机制
 """
-import pytest
 from app.core.config import settings
 
 
@@ -400,7 +399,7 @@ class TestThreadSafety:
 
     def test_llm_service_factory(self):
         """测试LLM服务工厂"""
-        from app.core.llm_service import LLMServiceFactory
+        from app.services.llm_service import LLMServiceFactory
         
         factory = LLMServiceFactory()
         

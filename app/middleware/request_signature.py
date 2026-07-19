@@ -30,26 +30,20 @@ logger = logging.getLogger(__name__)
 class RequestSignatureMiddleware(BaseHTTPMiddleware):
     """请求签名验证中间件"""
     
-    _WHITELIST_PATHS = {
-        "/health", "/docs", "/redoc", "/openapi.json",
-        "/metrics", "/metrics/prometheus",
-    }
-    
     def __init__(self, app):
         super().__init__(app)
-        self._enabled = settings.SIGNATURE_ENABLED
+        self._enabled = settings.effective_signature_enabled if hasattr(settings, 'effective_signature_enabled') else False
         self._ttl = settings.SIGNATURE_TTL
     
     def _is_whitelisted(self, path: str) -> bool:
         """检查路径是否在白名单中"""
-        if path in self._WHITELIST_PATHS:
+        whitelist_paths = settings.AUTH_WHITELIST_PATHS if hasattr(settings, 'AUTH_WHITELIST_PATHS') else ['/health', '/docs', '/openapi.json', '/agent/']
+        whitelist_prefixes = settings.AUTH_WHITELIST_PREFIXES if hasattr(settings, 'AUTH_WHITELIST_PREFIXES') else ['/health', '/docs', '/openapi', '/agent', '/static']
+        if path in whitelist_paths:
             return True
-        if path.startswith("/dashboard"):
-            return True
-        if path.startswith("/static"):
-            return True
-        if path.startswith("/output"):
-            return True
+        for prefix in whitelist_prefixes:
+            if path.startswith(prefix):
+                return True
         if path.startswith("/api/files"):
             return True
         return False
@@ -77,8 +71,8 @@ class RequestSignatureMiddleware(BaseHTTPMiddleware):
         ).hexdigest()
     
     def _compute_body_md5(self, body: bytes) -> str:
-        """计算请求体MD5"""
-        return hashlib.md5(body).hexdigest()
+        """计算请求体MD5（用于内容标识，非安全用途）"""
+        return hashlib.md5(body, usedforsecurity=False).hexdigest()
     
     async def dispatch(self, request: Request, call_next):
         if not self._enabled:

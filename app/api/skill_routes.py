@@ -1,8 +1,7 @@
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Query
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, AsyncGenerator
-import time
 import asyncio
 import json
 import uuid
@@ -64,13 +63,11 @@ class SkillExecutionResponse(BaseModel):
 def generate_cache_key(skill_id: str, params: dict) -> str:
     params_str = json.dumps(params, sort_keys=True, ensure_ascii=False)
     combined = f"{skill_id}:{params_str}"
-    return hashlib.md5(combined.encode('utf-8')).hexdigest()
+    return hashlib.sha256(combined.encode('utf-8')).hexdigest()
 
 
 async def execute_skill_async(execution_id: str, skill_id: str, params: Dict[str, Any], 
                               provider: str, model_name: str, use_cache: bool = True):
-    start_time = time.time()
-    
     try:
         cache = get_cache_service()
         
@@ -111,8 +108,6 @@ async def execute_skill_async(execution_id: str, skill_id: str, params: Dict[str
 
 async def stream_skill_output(execution_id: str, skill_id: str, params: Dict[str, Any],
                                provider: str, model_name: str) -> AsyncGenerator[str, None]:
-    start_time = time.time()
-    
     try:
         chain_class = CHAIN_REGISTRY.get(skill_id)
         if not chain_class:

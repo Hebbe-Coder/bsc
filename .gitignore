@@ -46,3 +46,4 @@ build/
 # ---- SQLite runtime artifacts (WAL/SHM sidecars, regenerated every run) ----
 *.db-wal
 *.db-shm
+nul

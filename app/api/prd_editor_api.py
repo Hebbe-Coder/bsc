@@ -2,7 +2,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any
 import logging
 import asyncio
 import json
@@ -347,8 +347,10 @@ async def preview(session_id: str):
         EditorSessionManager.register_listener(session_id, queue)
         
         try:
-            html = document.to_html()
-            yield f"data: {json.dumps({'type': 'preview_update', 'data': {'html': html}})}\n\n"
+            doc = EditorSessionManager.get_document(session_id)
+            if doc:
+                html = doc.to_html()
+                yield f"data: {json.dumps({'type': 'preview_update', 'data': {'html': html}})}\n\n"
             
             while True:
                 message = await queue.get()
@@ -356,10 +358,10 @@ async def preview(session_id: str):
                     break
                 
                 parsed = json.loads(message)
-                document = EditorSessionManager.get_document(session_id)
+                doc = EditorSessionManager.get_document(session_id)
                 
-                if document and parsed.get("type") in ["section_updated", "section_added", "section_deleted", "sections_reordered", "batch_updated"]:
-                    html = document.to_html()
+                if doc and parsed.get("type") in ["section_updated", "section_added", "section_deleted", "sections_reordered", "batch_updated"]:
+                    html = doc.to_html()
                     yield f"data: {json.dumps({'type': 'preview_update', 'data': {'html': html, 'change_type': parsed['type']}})}\n\n"
                 else:
                     yield f"data: {message}\n\n"

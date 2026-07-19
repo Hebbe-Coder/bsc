@@ -1,8 +1,8 @@
-import sys, os, tempfile
+import sys
+import os
+import tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from app.repositories.knowledge_repository import KnowledgeRepository
-from app.knowledge.schema import ensure_schema
 from app.knowledge.service import KnowledgeService
 from app.knowledge.backends.vector import VectorBackend
 from app.knowledge.embeddings import EmbeddingProvider

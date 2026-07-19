@@ -11,7 +11,6 @@ Implements token bucket algorithm per IP and API key.
 from __future__ import annotations
 import time
 import asyncio
-from collections import defaultdict
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -47,11 +46,6 @@ class TokenBucket:
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """Rate limiting middleware with per-IP and per-API-key buckets."""
-    
-    _WHITELIST_PATHS = {
-        "/health", "/docs", "/redoc", "/openapi.json",
-        "/metrics", "/metrics/prometheus",
-    }
     
     _PATH_RATE_LIMITS = {
         "/bsc/compile": {"rate": 10, "burst": 20},
@@ -107,14 +101,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     
     def _is_whitelisted(self, path: str) -> bool:
         """检查路径是否在白名单中"""
-        if path in self._WHITELIST_PATHS:
+        whitelist_paths = settings.AUTH_WHITELIST_PATHS if hasattr(settings, 'AUTH_WHITELIST_PATHS') else ['/health', '/docs', '/openapi.json', '/agent/']
+        whitelist_prefixes = settings.AUTH_WHITELIST_PREFIXES if hasattr(settings, 'AUTH_WHITELIST_PREFIXES') else ['/health', '/docs', '/openapi', '/agent', '/static']
+        if path in whitelist_paths:
             return True
-        if path.startswith("/dashboard"):
-            return True
-        if path.startswith("/static"):
-            return True
-        if path.startswith("/output"):
-            return True
+        for prefix in whitelist_prefixes:
+            if path.startswith(prefix):
+                return True
         if path.startswith("/api/files"):
             return True
         return False

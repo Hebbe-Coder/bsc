@@ -1,7 +1,8 @@
-import sys, os, tempfile
+import sys
+import os
+import tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import numpy as np
 from app.repositories.knowledge_repository import KnowledgeRepository
 from app.knowledge.schema import ensure_schema
 from app.knowledge.backends.vector import VectorBackend

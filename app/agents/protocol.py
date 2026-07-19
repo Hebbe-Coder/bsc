@@ -3,12 +3,11 @@
 This module now uses the unified agent interface from unified_agent.py
 to ensure type consistency across the entire system.
 '''
-from typing import Any, Optional, List
 
 from app.agents.unified_agent import UnifiedBaseAgent, AgentContext, AgentResult
 
 
-class BaseAgent(UnifiedBaseAgent):
+class StudioBaseAgent(UnifiedBaseAgent):
     '''Base agent class for BSC Studio v3 specialized agents.
     
     Subclasses override on_generate and/or on_analyze.

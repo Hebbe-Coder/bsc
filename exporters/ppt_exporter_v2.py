@@ -31,8 +31,10 @@ except ImportError:
     Presentation = Inches = Pt = Emu = RGBColor = PP_ALIGN = None
     MSO_SHAPE = FillFormat = OxmlElement = None
     _PPTX_OK = False
-import os, uuid, datetime
-from typing import Dict, Any, List, Optional
+import os
+import uuid
+import datetime
+from typing import Dict, List
 import tempfile
 
 

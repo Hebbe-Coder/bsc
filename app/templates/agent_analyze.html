@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Business Agent OS | ADR-010</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0d1117;--card:#161b22;--border:#30363d;--text:#c9d1d9;--muted:#8b949e;--blue:#58a6ff;--green:#3fb950;--red:#f85149;--orange:#d2991d;--purple:#bc8cff;--input:#0d1117;--hover:#1c2129;--accent-bg:#1f6feb22;--accent-border:#1f6feb44}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);min-height:100vh;line-height:1.5}
+.layout{display:flex;min-height:100vh}
+.sidebar{width:260px;background:var(--card);border-right:1px solid var(--border);padding:24px 16px;display:flex;flex-direction:column;flex-shrink:0;position:sticky;top:0;height:100vh}
+.logo{display:flex;align-items:center;gap:10px;margin-bottom:32px}
+.logo-icon{width:36px;height:36px;background:linear-gradient(135deg,#58a6ff,#bc8cff);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:900;color:#fff}
+.logo-text{font-size:16px;font-weight:700;color:var(--text);line-height:1.2}
+.logo-sub{font-size:11px;color:var(--muted);font-weight:400}
+.nav-item{padding:10px 12px;border-radius:8px;margin-bottom:4px;cursor:pointer;font-size:14px;color:var(--muted);transition:.15s;display:flex;align-items:center;gap:8px}
+.nav-item:hover{background:var(--hover);color:var(--text)}
+.nav-item.active{background:var(--accent-bg);color:var(--blue);border:1px solid var(--accent-border)}
+.nav-icon{font-size:16px;width:20px;text-align:center}
+.badge-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:auto;padding-top:16px;border-top:1px solid var(--border)}
+.badge{font-size:11px;padding:3px 8px;border-radius:12px;background:var(--accent-bg);color:var(--blue);border:1px solid var(--accent-border);white-space:nowrap}
+.main{flex:1;padding:32px;overflow-y:auto;max-height:100vh}
+.header{margin-bottom:28px}
+.header h1{font-size:26px;color:var(--text);margin-bottom:4px}
+.header .desc{color:var(--muted);font-size:14px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.panel{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.panel-header{padding:14px 18px;border-bottom:1px solid var(--border);font-weight:600;font-size:14px;display:flex;align-items:center;gap:8px;color:var(--text)}
+.panel-body{padding:18px}
+.full-width{grid-column:1/-1}
+textarea{width:100%;min-height:180px;background:var(--input);border:1px solid var(--border);border-radius:8px;padding:14px;color:var(--text);font-family:"Cascadia Code","Fira Code",monospace;font-size:13px;resize:vertical;line-height:1.6}
+textarea:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px #1f6feb33}
+.controls{display:flex;gap:12px;flex-wrap:wrap;margin-top:14px;align-items:center}
+select{background:var(--input);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:13px;cursor:pointer;min-width:120px}
+select:focus{outline:none;border-color:var(--blue)}
+label.toggle{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text);cursor:pointer;user-select:none}
+label.toggle input[type=checkbox]{appearance:none;width:36px;height:20px;background:var(--border);border-radius:10px;position:relative;cursor:pointer;transition:.2s}
+label.toggle input[type=checkbox]::after{content:"";position:absolute;width:16px;height:16px;background:var(--muted);border-radius:50%;top:2px;left:2px;transition:.2s}
+label.toggle input[type=checkbox]:checked{background:var(--green)}
+label.toggle input[type=checkbox]:checked::after{left:18px;background:#fff}
+.btn{background:var(--green);color:#fff;border:none;padding:10px 24px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:.15s;display:inline-flex;align-items:center;gap:8px;white-space:nowrap}
+.btn:hover:not(:disabled){background:#2ea043}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-outline{background:transparent;border:1px solid var(--border);color:var(--text)}
+.btn-outline:hover{background:var(--hover)}
+.spinner{width:16px;height:16px;border:2px solid #fff3;border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite;display:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading .spinner{display:block}
+.loading .btn-text{display:none}
+#status-bar{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px 18px;margin-top:14px;font-size:13px;display:none}
+#status-bar.show{display:flex;align-items:center;gap:10px}
+#status-bar.running{color:var(--orange)}
+#status-bar.done{color:var(--green)}
+#status-bar.error{color:var(--red)}
+.status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.running .status-dot{background:var(--orange);animation:pulse 1s infinite}
+.done .status-dot{background:var(--green)}
+.error .status-dot{background:var(--red)}
+@keyframes pulse{50%{opacity:.4}}
+.results{margin-top:20px}
+.stat-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+.stat-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;text-align:center}
+.stat-value{font-size:28px;font-weight:700}
+.stat-value.blue{color:var(--blue)}
+.stat-value.green{color:var(--green)}
+.stat-value.orange{color:var(--orange)}
+.stat-value.purple{color:var(--purple)}
+.stat-label{font-size:11px;color:var(--muted);margin-top:4px;text-transform:uppercase;letter-spacing:.5px}
+.report-section{margin-bottom:20px}
+.report-section h3{font-size:15px;color:var(--blue);margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+.gap-box{background:var(--input);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px}
+.gap-box .gap-type{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-right:8px}
+.gap-type.missing{background:#f8514922;color:var(--red);border:1px solid #f8514944}
+.gap-type.analysis{background:#d2991d22;color:var(--orange);border:1px solid #d2991d44}
+.gap-type.evidence{background:#bc8cff22;color:var(--purple);border:1px solid #bc8cff44}
+.board-bar{display:flex;align-items:center;gap:10px;padding:12px 16px;border-radius:8px;margin-top:8px}
+.board-bar.approve{background:#3fb95022;border:1px solid #3fb95044;color:var(--green)}
+.board-bar.revise{background:#d2991d22;border:1px solid #d2991d44;color:var(--orange)}
+.board-bar.reject{background:#f8514922;border:1px solid #f8514944;color:var(--red)}
+.vote-role{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:3px 8px;border-radius:6px;background:var(--input);margin:2px}
+.empty{text-align:center;padding:60px 20px;color:var(--muted)}
+.empty .icon{font-size:48px;margin-bottom:12px}
+.tabs{display:flex;gap:2px;margin-bottom:16px;border-bottom:1px solid var(--border)}
+.tab{padding:8px 16px;font-size:13px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;transition:.15s}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--blue);border-bottom-color:var(--blue)}
+.tab-content{display:none}
+.tab-content.active{display:block}
+pre.code-block{white-space:pre-wrap;word-wrap:break-word;color:var(--text);font-family:"Cascadia Code","Fira Code",monospace;font-size:12px;background:var(--input);padding:12px;border-radius:6px;max-height:400px;overflow-y:auto}
+@media(max-width:800px){.sidebar{display:none}.grid{grid-template-columns:1fr}.stat-cards{grid-template-columns:repeat(2,1fr)}.main{padding:16px}}
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar">
+<div class="logo"><div class="logo-icon">B</div><div><div class="logo-text">Business Agent OS</div><div class="logo-sub">ADR-010 Architecture</div></div></div>
+<div class="nav-item active" data-panel="analyze"><span class="nav-icon">&#9889;</span>Analyze</div>
+<div class="nav-item" data-panel="results"><span class="nav-icon">&#128202;</span>Results</div>
+<div class="nav-item" data-panel="docs"><span class="nav-icon">&#128214;</span>API Docs</div>
+<div class="badge-row">
+<span class="badge">12 Capabilities</span>
+<span class="badge">DeepSeek Ready</span>
+<span class="badge">Multi-Agent Board</span>
+<span class="badge">Mission Planner</span>
+<span class="badge">Reflection Loop</span>
+</div>
+</aside>
+<main class="main" id="main">
+<div class="header"><h1>Business Agent OS</h1><p class="desc">Autonomous business reasoning runtime powered by Nanobot Kernel + BSC Brain</p></div>
+<div class="grid" id="analyze-panel">
+<div class="panel full-width">
+<div class="panel-header">&#128221; Input PRD / Business Description</div>
+<div class="panel-body">
+<textarea id="prd-input" placeholder="Paste your PRD, business plan, or project description here...
+
+Example:
+# AI SaaS Business Plan
+## Target
+- Build an AI-powered customer analytics platform for retail SMBs
+- Monthly subscription model with tiered pricing
+- Target 1000 paying customers in first year..."></textarea>
+<div class="controls">
+<select id="mode-select"><option value="llm">LLM Mode (DeepSeek)</option><option value="template">Template Mode</option><option value="static">Static Mode (Fast)</option></select>
+<select id="domain-select"><option value="">Auto-detect Domain</option><option value="retail">Retail</option><option value="saas">SaaS</option><option value="fintech">FinTech</option><option value="healthcare">Healthcare</option><option value="education">Education</option><option value="logistics">Logistics</option><option value="manufacturing">Manufacturing</option></select>
+<label class="toggle"><input type="checkbox" id="board-toggle"><span>Multi-Agent Board Review</span></label>
+<button class="btn" id="analyze-btn" onclick="runAnalysis()"><span class="btn-text">&#9889; Run Analysis</span><span class="spinner"></span></button>
+</div>
+<div id="status-bar"><span class="status-dot"></span><span id="status-text"></span></div>
+</div>
+</div>
+</div>
+<div id="results-panel" style="display:none">
+<div class="tabs" id="result-tabs">
+<div class="tab active" data-tab="summary">Summary</div>
+<div class="tab" data-tab="artifacts">Artifacts</div>
+<div class="tab" data-tab="gaps">Gaps</div>
+<div class="tab" data-tab="board">Board Verdict</div>
+<div class="tab" data-tab="raw">Raw JSON</div>
+</div>
+<div class="tab-content active" id="tab-summary"><div class="stat-cards" id="stat-cards"></div><div class="panel"><div class="panel-header">&#128220; Mission Overview</div><div class="panel-body" id="mission-info"></div></div></div>
+<div class="tab-content" id="tab-artifacts"></div>
+<div class="tab-content" id="tab-gaps"></div>
+<div class="tab-content" id="tab-board"></div>
+<div class="tab-content" id="tab-raw"></div>
+</div>
+<div id="empty-state" class="empty"><div class="icon">&#9878;</div><h2>Ready to analyze</h2><p style="color:var(--muted);margin-top:8px">Enter your PRD and click "Run Analysis" to start the Agent OS pipeline.</p></div>
+</main>
+</div>
+<script>
+let lastResult=null;
+function setStatus(text,cls){
+  var b=document.getElementById("status-bar");
+  b.className="show "+cls;
+  document.getElementById("status-text").textContent=text;
+}
+function clearStatus(){document.getElementById("status-bar").className="";}
+async function runAnalysis(){
+  var prd=document.getElementById("prd-input").value.trim();
+  if(!prd){alert("Please enter PRD text first.");return}
+  var btn=document.getElementById("analyze-btn");
+  btn.classList.add("loading");btn.disabled=true;
+  document.getElementById("empty-state").style.display="none";
+  document.getElementById("results-panel").style.display="block";
+  document.getElementById("analyze-panel").style.display="none";
+  switchTab("summary");
+  setStatus("Planning mission & executing capabilities...","running");
+  try{
+    var resp=await fetch("/agent/analyze",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        input:prd,
+        mode:document.getElementById("mode-select").value,
+        domain:document.getElementById("domain-select").value,
+        board:document.getElementById("board-toggle").checked
+      })
+    });
+    if(!resp.ok)throw new Error("Server returned "+resp.status);
+    var data=await resp.json();
+    lastResult=data;
+    setStatus("Analysis complete! "+data.artifacts+" artifacts, "+data.gaps+" gaps found.","done");
+    renderResults(data);
+  }catch(e){
+    setStatus("Error: "+e.message,"error");
+    console.error(e);
+  }
+  btn.classList.remove("loading");btn.disabled=false;
+}
+function renderResults(d){
+  var sc=document.getElementById("stat-cards");
+  sc.innerHTML=
+    '<div class="stat-card"><div class="stat-value blue">'+d.artifacts+'</div><div class="stat-label">Artifacts</div></div>'+
+    '<div class="stat-card"><div class="stat-value orange">'+d.gaps+'</div><div class="stat-label">Gaps Found</div></div>'+
+    '<div class="stat-card"><div class="stat-value green">'+(d.mission&&d.mission.steps?d.mission.steps:0)+'</div><div class="stat-label">Mission Steps</div></div>'+
+    '<div class="stat-card"><div class="stat-value purple">'+(d.board_verdict||"N/A")+'</div><div class="stat-label">Board Verdict</div></div>';
+  document.getElementById("mission-info").innerHTML=
+    '<p><strong>Mission:</strong> '+(d.mission&&d.mission.title?d.mission.title:"N/A")+'</p>'+
+    '<p><strong>Mode:</strong> '+(d.mission&&d.mission.planning_mode?d.mission.planning_mode:"N/A")+'</p>'+
+    '<p><strong>Status:</strong> <span style="color:var(--green)">'+d.status+'</span></p>';
+
+  var report=d.report||{};
+  var icons={BusinessModel:"&#128188;",Assumption:"&#128270;",Risk:"&#9888;",Constraint:"&#128274;",Coverage:"&#128200;",Gap:"&#128065;",Decision:"&#9989;",Evidence:"&#128209;"};
+  var artHtml="";
+  for(var k in report){
+    if(report.hasOwnProperty(k)&&typeof report[k]==="object"&&report[k]!==null){
+      artHtml+='<div class="panel" style="margin-bottom:10px"><div class="panel-header">'+(icons[k]||"&#128196;")+" "+k+'</div><div class="panel-body"><pre class="code-block">'+JSON.stringify(report[k],null,2)+'</pre></div></div>';
+    }
+  }
+  if(!artHtml)artHtml='<div class="empty"><p style="color:var(--muted)">No artifacts generated yet.</p></div>';
+  document.getElementById("tab-artifacts").innerHTML=artHtml;
+
+  var gapHtml="";
+  if(d.gap_details&&d.gap_details.length){
+    gapHtml='<div class="panel full-width"><div class="panel-header">&#128065; '+d.gap_details.length+' Gaps Detected</div><div class="panel-body">';
+    for(var i=0;i<d.gap_details.length;i++){
+      var g=d.gap_details[i];
+      gapHtml+='<div class="gap-box"><strong>'+g.description+'</strong><br><span class="gap-type '+(g.category||"analysis")+'">'+(g.category||"N/A")+'</span><span style="font-size:12px;color:var(--muted)">'+(g.severity||"")+'</span></div>';
+    }
+    gapHtml+='</div></div>';
+  }else{
+    gapHtml='<div class="empty"><p style="color:var(--green)">&#9989; No gaps found - analysis is comprehensive.</p></div>';
+  }
+  document.getElementById("tab-gaps").innerHTML=gapHtml;
+
+  var boardHtml="";
+  if(d.board_verdict){
+    var bCls=d.board_verdict==="APPROVED"?"approve":d.board_verdict==="REVISE"?"revise":"reject";
+    boardHtml='<div class="board-bar '+bCls+'"><strong>'+d.board_verdict+'</strong> - '+d.board_consensus+'</div>';
+    if(d.board_votes)for(var r in d.board_votes)boardHtml+='<span class="vote-role">'+r+': '+d.board_votes[r]+'</span>';
+  }else{
+    boardHtml='<div class="empty"><p style="color:var(--muted)">Board review was not enabled. Check "Multi-Agent Board Review" and re-run.</p></div>';
+  }
+  document.getElementById("tab-board").innerHTML=boardHtml;
+
+  document.getElementById("tab-raw").innerHTML='<div class="panel full-width"><div class="panel-body"><pre class="code-block">'+JSON.stringify(d,null,2)+'</pre></div></div>';
+  document.getElementById("empty-state").style.display="none";
+  document.getElementById("results-panel").style.display="block";
+  document.getElementById("analyze-panel").style.display="none";
+}
+function switchTab(name){
+  document.querySelectorAll(".tab").forEach(function(t){t.classList.toggle("active",t.dataset.tab===name)});
+  document.querySelectorAll(".tab-content").forEach(function(t){t.classList.toggle("active",t.id==="tab-"+name)});
+}
+function showPanel(name){
+  document.querySelectorAll(".nav-item").forEach(function(x){x.classList.remove("active")});
+  if(name==="analyze"){
+    document.querySelector('.nav-item[data-panel="analyze"]').classList.add("active");
+    document.getElementById("analyze-panel").style.display="";
+    document.getElementById("results-panel").style.display="none";
+    document.getElementById("empty-state").style.display="";
+  }else if(name==="results"){
+    document.querySelector('.nav-item[data-panel="results"]').classList.add("active");
+    if(lastResult)renderResults(lastResult);
+    else{alert("No results yet. Run an analysis first.");showPanel("analyze");return}
+  }else if(name==="docs"){
+    window.open("/docs","_blank");
+    return;
+  }
+}
+document.addEventListener("DOMContentLoaded",function(){
+  document.querySelectorAll(".tab").forEach(function(t){t.addEventListener("click",function(){switchTab(this.dataset.tab)})});
+  document.querySelectorAll(".nav-item").forEach(function(n){n.addEventListener("click",function(){showPanel(this.dataset.panel)})});
+});
+</script>
+</body>
+</html>

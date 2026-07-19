@@ -1,10 +1,9 @@
 """PM Report API - 产品经理专业报告接口"""
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any, Union
 import logging
-import os
 import uuid
 import json
 

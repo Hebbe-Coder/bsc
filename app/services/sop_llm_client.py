@@ -192,20 +192,52 @@ class SOPLLMClient:
 
     def _mock_content(self, system_prompt: str) -> str:
         sp = system_prompt.lower()
+        if "query rewrite" in sp or "查询改写" in system_prompt or "expanded_queries" in sp:
+            return json.dumps(
+                {
+                    "expanded_queries": ["扩展查询1", "扩展查询2", "扩展查询3"],
+                    "intent": "general",
+                    "keywords": ["关键词1", "关键词2"],
+                    "sub_queries": [],
+                    "rewritten_query": "扩展查询1 扩展查询2 扩展查询3",
+                },
+                ensure_ascii=False,
+            )
         if "optimization_suggestions" in sp or "优化建议" in system_prompt:
             return json.dumps(
                 {
                     "optimization_suggestions": [
                         {
                             "id": "opt_001",
-                            "title": "（离线mock）流程自动化",
-                            "description": "针对重复性步骤引入自动化工具",
+                            "title": "风险缓解方案制定",
+                            "description": "当前识别到高风险项，建议优先制定针对性缓解方案，建立风险预警机制。",
+                            "priority": "高",
+                            "estimated_impact": "降低运营风险",
+                            "implementation_steps": ["风险评估", "方案设计", "措施实施", "效果跟踪"],
+                            "related_risks": ["流程步骤超时", "数据安全泄露"],
+                        },
+                        {
+                            "id": "opt_002",
+                            "title": "流程自动化优化",
+                            "description": "针对高频重复性步骤引入自动化工具，预计节省人力成本60%。",
                             "priority": "高",
                             "estimated_impact": "节省人力成本",
-                            "implementation_steps": ["识别步骤", "选工具", "实施"],
-                        }
+                            "implementation_steps": ["识别高频步骤", "选择自动化工具", "试点实施", "推广落地"],
+                        },
+                        {
+                            "id": "opt_003",
+                            "title": "建立SLA监控预警机制",
+                            "description": "开发流程执行监控看板，实时跟踪SLA达成情况，缩短问题响应时间。",
+                            "priority": "中",
+                            "estimated_impact": "提升流程可预测性",
+                            "implementation_steps": ["定义关键指标", "开发监控面板", "配置预警规则", "培训推广"],
+                        },
                     ],
-                    "prioritized_actions": [{"action": "（离线mock）实施自动化", "timeline": "1-2个月"}],
+                    "prioritized_actions": [
+                        {"action": "优先处理风险缓解，当前有高风险需立即关注", "timeline": "1-2周", "priority": "紧急"},
+                        {"action": "实施流程自动化，提升效率降低成本", "timeline": "1-2个月", "priority": "高"},
+                        {"action": "建立SLA监控预警机制", "timeline": "2-3个月", "priority": "中"},
+                    ],
                 },
                 ensure_ascii=False,
             )

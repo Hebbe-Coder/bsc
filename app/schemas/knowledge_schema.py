@@ -1,9 +1,9 @@
-﻿"""Business Knowledge Center Schema - formal Pydantic models for the knowledge graph."""
+"""Business Knowledge Center Schema - formal Pydantic models for the knowledge graph."""
 from __future__ import annotations
 from pydantic import BaseModel, Field
-from typing import Optional
 from enum import Enum
-import uuid, time
+import uuid
+import time
 
 # ── Enums ──
 

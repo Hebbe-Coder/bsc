@@ -23,7 +23,6 @@ Event Bus - 事件驱动架构
 """
 import asyncio
 import logging
-import json
 from typing import Dict, Callable, List, Optional, Any
 from datetime import datetime
 

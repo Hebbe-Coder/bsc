@@ -16,7 +16,7 @@ def _export_word_sync(business_system: dict):
     from exporters.word_exporter import WordExporter
     import base64
     
-    logger.info(f"Starting Word export task")
+    logger.info("Starting Word export task")
     
     try:
         exporter = WordExporter()
@@ -24,11 +24,11 @@ def _export_word_sync(business_system: dict):
         
         content_base64 = base64.b64encode(word_bytes).decode('utf-8')
         
-        logger.info(f"Word export task completed")
+        logger.info("Word export task completed")
         return {
             "content_base64": content_base64,
             "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "filename": f"业务系统分析报告.docx",
+            "filename": "业务系统分析报告.docx",
         }
     except Exception as e:
         logger.error(f"Word export task failed: {e}")
@@ -40,7 +40,7 @@ def _export_pdf_sync(business_system: dict):
     from exporters.pdf_exporter import PDFExporter
     import base64
     
-    logger.info(f"Starting PDF export task")
+    logger.info("Starting PDF export task")
     
     try:
         exporter = PDFExporter()
@@ -48,11 +48,11 @@ def _export_pdf_sync(business_system: dict):
         
         content_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
         
-        logger.info(f"PDF export task completed")
+        logger.info("PDF export task completed")
         return {
             "content_base64": content_base64,
             "mime_type": "application/pdf",
-            "filename": f"业务系统分析报告.pdf",
+            "filename": "业务系统分析报告.pdf",
         }
     except Exception as e:
         logger.error(f"PDF export task failed: {e}")
@@ -63,17 +63,17 @@ def _export_markdown_sync(business_system: dict):
     """同步执行Markdown导出"""
     from exporters.markdown_exporter import MarkdownExporter
     
-    logger.info(f"Starting Markdown export task")
+    logger.info("Starting Markdown export task")
     
     try:
         exporter = MarkdownExporter()
         content = exporter.export(business_system)
         
-        logger.info(f"Markdown export task completed")
+        logger.info("Markdown export task completed")
         return {
             "content": content,
             "mime_type": "text/markdown",
-            "filename": f"业务系统分析报告.md",
+            "filename": "业务系统分析报告.md",
         }
     except Exception as e:
         logger.error(f"Markdown export task failed: {e}")
