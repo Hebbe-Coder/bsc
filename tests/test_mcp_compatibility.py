@@ -10,9 +10,8 @@ from app.mcp import server
 def test_profile_reports_only_real_transport_support():
     profile = build_compatibility_profile(api_key_configured=True)
 
-    assert profile.transports_supported == ["stdio"]
-    assert "streamable_http" in profile.transports_unsupported
-    assert "sse" in profile.transports_unsupported
+    assert profile.transports_supported == ["stdio", "streamable_http", "sse"]
+    assert profile.transports_unsupported == {}
     assert profile.auth["api_key_configured"] is True
     assert profile.auth["oauth"]["supported"] is False
     assert profile.isolation["mode"] == "subprocess_per_call"
@@ -55,6 +54,6 @@ def test_fastmcp_profile_tool_exposes_the_typed_profile(monkeypatch):
 
     payload = server.bsc_mcp_compatibility_profile()
 
-    assert payload["adapter"] == "bsc-fastmcp-stdio"
-    assert payload["transports_supported"] == ["stdio"]
+    assert payload["adapter"] == "bsc-mcp-stdio-http-sse"
+    assert "streamable_http" in payload["transports_supported"]
     assert payload["auth"]["api_key_configured"] is True

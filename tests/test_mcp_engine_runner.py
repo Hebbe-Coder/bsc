@@ -104,3 +104,17 @@ def test_windows_engine_process_is_not_started_suspended(monkeypatch):
     assert captured["assigned"] == (99, 1)
     assert captured["closed"] == 99
     assert captured["creationflags"] == server.subprocess.CREATE_NEW_PROCESS_GROUP
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows Job Object behavior")
+def test_windows_default_job_limit_runs_domain_analyzer(monkeypatch):
+    monkeypatch.delenv("BSC_MCP_MAX_MEM_MB", raising=False)
+
+    result = server._run_engine_subprocess(
+        "analyze",
+        {"text": "Finance risk control workflow approval KPI monitoring"},
+        timeout=30,
+    )
+
+    assert result["domain_name"]
+    assert result["department"]

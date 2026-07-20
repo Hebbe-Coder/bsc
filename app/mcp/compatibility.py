@@ -32,24 +32,21 @@ class McpToolResult(BaseModel):
 
 
 class McpCompatibilityProfile(BaseModel):
-    adapter: str = "bsc-fastmcp-stdio"
+    adapter: str = "bsc-mcp-stdio-http-sse"
     jsonrpc_version: str = "2.0"
     protocol_methods: list[str] = Field(
         default_factory=lambda: ["initialize", "tools/list", "tools/call"]
     )
-    transports_supported: list[str] = Field(default_factory=lambda: ["stdio"])
-    transports_unsupported: dict[str, str] = Field(
-        default_factory=lambda: {
-            "streamable_http": "No HTTP transport adapter is registered",
-            "sse": "No SSE transport adapter is registered",
-        }
+    transports_supported: list[str] = Field(
+        default_factory=lambda: ["stdio", "streamable_http", "sse"]
     )
+    transports_unsupported: dict[str, str] = Field(default_factory=dict)
     content_blocks_supported: list[str] = Field(
         default_factory=lambda: ["text", "image", "resource", "error"]
     )
     auth: dict[str, Any] = Field(
         default_factory=lambda: {
-            "supported_modes": ["api_key"],
+            "supported_modes": ["api_key", "bearer_token"],
             "oauth": {"supported": False, "reason": "No OAuth client flow is registered"},
         }
     )

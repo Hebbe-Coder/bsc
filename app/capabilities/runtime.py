@@ -18,7 +18,7 @@ import inspect
 import time
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 from app.artifacts.store import ArtifactGraphStore
 from app.artifacts.types import (
@@ -114,6 +114,7 @@ class BusinessRuntime:
         executor: Optional[CapabilityExecutor] = None,
         executor_backend: str = "local",
         execution_context: Optional[dict[str, Any]] = None,
+        event_sink: Optional[Callable[[dict[str, Any]], Awaitable[None] | None]] = None,
     ):
         self.store = store
         self.registry = registry
@@ -126,6 +127,7 @@ class BusinessRuntime:
         self._memory: Optional[BusinessMemory] = None
         self._agent_pool = None
         self._execution_context = dict(execution_context or {})
+        self._event_sink = event_sink
 
     @property
     def agent_pool(self):
@@ -271,6 +273,14 @@ class BusinessRuntime:
             return
 
         logger.info("Executing: %s → %s", step.step_id, step.capability_name)
+        terminal_event_emitted = False
+        await self._emit_runtime_event({
+            "kind": "capability",
+            "status": "started",
+            "capability_name": cap.name,
+            "step_id": step.step_id,
+            "iteration": state.iteration,
+        })
 
         # Try direct callable first
         if cap.executor_fn:
@@ -305,8 +315,26 @@ class BusinessRuntime:
                     # Try to deserialize into correct artifact type
                     self._persist_dict_result(result, cap, project_id)
                 self._stage_modes[cap.name] = "compatibility"
+                await self._emit_runtime_event({
+                    "kind": "capability",
+                    "status": "completed",
+                    "capability_name": cap.name,
+                    "step_id": step.step_id,
+                    "iteration": state.iteration,
+                    "execution": invocation.execution.model_dump(mode="json"),
+                })
+                terminal_event_emitted = True
             except Exception as exc:
                 logger.error("Executor failed for %s: %s", cap.name, exc)
+                if not terminal_event_emitted:
+                    await self._emit_runtime_event({
+                        "kind": "capability",
+                        "status": "failed",
+                        "capability_name": cap.name,
+                        "step_id": step.step_id,
+                        "iteration": state.iteration,
+                        "error": str(exc),
+                    })
                 raise RuntimeError(f"capability failed: {cap.name}") from exc
             return
 
@@ -322,12 +350,48 @@ class BusinessRuntime:
                 self._stage_modes[cap.name] = result.mode or "real"
                 logger.info("Executor: %s produced %d artifacts via %s",
                             cap.name, len(result.artifacts_produced), result.backend)
+                await self._emit_runtime_event({
+                    "kind": "capability",
+                    "status": "completed",
+                    "capability_name": cap.name,
+                    "step_id": step.step_id,
+                    "iteration": state.iteration,
+                    "execution": result.model_dump(mode="json"),
+                })
+                terminal_event_emitted = True
             else:
                 logger.warning("Executor failed for %s: %s", cap.name, result.error)
+                await self._emit_runtime_event({
+                    "kind": "capability",
+                    "status": "failed",
+                    "capability_name": cap.name,
+                    "step_id": step.step_id,
+                    "iteration": state.iteration,
+                    "execution": result.model_dump(mode="json"),
+                    "error": result.error,
+                })
+                terminal_event_emitted = True
                 raise RuntimeError(f"capability failed: {cap.name}: {result.error}")
         except Exception as exc:
             logger.error("Executor error for %s: %s", cap.name, exc)
+            if not terminal_event_emitted:
+                await self._emit_runtime_event({
+                    "kind": "capability",
+                    "status": "failed",
+                    "capability_name": cap.name,
+                    "step_id": step.step_id,
+                    "iteration": state.iteration,
+                    "error": str(exc),
+                })
             raise
+
+    async def _emit_runtime_event(self, event: dict[str, Any]) -> None:
+        """Send live lifecycle data without coupling runtime to SSE transport."""
+        if self._event_sink is None:
+            return
+        result = self._event_sink(event)
+        if inspect.isawaitable(result):
+            await result
 
     def _record_capability_execution(self, result: ExecutionResult) -> None:
         self._capability_executions.append(result.model_dump(mode="json"))

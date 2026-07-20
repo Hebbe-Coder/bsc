@@ -1,6 +1,6 @@
-export const API_BASE = import.meta.env.NODE_ENV === 'development' 
-  ? 'http://localhost:8000' 
-  : '/';
+// Keep browser requests same-origin. Vite proxies /api in development and the
+// FastAPI application serves the production bundle, so this works in both modes.
+export const API_BASE = import.meta.env.VITE_API_BASE || '';
 
 export const API_TIMEOUT = 60000;
 

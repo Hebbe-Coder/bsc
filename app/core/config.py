@@ -15,7 +15,13 @@ class Settings(BaseSettings):
     APP_HOST: str = "0.0.0.0"
     APP_PORT: int = 8000
 
-    ALLOWED_ORIGINS: List[str] = ["http://localhost:8000", "http://localhost:3000", "http://127.0.0.1:8000"]
+    ALLOWED_ORIGINS: List[str] = [
+        "http://localhost:8000",
+        "http://localhost:3000",
+        "http://127.0.0.1:8000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
 
     RATE_LIMIT_RATE: int = 30
     RATE_LIMIT_BURST: int = 60

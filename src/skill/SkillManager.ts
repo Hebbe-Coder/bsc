@@ -4,6 +4,7 @@ import { apiFetch } from '../api/fetchWrapper';
 
 class SkillManager {
   private skills: Map<string, SkillConstructor> = new Map();
+  private remoteSkills: Map<string, SkillConfig> = new Map();
   private executions: Map<string, SkillExecution> = new Map();
   private listeners: Map<string, Set<(execution: SkillExecution) => void>> = new Map();
 
@@ -26,7 +27,15 @@ class SkillManager {
   }
 
   getAllSkills(): SkillConfig[] {
-    return Array.from(this.skills.values()).map(SkillClass => new SkillClass().getConfig());
+    const merged = new Map<string, SkillConfig>();
+    this.skills.forEach(SkillClass => {
+      const config = new SkillClass().getConfig();
+      merged.set(config.id, config);
+    });
+    this.remoteSkills.forEach(config => {
+      merged.set(config.id, { ...merged.get(config.id), ...config });
+    });
+    return Array.from(merged.values());
   }
 
   getSkillsByCategory(category: SkillConfig['category']): SkillConfig[] {
@@ -55,7 +64,35 @@ class SkillManager {
     try {
       const skillInstance = this.getSkillInstance(skillId);
       if (!skillInstance) {
-        throw new Error(`Skill ${skillId} not found`);
+        const remoteSkill = this.remoteSkills.get(skillId);
+        if (!remoteSkill || remoteSkill.executable === false) {
+          throw new Error(`Skill ${skillId} not found or not executable`);
+        }
+        const response = await apiFetch(`${API_BASE}/api/skill/execute`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            skill_id: skillId,
+            params: { ...context, ...(params || {}) },
+            streaming: false,
+            use_cache: true,
+          }),
+        });
+        if (!response.ok) throw new Error(`Skill execution failed: ${response.status}`);
+        const started = await response.json() as { execution_id: string };
+        const completed = await this.pollRemoteExecution(started.execution_id);
+        execution.status = completed.status === 'completed' ? 'completed' : 'failed';
+        execution.progress = execution.status === 'completed' ? 100 : 0;
+        execution.result = {
+          success: execution.status === 'completed',
+          data: { result: completed.result },
+          error: execution.status === 'failed' ? completed.result : undefined,
+          logs: [],
+        };
+        execution.endTime = new Date();
+        this.executions.set(executionId, execution);
+        this.notifyListeners(executionId, execution);
+        return execution;
       }
 
       if (onProgress) {
@@ -205,15 +242,60 @@ class SkillManager {
     };
   }
 
-  async fetchSkillsFromBackend(): Promise<void> {
+  async fetchSkillsFromBackend(): Promise<SkillConfig[]> {
     try {
       const response = await apiFetch(`${API_BASE}/api/skill/list`);
-      const skills = await response.json();
-
-      console.log('Fetched skills from backend:', skills.length);
+      if (!response.ok) throw new Error(`Skill discovery failed: ${response.status}`);
+      const manifests = await response.json() as Array<{
+        id: string;
+        name: string;
+        description: string;
+        source: 'builtin' | 'project';
+        version: string;
+        executable: boolean;
+        inputs?: Array<{ name: string; type?: string; required?: boolean; description?: string }>;
+        outputs?: Array<{ name: string }>;
+      }>;
+      this.remoteSkills.clear();
+      manifests.forEach(manifest => {
+        this.remoteSkills.set(manifest.id, {
+          id: manifest.id,
+          name: manifest.name,
+          description: manifest.description,
+          icon: 'Sparkles',
+          category: 'analysis',
+          requires: [],
+          produces: (manifest.outputs || []).map(output => output.name),
+          params: (manifest.inputs || []).map(input => ({
+            name: input.name,
+            type: input.type === 'number' || input.type === 'boolean'
+              ? input.type
+              : 'string',
+            required: input.required !== false,
+            description: input.description || '',
+          })),
+          source: manifest.source,
+          version: manifest.version,
+          executable: manifest.executable,
+        });
+      });
+      return this.getAllSkills();
     } catch (error) {
       console.error('Failed to fetch skills from backend:', error);
+      return this.getAllSkills();
     }
+  }
+
+  private async pollRemoteExecution(executionId: string): Promise<{ status: string; result?: string }> {
+    const deadline = Date.now() + 60_000;
+    while (Date.now() < deadline) {
+      const response = await apiFetch(`${API_BASE}/api/skill/execution/${executionId}`);
+      if (!response.ok) throw new Error(`Skill status failed: ${response.status}`);
+      const execution = await response.json() as { status: string; result?: string };
+      if (execution.status === 'completed' || execution.status === 'failed') return execution;
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+    throw new Error('Skill execution timed out');
   }
 }
 

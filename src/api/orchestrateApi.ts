@@ -5,6 +5,16 @@ export interface StartOrchestrateResponse {
   status: JobStatus;
   status_url: string;
   events_url: string;
+  context_policy: ContextPolicy;
+  parent_session_id: string | null;
+}
+
+export type ContextPolicy = 'fresh' | 'fork' | 'resume';
+
+export interface StartOrchestrateOptions {
+  contextPolicy?: ContextPolicy;
+  parentSessionId?: string;
+  projectId?: string;
 }
 
 export interface OrchestratorEvent {
@@ -15,6 +25,7 @@ export interface OrchestratorEvent {
     | 'stage.started'
     | 'stage.completed'
     | 'stage.loopback'
+    | 'capability.started'
     | 'capability.completed'
     | 'capability.failed'
     | 'pipeline.completed'
@@ -30,11 +41,17 @@ export interface OrchestratorEvent {
 
 export async function startOrchestrate(
   idea: string,
+  options: StartOrchestrateOptions = {},
 ): Promise<StartOrchestrateResponse> {
   const response = await apiFetch('/api/orchestrate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ idea }),
+    body: JSON.stringify({
+      idea,
+      context_policy: options.contextPolicy || 'fresh',
+      parent_session_id: options.parentSessionId || undefined,
+      project_id: options.projectId || undefined,
+    }),
   });
   if (!response.ok) {
     throw new Error(`orchestrate failed: ${response.status}`);
@@ -66,6 +83,7 @@ export function subscribeStream(
     'stage.started',
     'stage.completed',
     'stage.loopback',
+    'capability.started',
     'capability.completed',
     'capability.failed',
     'pipeline.completed',

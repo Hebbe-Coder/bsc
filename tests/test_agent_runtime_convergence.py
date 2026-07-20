@@ -325,6 +325,51 @@ def test_business_runtime_passes_prd_text_to_capability_executor(tmp_path):
     }
 
 
+def test_business_runtime_emits_capability_events_while_executing(tmp_path):
+    from app.artifacts import ArtifactGraphStore
+    from app.capabilities.executor import ExecutionResult
+    from app.capabilities.planner import MissionGraph, MissionStep
+    from app.capabilities.registry import Capability, CapabilityRegistry
+    from app.capabilities.runtime import BusinessRuntime
+
+    events = []
+
+    class FakePlanner:
+        async def plan(self, prd_text, domain_hint="", goals=None):
+            return MissionGraph(
+                mission_id="live-events",
+                mission="live_events",
+                title="Live Events",
+                steps=[MissionStep(step_id="s1", capability_name="live_capability")],
+                required_capabilities=["live_capability"],
+                planning_mode="template",
+            )
+
+    class FakeExecutor:
+        async def execute(self, capability, input_text="", project_id=""):
+            assert events[-1]["status"] == "started"
+            return ExecutionResult(
+                capability_name=capability.name,
+                status="success",
+                backend="fake",
+            )
+
+    registry = CapabilityRegistry()
+    registry.register(Capability(name="live_capability"))
+    runtime = BusinessRuntime(
+        store=ArtifactGraphStore(str(tmp_path)),
+        registry=registry,
+        planner=FakePlanner(),
+        executor=FakeExecutor(),
+        event_sink=lambda event: events.append(event),
+    )
+
+    asyncio.run(runtime.run("live input", project_id="project-live"))
+
+    assert [event["status"] for event in events] == ["started", "completed"]
+    assert events[1]["execution"]["backend"] == "fake"
+
+
 def test_runtime_response_projects_capability_execution_metadata(tmp_path):
     from app.artifacts import ArtifactGraphStore
     from app.capabilities.runner import _runtime_result_to_agent_response

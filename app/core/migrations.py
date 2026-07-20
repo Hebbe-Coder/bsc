@@ -124,6 +124,29 @@ def _create_or_upgrade_runtime_tables(database: Any) -> None:
            ON orchestrator_events (tenant_id, project_id, session_id, seq)"""
     )
 
+    database.execute(
+        """CREATE TABLE IF NOT EXISTS skill_executions (
+            execution_id TEXT PRIMARY KEY,
+            skill_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            result TEXT,
+            error TEXT NOT NULL DEFAULT '',
+            streaming INTEGER NOT NULL DEFAULT 0,
+            params TEXT NOT NULL DEFAULT '{}',
+            provider TEXT NOT NULL DEFAULT '',
+            model_name TEXT NOT NULL DEFAULT '',
+            from_cache INTEGER NOT NULL DEFAULT 0,
+            manifest_revision TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT
+        )"""
+    )
+    database.execute(
+        """CREATE INDEX IF NOT EXISTS idx_skill_executions_skill_created
+           ON skill_executions (skill_id, created_at)"""
+    )
+
     # Legacy repositories also use this configured backend. These tables are
     # additive so a clean checkout and an upgraded installation share a schema.
     database.execute(

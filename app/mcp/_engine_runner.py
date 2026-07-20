@@ -15,7 +15,7 @@ mode:
     ask       -> 知识库 RAG 问答，返回 answer / citations / 降级标记
 
 资源限制：
-    BSC_MCP_MAX_MEM_MB - 最大内存限制（默认512MB）
+    BSC_MCP_MAX_MEM_MB - 最大内存限制（默认1024MB）
     BSC_MCP_TIMEOUT_SEC - 超时时间（默认600秒）
 
 默认使用 .env 中配置的真实提供方（deepseek 等已充值）；

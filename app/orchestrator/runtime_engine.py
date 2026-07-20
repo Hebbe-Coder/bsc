@@ -79,6 +79,10 @@ class RuntimeOrchestratorEngine:
             "running",
             "BusinessRuntime started",
             event_type=EventType.PIPELINE_STARTED,
+            data={
+                "context_policy": context_policy,
+                "inherited_items": len(context_items or []),
+            },
         )
 
         try:
@@ -102,34 +106,67 @@ class RuntimeOrchestratorEngine:
                 runner_kwargs["context_policy"] = context_policy
             if _accepts_keyword(self.runner, "context_items"):
                 runner_kwargs["context_items"] = context_items or []
-            result = await self.runner(**runner_kwargs)
-            for index, execution in enumerate(
-                _list(_dict(result.get("runtime")).get("capability_executions"))
-            ):
-                capability = _dict(execution)
-                capability_name = str(
-                    capability.get("capability_name") or f"capability-{index + 1}"
-                )
-                capability_status = str(capability.get("status") or "completed")
-                failed = capability_status in {"failed", "error", "timeout"}
+            live_capability_events = 0
+
+            async def emit_runtime_event(event: dict[str, Any]) -> None:
+                nonlocal live_capability_events
+                if event.get("kind") != "capability":
+                    return
+                live_capability_events += 1
+                status = str(event.get("status") or "running")
+                if status == "started":
+                    event_type = EventType.CAPABILITY_STARTED
+                elif status in {"failed", "error", "timeout"}:
+                    event_type = EventType.CAPABILITY_FAILED
+                else:
+                    event_type = EventType.CAPABILITY_COMPLETED
+                capability_name = str(event.get("capability_name") or "capability")
                 await self._emit(
                     session_id,
                     capability_name,
-                    capability_status,
-                    capability.get("error")
-                    or f"{capability_name} {capability_status}",
-                    event_type=(
-                        EventType.CAPABILITY_FAILED
-                        if failed
-                        else EventType.CAPABILITY_COMPLETED
-                    ),
+                    status,
+                    str(event.get("error") or f"{capability_name} {status}"),
+                    event_type=event_type,
                     data={
                         "kind": "capability",
                         "parent_stage": "runtime",
-                        "capability_index": index,
-                        "execution": capability,
+                        "step_id": event.get("step_id", ""),
+                        "iteration": event.get("iteration", 0),
+                        "execution": event.get("execution", {}),
                     },
                 )
+
+            if _accepts_keyword(self.runner, "event_sink"):
+                runner_kwargs["event_sink"] = emit_runtime_event
+            result = await self.runner(**runner_kwargs)
+            if live_capability_events == 0:
+                for index, execution in enumerate(
+                    _list(_dict(result.get("runtime")).get("capability_executions"))
+                ):
+                    capability = _dict(execution)
+                    capability_name = str(
+                        capability.get("capability_name") or f"capability-{index + 1}"
+                    )
+                    capability_status = str(capability.get("status") or "completed")
+                    failed = capability_status in {"failed", "error", "timeout"}
+                    await self._emit(
+                        session_id,
+                        capability_name,
+                        capability_status,
+                        capability.get("error")
+                        or f"{capability_name} {capability_status}",
+                        event_type=(
+                            EventType.CAPABILITY_FAILED
+                            if failed
+                            else EventType.CAPABILITY_COMPLETED
+                        ),
+                        data={
+                            "kind": "capability",
+                            "parent_stage": "runtime",
+                            "capability_index": index,
+                            "execution": capability,
+                        },
+                    )
             state = runtime_response_to_project_state(
                 session_id=session_id,
                 idea=idea,

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import threading
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from app.artifacts import ArtifactGraphStore
 from app.capabilities import (
@@ -54,6 +55,7 @@ async def run_business_runtime(
     context_policy: ContextPolicy | str = ContextPolicy.FRESH,
     context_items: list[ContextItem | dict[str, Any]] | None = None,
     context_max_tokens: int = 12_000,
+    event_sink: Callable[[dict[str, Any]], Awaitable[None] | None] | None = None,
 ) -> dict[str, Any]:
     """Execute the shared BusinessRuntime and map it to the Agent OS API shape."""
     scoped_project_id = project_id.strip() if project_id else new_project_id()
@@ -72,12 +74,17 @@ async def run_business_runtime(
     )
     registry = build_default_registry()
     planner = MissionPlanner(registry=registry, mode=mode)
+    runtime_kwargs = {
+        "store": store,
+        "registry": registry,
+        "planner": planner,
+        "max_iterations": max_iterations,
+        "executor_backend": executor_backend,
+    }
+    if event_sink is not None and _accepts_keyword(BusinessRuntime, "event_sink"):
+        runtime_kwargs["event_sink"] = event_sink
     runtime = BusinessRuntime(
-        store=store,
-        registry=registry,
-        planner=planner,
-        max_iterations=max_iterations,
-        executor_backend=executor_backend,
+        **runtime_kwargs,
     )
 
     context_packet = ContextManager(max_tokens=context_max_tokens).build(
@@ -352,6 +359,14 @@ def _safe_path_segment(value: str) -> str:
         for ch in value.strip()
     )
     return (safe[:96] or "default")
+
+
+def _accepts_keyword(callable_obj, keyword: str) -> bool:
+    parameters = inspect.signature(callable_obj).parameters.values()
+    return any(
+        parameter.name == keyword or parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters
+    )
 
 
 def _run_awaitable_sync(awaitable):

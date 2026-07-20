@@ -58,6 +58,8 @@ _MOCK_PROVIDERS = [
 
 _MCP_API_KEY = os.environ.get("MCP_API_KEY") or ""
 _SETTINGS_API_KEY_CACHE = None
+_DEFAULT_MAX_MEMORY_MB = 1024
+_DEFAULT_MAX_CPU_SECONDS = 600
 
 
 class MCPExecutionError(RuntimeError):
@@ -140,8 +142,8 @@ def _get_windows_job_object():
     if not job_handle:
         return None
     
-    max_mem_mb = int(os.environ.get("BSC_MCP_MAX_MEM_MB", "512"))
-    max_cpu_sec = int(os.environ.get("BSC_MCP_MAX_CPU_SEC", str(600)))
+    max_mem_mb = int(os.environ.get("BSC_MCP_MAX_MEM_MB", str(_DEFAULT_MAX_MEMORY_MB)))
+    max_cpu_sec = int(os.environ.get("BSC_MCP_MAX_CPU_SEC", str(_DEFAULT_MAX_CPU_SECONDS)))
     
     class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
         _fields_ = [
@@ -209,7 +211,7 @@ def _run_engine_subprocess(mode: str, payload: dict, timeout: float = 600) -> di
     else:
         try:
             import resource
-            max_mem_mb = int(os.environ.get("BSC_MCP_MAX_MEM_MB", "512"))
+            max_mem_mb = int(os.environ.get("BSC_MCP_MAX_MEM_MB", str(_DEFAULT_MAX_MEMORY_MB)))
             max_cpu_sec = int(os.environ.get("BSC_MCP_MAX_CPU_SEC", str(timeout)))
             
             def limit_resources():
@@ -284,6 +286,18 @@ def _run_engine_subprocess(mode: str, payload: dict, timeout: float = 600) -> di
                 "terminated",
                 "engine subprocess was terminated",
                 stderr=stderr[-2000:],
+            )
+        if job_handle and not child_error and not stderr.strip():
+            max_mem_mb = int(
+                os.environ.get("BSC_MCP_MAX_MEM_MB", str(_DEFAULT_MAX_MEMORY_MB))
+            )
+            raise MCPExecutionError(
+                mode,
+                "worker_terminated",
+                (
+                    f"engine subprocess exited with code {returncode} before producing "
+                    f"output under the Windows Job Object (memory limit: {max_mem_mb}MB)"
+                ),
             )
         raise MCPExecutionError(
             mode,

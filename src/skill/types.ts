@@ -12,6 +12,9 @@ export interface SkillConfig {
   requires: string[];
   produces: string[];
   params: SkillParam[];
+  source?: 'builtin' | 'project';
+  version?: string;
+  executable?: boolean;
 }
 
 export interface SkillParam {

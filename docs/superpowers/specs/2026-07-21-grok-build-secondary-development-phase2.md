@@ -1,4 +1,4 @@
-# Grok Build Secondary Development Phase 2
+# Grok Build Secondary Development Phase 2-4
 
 **Status:** Implemented and verified
 **Date:** 2026-07-21
@@ -28,6 +28,23 @@
 - The state flow is `Input/ACP event -> Action -> reducer -> Effect ->
   TaskResult -> Action`; rendering never owns runtime work.
 
+### Product interaction and visual language
+
+- The pager keeps a dedicated prompt strip, scrollback, contextual shortcuts,
+  overlays, queues, task panes, and optional timeline in one stateful layout.
+  Input does not disappear when runtime activity changes.
+- `AgentView::draw` computes layout from current state and delegates rendering
+  to focused widgets. Its explicit prompt height, terminal-size handling,
+  viewport/timeline rules, and focused-input state are a behavioral contract,
+  not a decorative TUI pattern.
+- The GrokNight theme is a neutral grayscale ramp with deliberate semantic
+  accents: blue/cyan for navigation and live state, green for success, amber
+  for warnings, and rose/red for errors. It avoids broad gradient surfaces.
+- The PTY suite verifies queueing, interjection, selection, resize, focus,
+  prompt input, scrolling, modal dismissal, and streaming behavior. The BSC
+  browser workspace therefore needs observable state and browser acceptance,
+  not screenshot-only styling.
+
 ### Context management
 
 - `xai-chat-state` is an actor with exclusive mutable conversation state,
@@ -49,10 +66,11 @@
   symlink escape checks. Installation and discovery are separate operations.
 - `xai-hooks-plugins-types` is the typed component contract; hooks and skills
   are discoverable data until an execution policy explicitly enables them.
-- BSC's current `SkillManager` is a useful client-side execution coordinator,
-  but backend `/api/skill/list` is still a hardcoded list and its execution
-  state is process-local. Phase 2 adds manifest discovery and provenance while
-  retaining the existing execution API.
+- Before this implementation, BSC's `SkillManager` was only a client-side
+  execution coordinator, backend `/api/skill/list` was hardcoded, and execution
+  state was process-local. Phase 2 added manifest discovery and provenance;
+  Phase 3 connected the market to the backend registry and made execution
+  history durable.
 
 ### MCP compatibility layers
 
@@ -70,9 +88,9 @@ Transport (stdio / HTTP stream)
   initialize plus tools/list, creates one typed handler per tool, and maps
   text/image/resource content back to a common tool output wire type.
 - BSC already has a stdio FastMCP server and an isolated subprocess runner.
-  Phase 2 adds an explicit compatibility profile and normalization seam so
-  callers can inspect supported protocol layers without coupling business code
-  to FastMCP internals.
+  Phase 2 added an explicit compatibility profile and normalization seam.
+  Phase 3 adds concrete JSON-RPC HTTP and SSE transports over the same isolated
+  tools, without coupling business code to FastMCP internals.
 
 ## Target BSC Architecture
 
@@ -135,15 +153,41 @@ flowchart LR
   normalization, and terminal event ordering.
 - [x] Worklog records implementation evidence and residual non-goals.
 
+### Phase E: runtime convergence and transport delivery
+
+- [x] Emit `capability.started`, `capability.completed`, and
+  `capability.failed` while BusinessRuntime is executing, with persisted SSE
+  replay as the transport boundary.
+- [x] Persist Skill execution state in the configured database and expose
+  queryable execution history across process restarts.
+- [x] Connect the frontend Skill market to backend manifests and the approved
+  execution endpoint.
+- [x] Implement MCP JSON-RPC HTTP plus bidirectional SSE for `initialize`,
+  `ping`, `tools/list`, and `tools/call`.
+- [x] Add the `fresh/fork/resume` selector and parent-session input to the real
+  compiler workspace.
+- [x] Prove all paths through unit, full-regression, live HTTP/SSE, process
+  restart, Windows Job Object, and browser rendering checks.
+
+### Phase F: product workspace convergence
+
+- [x] Replace the flat shell with a responsive control rail, multiline mission
+  composer, terminal projection, and result inspector driven by real state.
+- [x] Make context policy and runtime capability states visible without
+  inventing a parallel progress model.
+- [x] Make backend-discovered Skills searchable, inspectable, and executable
+  against the current mission from the main workspace.
+- [x] Verify real browser orchestration, Skill execution, mobile layout, and
+  auto-mode boundary behavior.
+
 ## Non-goals
 
 - Do not vendor the 2,736-file Rust workspace into BSC.
 - Do not implement a general-purpose arbitrary shell/PTY service in the first
   phase; the BSC terminal panel is a controlled runtime-event projection.
 - Do not execute arbitrary code from a downloaded Skill manifest.
-- Do not claim full MCP transport support until a concrete transport adapter is
-  implemented and tested; the compatibility profile must report unsupported
-  layers explicitly.
+- Do not claim OAuth support. HTTP JSON-RPC and SSE are implemented and tested,
+  but no OAuth client flow is registered.
 - Do not modify the already accepted platform-convergence lifecycle semantics.
 
 ## Acceptance Criteria
@@ -158,6 +202,10 @@ flowchart LR
    text, image, resource and error results preserve their meaning.
 5. Existing orchestrator, dashboard, production LLM policy and MCP stdio
    behavior remain backward compatible.
+6. MCP clients can initialize, enumerate tools, call a real isolated tool over
+   HTTP, and exchange JSON-RPC messages over a live SSE session.
+7. Skill executions remain queryable after the API process restarts, and the
+   frontend market discovers project-local manifests from the backend.
 
 ## Implementation Evidence
 
@@ -169,14 +217,37 @@ flowchart LR
   provenance through `/api/skill/list`, and execute only approved `chain:`
   entrypoints. `skills/business-discovery/SKILL.md` is a working project
   manifest example.
-- `app/mcp/compatibility.py` reports actual stdio/API-key/subprocess support,
-  explicitly reports HTTP/SSE and OAuth as unsupported, and normalizes text,
-  image, resource/resource-link, and error blocks. The profile is exposed by
-  `bsc_mcp_compatibility_profile`.
-- `app/orchestrator/runtime_engine.py` emits ordered capability completion or
-  failure events with parent-stage and execution metadata. The React
+- `app/skills/execution_store.py` stores running, completed, failed, cached, and
+  manifest-revision metadata. `/api/skill/history` and execution lookup survive
+  process restarts; `SkillManager` and `SkillMarket` consume backend manifests
+  and execute approved backend-only Skills.
+- `app/mcp/compatibility.py` reports actual stdio, streamable HTTP, SSE,
+  API-key/Bearer, and subprocess-isolation support. `app/api/mcp_http.py`
+  implements JSON-RPC `initialize`, `ping`, `tools/list`, and `tools/call`, plus
+  live SSE message routing. OAuth remains explicitly unsupported.
+- The Windows Job Object default was raised from 512MB to 1024MB after live
+  testing proved the lower limit killed a valid domain-analysis worker. A real
+  subprocess regression test now protects the runnable default.
+- `app/orchestrator/runtime_engine.py` emits ordered live capability start,
+  completion, or failure events with parent-stage and execution metadata. The React
   `terminalEventReducer` rejects duplicate, stale, and cross-session events;
   `AgentTerminal` renders the same SSE stream with mobile-safe layout.
-- Verification: `635 passed, 3 skipped`; `npm run check`; `npm run lint` with
-  zero errors; `npm run build`; `scripts/quality_inventory.py`; and
-  `git diff --check` all pass.
+- `ContextPolicyControl` exposes Fresh, Fork, and Resume in the actual Compiler
+  workspace and sends `context_policy` plus `parent_session_id` to the API.
+- The React workspace is now a product-level projection of the runtime: the
+  left rail shows real BusinessRuntime capabilities, the central composer owns
+  multiline mission input and keyboard submission, `AgentTerminal` projects
+  SSE events, and the inspector groups decision evidence. The design follows
+  GrokNight's neutral terminal palette rather than adding a fake Grok shell.
+- `SkillMarket` now opens from the workspace header, discovers the backend
+  manifest registry, reveals provenance/version/permission metadata, and runs
+  a selected approved Skill with the active or persisted mission. Auto mode
+  uses bounded English word matching so incidental substrings cannot select a
+  wrong workflow.
+- Live evidence: a mock-runtime orchestration emitted 20 ordered events,
+  including 16 capability lifecycle events, and ended in
+  `pipeline.completed`; MCP HTTP, real isolated `analyze_domain`, bidirectional
+  SSE, Skill process-restart persistence, and browser rendering all passed.
+- Verification: full Python regression, `npm run check`, `npm run lint` with
+  zero errors, `npm run build`, `scripts/quality_inventory.py`, and
+  `git diff --check` pass. Exact final counts are recorded in the worklog.

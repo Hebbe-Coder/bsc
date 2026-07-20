@@ -4,6 +4,7 @@ import {
   cancelOrchestrate,
   startOrchestrate,
   subscribeStream,
+  type ContextPolicy,
   type OrchestratorEvent,
 } from '../api/orchestrateApi';
 import { runAnalysis } from '../api/agentOsApi';
@@ -17,8 +18,18 @@ import { CompilerEvalPanel } from './CompilerEvalPanel';
 import { EvolutionPanel } from './EvolutionPanel';
 import { BusinessGraph } from './BusinessGraph';
 import { SopPanel } from './SopPanel';
-import PipelineProgress from './PipelineProgress';
 import { AgentTerminal } from './AgentTerminal';
+import { ContextPolicyControl } from './ContextPolicyControl';
+import SkillMarket from './SkillMarket';
+import {
+  Blocks,
+  Command,
+  FileCode2,
+  Network,
+  Play,
+  Sparkles,
+  Workflow,
+} from 'lucide-react';
 
 // ---- Types ----
 type Mode = 'auto' | 'analyze' | 'compile' | 'board';
@@ -26,15 +37,24 @@ type LogType = 'system' | 'agent' | 'tool' | 'error' | 'result' | 'thinking' | '
 interface LogEntry { id: string; type: LogType; text: string; time: string; }
 type EffectiveMode = 'analyze' | 'compile' | 'board';
 
+function includesModeSignal(text: string, signal: string): boolean {
+  const normalized = signal.toLowerCase();
+  if (!/^[a-z0-9]+(?:[ -][a-z0-9]+)*$/.test(normalized)) {
+    return text.includes(normalized);
+  }
+  const escaped = normalized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|[^a-z0-9])${escaped}($|[^a-z0-9])`).test(text);
+}
+
 // ---- Auto-detect ----
 function detectMode(input: string): { mode: EffectiveMode; confidence: number; reason: string } {
   const text = input.toLowerCase(); const len = input.length;
   const boardSignals = ['board', '??', '??', 'ceo', 'cfo', 'cto', 'board review', 'multi-agent', '???'];
   const compileSignals = ['prd', '????', '????', 'compile', '??', 'sop', '????', 'pipeline', '????', '????', '???', '## ', '??', '??', '???'];
   const analyzeSignals = ['??', '??', '??', '??', '????', '??', '??', '??', 'analyze', 'gap', 'coverage', 'assumption', 'risk', '???', 'how', 'what', 'strategy'];
-  const boardHits = boardSignals.filter(s => text.includes(s.toLowerCase())).length;
-  const compileHits = compileSignals.filter(s => text.includes(s.toLowerCase())).length;
-  const analyzeHits = analyzeSignals.filter(s => text.includes(s.toLowerCase())).length;
+  const boardHits = boardSignals.filter((signal) => includesModeSignal(text, signal)).length;
+  const compileHits = compileSignals.filter((signal) => includesModeSignal(text, signal)).length;
+  const analyzeHits = analyzeSignals.filter((signal) => includesModeSignal(text, signal)).length;
   if (len > 500 && compileHits >= 2) return { mode: 'compile', confidence: 0.85, reason: 'Long structured document with PRD signals' };
   if (boardHits >= 2) return { mode: 'board', confidence: 0.9, reason: 'Explicit board/multi-agent review request' };
   if (boardHits === 1 && len < 200) return { mode: 'board', confidence: 0.7, reason: 'Board review signal detected' };
@@ -59,8 +79,21 @@ const LOG_COLORS: Record<LogType, string> = {
 };
 let logCounter = 0;
 
-// ---- Pipeline stages (in order) ----
-const PIPELINE_STAGES = ['planner', 'architect', 'sop', 'risk', 'reviewer', 'presenter'];
+// The rail renders actual runtime capability events, not a parallel UI-only plan.
+const PIPELINE_STAGES = [
+  'business_understanding',
+  'assumption_reasoning',
+  'risk_analysis',
+  'constraint_generation',
+  'coverage_analysis',
+  'gap_detection',
+  'decision_support',
+  'report_composition',
+];
+
+function stageLabel(stage: string): string {
+  return stage.replace(/_/g, ' ');
+}
 
 export function UnifiedWorkspace() {
   const [input, setInput] = useState('');
@@ -74,8 +107,11 @@ export function UnifiedWorkspace() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [compiling, setCompiling] = useState(false);
   const [pipelineStages, setPipelineStages] = useState<Record<string, string>>({});
+  const [contextPolicy, setContextPolicy] = useState<ContextPolicy>('fresh');
+  const [parentSessionId, setParentSessionId] = useState('');
+  const [skillsOpen, setSkillsOpen] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Workspace store
   const beginSession = useWorkspace((s) => s.beginSession);
@@ -85,6 +121,7 @@ export function UnifiedWorkspace() {
   const applyDashboard = useWorkspace((s) => s.applyDashboard);
   const businessModel = useWorkspace((s) => s.businessModel);
   const sop = useWorkspace((s) => s.sop);
+  const workspaceIdea = useWorkspace((s) => s.idea);
 
   const addLog = useCallback((type: LogType, text: string) => {
     const entry: LogEntry = { id: String(++logCounter), type, text, time: new Date().toLocaleTimeString('en-US', { hour12: false }) };
@@ -111,6 +148,10 @@ export function UnifiedWorkspace() {
   // ---- Submit Handler ----
   const handleSubmit = async () => {
     if (!input.trim() || loading) return;
+    if (effectiveMode === 'compile' && contextPolicy !== 'fresh' && !parentSessionId.trim()) {
+      setError('Parent session id is required for fork or resume');
+      return;
+    }
     const value = input.trim();
     setInput(''); setLoading(true); setError(null); setDashData(null); setLogs([]);
     logCounter = 0; setPipelineStages({});
@@ -124,9 +165,13 @@ export function UnifiedWorkspace() {
         // ---- Real-time Pipeline Compilation ----
         setCompiling(true);
         addLog('agent', 'Starting compiler pipeline...');
-        const res = await startOrchestrate(value);
+        const res = await startOrchestrate(value, {
+          contextPolicy,
+          parentSessionId: contextPolicy === 'fresh' ? undefined : parentSessionId.trim(),
+        });
         beginSession(res.session_id, value);
         setSessionId(res.session_id);
+        setParentSessionId(res.session_id);
         addLog('system', 'Session ' + res.session_id.slice(0, 8));
 
         let source: EventSource | null = null;
@@ -216,202 +261,146 @@ export function UnifiedWorkspace() {
 
   const statusColor = loading ? 'status-dot--running' : error ? 'status-dot--error' : 'status-dot--active';
   const statusLabel = loading ? (compiling ? 'Compiling' : 'Running') : error ? 'Error' : 'Ready';
+  const completedStages = PIPELINE_STAGES.filter((stage) => pipelineStages[stage] === 'completed').length;
+  const sessionDisplay = sessionId ? sessionId.slice(0, 12) : 'new session';
 
   return (
-    <div className='flex h-full flex-col bg-[var(--bg-primary)] text-[var(--text-primary)]' role='application' aria-label='BSC Studio'>
-      {/* Header */}
-      <header className='flex items-center gap-3 border-b border-[var(--border-default)] px-4 py-2.5 bg-[var(--bg-secondary)]'>
-        <span className='text-sm font-bold tracking-tight gradient-text'>BSC Studio</span>
-        <span className='hidden sm:inline text-[11px] text-[var(--text-muted)] font-medium uppercase tracking-wider'>Business Agent OS</span>
-        <div className='ml-auto flex items-center gap-3'>
-          <div className='flex items-center gap-2 text-xs text-[var(--text-muted)]'>
-            <span className={'status-dot ' + statusColor}></span><span>{statusLabel}</span>
-          </div>
-          {sessionId && <span className='text-[10px] text-[var(--text-placeholder)] font-mono'>{sessionId.slice(0,8)}</span>}
+    <div className="studio-shell" role="application" aria-label="BSC Studio">
+      <header className="studio-header">
+        <div className="studio-brand">
+          <span className="studio-mark" aria-hidden="true"><Command size={16} /></span>
+          <div><strong>BSC Studio</strong><span>orchestration workspace</span></div>
+        </div>
+        <div className="studio-header__crumb"><Network size={14} aria-hidden="true" /> Business Runtime</div>
+        <div className="studio-header__actions">
+          <button type="button" className="skill-trigger" onClick={() => setSkillsOpen(true)}>
+            <Blocks size={15} aria-hidden="true" /> Skills
+          </button>
+          <span className={'studio-status ' + statusColor}><i aria-hidden="true" />{statusLabel}</span>
+          <code>{sessionDisplay}</code>
         </div>
       </header>
 
-      {/* Input Bar */}
-      <div className='border-b border-[var(--border-default)] bg-[var(--bg-secondary)] px-4 py-3'>
-        <div className='flex flex-wrap gap-2'>
-          <div className='flex max-w-full shrink-0 overflow-x-auto rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)]' role='radiogroup'>
-            {(['auto', 'analyze', 'compile', 'board'] as Mode[]).map(m => (
-              <button key={m} role='radio' aria-checked={mode === m} onClick={() => setMode(m)}
-                className={'px-3 py-1.5 text-xs font-medium transition-colors duration-150 ' + (mode === m ? 'bg-[var(--accent-blue)] text-white' : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]')}>
-                {m === 'auto' && detectedMode ? MODE_LABELS[detectedMode] + ' \u2192' : MODE_LABELS[m]}
-              </button>
-            ))}
-          </div>
-          <input ref={inputRef} type='text' value={input} onChange={e => setInput(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
-            placeholder='Describe your business idea, PRD, or strategic question...'
-            className='min-w-[200px] flex-1 rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] px-4 py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-placeholder)] focus:border-[var(--accent-blue)] focus:ring-1 focus:ring-[var(--accent-blue)] focus:outline-none disabled:opacity-50 transition-colors duration-150'
-            disabled={loading} aria-label='Business analysis input' />
-          <button onClick={handleSubmit} disabled={loading || !input.trim()}
-            className='shrink-0 rounded-lg bg-[var(--status-success)] px-5 py-2 text-sm font-semibold text-white hover:bg-[#2ea043] active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150'
-            aria-label={loading ? 'Running' : 'Submit'}>
-            {loading ? <span className='flex items-center gap-1.5'><span className='inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin-slow'></span>Running</span> : 'Run \u21B5'}
-          </button>
-        </div>
-        <div className='mt-1.5 flex items-center gap-3 text-[11px] text-[var(--text-placeholder)]'>
-          <span>{mode === 'auto' && detectedMode ? 'Auto \u2192 ' + MODE_LABELS[detectedMode] + ': ' + detectReason : MODE_HINTS[effectiveMode]}</span>
-          <span className='ml-auto hidden sm:block'><kbd className='px-1 py-0.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border-default)] text-[10px]'>Ctrl+K</kbd> focus</span>
-        </div>
-      </div>
+      <div className="studio-workbench">
+        <aside className="control-rail" aria-label="Workspace controls">
+          <section className="rail-section">
+            <p className="rail-label">RUN PROFILE</p>
+            <div className="mode-stack" role="radiogroup" aria-label="Execution mode">
+              {(['auto', 'analyze', 'compile', 'board'] as Mode[]).map((nextMode) => (
+                <button
+                  key={nextMode}
+                  type="button"
+                  role="radio"
+                  aria-checked={mode === nextMode}
+                  onClick={() => setMode(nextMode)}
+                  className={mode === nextMode ? 'is-selected' : ''}
+                >
+                  <span>{nextMode === 'compile' ? <Workflow size={15} /> : nextMode === 'board' ? <Sparkles size={15} /> : <FileCode2 size={15} />}</span>
+                  <span><strong>{nextMode === 'auto' && detectedMode ? `Auto: ${MODE_LABELS[detectedMode]}` : MODE_LABELS[nextMode]}</strong><small>{nextMode === 'compile' ? 'Durable multi-stage run' : nextMode === 'board' ? 'Multi-agent verdict' : nextMode === 'analyze' ? 'Focused capability run' : 'Choose from input'}</small></span>
+                </button>
+              ))}
+            </div>
+          </section>
 
-      {/* Main Content */}
-      <div className='flex flex-1 flex-col overflow-hidden lg:flex-row'>
-        {/* Activity Log */}
-        <aside className='flex min-h-[280px] w-full flex-col border-b border-[var(--border-default)] bg-[var(--bg-primary)] lg:min-h-0 lg:w-[40%] lg:min-w-[300px] lg:border-b-0 lg:border-r' aria-label='Activity log'>
-          {(terminalEvents.length > 0 || effectiveMode === 'compile') ? (
-            <AgentTerminal />
-          ) : (
-            <>
-              <div className='flex items-center justify-between border-b border-[var(--border-default)] px-4 py-2'>
-                <span className='text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider'>Activity</span>
-                {logs.length > 0 && <span className='text-[10px] text-[var(--text-placeholder)]'>{logs.length} entries</span>}
-              </div>
-              <div className='flex-1 overflow-auto p-3' role='log' aria-live='polite'>
-                {logs.length === 0 && !loading && (
-                  <div className='flex flex-col items-center justify-center h-full text-center px-4'>
-                    <div className='text-3xl mb-3 opacity-20'>{'\u25B6'}</div>
-                    <p className='text-sm text-[var(--text-muted)] font-medium'>Start your analysis</p>
-                    <p className='text-xs text-[var(--text-placeholder)] mt-1 max-w-[240px]'>Enter a business idea above and press Enter</p>
-                  </div>
-                )}
-                <div className='space-y-0.5'>
-                  {logs.map(entry => (
-                    <div key={entry.id} className='log-entry' style={{ animationDelay: '0ms' }}>
-                      <span className='text-[var(--text-placeholder)] shrink-0 w-14 text-right select-none font-mono text-[11px]'>{entry.time}</span>
-                      <span className={LOG_COLORS[entry.type] + ' break-words'}>{entry.text}</span>
-                    </div>
-                  ))}
-                </div>
-                {loading && (
-                  <div className='log-entry' style={{ opacity: 1 }}>
-                    <span className='text-[var(--text-placeholder)] shrink-0 w-14 text-right select-none font-mono text-[11px]'>{new Date().toLocaleTimeString('en-US', { hour12: false })}</span>
-                    <span className='text-[var(--accent-purple)] animate-pulse'>{compiling ? 'Pipeline running...' : 'Thinking\u2026'}</span>
-                  </div>
-                )}
-                <div ref={logEndRef} />
-              </div>
-            </>
-          )}
+          <section className="rail-section rail-context">
+            <div className="rail-section__heading"><p className="rail-label">CONTEXT LINEAGE</p><span>{effectiveMode === 'compile' ? contextPolicy : 'not used'}</span></div>
+            {effectiveMode === 'compile' ? (
+              <ContextPolicyControl
+                policy={contextPolicy}
+                parentSessionId={parentSessionId}
+                disabled={loading}
+                onPolicyChange={setContextPolicy}
+                onParentSessionIdChange={setParentSessionId}
+              />
+            ) : (
+              <p className="rail-note">Fresh, fork and resume are applied to Compiler runs, where session context is persisted and validated.</p>
+            )}
+          </section>
+
+          <section className="rail-section rail-stages">
+            <div className="rail-section__heading"><p className="rail-label">PIPELINE</p><span>{completedStages}/{PIPELINE_STAGES.length}</span></div>
+            <ol>
+              {PIPELINE_STAGES.map((stage) => {
+                const stageStatus = pipelineStages[stage] || 'pending';
+                return <li key={stage} data-status={stageStatus}><i aria-hidden="true" /><span>{stageLabel(stage)}</span><small>{stageStatus}</small></li>;
+              })}
+            </ol>
+          </section>
         </aside>
 
-        {/* Results Panel */}
-        <main className='flex-1 overflow-auto p-4' aria-label='Results'>
-          {/* Error */}
-          {error && !dashData && (
-            <div className='bento-card border-[var(--status-error)]/30 bg-[var(--status-error)]/5 mb-4' role='alert'>
-              <div className='flex items-start gap-3'>
-                <span className='text-[var(--accent-red)] text-lg'>{'\u26A0'}</span>
-                <div><h3 className='text-sm font-semibold text-[var(--accent-red)]'>Error</h3><p className='text-xs text-[var(--text-secondary)] mt-1 font-mono'>{error}</p></div>
-              </div>
+        <div className="command-column">
+          <section className="mission-deck" aria-labelledby="mission-title">
+            <div className="mission-deck__top"><span>NEW MISSION</span><span>{mode === 'auto' && detectedMode ? `${Math.round(detectMode(input).confidence * 100)}% match` : MODE_LABELS[effectiveMode]}</span></div>
+            <h1 id="mission-title">Turn a prompt into an executable business system.</h1>
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              onKeyDown={(event) => {
+                if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                  event.preventDefault();
+                  void handleSubmit();
+                }
+              }}
+              placeholder="Describe an idea, paste a PRD, or ask for a strategic decision..."
+              disabled={loading}
+              aria-label="Business analysis input"
+            />
+            <div className="mission-deck__footer">
+              <p>{mode === 'auto' && detectedMode ? `Auto selected ${MODE_LABELS[detectedMode]}: ${detectReason}` : MODE_HINTS[effectiveMode]}</p>
+              <div><kbd>Ctrl</kbd><span>+</span><kbd>Enter</kbd><span>to run</span></div>
+              <button type="button" onClick={() => void handleSubmit()} disabled={loading || !input.trim()}>
+                {loading ? <><i className="spinner" aria-hidden="true" /> Running</> : <><Play size={15} fill="currentColor" aria-hidden="true" /> Run workflow</>}
+              </button>
             </div>
-          )}
+          </section>
 
-          {/* Loading Skeleton */}
+          <section className="runtime-card" aria-label="Runtime activity">
+            <div className="panel-heading"><div><p>LIVE RUNTIME</p><h2>{compiling ? 'Pipeline is executing' : terminalEvents.length ? 'Runtime event stream' : 'Ready for a mission'}</h2></div><span>{terminalEvents.length ? `${terminalEvents.length} events` : 'SSE ready'}</span></div>
+            <div className="runtime-card__body">
+              {(terminalEvents.length > 0 || effectiveMode === 'compile') ? <AgentTerminal /> : (
+                <div className="activity-log" role="log" aria-live="polite">
+                  {logs.length === 0 && !loading && <div className="runtime-empty"><Command size={26} aria-hidden="true" /><p>Runtime output lands here.</p><small>Choose a run profile, add a mission, then execute it.</small></div>}
+                  {logs.map((entry) => <div key={entry.id} className="log-entry" style={{ animationDelay: '0ms' }}><time>{entry.time}</time><span className={LOG_COLORS[entry.type]}>{entry.text}</span></div>)}
+                  {loading && <div className="log-entry is-pending"><time>{new Date().toLocaleTimeString('en-US', { hour12: false })}</time><span>{compiling ? 'Pipeline running...' : 'Thinking...'}</span></div>}
+                  <div ref={logEndRef} />
+                </div>
+              )}
+            </div>
+          </section>
+
+          {compiling && (businessModel && Object.keys(businessModel).length > 0 || sop && Object.keys(sop).length > 0) && (
+            <section className="artifact-preview"><div className="panel-heading"><div><p>IN-FLIGHT ARTIFACTS</p><h2>Streaming work products</h2></div></div>{businessModel && Object.keys(businessModel).length > 0 && <BusinessGraph model={businessModel} />}{sop && Object.keys(sop).length > 0 && <SopPanel sop={sop} />}</section>
+          )}
+        </div>
+
+        <main className="inspector-column" aria-label="Results inspector">
+          <div className="panel-heading inspector-heading"><div><p>RESULT INSPECTOR</p><h2>{dashData ? 'Decision-ready output' : loading ? 'Building results' : 'No result selected'}</h2></div>{dashData && <span className="decision-badge">{dashData.risk.gate.decision}</span>}</div>
+          {error && !dashData && <div className="inline-error" role="alert"><strong>Run stopped</strong><p>{error}</p></div>}
           {loading && !dashData && (
-            <div className='space-y-4 max-w-4xl mx-auto'>
-              {compiling && (
-                <div className='bento-card'>
-                  <h3 className='text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3'>Pipeline Progress</h3>
-                  <PipelineProgress
-                    stages={PIPELINE_STAGES.map(s => ({
-                      id: s,
-                      name: s.charAt(0).toUpperCase() + s.slice(1),
-                      description: '',
-                      status: (pipelineStages[s] || 'pending') as any,
-                      progress: pipelineStages[s] === 'completed' ? 100 : pipelineStages[s] === 'running' ? 50 : 0
-                    }))}
-                    isCompiling={compiling}
-                    onCancel={() => {
-                      if (!sessionId) return;
-                      addLog('system', 'Cancellation requested');
-                      void cancelOrchestrate(sessionId).catch((cancelError: unknown) => {
-                        const message = cancelError instanceof Error
-                          ? cancelError.message
-                          : 'Cancellation request failed';
-                        setError(message);
-                        addLog('error', message);
-                      });
-                    }}
-                    onReset={() => { setPipelineStages({}); }}
-                  />
-                </div>
-              )}
-              <div className='skeleton h-48 rounded-lg'></div>
-              <div className='grid grid-cols-2 gap-4'>
-                <div className='skeleton h-32 rounded-lg'></div>
-                <div className='skeleton h-32 rounded-lg'></div>
-              </div>
+            <div className="run-progress">
+              <div className="run-progress__meta"><span>{compiling ? 'Compiler stages' : 'Capability execution'}</span><strong>{compiling ? `${completedStages}/${PIPELINE_STAGES.length}` : 'working'}</strong></div>
+              {compiling && PIPELINE_STAGES.map((stage) => <div key={stage} className="stage-progress" data-status={pipelineStages[stage] || 'pending'}><span>{stageLabel(stage)}</span><i /><small>{pipelineStages[stage] || 'queued'}</small></div>)}
+              {compiling && sessionId && <button type="button" className="cancel-run" onClick={() => { addLog('system', 'Cancellation requested'); void cancelOrchestrate(sessionId).catch((cancelError: unknown) => { const message = cancelError instanceof Error ? cancelError.message : 'Cancellation request failed'; setError(message); addLog('error', message); }); }}>Cancel run</button>}
             </div>
           )}
-
-          {/* Empty State */}
-          {!loading && !error && !dashData && (
-            <div className='flex flex-col items-center justify-center h-full text-center px-4'>
-              <div className='w-16 h-16 rounded-2xl bg-[var(--bg-tertiary)] border border-[var(--border-default)] flex items-center justify-center mb-4'>
-                <span className='text-2xl opacity-30'>{'\u25A3'}</span>
-              </div>
-              <h2 className='text-sm font-semibold text-[var(--text-muted)]'>Results Panel</h2>
-              <p className='text-xs text-[var(--text-placeholder)] mt-1 max-w-[300px]'>
-                {effectiveMode === 'compile'
-                  ? 'Pipeline progress, Business Graph, and SOP will appear here during compilation'
-                  : 'Risk matrix, coverage analysis, and board review will appear here after analysis'}
-              </p>
-            </div>
-          )}
-
-          {/* Results */}
+          {!loading && !error && !dashData && <div className="inspector-empty"><div><FileCode2 size={25} aria-hidden="true" /></div><h3>Output with evidence.</h3><p>{effectiveMode === 'compile' ? 'The inspector will collect the decision gate, risk coverage, graph and SOP produced by this run.' : 'Analysis results, coverage evidence and multi-agent decisions will be collected here.'}</p></div>}
           {dashData && (
-            <div className='space-y-4 max-w-4xl mx-auto animate-fade-in-up'>
-              <div className='bento-card flex items-center gap-4 flex-wrap'>
-                <span className='text-sm font-semibold'>{dashData.risk.gate.decision}</span>
-                <span className='text-[var(--border-default)]'>|</span>
-                <span className='text-xs text-[var(--text-muted)]'>Risks: <strong className='text-[var(--text-secondary)]'>{dashData.risk.risks.length}</strong></span>
-                <span className='text-xs text-[var(--text-muted)]'>Coverage: <strong className='text-[var(--accent-blue)]'>{dashData.risk.coverage.coverage_pct}%</strong></span>
-              </div>
-              <div className='bento-card'><RiskPanel risk={dashData.risk} /></div>
-              <div className='grid grid-cols-1 lg:grid-cols-2 gap-4'>
-                <div className='bento-card'><ConstraintCoveragePanel coverage={dashData.risk.coverage} /></div>
-                <div className='bento-card'><CitationPanel sop={dashData.sop} /></div>
-              </div>
-              {dashData.trusted_audit && <div className='bento-card'><TrustedAuditPanel trustedAudit={dashData.trusted_audit} /></div>}
-              {dashData.evaluation && <div className='bento-card'><CompilerEvalPanel evaluation={dashData.evaluation} /></div>}
-              {dashData.evolution && <div className='bento-card'><EvolutionPanel evolution={dashData.evolution} /></div>}
-            </div>
-          )}
-
-          {/* Compile Mode: Business Graph + SOP (real-time) */}
-          {compiling && (
-            <div className='space-y-4 max-w-4xl mx-auto mt-4'>
-              {businessModel && Object.keys(businessModel).length > 0 && (
-                <div className='bento-card'>
-                  <h3 className='text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3'>Business Graph</h3>
-                  <BusinessGraph model={businessModel} />
-                </div>
-              )}
-              {sop && Object.keys(sop).length > 0 && (
-                <div className='bento-card'>
-                  <h3 className='text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3'>SOP</h3>
-                  <SopPanel sop={sop} />
-                </div>
-              )}
+            <div className="result-stack animate-fade-in-up">
+              <div className="result-summary"><div><span>RISK GATE</span><strong>{dashData.risk.gate.decision}</strong></div><div><span>COVERAGE</span><strong>{dashData.risk.coverage.coverage_pct}%</strong></div><div><span>RISKS</span><strong>{dashData.risk.risks.length}</strong></div></div>
+              <section className="result-block"><RiskPanel risk={dashData.risk} /></section>
+              <section className="result-block"><ConstraintCoveragePanel coverage={dashData.risk.coverage} /></section>
+              <section className="result-block"><CitationPanel sop={dashData.sop} /></section>
+              {dashData.trusted_audit && <section className="result-block"><TrustedAuditPanel trustedAudit={dashData.trusted_audit} /></section>}
+              {dashData.evaluation && <section className="result-block"><CompilerEvalPanel evaluation={dashData.evaluation} /></section>}
+              {dashData.evolution && <section className="result-block"><EvolutionPanel evolution={dashData.evolution} /></section>}
             </div>
           )}
         </main>
       </div>
 
-      {/* Status Bar */}
-      <footer className='flex flex-wrap items-center gap-3 border-t border-[var(--border-default)] bg-[var(--bg-secondary)] px-4 py-1.5 text-[11px] text-[var(--text-placeholder)]'>
-        <span className='font-medium text-[var(--text-muted)]'>{mode === 'auto' && detectedMode ? 'Auto \u2192 ' + MODE_LABELS[detectedMode] : MODE_LABELS[effectiveMode]}</span>
-        {sessionId && <><span className='text-[var(--border-default)]'>|</span><span className='font-mono'>session: {sessionId.slice(0, 12)}</span></>}
-        {compiling && <><span className='text-[var(--border-default)]'>|</span><span className='text-[var(--accent-yellow)] animate-pulse'>Pipeline active</span></>}
-        {dashData && <><span className='text-[var(--border-default)]'>|</span><span>risks: {dashData.risk.risks.length}</span><span>coverage: {dashData.risk.coverage.coverage_pct}%</span></>}
-        <span className='ml-auto text-[10px]'>BSC Studio v5.0</span>
-      </footer>
+      <footer className="studio-footer"><span>{mode === 'auto' && detectedMode ? `Auto -> ${MODE_LABELS[detectedMode]}` : MODE_LABELS[effectiveMode]}</span><span>Session: {sessionDisplay}</span>{compiling && <span className="is-live">pipeline active</span>}{dashData && <span>coverage: {dashData.risk.coverage.coverage_pct}%</span>}<span className="studio-footer__right">BSC Studio 5.0</span></footer>
+      {skillsOpen && <SkillMarket onClose={() => setSkillsOpen(false)} context={input || workspaceIdea} />}
     </div>
   );
 }

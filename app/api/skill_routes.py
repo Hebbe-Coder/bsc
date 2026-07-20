@@ -8,7 +8,7 @@ from typing import Any, AsyncGenerator, Dict, Optional
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.chains.chart_generation_chain import ChartGenerationChain
 from app.chains.kpi_extraction_chain import KpiExtractionChain
@@ -18,7 +18,9 @@ from app.chains.prd_analysis_chain import PrdAnalysisChain
 from app.chains.report_generation_chain import ReportGenerationChain
 from app.chains.risk_assessment_chain import RiskAssessmentChain
 from app.chains.strategy_analysis_chain import StrategyAnalysisChain
+from app.core.config import settings
 from app.services.cache_service import get_cache_service
+from app.skills.execution_store import SkillExecutionStore
 from app.skills.registry import build_skill_registry
 
 router = APIRouter(prefix="/api/skill", tags=["skills"])
@@ -51,7 +53,7 @@ INPUT_MAPPING = {
 class ExecuteSkillRequest(BaseModel):
     skill_id: str
     params: Dict[str, Any]
-    llm_provider: str = "mock"
+    llm_provider: str = Field(default_factory=lambda: settings.LLM_PROVIDER)
     model_name: str = ""
     streaming: bool = False
     use_cache: bool = True
@@ -68,6 +70,12 @@ def generate_cache_key(skill_id: str, params: dict, revision: str = "") -> str:
     params_str = json.dumps(params, sort_keys=True, ensure_ascii=False)
     combined = f"{skill_id}:{revision}:{params_str}"
     return hashlib.sha256(combined.encode("utf-8")).hexdigest()
+
+
+def _store_execution(execution_id: str, **changes: Any) -> None:
+    if execution_id in executions:
+        executions[execution_id].update(changes)
+    SkillExecutionStore().update(execution_id, **changes)
 
 
 def _skill_execution(skill_id: str, params: Dict[str, Any]):
@@ -107,25 +115,30 @@ async def execute_skill_async(
             cache_key = generate_cache_key(skill_id, params, manifest.revision)
             cached_result = cache.get(cache_key)
             if cached_result:
-                executions[execution_id]["status"] = "completed"
-                executions[execution_id]["result"] = cached_result
-                executions[execution_id]["from_cache"] = True
+                _store_execution(
+                    execution_id,
+                    status="completed",
+                    result=cached_result,
+                    from_cache=True,
+                )
                 return
 
         chain = chain_class.create(provider, model_name)
         result = await chain.ainvoke(input_data)
         result_str = str(result)
 
-        executions[execution_id]["status"] = "completed"
-        executions[execution_id]["result"] = result_str
-        executions[execution_id]["from_cache"] = False
+        _store_execution(
+            execution_id,
+            status="completed",
+            result=result_str,
+            from_cache=False,
+        )
 
         if use_cache:
             cache_key = generate_cache_key(skill_id, params, manifest.revision)
             cache.set(cache_key, result_str, ttl=3600)
     except Exception as exc:
-        executions[execution_id]["status"] = "failed"
-        executions[execution_id]["result"] = str(exc)
+        _store_execution(execution_id, status="failed", error=str(exc), result=str(exc))
 
 
 async def stream_skill_output(
@@ -146,16 +159,14 @@ async def stream_skill_output(
             yield f"data: {json.dumps({'content': chunk_text, 'status': 'running'})}\n\n"
             await asyncio.sleep(0.01)
 
-        executions[execution_id]["status"] = "completed"
-        executions[execution_id]["result"] = full_result
+        _store_execution(execution_id, status="completed", result=full_result)
 
         cache = get_cache_service()
         cache_key = generate_cache_key(skill_id, params, manifest.revision)
         cache.set(cache_key, full_result, ttl=3600)
         yield f"data: {json.dumps({'content': '', 'status': 'completed'})}\n\n"
     except Exception as exc:
-        executions[execution_id]["status"] = "failed"
-        executions[execution_id]["result"] = str(exc)
+        _store_execution(execution_id, status="failed", error=str(exc), result=str(exc))
         yield f"data: {json.dumps({'content': '', 'status': 'failed', 'error': str(exc)})}\n\n"
 
 
@@ -170,6 +181,7 @@ async def execute_skill(request: ExecuteSkillRequest, background_tasks: Backgrou
 
     execution_id = f"exec-{uuid.uuid4().hex[:8]}"
     executions[execution_id] = {
+        "execution_id": execution_id,
         "skill_id": request.skill_id,
         "status": "running",
         "result": None,
@@ -178,16 +190,21 @@ async def execute_skill(request: ExecuteSkillRequest, background_tasks: Backgrou
         "provider": request.llm_provider,
         "model_name": request.model_name,
         "from_cache": False,
+        "manifest_revision": manifest.revision,
     }
+    SkillExecutionStore().create(executions[execution_id])
 
     if request.use_cache:
         cache = get_cache_service()
         cache_key = generate_cache_key(request.skill_id, request.params, manifest.revision)
         cached_result = cache.get(cache_key)
         if cached_result:
-            executions[execution_id]["status"] = "completed"
-            executions[execution_id]["result"] = cached_result
-            executions[execution_id]["from_cache"] = True
+            _store_execution(
+                execution_id,
+                status="completed",
+                result=cached_result,
+                from_cache=True,
+            )
             return SkillExecutionResponse(
                 execution_id=execution_id,
                 status="completed",
@@ -212,7 +229,7 @@ async def execute_skill(request: ExecuteSkillRequest, background_tasks: Backgrou
 
 @router.get("/stream/{execution_id}")
 async def stream_skill(execution_id: str):
-    execution = executions.get(execution_id)
+    execution = executions.get(execution_id) or SkillExecutionStore().get(execution_id)
     if not execution:
         raise HTTPException(status_code=404, detail="Execution not found")
     if not execution.get("streaming"):
@@ -237,7 +254,7 @@ async def stream_skill(execution_id: str):
 
 @router.get("/execution/{execution_id}")
 async def get_execution(execution_id: str):
-    execution = executions.get(execution_id)
+    execution = executions.get(execution_id) or SkillExecutionStore().get(execution_id)
     if not execution:
         raise HTTPException(status_code=404, detail="Execution not found")
     return {
@@ -246,6 +263,9 @@ async def get_execution(execution_id: str):
         "status": execution["status"],
         "result": execution["result"],
         "from_cache": execution.get("from_cache", False),
+        "created_at": execution.get("created_at", ""),
+        "updated_at": execution.get("updated_at", ""),
+        "completed_at": execution.get("completed_at"),
     }
 
 
@@ -253,6 +273,11 @@ async def get_execution(execution_id: str):
 async def list_skills():
     registry = build_skill_registry()
     return [manifest.public_payload() for manifest in registry.list()]
+
+
+@router.get("/history")
+async def list_skill_history(skill_id: str = "", limit: int = 50):
+    return SkillExecutionStore().list_recent(skill_id=skill_id, limit=limit)
 
 
 @router.get("/cache/stats")
@@ -265,5 +290,6 @@ async def clear_skill_cache(skill_id: str):
     for key in list(executions):
         if executions[key].get("skill_id") == skill_id:
             del executions[key]
+    SkillExecutionStore().delete_by_skill(skill_id)
     get_cache_service().clear(pattern=skill_id)
     return {"message": f"Cache cleared for skill: {skill_id}"}

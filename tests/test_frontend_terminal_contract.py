@@ -46,3 +46,15 @@ def test_terminal_is_wired_to_sse_without_completion_timer():
     assert "<AgentTerminal />" in workspace
     assert "setTimeout(" not in workspace
     assert "event.session_id}:${event.seq}" in terminal
+
+
+def test_context_policy_control_is_wired_to_orchestrator_request():
+    workspace = (ROOT / "src/components/UnifiedWorkspace.tsx").read_text(encoding="utf-8")
+    api = (ROOT / "src/api/orchestrateApi.ts").read_text(encoding="utf-8")
+    control = (ROOT / "src/components/ContextPolicyControl.tsx").read_text(encoding="utf-8")
+
+    assert "<ContextPolicyControl" in workspace
+    assert "contextPolicy," in workspace
+    assert "parentSessionId:" in workspace
+    assert "context_policy: options.contextPolicy || 'fresh'" in api
+    assert "Parent session id" in control

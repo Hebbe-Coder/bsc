@@ -15,6 +15,7 @@ const EVENT_TONE: Record<TerminalEvent['type'], string> = {
   'stage.started': 'text-sky-300',
   'stage.completed': 'text-emerald-300',
   'stage.loopback': 'text-amber-300',
+  'capability.started': 'text-sky-200',
   'capability.completed': 'text-teal-300',
   'capability.failed': 'text-rose-300',
   'pipeline.completed': 'text-emerald-200',
@@ -58,26 +59,26 @@ export function AgentTerminal() {
   }, [events.length]);
 
   return (
-    <section className="flex h-full min-h-[220px] flex-col overflow-hidden bg-[#090d12]" aria-label="Runtime terminal">
-      <header className="flex min-h-10 items-center gap-2 border-b border-[var(--border-default)] bg-[var(--bg-secondary)] px-3">
+    <section className="terminal-wall" aria-label="Runtime terminal">
+      <header className="terminal-bar">
         <TerminalSquare size={15} className="text-[var(--accent-blue)]" aria-hidden="true" />
         <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--text-secondary)]">Runtime terminal</span>
         <span className="ml-auto font-mono text-[10px] text-[var(--text-placeholder)]">
           {sessionId ? sessionId.slice(0, 12) : 'idle'}
         </span>
       </header>
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto p-3 font-mono text-[11px] leading-5" role="log" aria-live="polite">
+      <div ref={scrollRef} className="terminal-feed" role="log" aria-live="polite">
         {events.length === 0 ? (
-          <div className="flex min-h-[160px] items-center justify-center text-[var(--text-placeholder)]">
+          <div className="terminal-waiting">
             <span>Waiting for runtime events...</span>
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="terminal-events">
             {events.map((event) => {
               const tone = EVENT_TONE[event.type] ?? 'text-[var(--text-secondary)]';
               const hasData = Object.keys(event.data ?? {}).length > 0;
               return (
-                <article key={`${event.session_id}:${event.seq}`} className="border-l border-[var(--border-default)] pl-3">
+                <article key={`${event.session_id}:${event.seq}`} className="terminal-event">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-[var(--text-placeholder)]">
                     <span>{formatTime(event.timestamp)}</span>
                     <span className="text-[var(--accent-blue)]">#{event.seq}</span>

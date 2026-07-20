@@ -3,7 +3,7 @@ import { UnifiedWorkspace } from './components/UnifiedWorkspace';
 
 export default function App() {
   return (
-    <div className='flex h-screen flex-col bg-[#0d1117] text-[#c9d1d9]'>
+    <div className='min-h-[100dvh] bg-[#0b1016] text-[#dbe6ef]'>
       <UnifiedWorkspace />
     </div>
   );
