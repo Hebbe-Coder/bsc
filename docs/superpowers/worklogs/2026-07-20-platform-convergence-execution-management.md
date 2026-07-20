@@ -84,3 +84,18 @@ Do not include runtime data:
 - [ ] Push to the configured remote branch.
 - [ ] Confirm GitHub Actions runs the PostgreSQL persistence contract.
 - [ ] Record remote evidence and complete final acceptance audit.
+
+## 2026-07-21 Frontend Runtime Recovery
+
+- Fixed Agent OS error parsing so an HTTP response body is consumed once,
+  preserving the backend error detail without triggering the browser's
+  `body stream already read` exception.
+- Added the missing Vite `/agent` development proxy. Agent OS routes are
+  root-level FastAPI endpoints, so requests previously fell through to the SPA
+  HTML response instead of reaching the backend.
+- Browser verification on `http://127.0.0.1:5173/` completed an Agent OS run
+  and rendered the result inspector without console errors, stream-read
+  errors, or `/agent` 404 responses.
+- Focused regression: `19 passed` across frontend API policy and Agent OS
+  runtime convergence tests. Type check, quiet lint, and production build also
+  passed locally.

@@ -28,6 +28,24 @@ def test_fetch_wrapper_defaults_to_same_origin_credentials():
     assert "credentials: options.credentials ?? 'same-origin'" in source
 
 
+def test_fetch_wrapper_consumes_error_body_once():
+    source = (SRC / "api" / "fetchWrapper.ts").read_text(encoding="utf-8")
+    parser = source.split("private async parseErrorResponse", 1)[1].split(
+        "private async delay", 1
+    )[0]
+
+    assert parser.count("response.text()") == 1
+    assert "response.json()" not in parser
+    assert "JSON.parse(body)" in parser
+
+
+def test_vite_proxies_agent_os_routes_to_backend():
+    source = (ROOT / "vite.config.ts").read_text(encoding="utf-8")
+
+    assert "'/agent':" in source
+    assert "target: 'http://localhost:8000'" in source
+
+
 def test_workspace_waits_for_terminal_event_before_loading_dashboard():
     source = (SRC / "components" / "UnifiedWorkspace.tsx").read_text(encoding="utf-8")
 

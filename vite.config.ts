@@ -20,6 +20,13 @@ export default defineConfig({
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
+      // Agent OS uses root-level routes in FastAPI rather than the /api router.
+      // Keep development requests same-origin so they reach the backend instead
+      // of falling through to Vite's SPA HTML response.
+      '/agent': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
     },
   },
   plugins: [

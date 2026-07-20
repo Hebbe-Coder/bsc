@@ -194,10 +194,16 @@ export class FetchWrapper {
   }
 
   private async parseErrorResponse(response: Response): Promise<{ error?: string; message?: string }> {
+    const body = await response.text();
+    if (!body) return {};
     try {
-      return await response.json();
+      const parsed = JSON.parse(body) as { error?: string; message?: string; detail?: unknown };
+      if (typeof parsed.detail === 'string' && !parsed.error && !parsed.message) {
+        return { error: parsed.detail };
+      }
+      return parsed;
     } catch {
-      return { error: await response.text() };
+      return { error: body };
     }
   }
 
