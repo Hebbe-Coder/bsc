@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   bsc-backend:
     build:
@@ -12,7 +10,8 @@ services:
       - APP_PORT=8000
       - ENVIRONMENT=${ENVIRONMENT:-production}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - LLM_PROVIDER=${LLM_PROVIDER:-mock}
+      - LLM_PROVIDER=${LLM_PROVIDER:?LLM_PROVIDER must be configured for production}
+      - ALLOW_MOCK_LLM_IN_PRODUCTION=${ALLOW_MOCK_LLM_IN_PRODUCTION:-false}
       - CACHE_TYPE=${CACHE_TYPE:-memory}
       - DB_TYPE=sqlite
       - DB_PATH=/data/bsc_cloud.db
@@ -33,17 +32,15 @@ services:
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434/v1}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:7b}
       
-      - API_KEY=${API_KEY:-}
+      - API_KEY=${API_KEY:?API_KEY must be set for production}
       
       - RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-false}
       - SIGNATURE_ENABLED=${SIGNATURE_ENABLED:-false}
       
-      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:8000,http://localhost:3000,http://127.0.0.1:8000}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-["http://localhost:8000"]}
     volumes:
       - bsc-data:/data
       - bsc-output:/app/output
-    depends_on:
-      - ollama
     networks:
       - bsc-network
     restart: unless-stopped
@@ -60,6 +57,10 @@ services:
     networks:
       - bsc-network
     restart: unless-stopped
+    profiles:
+      - ollama
+      - celery
+      - full
 
   redis:
     image: redis:7-alpine

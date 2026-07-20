@@ -14,7 +14,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, Callable, Optional
+import time
+from dataclasses import dataclass, field
+from typing import Any, Awaitable, Callable, Optional
 
 from pydantic import BaseModel, Field
 
@@ -25,9 +27,103 @@ from app.artifacts.types import (
     ConstraintArtifact, EvidenceArtifact, CoverageArtifact,
     GapArtifact, DecisionArtifact, Severity, GapCategory,
 )
+from app.core.prompt_context import (
+    CapabilityPromptBudget,
+    PromptContextItem,
+    PromptContextUsage,
+)
+from app.core.llm_usage import ModelUsage
 from .registry import Capability, CapabilityRegistry
 
 logger = logging.getLogger(__name__)
+
+
+MOCK_CAPABILITY_FACTORIES: dict[str, Callable[[], dict[str, Any]]] = {
+    "business_understanding": lambda: {
+        "domain": "customer_service",
+        "value_proposition": "Shorten response time with automation",
+        "customer_segments": ["operations_team", "support_managers"],
+        "objectives": ["Reduce backlog", "Improve first response quality"],
+        "revenue_model": "internal_efficiency",
+        "key_activities": ["intake", "triage", "resolution"],
+        "key_resources": ["agents", "knowledge_base"],
+    },
+    "assumption_reasoning": lambda: {
+        "assumptions": [{
+            "statement": "Customers will accept AI-assisted support",
+            "category": "market",
+            "criticality": "high",
+            "counterfactual": "Escalate to human review for low-confidence cases",
+        }],
+    },
+    "risk_analysis": lambda: {
+        "risks": [{
+            "risk": "Automation may route critical cases incorrectly",
+            "dimension": "process",
+            "severity": "high",
+            "probability": "medium",
+            "mitigation": "Add reviewer checkpoints and exception handling",
+        }],
+    },
+    "constraint_generation": lambda: {
+        "constraints": [{
+            "constraint": "Sensitive customer data requires approval before export",
+            "type": "regulatory",
+            "hard_limit": True,
+            "workaround": "Keep exports inside the audited workspace",
+        }],
+    },
+    "sop_design": lambda: {
+        "workflow": [{"step": 1, "name": "Intake"}],
+        "roles": [{"role": "Operator"}],
+        "sla": [{"metric": "response_time", "target": "< 10m"}],
+        "metrics": [{"name": "resolution_rate", "target": "95%"}],
+        "kpi": [{"name": "csat", "target": "4.7"}],
+    },
+    "strategy_analysis": lambda: {
+        "growth_opportunities": [{"opportunity": "Expand self-service coverage"}],
+        "strategic_path": [{"phase": "pilot", "timeline": "30d"}],
+    },
+    "optimization_recommendations": lambda: {
+        "recommendations": [{
+            "title": "Automate repetitive ticket classification",
+            "priority": "P1",
+        }],
+    },
+    "coverage_analysis": lambda: {
+        "dimension_scores": {"operations": 0.9, "risk": 0.8, "customer": 0.85},
+        "dimensions_missed": [],
+        "overall_coverage": 0.85,
+    },
+    "gap_detection": lambda: {
+        "gaps": [{
+            "gap": "Need stronger evidence for adoption assumptions",
+            "category": "evidence_missing",
+            "severity": "medium",
+            "recommendation": "Run pilot interviews with support leads",
+        }],
+    },
+    "decision_support": lambda: {
+        "decision": "Launch an internal pilot before broad rollout",
+        "alternatives": ["Immediate full rollout"],
+        "rationale": "Pilot reduces operational risk while validating demand",
+        "assumption_confidence": 0.75,
+        "risk_acceptable": True,
+        "coverage_pct": 85,
+    },
+    "evidence_validation": lambda: {
+        "finding": "Interview feedback supports the assumption",
+        "evidence_type": "user_interview",
+        "strength": "medium",
+        "contradicts": False,
+    },
+    "report_composition": lambda: {
+        "executive_summary": "The business case is viable with a staged rollout.",
+        "sections": [{"title": "Summary", "content": "Pilot first."}],
+        "key_findings": [{"finding": "Operational gains are credible"}],
+        "recommendations": [{"title": "Stage the rollout"}],
+    },
+}
 
 
 # ---------------------------------------------------------------------------
@@ -42,7 +138,56 @@ class ExecutionResult(BaseModel):
     error: str = ""
     elapsed_ms: float = 0.0
     backend: str = "local"         # nanobot | local
+    mode: str = ""                 # real | mock | fallback | compatibility
     retries: int = 0
+    error_code: str = ""
+    attempts: list["ExecutionAttempt"] = Field(default_factory=list)
+    prompt_context: PromptContextUsage | None = None
+    model_usage: ModelUsage | None = None
+
+
+class ExecutionAttempt(BaseModel):
+    """One bounded attempt made while executing a capability."""
+
+    attempt: int = Field(gt=0)
+    outcome: str  # success | failed | timeout
+    elapsed_ms: float = 0.0
+    error_code: str = ""
+    error: str = ""
+    retryable: bool = False
+
+
+class CapabilityExecutionPolicy(BaseModel):
+    """Operational limits shared by native and compatibility capabilities."""
+
+    max_attempts: int = Field(default=3, ge=1, le=5)
+    attempt_timeout_seconds: float = Field(default=90.0, gt=0, le=900)
+    initial_backoff_seconds: float = Field(default=0.25, ge=0, le=30)
+    max_backoff_seconds: float = Field(default=4.0, ge=0, le=60)
+    backoff_multiplier: float = Field(default=2.0, ge=1, le=10)
+
+    def delay_before_retry(self, failed_attempt: int) -> float:
+        delay = self.initial_backoff_seconds * (
+            self.backoff_multiplier ** max(failed_attempt - 1, 0)
+        )
+        return min(delay, self.max_backoff_seconds)
+
+
+@dataclass
+class CallableExecutionOutcome:
+    """Value and telemetry from a direct capability callable."""
+
+    value: Any = None
+    execution: ExecutionResult = field(default_factory=ExecutionResult)
+
+
+@dataclass
+class _PolicyRun:
+    value: Any = None
+    attempts: list[ExecutionAttempt] = field(default_factory=list)
+    elapsed_ms: float = 0.0
+    error_code: str = ""
+    error: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -176,18 +321,16 @@ Output JSON with executive_summary, sections, key_findings, recommendations.""",
 
 
 # ---------------------------------------------------------------------------
-# Nanobot Agent Backend (abstracted — swap in real Nanobot later)
+# Nanobot-aligned capability backend
 # ---------------------------------------------------------------------------
 
 class NanobotAgentBackend:
     """Nanobot-compatible agent execution backend.
 
-    This is designed to be replaced with real Nanobot Agent Loop:
-      while task:
-          think → tool_call → observe → respond
-
-    Currently uses a local LLM call pattern that mirrors Nanobot's interface.
-    When Nanobot is installed, swap the _run_agent method.
+    BSC capabilities are single-turn structured analyses: the prompt is the
+    task, the provider response is the observation, and typed Artifact
+    persistence is the state update. The shared execution policy supplies the
+    bounded lifecycle around that turn.
 
     Nanobot concepts mapped:
       - ToolRegistry  → artifact_read / artifact_write tools
@@ -196,9 +339,15 @@ class NanobotAgentBackend:
       - MCP           → capability-specific prompt templates
     """
 
-    def __init__(self, store: ArtifactGraphStore, llm_service=None):
+    def __init__(
+        self,
+        store: ArtifactGraphStore,
+        llm_service=None,
+        prompt_budget: CapabilityPromptBudget | None = None,
+    ):
         self.store = store
         self._llm = llm_service
+        self._prompt_budget = prompt_budget or _default_prompt_context_budget()
 
     async def execute(
         self, capability: Capability, input_text: str = "", project_id: str = ""
@@ -215,14 +364,31 @@ class NanobotAgentBackend:
         """
         import time
         t0 = time.perf_counter()
+        llm = None
+        prompt_context = None
+        model_usage = None
 
         try:
-            # Build the prompt from capability template
-            prompt = self._build_prompt(capability, input_text)
-
-            # Nanobot agent loop (simulated)
             llm = self._get_llm()
+            if _uses_mock_capability_response(llm):
+                artifact_ids = self._persist_mock_response(capability, project_id)
+                elapsed = (time.perf_counter() - t0) * 1000
+                return ExecutionResult(
+                    capability_name=capability.name,
+                    status="success",
+                    artifacts_produced=artifact_ids,
+                    elapsed_ms=elapsed,
+                    backend="nanobot-mock",
+                    mode="mock",
+                )
+
+            # Build a bounded, artifact-aware prompt before invoking the model.
+            prompt, prompt_context = self._build_prompt_with_usage(capability, input_text)
+
+            # Complete the capability turn and persist its typed observation.
             response_text = await llm.generate(prompt)
+            usage = getattr(llm, "last_usage", None)
+            model_usage = usage if isinstance(usage, ModelUsage) else None
 
             # Parse response into artifacts
             artifact_ids = self._persist_response(
@@ -241,6 +407,9 @@ class NanobotAgentBackend:
                 artifacts_produced=artifact_ids,
                 elapsed_ms=elapsed,
                 backend="nanobot",
+                mode=getattr(llm, "last_mode", "") or "real",
+                prompt_context=prompt_context,
+                model_usage=model_usage,
             )
 
         except Exception as exc:
@@ -252,6 +421,9 @@ class NanobotAgentBackend:
                 error=str(exc),
                 elapsed_ms=elapsed,
                 backend="nanobot",
+                mode=getattr(llm, "last_mode", "") or "real",
+                prompt_context=prompt_context,
+                model_usage=model_usage,
             )
 
     def _get_llm(self):
@@ -261,71 +433,116 @@ class NanobotAgentBackend:
         self._llm = get_llm_adapter()
         return self._llm
 
+    def _persist_mock_response(
+        self,
+        capability: Capability,
+        project_id: str,
+    ) -> list[str]:
+        factory = MOCK_CAPABILITY_FACTORIES.get(capability.name)
+        if factory is None:
+            return []
+        payload = factory()
+        artifact_ids: list[str] = []
+        for at in capability.output_artifact_types:
+            artifacts = self._map_to_artifacts(payload, at, project_id)
+            for art in artifacts:
+                self.store.add(art)
+                artifact_ids.append(art.artifact_id)
+        return artifact_ids
+
     def _build_prompt(self, capability: Capability, input_text: str) -> str:
         """Build the execution prompt from capability template + artifact context."""
+        return self._build_prompt_with_usage(capability, input_text)[0]
+
+    def _build_prompt_with_usage(
+        self,
+        capability: Capability,
+        input_text: str,
+    ) -> tuple[str, PromptContextUsage]:
         template = CAPABILITY_PROMPTS.get(
             capability.name,
             "Analyze the following and produce structured output:\n\n{input_text}",
         )
 
-        # Gather context from Artifact Graph
         biz_models = self.store.get_by_type(ArtifactType.BUSINESS_MODEL)
         assumptions = self.store.get_by_type(ArtifactType.ASSUMPTION)
         risks = self.store.get_by_type(ArtifactType.RISK)
-
-        business_model_text = self._format_artifacts(biz_models)
-        assumptions_text = self._format_artifacts(assumptions)
-        risks_text = self._format_artifacts(risks)
-        all_text = self._format_all_artifacts()
-
-        return template.format(
-            input_text=input_text[:4000],
-            business_model=business_model_text or "(none)",
-            assumptions=assumptions_text or "(none)",
-            risks=risks_text or "(none)",
-            all_artifacts=all_text or "(none)",
-            assumption="(see assumptions above)",
-            available_evidence="(see artifacts above)",
+        all_artifacts = self._ranked_artifacts(capability)
+        rendered = self._prompt_budget.render(
+            template,
+            input_text=input_text,
+            context_blocks=[
+                ("business_model", self._prompt_context_items(biz_models)),
+                ("assumptions", self._prompt_context_items(assumptions)),
+                ("risks", self._prompt_context_items(risks)),
+                ("all_artifacts", self._prompt_context_items(all_artifacts)),
+                ("assumption", self._prompt_context_items(assumptions[:1])),
+                ("available_evidence", self._prompt_context_items(all_artifacts)),
+            ],
         )
+        return rendered.prompt, rendered.usage
 
-    def _format_artifacts(self, artifacts: list) -> str:
-        if not artifacts:
-            return ""
-        lines = []
-        for a in artifacts:
-            d = a.model_dump()
-            # Extract meaningful fields
-            parts = []
-            for key in ("label", "statement", "risk_statement", "decision_statement",
-                        "gap_statement", "constraint_statement", "finding",
-                        "description", "rationale", "mitigation"):
-                val = d.get(key, "")
-                if val:
-                    parts.append(f"{key}: {val}")
-            if parts:
-                lines.append(f"[{a.artifact_id}] {' | '.join(parts)}")
-        return "\n".join(lines)
+    def _ranked_artifacts(self, capability: Capability) -> list[BaseArtifact]:
+        artifacts = [
+            self.store.get(artifact_id)
+            for artifact_id in self.store.list_all()
+        ]
+        ranked = [artifact for artifact in artifacts if artifact is not None]
+        ranked.sort(key=lambda artifact: artifact.artifact_id)
+        ranked.sort(key=lambda artifact: artifact.created_at, reverse=True)
+        ranked.sort(key=self._artifact_severity_priority)
+        input_types = set(capability.input_artifact_types)
+        ranked.sort(
+            key=lambda artifact: 0 if artifact.artifact_type in input_types else 1
+        )
+        return ranked
 
-    def _format_all_artifacts(self) -> str:
-        lines = []
-        for aid in self.store.list_all():
-            art = self.store.get(aid)
-            if art is None:
+    @staticmethod
+    def _artifact_severity_priority(artifact: BaseArtifact) -> int:
+        value = getattr(artifact, "severity", None) or getattr(
+            artifact, "criticality", None
+        )
+        normalized = getattr(value, "value", value)
+        return {
+            "critical": 0,
+            "high": 1,
+            "medium": 2,
+            "low": 3,
+        }.get(str(normalized).lower(), 4)
+
+    def _prompt_context_items(self, artifacts: list[BaseArtifact]) -> list[PromptContextItem]:
+        return [
+            PromptContextItem(
+                artifact_id=artifact.artifact_id,
+                text=self._format_prompt_artifact(artifact),
+            )
+            for artifact in artifacts
+        ]
+
+    @staticmethod
+    def _format_prompt_artifact(artifact: BaseArtifact) -> str:
+        data = artifact.model_dump()
+        fields = (
+            "label", "domain", "value_proposition", "customer_segments",
+            "objectives", "key_activities", "key_resources", "statement",
+            "category", "criticality", "counterfactual", "risk_statement",
+            "dimension", "severity", "probability", "mitigation",
+            "constraint_statement", "constraint_type", "hard_limit", "workaround",
+            "finding", "evidence_type", "strength", "contradicts",
+            "dimension_scores", "dimensions_missed", "overall_coverage",
+            "gap_statement", "resolution", "decision_statement", "alternatives",
+            "rationale", "assumption_confidence", "risk_acceptable", "coverage_pct",
+            "confidence", "status",
+        )
+        parts = [f"[{artifact.artifact_id}] type: {artifact.artifact_type.value}"]
+        for field_name in fields:
+            value = data.get(field_name)
+            if value is None or value == "" or value == [] or value == {}:
                 continue
-            d = art.model_dump()
-            # Compact representation
-            compact = {
-                "type": d.get("artifact_type", ""),
-                "label": d.get("label", ""),
-            }
-            for key in ("statement", "risk_statement", "decision_statement",
-                        "gap_statement", "finding", "rationale", "mitigation",
-                        "severity", "validated", "confidence"):
-                val = d.get(key, "")
-                if val:
-                    compact[key] = str(val)
-            lines.append(f"  [{art.artifact_id}] {compact}")
-        return "\n".join(lines)
+            if isinstance(value, (dict, list)):
+                value = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+            parts.append(f"{field_name}: {value}")
+        return " | ".join(parts)
 
     def _persist_response(
         self, response_text: str, capability: Capability, project_id: str
@@ -564,9 +781,11 @@ class CapabilityExecutor:
         store: ArtifactGraphStore,
         backend: str = "nanobot",
         llm_service=None,
+        policy: CapabilityExecutionPolicy | None = None,
     ):
         self.store = store
         self.backend_name = backend
+        self.policy = policy or _default_execution_policy()
         if backend == "nanobot":
             self._backend: NanobotAgentBackend | LocalAgentBackend = (
                 NanobotAgentBackend(store, llm_service)
@@ -577,7 +796,26 @@ class CapabilityExecutor:
     async def execute(
         self, capability: Capability, input_text: str = "", project_id: str = ""
     ) -> ExecutionResult:
-        return await self._backend.execute(capability, input_text, project_id)
+        run = await self._run_with_policy(
+            capability,
+            lambda: self._backend.execute(capability, input_text, project_id),
+        )
+        return self._execution_result(capability.name, run)
+
+    async def execute_callable(
+        self,
+        capability: Capability,
+        operation: Callable[[], Awaitable[Any]],
+        *,
+        backend: str = "callable",
+    ) -> CallableExecutionOutcome:
+        """Apply the same policy to direct compatibility capability callables."""
+        run = await self._run_with_policy(capability, operation)
+        execution = self._execution_result(capability.name, run, backend=backend)
+        return CallableExecutionOutcome(
+            value=run.value if execution.status == "success" else None,
+            execution=execution,
+        )
 
     async def execute_all(
         self,
@@ -599,6 +837,152 @@ class CapabilityExecutor:
         ]
         return list(await asyncio.gather(*tasks))
 
+    async def _run_with_policy(
+        self,
+        capability: Capability,
+        operation: Callable[[], Awaitable[Any]],
+    ) -> _PolicyRun:
+        started = time.perf_counter()
+        attempts: list[ExecutionAttempt] = []
+        last_value: Any = None
+        last_error = ""
+        last_error_code = ""
+
+        for attempt_number in range(1, self.policy.max_attempts + 1):
+            attempt_started = time.perf_counter()
+            try:
+                value = await asyncio.wait_for(
+                    operation(),
+                    timeout=self.policy.attempt_timeout_seconds,
+                )
+                if isinstance(value, ExecutionResult) and value.status != "success":
+                    last_value = value
+                    last_error = value.error or "capability execution failed"
+                    last_error_code, retryable = _classify_execution_failure(last_error)
+                    attempts.append(ExecutionAttempt(
+                        attempt=attempt_number,
+                        outcome="failed",
+                        elapsed_ms=(time.perf_counter() - attempt_started) * 1000,
+                        error_code=last_error_code,
+                        error=last_error,
+                        retryable=retryable,
+                    ))
+                elif _is_empty_capability_output(capability, value):
+                    last_value = value
+                    last_error = "capability produced no artifacts"
+                    last_error_code = "empty_output"
+                    retryable = False
+                    attempts.append(ExecutionAttempt(
+                        attempt=attempt_number,
+                        outcome="failed",
+                        elapsed_ms=(time.perf_counter() - attempt_started) * 1000,
+                        error_code=last_error_code,
+                        error=last_error,
+                        retryable=False,
+                    ))
+                else:
+                    attempts.append(ExecutionAttempt(
+                        attempt=attempt_number,
+                        outcome="success",
+                        elapsed_ms=(time.perf_counter() - attempt_started) * 1000,
+                    ))
+                    return _PolicyRun(
+                        value=value,
+                        attempts=attempts,
+                        elapsed_ms=(time.perf_counter() - started) * 1000,
+                    )
+            except asyncio.CancelledError:
+                raise
+            except asyncio.TimeoutError:
+                last_error = (
+                    "capability attempt timed out after "
+                    f"{self.policy.attempt_timeout_seconds:g}s"
+                )
+                last_error_code = "timeout"
+                retryable = True
+                attempts.append(ExecutionAttempt(
+                    attempt=attempt_number,
+                    outcome="timeout",
+                    elapsed_ms=(time.perf_counter() - attempt_started) * 1000,
+                    error_code=last_error_code,
+                    error=last_error,
+                    retryable=True,
+                ))
+            except Exception as exc:
+                last_error = str(exc) or type(exc).__name__
+                last_error_code, retryable = _classify_execution_failure(
+                    last_error,
+                    exception=exc,
+                )
+                attempts.append(ExecutionAttempt(
+                    attempt=attempt_number,
+                    outcome="failed",
+                    elapsed_ms=(time.perf_counter() - attempt_started) * 1000,
+                    error_code=last_error_code,
+                    error=last_error,
+                    retryable=retryable,
+                ))
+
+            if not retryable or attempt_number >= self.policy.max_attempts:
+                break
+            delay = self.policy.delay_before_retry(attempt_number)
+            if delay:
+                await asyncio.sleep(delay)
+
+        return _PolicyRun(
+            value=last_value,
+            attempts=attempts,
+            elapsed_ms=(time.perf_counter() - started) * 1000,
+            error_code=last_error_code,
+            error=last_error,
+        )
+
+    def _execution_result(
+        self,
+        capability_name: str,
+        run: _PolicyRun,
+        *,
+        backend: str | None = None,
+    ) -> ExecutionResult:
+        if isinstance(run.value, ExecutionResult):
+            result = run.value.model_copy(deep=True)
+        elif run.error:
+            result = ExecutionResult(
+                capability_name=capability_name,
+                status="failed",
+                backend=backend or self.backend_name,
+                error=run.error,
+                error_code=run.error_code,
+            )
+        else:
+            result = ExecutionResult(
+                capability_name=capability_name,
+                status="success",
+                backend=backend or self.backend_name,
+            )
+
+        if run.error:
+            result.status = "failed"
+            result.error = run.error
+            result.error_code = run.error_code
+        result.elapsed_ms = run.elapsed_ms
+        result.retries = max(len(run.attempts) - 1, 0)
+        result.attempts = run.attempts
+        return result
+
+
+def assert_mock_coverage(registry: CapabilityRegistry) -> None:
+    """Fail fast when a registered capability has no deterministic mock path."""
+    missing = [
+        cap.name
+        for cap in registry.list_all()
+        if cap.executor_fn is None and cap.name not in MOCK_CAPABILITY_FACTORIES
+    ]
+    if missing:
+        raise ValueError(
+            "Missing mock coverage for capabilities: " + ", ".join(sorted(missing))
+        )
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -612,3 +996,66 @@ def _parse_sev(value: str) -> Severity:
         "low": Severity.LOW, "l": Severity.LOW,
     }
     return mapping.get(str(value).lower().strip(), Severity.MEDIUM)
+
+
+def _uses_mock_capability_response(llm: Any) -> bool:
+    provider = str(getattr(llm, "provider", "") or "")
+    force_mock = bool(getattr(llm, "force_mock", False))
+    return force_mock or provider == "mock"
+
+
+def _is_empty_capability_output(capability: Capability, value: Any) -> bool:
+    return (
+        isinstance(value, ExecutionResult)
+        and value.status == "success"
+        and bool(capability.output_artifact_types)
+        and not value.artifacts_produced
+    )
+
+
+def _classify_execution_failure(
+    message: str,
+    *,
+    exception: BaseException | None = None,
+) -> tuple[str, bool]:
+    """Return a stable error code and whether another attempt is justified."""
+    normalized = message.lower()
+    if isinstance(exception, (ConnectionError, OSError)):
+        return "transport", True
+    if any(token in normalized for token in ("cancelled", "canceled")):
+        return "cancelled", False
+    if any(token in normalized for token in ("invalid", "validation", "schema", "payload")):
+        return "invalid_request", False
+    if any(token in normalized for token in ("permission", "unauthorized", "forbidden")):
+        return "permission_denied", False
+    if any(token in normalized for token in ("rate limit", "429")):
+        return "rate_limited", True
+    if any(token in normalized for token in (
+        "temporary", "temporarily", "unavailable", "overload", "connection",
+        "network", "gateway", "reset", "refused", "5xx", "internal server error",
+    )):
+        return "transient", True
+    if "empty" in normalized or "no artifacts" in normalized:
+        return "empty_output", False
+    return "execution_failed", False
+
+
+def _default_execution_policy() -> CapabilityExecutionPolicy:
+    from app.core.config import settings
+
+    return CapabilityExecutionPolicy(
+        max_attempts=settings.CAPABILITY_MAX_ATTEMPTS,
+        attempt_timeout_seconds=settings.CAPABILITY_ATTEMPT_TIMEOUT_SECONDS,
+        initial_backoff_seconds=settings.CAPABILITY_INITIAL_BACKOFF_SECONDS,
+        max_backoff_seconds=settings.CAPABILITY_MAX_BACKOFF_SECONDS,
+    )
+
+
+def _default_prompt_context_budget() -> CapabilityPromptBudget:
+    from app.core.config import settings
+
+    return CapabilityPromptBudget(
+        max_tokens=settings.CAPABILITY_PROMPT_MAX_TOKENS,
+        input_max_tokens=settings.CAPABILITY_PROMPT_INPUT_MAX_TOKENS,
+        artifact_max_tokens=settings.CAPABILITY_PROMPT_ARTIFACT_MAX_TOKENS,
+    )

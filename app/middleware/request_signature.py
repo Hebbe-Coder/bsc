@@ -32,8 +32,6 @@ class RequestSignatureMiddleware(BaseHTTPMiddleware):
     
     def __init__(self, app):
         super().__init__(app)
-        self._enabled = settings.effective_signature_enabled if hasattr(settings, 'effective_signature_enabled') else False
-        self._ttl = settings.SIGNATURE_TTL
     
     def _is_whitelisted(self, path: str) -> bool:
         """检查路径是否在白名单中"""
@@ -75,7 +73,9 @@ class RequestSignatureMiddleware(BaseHTTPMiddleware):
         return hashlib.md5(body, usedforsecurity=False).hexdigest()
     
     async def dispatch(self, request: Request, call_next):
-        if not self._enabled:
+        # Read the setting for each request so configuration and test overrides
+        # cannot leave this security control silently disabled.
+        if not settings.SIGNATURE_ENABLED:
             return await call_next(request)
         
         path = request.url.path
@@ -127,14 +127,14 @@ class RequestSignatureMiddleware(BaseHTTPMiddleware):
             )
         
         now = int(time.time())
-        if abs(now - ts) > self._ttl:
+        if abs(now - ts) > settings.SIGNATURE_TTL:
             return JSONResponse(
                 status_code=401,
                 content={
                     "success": False,
                     "error": {
                         "code": "EXPIRED_SIGNATURE",
-                        "message": f"签名已过期，请重新生成（有效期{self._ttl}秒）",
+                        "message": f"签名已过期，请重新生成（有效期{settings.SIGNATURE_TTL}秒）",
                         "current_time": now,
                         "signature_time": ts,
                     }

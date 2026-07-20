@@ -17,6 +17,8 @@ import logging
 import time
 from typing import Any, Optional
 
+from app.core.llm_usage import ModelUsage
+
 logger = logging.getLogger(__name__)
 
 
@@ -34,6 +36,8 @@ class LLMAdapter:
         self._force_mock = force_mock
         self._sync_service = None
         self._ready: bool | None = None
+        self._last_mode: str = ""
+        self._last_usage: ModelUsage | None = None
 
     @property
     def is_ready(self) -> bool:
@@ -44,6 +48,22 @@ class LLMAdapter:
             except Exception:
                 self._ready = False
         return self._ready
+
+    @property
+    def provider(self) -> str:
+        return getattr(self._get_sync_service(), "provider", "")
+
+    @property
+    def force_mock(self) -> bool:
+        return self._force_mock
+
+    @property
+    def last_mode(self) -> str:
+        return self._last_mode
+
+    @property
+    def last_usage(self) -> ModelUsage | None:
+        return self._last_usage
 
     def _get_sync_service(self):
         if self._sync_service is None:
@@ -93,14 +113,27 @@ class LLMAdapter:
             if isinstance(result, dict):
                 # Check if this is a parsed JSON response (not a raw content dict)
                 if "_meta" in result:
+                    metadata = result["_meta"]
+                    self._last_mode = str(metadata.get("mode", ""))
+                    raw_usage = metadata.get("usage")
+                    self._last_usage = (
+                        ModelUsage.model_validate(raw_usage)
+                        if isinstance(raw_usage, dict)
+                        else None
+                    )
                     # LLMService already parsed JSON; return as JSON string
                     import json as _json
                     clean = {k: v for k, v in result.items() if k != "_meta"}
                     return _json.dumps(clean, ensure_ascii=False) if clean else str(result)
+                self._last_mode = "api"
+                self._last_usage = None
                 return result.get("content", result.get("text", str(result)))
+            self._last_mode = "api"
+            self._last_usage = None
             return str(result)
 
         except Exception as exc:
+            self._last_usage = None
             logger.warning("LLM generate failed: %s", exc)
             raise
 

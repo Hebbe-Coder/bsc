@@ -2,7 +2,8 @@ import type { AgentAnalysisResponse } from '../api/agentOsApi';
 import type { DashboardData, RiskItem, RiskPayload, TrustedAudit, Evaluation, QualityDimension, CitationCoverage } from '../api/compilerDashboardApi';
 
 export function adaptAgentOsToDashboard(resp: AgentAnalysisResponse): DashboardData {
-  const report = resp.report || {};
+  // Artifact exports are intentionally extensible; normalize them at the UI boundary.
+  const report = (resp.report || {}) as Record<string, any>;
   const risks: RiskItem[] = (report.risks || []).map((r: any, idx: number) => ({
     id: r.id || 'agent-os-risk-' + idx,
     title: r.risk || r.risk_statement || r.title || 'Risk ' + (idx + 1),
@@ -11,7 +12,7 @@ export function adaptAgentOsToDashboard(resp: AgentAnalysisResponse): DashboardD
     detail: r.mitigation || r.detail || r.description || '',
   }));
 
-  const artifactGraph = report._artifact_graph || {};
+  const artifactGraph = (report._artifact_graph || {}) as Record<string, any>;
   const totalArtifacts = artifactGraph.total_artifacts || resp.artifacts || 0;
   const gaps = report.gaps || artifactGraph.gaps || [];
   const coveredCount = totalArtifacts - (Array.isArray(gaps) ? gaps.length : (resp.gaps || 0));

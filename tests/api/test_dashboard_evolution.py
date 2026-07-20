@@ -8,6 +8,7 @@ from app.agent.state import ProjectDraftRepository, ProjectDraft
 
 def _put_draft(session_id: str, **kwargs):
     repo = ProjectDraftRepository()
+    kwargs.setdefault("status", "completed")
     draft = ProjectDraft(session_id=session_id, **kwargs)
     repo.save(draft)
     return draft.to_dict()

@@ -1,10 +1,11 @@
 """PRD API - PRD智能解析与模板引导接口"""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from typing import Optional, List
 import logging
 
 from app.api.response import ApiResponse
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/prd", tags=["PRD Analysis"])
@@ -122,7 +123,10 @@ async def get_personalized_template(req: PersonalizedTemplateRequest):
 
 
 @router.post("/compile", summary="PRD分析+编译")
-async def prd_analyze_and_compile(req: CompileWithAnalysisRequest):
+async def prd_analyze_and_compile(
+    req: CompileWithAnalysisRequest,
+    request: Request = None,
+):
     """
     PRD分析 + 编译一站式流程
     
@@ -138,14 +142,24 @@ async def prd_analyze_and_compile(req: CompileWithAnalysisRequest):
     - 一键进入编译流程
     """
     from app.engines.prd_analyzer import PRDAnalyzer
-    from app.core.async_pipeline import compile_to_business_system_async
     
     analyzer = PRDAnalyzer()
     analysis_result = analyzer.analyze(req.prd_text, use_llm=False)
     
     if not req.analyze_first or analysis_result["prd_quality"] >= 60:
-        compile_result = await compile_to_business_system_async(
-            req.prd_text, template_id=req.template_id
+        from app.capabilities.runner import run_legacy_bsc_runtime
+
+        compile_result = await run_legacy_bsc_runtime(
+            input_text=req.prd_text,
+            template_id=req.template_id,
+            tenant_id=str(
+                getattr(request.state, "tenant_id", settings.DEFAULT_TENANT_ID)
+                if request is not None
+                else settings.DEFAULT_TENANT_ID
+            ),
+            project_id=str(
+                getattr(request.state, "project_id", "") if request is not None else ""
+            ),
         )
         
         bs = compile_result["business_system"]

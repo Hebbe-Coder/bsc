@@ -81,6 +81,22 @@ class RAGAnswerGenerator:
                 })
         return "\n\n".join(parts), citations
 
+    @staticmethod
+    def _serialize_route(route_result: Optional[dict]) -> Optional[dict]:
+        if route_result is None:
+            return None
+        result = dict(route_result)
+        result["tools"] = [
+            {
+                "tool_name": tool.tool_name,
+                "params": tool.params,
+                "status": tool.status,
+            }
+            if hasattr(tool, "tool_name") else tool
+            for tool in result.get("tools", [])
+        ]
+        return result
+
     def validate_citations(self, answer_text: str, citations: List[dict]):
         valid_ids = {c["index"] for c in citations}
         found = re.findall(r"\[(\d+)\]", answer_text or "")
@@ -137,6 +153,7 @@ class RAGAnswerGenerator:
             route_result = router.route(question)
             logger.info("Agent Router: query='%s' -> intent='%s', router_decision='%s'", 
                         question, route_result.get("intent"), route_result.get("router_decision"))
+            route_result = self._serialize_route(route_result)
 
         if enable_rewrite:
             rewriter = get_query_rewriter(mock=self.provider == "mock")
@@ -170,12 +187,16 @@ class RAGAnswerGenerator:
 
         context, citations = self.build_context(chunks)
         
-        if self.provider == "mock":
-            mock_result = self._mock_generate_answer(question, citations)
-            mock_result["rewrite"] = rewrite_result
-            mock_result["route"] = route_result
-            mock_result["self_rag"] = self_rag_result
-            return mock_result
+        if self.provider == "mock" and self._llm_client is None:
+            return {
+                "answer": "",
+                "citations": citations,
+                "degraded": True,
+                "note": "Mock provider returns retrieval context without generated content",
+                "rewrite": rewrite_result,
+                "route": route_result,
+                "self_rag": self_rag_result,
+            }
         
         try:
             llm = self._get_llm()
@@ -191,11 +212,15 @@ class RAGAnswerGenerator:
                 "self_rag": self_rag_result,
             }
         if getattr(llm, "provider", "mock") == "mock":
-            mock_result = self._mock_generate_answer(question, citations)
-            mock_result["rewrite"] = rewrite_result
-            mock_result["route"] = route_result
-            mock_result["self_rag"] = self_rag_result
-            return mock_result
+            return {
+                "answer": "",
+                "citations": citations,
+                "degraded": True,
+                "note": "Mock provider returns retrieval context without generated content",
+                "rewrite": rewrite_result,
+                "route": route_result,
+                "self_rag": self_rag_result,
+            }
         try:
             if self.two_phase:
                 plan = llm.chat_structured(build_citation_plan_prompt(question, context), question) or {}

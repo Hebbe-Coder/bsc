@@ -13,12 +13,16 @@ logger = logging.getLogger(__name__)
 
 def _compile_sync(prd_content: str, template_id: str = None):
     """同步执行BSC编译"""
-    from app.core.bsc_pipeline import compile_to_business_system
+    from app.capabilities.runner import run_legacy_bsc_runtime_sync
     
     logger.info("Starting BSC compile task")
     
     try:
-        result = compile_to_business_system(prd_content, template_id=template_id)
+        result = run_legacy_bsc_runtime_sync(
+            input_text=prd_content,
+            template_id=template_id,
+            async_mode=False,
+        )
         logger.info("BSC compile task completed")
         return result
     except Exception as e:
@@ -28,13 +32,16 @@ def _compile_sync(prd_content: str, template_id: str = None):
 
 def _compile_async_sync(prd_content: str, template_id: str = None):
     """同步执行异步BSC编译（内部使用asyncio）"""
-    import asyncio
-    from app.core.async_pipeline import compile_to_business_system_async
+    from app.capabilities.runner import run_legacy_bsc_runtime_sync
     
     logger.info("Starting async BSC compile task")
     
     try:
-        result = asyncio.run(compile_to_business_system_async(prd_content, template_id=template_id))
+        result = run_legacy_bsc_runtime_sync(
+            input_text=prd_content,
+            template_id=template_id,
+            async_mode=True,
+        )
         logger.info("Async BSC compile task completed")
         return result
     except Exception as e:

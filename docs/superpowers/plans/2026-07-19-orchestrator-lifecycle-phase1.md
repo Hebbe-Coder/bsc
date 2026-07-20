@@ -55,7 +55,7 @@
 - Create: `app/orchestrator/contracts.py`
 - Create: `tests/orchestrator/test_contracts.py`
 
-- [ ] **Step 1: Write the failing contract tests**
+- [x] **Step 1: Write the failing contract tests**
 
 ```python
 # tests/orchestrator/test_contracts.py
@@ -100,7 +100,7 @@ def test_terminal_event_sets_terminal_flag():
     assert event.model_dump(mode="json")["type"] == "pipeline.completed"
 ```
 
-- [ ] **Step 2: Run the tests and verify the missing module failure**
+- [x] **Step 2: Run the tests and verify the missing module failure**
 
 Run:
 
@@ -110,7 +110,7 @@ Run:
 
 Expected: collection fails with `ModuleNotFoundError: No module named 'app.orchestrator.contracts'`.
 
-- [ ] **Step 3: Add the contract models**
+- [x] **Step 3: Add the contract models**
 
 ```python
 # app/orchestrator/contracts.py
@@ -174,7 +174,7 @@ class JobStatusResponse(BaseModel):
     terminal: bool
 ```
 
-- [ ] **Step 4: Run the tests and verify they pass**
+- [x] **Step 4: Run the tests and verify they pass**
 
 Run:
 
@@ -201,7 +201,7 @@ git commit -m "feat(orchestrator): define lifecycle event contracts"
 - Create: `tests/orchestrator/conftest.py`
 - Modify: `tests/orchestrator/test_state.py`
 
-- [ ] **Step 1: Add an isolated repository fixture and failing transition tests**
+- [x] **Step 1: Add an isolated repository fixture and failing transition tests**
 
 Create the orchestrator-local fixture:
 
@@ -276,7 +276,7 @@ def test_transition_unknown_session_raises(draft_repo):
         draft_repo.transition("missing", JobStatus.FAILED)
 ```
 
-- [ ] **Step 2: Run the state tests and verify the method is missing**
+- [x] **Step 2: Run the state tests and verify the method is missing**
 
 Run:
 
@@ -286,7 +286,7 @@ Run:
 
 Expected: fixture setup fails because `ProjectDraftRepository.__init__` does not accept `connection`.
 
-- [ ] **Step 3: Add connection injection and implement transitions without changing the table schema**
+- [x] **Step 3: Add connection injection and implement transitions without changing the table schema**
 
 Replace the `ProjectDraftRepository` constructor in `app/agent/state.py` with:
 
@@ -333,7 +333,7 @@ At the start of `save`, before updating `draft.updated_at`, guard existing termi
 
 Do not modify `_ensure_table` in this task. Destructive schema migration removal belongs to the persistence plan.
 
-- [ ] **Step 4: Run state and contract tests**
+- [x] **Step 4: Run state and contract tests**
 
 Run:
 
@@ -359,7 +359,7 @@ git commit -m "feat(orchestrator): persist guarded job transitions"
 - Modify: `app/orchestrator/sse.py`
 - Create: `tests/orchestrator/test_sse.py`
 
-- [ ] **Step 1: Write failing replay and fan-out tests**
+- [x] **Step 1: Write failing replay and fan-out tests**
 
 ```python
 # tests/orchestrator/test_sse.py
@@ -438,7 +438,7 @@ def test_legacy_dict_publish_remains_compatible():
     asyncio.run(scenario())
 ```
 
-- [ ] **Step 2: Run the tests and verify the old API fails**
+- [x] **Step 2: Run the tests and verify the old API fails**
 
 Run:
 
@@ -448,7 +448,7 @@ Run:
 
 Expected: failures because `history_limit`, typed `publish`, replay and fan-out are not implemented.
 
-- [ ] **Step 3: Implement bounded history and subscriber fan-out**
+- [x] **Step 3: Implement bounded history and subscriber fan-out**
 
 Replace `app/orchestrator/sse.py` with:
 
@@ -556,7 +556,7 @@ class SessionEventBus:
             await queue.put(_CLOSE)
 ```
 
-- [ ] **Step 4: Run the SSE and existing engine tests**
+- [x] **Step 4: Run the SSE and existing engine tests**
 
 Run:
 
@@ -586,7 +586,7 @@ git commit -m "feat(orchestrator): add replayable fan-out event bus"
 - Modify: `tests/orchestrator/test_rerun.py`
 - Create: `tests/orchestrator/test_lifecycle.py`
 
-- [ ] **Step 1: Add lifecycle tests with an isolated repository**
+- [x] **Step 1: Add lifecycle tests with an isolated repository**
 
 ```python
 # tests/orchestrator/test_lifecycle.py
@@ -686,7 +686,7 @@ def test_cancellation_persists_cancelled_and_emits_terminal(draft_repo):
     assert events[-1].terminal is True
 ```
 
-- [ ] **Step 2: Run lifecycle tests and verify terminal behavior is absent**
+- [x] **Step 2: Run lifecycle tests and verify terminal behavior is absent**
 
 Run:
 
@@ -696,7 +696,7 @@ Run:
 
 Expected: tests fail because the engine never transitions to terminal states or publishes terminal events.
 
-- [ ] **Step 3: Update engine event emission and wrap the pipeline lifecycle**
+- [x] **Step 3: Update engine event emission and wrap the pipeline lifecycle**
 
 In `app/orchestrator/engine.py`, import:
 
@@ -874,7 +874,7 @@ eng = OrchestratorEngine(
 )
 ```
 
-- [ ] **Step 4: Run lifecycle and full orchestrator tests**
+- [x] **Step 4: Run lifecycle and full orchestrator tests**
 
 Run:
 
@@ -900,7 +900,7 @@ git commit -m "feat(orchestrator): persist and emit terminal lifecycle"
 - Modify: `app/api/orchestrate.py`
 - Modify: `tests/orchestrator/test_api.py`
 
-- [ ] **Step 1: Add failing API contract tests**
+- [x] **Step 1: Add failing API contract tests**
 
 Append to `tests/orchestrator/test_api.py` using its existing authenticated client fixture:
 
@@ -1046,7 +1046,7 @@ def test_unknown_status_returns_404(client, monkeypatch):
     assert response.status_code == 404
 ```
 
-- [ ] **Step 2: Run API tests and verify the contract fails**
+- [x] **Step 2: Run API tests and verify the contract fails**
 
 Run:
 
@@ -1056,7 +1056,7 @@ Run:
 
 Expected: failures for HTTP 202, missing discovery URLs and missing status endpoint.
 
-- [ ] **Step 3: Implement task retention, safe callbacks and canonical endpoints**
+- [x] **Step 3: Implement task retention, safe callbacks and canonical endpoints**
 
 In `app/api/orchestrate.py`, import:
 
@@ -1204,7 +1204,7 @@ Ensure `/stream` is declared before `/{session_id}` so FastAPI does not interpre
 
 Update the existing `test_orchestrate_runs` assertion from `status_code == 200` to `status_code == 202`.
 
-- [ ] **Step 4: Run API and orchestrator tests**
+- [x] **Step 4: Run API and orchestrator tests**
 
 Run:
 
@@ -1232,7 +1232,7 @@ git commit -m "feat(api): expose managed orchestrator lifecycle"
 - Modify: `src/store/workspaceStore.ts`
 - Test: TypeScript check plus focused browser/API smoke test
 
-- [ ] **Step 1: Define typed frontend contracts**
+- [x] **Step 1: Define typed frontend contracts**
 
 Replace `src/api/orchestrateApi.ts` with:
 
@@ -1316,7 +1316,7 @@ export function subscribeStream(
 }
 ```
 
-- [ ] **Step 2: Make workspace state accept the dashboard projection**
+- [x] **Step 2: Make workspace state accept the dashboard projection**
 
 Replace `src/store/workspaceStore.ts` with:
 
@@ -1377,7 +1377,7 @@ export const useWorkspace = create<WorkspaceState>((set) => ({
 }));
 ```
 
-- [ ] **Step 3: Remove the completion timer and fetch the dashboard on terminal success**
+- [x] **Step 3: Remove the completion timer and fetch the dashboard on terminal success**
 
 In `src/components/UnifiedWorkspace.tsx`, keep the dashboard import and replace the existing orchestrator import with:
 
@@ -1467,7 +1467,7 @@ onCancel={() => {
 
 Do not clear `loading` or `compiling` in this handler. The `pipeline.cancelled` terminal event owns the final UI transition.
 
-- [ ] **Step 4: Run TypeScript verification**
+- [x] **Step 4: Run TypeScript verification**
 
 Run:
 
@@ -1477,7 +1477,7 @@ npm run check
 
 Expected: command exits with code 0.
 
-- [ ] **Step 5: Run backend regression**
+- [x] **Step 5: Run backend regression**
 
 Run:
 
@@ -1487,7 +1487,7 @@ Run:
 
 Expected: all selected tests pass.
 
-- [ ] **Step 6: Perform one end-to-end mock smoke test**
+- [x] **Step 6: Perform one end-to-end mock smoke test**
 
 Start the backend:
 
@@ -1527,7 +1527,7 @@ git commit -m "feat(workspace): render orchestrator terminal results"
 - Modify: `docs/superpowers/specs/2026-07-19-bsc-platform-convergence-design.md` only if implementation exposed a factual contract correction
 - Run: focused and collection test gates
 
-- [ ] **Step 1: Document the canonical lifecycle endpoints**
+- [x] **Step 1: Document the canonical lifecycle endpoints**
 
 Add a concise section to `README.md` after Quick Start:
 
@@ -1543,7 +1543,7 @@ Add a concise section to `README.md` after Quick Start:
 The `/api/orchestrate/stream?session_id=...` endpoint is a temporary compatibility alias.
 ```
 
-- [ ] **Step 2: Run the Phase 1 test gate**
+- [x] **Step 2: Run the Phase 1 test gate**
 
 Run:
 
@@ -1554,7 +1554,7 @@ npm run check
 
 Expected: both commands exit with code 0.
 
-- [ ] **Step 3: Confirm full-suite collection and record pre-existing blockers separately**
+- [x] **Step 3: Confirm full-suite collection and record pre-existing blockers separately**
 
 Run:
 
@@ -1564,7 +1564,7 @@ Run:
 
 Expected for Phase 1: no new collection errors. The current baseline error from `tests/test_repositories.py` importing deleted `app.core.cache_service` is outside this phase; it must remain the only collection blocker until the Delivery and Cleanup plan repairs compatibility imports.
 
-- [ ] **Step 4: Run the placeholder and contract consistency scan**
+- [x] **Step 4: Run the placeholder and contract consistency scan**
 
 Run:
 

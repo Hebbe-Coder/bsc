@@ -126,8 +126,8 @@ def test_benchmark_gold_requires_admin():
             assert isinstance(res, HTTPException)
             assert res.status_code in (401, 403)
         else:
-            # 若返回信封，则必须是失败
-            assert res.json()["success"] is False
+            assert res.status_code == 401
+            assert res.json() == {"detail": "authentication required"}
     finally:
         _cleanup(p, svc)
 
@@ -151,7 +151,8 @@ def test_benchmark_get_requires_admin():
             assert isinstance(res, HTTPException)
             assert res.status_code in (401, 403)
         else:
-            assert res.json()["success"] is False
+            assert res.status_code == 401
+            assert res.json() == {"detail": "authentication required"}
     finally:
         _cleanup(p, svc, orig)
 

@@ -8,6 +8,12 @@ class KnowledgeRepository(BaseRepository):
     """知识实体相关数据操作"""
 
     VALID_ROLES = ["owner", "editor", "viewer"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from app.core.migrations import ensure_persistence_schema
+
+        ensure_persistence_schema(self._get_connection())
     ROLE_PERMISSIONS = {
         "owner": ["read", "write", "delete", "invite", "compile", "upload"],
         "editor": ["read", "write", "compile", "upload"],
@@ -105,13 +111,13 @@ class KnowledgeRepository(BaseRepository):
                     (self._generate_id(), entity_id, new_ver, old["data"], now),
                 )
             self._execute(
-                "UPDATE knowledge_entities SET title=?,description=?,data=?,status=?,domain=?,tags=?,updated_at=? WHERE id=?",
-                (title, description, data_json, status, domain, tags_json, now, entity_id),
+                "UPDATE knowledge_entities SET name=?,entity_type=?,attributes=?,title=?,description=?,data=?,status=?,domain=?,tags=?,updated_at=? WHERE id=?",
+                (title, category, data_json, title, description, data_json, status, domain, tags_json, now, entity_id),
             )
         else:
             self._execute(
-                "INSERT INTO knowledge_entities (id,project_id,category,title,description,version_number,data,status,domain,tags,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                (entity_id, project_id, category, title, description, 1, data_json, status, domain, tags_json, now, now),
+                "INSERT INTO knowledge_entities (id,name,entity_type,description,attributes,project_id,category,title,version_number,data,status,domain,tags,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (entity_id, title, category, description, data_json, project_id, category, title, 1, data_json, status, domain, tags_json, now, now),
             )
         self._commit()
         return self.get_knowledge_entity(entity_id)
@@ -214,8 +220,9 @@ class KnowledgeRepository(BaseRepository):
         existing = self.get_project(project_id)
         created_at = existing["created_at"] if existing else self._now()
         self._execute(
-            "INSERT OR REPLACE INTO knowledge_projects (id,name,created_at,metadata,rerank_config) "
-            "VALUES (?,?,?,?,?)",
+            "INSERT INTO knowledge_projects (id,name,created_at,metadata,rerank_config) "
+            "VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
+            "name=excluded.name, metadata=excluded.metadata, rerank_config=excluded.rerank_config",
             (project_id, name, created_at, self._json_dumps(metadata or {}),
              self._json_dumps(rerank_config or {})),
         )
@@ -245,8 +252,10 @@ class KnowledgeRepository(BaseRepository):
     def create_project_key(self, key_hash: str, project_id: str, role: str,
                            label: str = "") -> None:
         self._execute(
-            "INSERT OR REPLACE INTO project_keys (key_hash,project_id,role,label,created_at) "
-            "VALUES (?,?,?,?,?)",
+            "INSERT INTO project_keys (key_hash,project_id,role,label,created_at) "
+            "VALUES (?,?,?,?,?) ON CONFLICT(key_hash) DO UPDATE SET "
+            "project_id=excluded.project_id, role=excluded.role, label=excluded.label, "
+            "created_at=excluded.created_at",
             (key_hash, project_id, role, label, self._now()))
         self._commit()
 

@@ -128,14 +128,14 @@ def compile_with_pool(
 
     这是 compile_to_business_system() 的增强替代, 向后兼容。
     """
-    from app.core.bsc_pipeline import BSCPipeline, compile_to_business_system
+    from app.capabilities.runner import run_legacy_bsc_runtime_sync
 
     # 先用标准 Pipeline 编译 (兼容现有逻辑)
-    result = compile_to_business_system(
-        prd_content,
+    result = run_legacy_bsc_runtime_sync(
+        input_text=prd_content,
         llm_service=llm_service,
         template_id=template_id,
-        output_types=output_types,
+        async_mode=False,
     )
 
     # 为 pipeline stages 附加 AgentPool 元数据

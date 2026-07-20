@@ -14,6 +14,7 @@ from app.api.orchestrate import router
 DASH_SESSION = "dash-session-1"
 EMPTY_SESSION = "dash-session-empty"
 UNKNOWN_SESSION = "dash-session-never-saved"
+FAILED_SESSION = "dash-session-failed"
 
 
 def _client() -> TestClient:
@@ -27,7 +28,7 @@ def _seed_dash_draft():
     draft = ProjectDraft(
         session_id=DASH_SESSION,
         idea="测试用 PRD 想法",
-        status="done",
+        status="completed",
         sop={
             "sops": [{"id": "s1", "title": "步骤一", "source_ref": ["c1"]}],
             "_citation_coverage": {"coverage": 1.0, "covered": 1, "total": 1, "flagged": []},
@@ -46,7 +47,18 @@ def _seed_dash_draft():
 
 def _seed_empty_draft():
     """构造并持久化一个 sop / risk 为空的空壳草稿。"""
-    draft = ProjectDraft(session_id=EMPTY_SESSION, idea="空壳想法", status="planned")
+    draft = ProjectDraft(session_id=EMPTY_SESSION, idea="空壳想法", status="queued")
+    ProjectDraftRepository().save(draft)
+
+
+def _seed_failed_draft():
+    draft = ProjectDraft(
+        session_id=FAILED_SESSION,
+        idea="failed idea",
+        status="failed",
+        error_code="provider_unavailable",
+        error_message="Configured provider is unavailable",
+    )
     ProjectDraftRepository().save(draft)
 
 
@@ -71,12 +83,19 @@ def test_dashboard_404_unknown():
     assert resp.status_code == 404
 
 
-def test_dashboard_empty_shell():
+def test_dashboard_rejects_non_terminal_task():
     _seed_empty_draft()
     resp = _client().get(f"/api/orchestrate/dashboard/{EMPTY_SESSION}")
-    assert resp.status_code == 200
-    body = resp.json()
-    # 空壳下重塑字段给出安全的空默认值
-    assert body["sop"]["sops"] == []
-    assert body["sop"]["_citation_coverage"] == {}
-    assert body["risk"]["risks"] == []
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "task_not_terminal"
+
+
+def test_dashboard_returns_safe_failed_task_contract():
+    _seed_failed_draft()
+    resp = _client().get(f"/api/orchestrate/dashboard/{FAILED_SESSION}")
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == {
+        "code": "provider_unavailable",
+        "status": "failed",
+        "message": "Configured provider is unavailable",
+    }

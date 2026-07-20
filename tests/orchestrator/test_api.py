@@ -1,9 +1,8 @@
 # tests/orchestrator/test_api.py
 import pytest
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from app.main import app
-from app.agent.state import ProjectDraftRepository
+from app.agent.state import ProjectDraft, ProjectDraftRepository
 from app.core.config import settings
 
 @pytest.fixture
@@ -13,15 +12,14 @@ def client():
 
 def _enable_auth(monkeypatch):
     monkeypatch.setattr(settings, "API_KEY", "test-key-123")
+    monkeypatch.setattr(settings, "BSC_RUNTIME_MODE", "legacy")
 
 
 def test_orchestrate_requires_auth(client, monkeypatch):
     _enable_auth(monkeypatch)
-    # 注：全局 AuthMiddleware 在 TestClient 下会把 401 以 HTTPException 形式抛出，
-    # 与仓库内 tests/knowledge/test_api_auth.py 的既有约定一致，故用 pytest.raises 校验。
-    with pytest.raises(HTTPException) as exc:
-        client.post("/api/orchestrate", json={"idea": "内容审核中心"})
-    assert exc.value.status_code in (401, 403)
+    response = client.post("/api/orchestrate", json={"idea": "内容审核中心"})
+    assert response.status_code == 401
+    assert response.json() == {"detail": "authentication required"}
 
 
 def test_orchestrate_runs(client, monkeypatch):
@@ -123,6 +121,29 @@ def test_status_endpoint_returns_terminal_flag(client, monkeypatch):
     assert response.status_code == 200
     assert response.json()["status"] == "completed"
     assert response.json()["terminal"] is True
+
+
+def test_status_endpoint_exposes_task_projection(client, monkeypatch):
+    import uuid
+
+    _enable_auth(monkeypatch)
+    sid = f"projection-{uuid.uuid4().hex[:8]}"
+    ProjectDraftRepository().save(ProjectDraft(
+        session_id=sid,
+        idea="x",
+        status="running",
+        current_stage="architect",
+        event_seq=4,
+    ))
+
+    response = client.get(
+        f"/api/orchestrate/{sid}",
+        headers={"Authorization": "Bearer test-key-123"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["current_stage"] == "architect"
+    assert response.json()["event_seq"] == 4
 
 
 def test_cancel_requests_the_retained_task(client, monkeypatch):
@@ -281,3 +302,62 @@ def test_mock_provider_is_forced_for_orchestrator(client, monkeypatch):
 
     assert response.status_code == 202
     assert captured["force_mock"] is True
+
+
+def test_business_runtime_mode_skips_legacy_llm(client, monkeypatch):
+    from app.api import orchestrate as orchestrate_api
+
+    async def blocked_run(self, session_id, idea, *, project_id=""):
+        return {
+            "session_id": session_id,
+            "project_id": project_id,
+            "idea": idea,
+        }
+
+    class ExplodingLLM:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("legacy llm should not be constructed")
+
+    _enable_auth(monkeypatch)
+    monkeypatch.setattr(settings, "BSC_RUNTIME_MODE", "business_runtime")
+    monkeypatch.setattr(orchestrate_api, "LLMService", ExplodingLLM)
+    monkeypatch.setattr(
+        "app.orchestrator.runtime_engine.RuntimeOrchestratorEngine.run_pipeline",
+        blocked_run,
+    )
+
+    response = client.post(
+        "/api/orchestrate",
+        json={"idea": "runtime mode business", "project_id": "project-alpha"},
+        headers={"Authorization": "Bearer test-key-123"},
+    )
+
+    assert response.status_code == 202
+
+
+def test_business_runtime_is_the_default_mode(client, monkeypatch):
+    from app.api import orchestrate as orchestrate_api
+
+    captured = {}
+
+    async def blocked_run(self, session_id, idea, **kwargs):
+        captured["session_id"] = session_id
+        captured["project_id"] = kwargs.get("project_id")
+        return {}
+
+    monkeypatch.setattr(settings, "API_KEY", "test-key-123")
+    monkeypatch.setattr(settings, "BSC_RUNTIME_MODE", "business_runtime")
+    monkeypatch.setattr(
+        orchestrate_api.RuntimeOrchestratorEngine,
+        "run_pipeline",
+        blocked_run,
+    )
+
+    response = client.post(
+        "/api/orchestrate",
+        json={"idea": "default runtime business", "project_id": "project-default"},
+        headers={"Authorization": "Bearer test-key-123"},
+    )
+
+    assert response.status_code == 202
+    assert captured["project_id"] == "project-default"

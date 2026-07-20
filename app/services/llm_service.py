@@ -4,10 +4,14 @@ import time
 import logging
 import re
 import threading
+import copy
+import hashlib
+import traceback
 from enum import Enum
 from typing import Dict, Optional, Any, List
 import numpy as np
 from app.core.config import settings
+from app.core.llm_usage import ModelUsage, extract_model_usage
 logger = logging.getLogger(__name__)
 
 class ProviderType(str, Enum):
@@ -52,7 +56,12 @@ class LLMService:
             self.model = ProviderType.MOCK.value
     
     def is_ready(self):
-        return True
+        if self.force_mock or self.provider == ProviderType.MOCK.value:
+            return self._mock_allowed()
+        config = self.PROVIDERS.get(self.provider)
+        if config is None:
+            return False
+        return bool(self.api_key) or self.provider in {"ollama", "vllm", "localai"}
     
     def _get_provider_for_agent(self, system_prompt):
         prefix_map = [("你是SOP Agent", AgentType.ANALYSIS), ("你是Risk Agent", AgentType.ANALYSIS), ("你是Strategy Agent", AgentType.ANALYSIS), ("你是Optimization Agent", AgentType.ANALYSIS), ("你是Business Understanding Agent", AgentType.GENERATION), ("你是Report Composer", AgentType.GENERATION)]
@@ -86,7 +95,10 @@ class LLMService:
         model = getattr(settings, config["env_model"], config["default_model"])
         client = OpenAI(api_key=api_key, base_url=base_url, timeout=settings.LLM_TIMEOUT)
         response = client.chat.completions.create(model=model, temperature=temperature, max_tokens=max_tokens, response_format={"type": "json_object"}, messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}])
-        return self._parse_json(response.choices[0].message.content.strip())
+        return (
+            self._parse_json(response.choices[0].message.content.strip()),
+            extract_model_usage(response, provider=provider, model=model),
+        )
     
     @staticmethod
     def _parse_json(raw):
@@ -195,6 +207,235 @@ class LLMService:
     def _mock_brainstorm_analysis(self, user_prompt):
         return {"analysis": {"problem": "核心问题", "causes": [{"cause": "原因1", "weight": 0.4}], "solutions": [{"solution": "解决方案1", "effectiveness": "高"}]}}
     
+    # Compatibility implementations are intentionally defined last so they supersede
+    # the earlier legacy methods without relying on damaged historical prompt text.
+    def _get_agent_type(self, system_prompt: str) -> str | None:
+        prompt = system_prompt.lower()
+        if any(name in prompt for name in ("sop agent", "risk agent", "strategy agent", "optimization agent")):
+            return AgentType.ANALYSIS.value
+        if any(name in prompt for name in ("business understanding agent", "report composer")):
+            return AgentType.GENERATION.value
+        return None
+
+    def _get_provider_for_agent(self, system_prompt: str) -> str:
+        agent_type = self._get_agent_type(system_prompt)
+        if agent_type == AgentType.ANALYSIS.value:
+            return settings.ANALYSIS_PROVIDER
+        if agent_type == AgentType.GENERATION.value:
+            return settings.GENERATION_PROVIDER
+        return self.provider
+
+    @staticmethod
+    def _mock_allowed() -> bool:
+        return not settings.is_production or settings.ALLOW_MOCK_LLM_IN_PRODUCTION
+
+    @staticmethod
+    def _fallback_allowed() -> bool:
+        return not settings.is_production or settings.ALLOW_LLM_FALLBACK
+
+    def _validate_execution_mode(self, provider: str) -> None:
+        if (provider == ProviderType.MOCK.value or self.force_mock) and not self._mock_allowed():
+            raise RuntimeError("mock LLM output is disabled in production")
+        config = self.PROVIDERS.get(provider)
+        if settings.is_production and provider != ProviderType.MOCK.value:
+            if config is None:
+                raise RuntimeError(f"unsupported production LLM provider: {provider}")
+            if not getattr(settings, config["env_key"], "") and provider not in {"ollama", "vllm", "localai"}:
+                raise RuntimeError(f"production LLM provider is not configured: {provider}")
+
+    @staticmethod
+    def _build_llm_cache_key(provider, system_prompt, user_prompt, temperature, max_tokens) -> str:
+        payload = json.dumps(
+            [provider, system_prompt, user_prompt, temperature, max_tokens],
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def chat(self, system_prompt, user_prompt, temperature=None, max_tokens=None, use_cache=True):
+        started = time.perf_counter()
+        if temperature is None:
+            temperature = settings.LLM_TEMPERATURE
+        if max_tokens is None:
+            max_tokens = settings.LLM_MAX_TOKENS
+        provider = self._get_provider_for_agent(system_prompt)
+        cache_key = self._build_llm_cache_key(provider, system_prompt, user_prompt, temperature, max_tokens)
+        cache = getattr(self, "_response_cache", None)
+        if cache is None:
+            cache = self._response_cache = {}
+        if use_cache and cache_key in cache:
+            cached = copy.deepcopy(cache[cache_key])
+            meta = cached.setdefault("_meta", {})
+            mode = str(meta.get("mode", "api"))
+            if mode == ProviderType.MOCK.value and not self._mock_allowed():
+                raise RuntimeError("mock LLM output is disabled in production")
+            if mode == "fallback" and not self._fallback_allowed():
+                raise RuntimeError("LLM provider fallback is disabled in production")
+            meta["cache_hit"] = True
+            meta["elapsed_ms"] = 0
+            return cached
+        self._validate_execution_mode(provider)
+        usage = ModelUsage(
+            provider=provider,
+            model=self._model_for_provider(provider),
+        )
+        if provider == ProviderType.MOCK.value or self.force_mock:
+            result = self._mock(system_prompt, user_prompt)
+            mode = ProviderType.MOCK.value
+        else:
+            try:
+                result, usage = self._call_api_with_provider(
+                    provider, system_prompt, user_prompt, temperature, max_tokens
+                )
+                mode = "api"
+            except Exception as error:
+                if not self._fallback_allowed():
+                    raise RuntimeError("LLM provider failed; mock fallback is disabled") from error
+                result = self._mock(system_prompt, user_prompt)
+                mode = "fallback"
+                result["_fallback_error"] = str(error)
+        result["_meta"] = {
+            "mode": mode,
+            "elapsed_ms": int((time.perf_counter() - started) * 1000),
+            "provider": usage.provider,
+            "model": usage.model,
+            "usage": usage.model_dump(mode="json"),
+        }
+        if use_cache:
+            cache[cache_key] = copy.deepcopy(result)
+        return result
+
+    def _model_for_provider(self, provider: str) -> str:
+        config = self.PROVIDERS.get(provider)
+        if config is None:
+            return self.model
+        return getattr(settings, config["env_model"], config["default_model"])
+
+    @staticmethod
+    def _analyze_input_domain(text: str) -> dict:
+        lowered = text.lower()
+        if any(token in lowered for token in ("retail", "store", "ecommerce", "shop")):
+            return {"domain_name": "Retail Operations", "department": "Operations", "role_prefix": "Store", "core_objective": "Improve conversion and service quality"}
+        return {"domain_name": "Business Services", "department": "Operations", "role_prefix": "Business", "core_objective": "Improve operational efficiency"}
+
+    def _mock(self, system_prompt, user_prompt):
+        prompt = system_prompt.lower()
+        domain_info = self._analyze_input_domain(user_prompt)
+        if "sop builder agent" in prompt:
+            return self._mock_sop_builder(user_prompt)
+        if "reviewer agent" in prompt:
+            return self._mock_reviewer(user_prompt)
+        if "business understanding agent" in prompt:
+            return self._mock_business_understanding(domain_info)
+        if "sop agent" in prompt:
+            return self._mock_sop(domain_info)
+        if "risk agent" in prompt:
+            return self._mock_risk(domain_info)
+        if "strategy agent" in prompt:
+            return self._mock_strategy(domain_info)
+        if "optimization agent" in prompt:
+            return self._mock_optimization(domain_info)
+        if "report composer" in prompt:
+            return self._mock_report_composer(domain_info)
+        return {"content": "mock response"}
+
+    def _mock_business_understanding(self, domain_info):
+        return {
+            "business_domain": domain_info["domain_name"],
+            "core_objectives": [
+                {"objective": domain_info["core_objective"], "target": "Improve by 20%", "priority": "high"},
+                {"objective": "Reduce manual rework", "target": "Reduce by 30%", "priority": "medium"},
+            ],
+            "key_entities": [
+                {"entity": "Customer request", "type": "input"},
+                {"entity": "Business case", "type": "process"},
+                {"entity": "Service outcome", "type": "output"},
+            ],
+            "process_flow": ["Receive request", "Classify request", "Process work", "Review quality", "Deliver outcome"],
+            "success_metrics": [{"name": "Cycle time", "target": "< 30 minutes"}, {"name": "Quality rate", "target": ">= 98%"}],
+            "constraints": ["Maintain service quality", "Protect customer data"],
+            "industry_context": domain_info["domain_name"],
+        }
+
+    def _mock_sop(self, domain_info):
+        workflow = [
+            {"step": index, "name": name, "action": action}
+            for index, (name, action) in enumerate(
+                [("Intake", "Receive request"), ("Classify", "Classify request"), ("Process", "Complete work"), ("Review", "Validate quality"), ("Deliver", "Deliver result")],
+                start=1,
+            )
+        ]
+        return {
+            "workflow": workflow,
+            "roles": [
+                {"role": "Operator", "department": domain_info["department"]},
+                {"role": "Reviewer", "department": domain_info["department"]},
+                {"role": "Manager", "department": domain_info["department"]},
+            ],
+            "sla": [{"metric": "Response time", "target": "< 5 minutes"}, {"metric": "Completion time", "target": "< 30 minutes"}],
+            "kpi": [{"name": "Quality rate", "target": ">= 98%"}],
+        }
+
+    def _mock_risk(self, domain_info):
+        return {
+            "process_risks": [{"risk": "Processing bottleneck", "severity": "critical", "probability": "high", "mitigation": "Automate routing"}],
+            "organization_risks": [{"risk": "Staff turnover", "severity": "high", "probability": "medium", "mitigation": "Cross-train staff"}],
+            "system_risks": [{"risk": "Service outage", "severity": "critical", "probability": "medium", "mitigation": "Monitor and fail over"}],
+            "compliance_risks": [{"risk": "Compliance gap", "severity": "critical", "probability": "medium", "mitigation": "Add review controls"}],
+        }
+
+    def _mock_strategy(self, domain_info):
+        return {
+            "growth_opportunities": [{"opportunity": "Workflow automation", "potential": "High", "priority": "high"}, {"opportunity": "Service analytics", "potential": "Medium", "priority": "medium"}],
+            "strategic_path": [{"phase": "Foundation", "theme": "Standardize", "timeline": "0-3 months"}, {"phase": "Scale", "theme": "Automate", "timeline": "3-6 months"}, {"phase": "Optimize", "theme": "Improve", "timeline": "6-12 months"}],
+        }
+
+    def _mock_report_composer(self, domain_info):
+        return {
+            "title": "\u4e1a\u52a1\u5206\u6790\u62a5\u544a",
+            "executive_summary": "A complete operating model proposal.",
+            "sections": [{"section": "Objectives", "content": domain_info["core_objective"]}, {"section": "Process", "content": "Standardize and automate operations."}, {"section": "Risks", "content": "Review controls and monitor service quality."}],
+            "key_findings": [{"finding": "Automation reduces rework", "impact": "high"}],
+        }
+
+    def ocr_image(self, image_base64: str, image_format: str = "png") -> dict:
+        if self.force_mock or self.provider == ProviderType.MOCK.value:
+            if not self._mock_allowed():
+                raise RuntimeError("mock OCR output is disabled in production")
+            return {"success": True, "text": "Mock OCR result", "_meta": {"mode": "mock"}}
+        return {"success": False, "text": "", "_meta": {"mode": "unavailable"}}
+
+    @staticmethod
+    def _format_error(error: Exception) -> dict:
+        return {"error": str(error), "code": type(error).__name__, "traceback": traceback.format_exc(), "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S")}
+
+    def _mock(self, system_prompt, user_prompt):
+        if (self.force_mock or self.provider == ProviderType.MOCK.value) and not self._mock_allowed():
+            raise RuntimeError("mock LLM output is disabled in production")
+        prompt = system_prompt.lower()
+        domain_info = self._analyze_input_domain(user_prompt)
+        if "planner agent" in prompt:
+            return {"project": {"name": "Business Project", "goal": domain_info["core_objective"], "industry": domain_info["domain_name"], "scope": {"in_scope": ["Core workflow"], "out_scope": []}, "actors": [{"role": "Operator", "description": "Handles requests"}]}, "requirements": [{"id": "REQ-1", "text": domain_info["core_objective"], "priority": "high", "source": "user"}]}
+        if "business architect agent" in prompt:
+            return {"business_model": {"flows": [{"id": "flow-1", "name": "Request handling", "description": "Process an incoming request", "steps": ["intake", "review", "complete"], "input": "request", "output": "outcome", "source_ref": []}], "roles": [{"id": "role-1", "name": "Operator", "responsibility": "Handle requests", "belongs_to_flow": "flow-1", "source_ref": []}], "rules": []}}
+        if "reviewer agent" in prompt:
+            return {"review": {"approved": True, "constraint_coverage": {"total": 1, "covered": 1, "uncovered_ids": [], "coverage_pct": 100}, "gaps": [], "loopback_target": None, "loopback_fixes": [], "summary": "Constraints covered"}}
+        if "sop builder agent" in prompt:
+            return self._mock_sop_builder(user_prompt)
+        if "business understanding agent" in prompt:
+            return self._mock_business_understanding(domain_info)
+        if "sop agent" in prompt:
+            return self._mock_sop(domain_info)
+        if "risk agent" in prompt:
+            return self._mock_risk(domain_info)
+        if "strategy agent" in prompt:
+            return self._mock_strategy(domain_info)
+        if "optimization agent" in prompt:
+            return self._mock_optimization(domain_info)
+        if "report composer" in prompt:
+            return self._mock_report_composer(domain_info)
+        return {"content": "mock response"}
+
     def stream_chat(self, system_prompt, user_prompt, temperature=None, max_tokens=None):
         if self.provider == ProviderType.MOCK.value:
             mock_result = self._mock(system_prompt, user_prompt)
@@ -229,5 +470,14 @@ class LLMServiceFactory:
     @staticmethod
     def get_generation_service():
         return LLMService(settings.GENERATION_PROVIDER)
+    @staticmethod
+    def get_thread_local_instance():
+        return get_thread_local_service()
+    @staticmethod
+    def get_global_instance():
+        return get_llm_service()
+    @staticmethod
+    def create_instance(provider=None, force_mock=False):
+        return LLMService(provider=provider, force_mock=force_mock)
 
 __all__ = ["LLMService", "LLMServiceFactory", "get_llm_service", "get_thread_local_service", "ProviderType"]

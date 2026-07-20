@@ -164,6 +164,12 @@ class BrainstormEngine:
         )
         
         ideas = self._parse_response(response)
+        if isinstance(ideas, dict):
+            ideas = ideas.get("ideas", [])
+        if not isinstance(ideas, list):
+            ideas = []
+        if not ideas and (getattr(llm, "force_mock", False) or getattr(llm, "provider", "") == "mock"):
+            ideas = self._mock_ideas(num_ideas)
         
         return {
             "task_id": str(uuid.uuid4()),
@@ -470,6 +476,8 @@ class BrainstormEngine:
         """解析LLM响应"""
         try:
             if isinstance(response, dict):
+                if "ideas" in response:
+                    return response["ideas"]
                 response = response.get("content", str(response))
             
             response_str = str(response).strip()
@@ -483,6 +491,24 @@ class BrainstormEngine:
         except (json.JSONDecodeError, ValueError):
             logger.warning(f"Failed to parse JSON response: {str(response)[:200]}")
             return self._fallback_parse(str(response))
+
+    @staticmethod
+    def _mock_ideas(count: int) -> List[Dict[str, Any]]:
+        return [
+            {
+                "id": f"idea-{index}",
+                "title": f"Mock idea {index}",
+                "idea": f"Mock idea {index}",
+                "description": "A deterministic offline idea for mock execution.",
+                "category": "process",
+                "impact": "medium",
+                "feasibility": "high",
+                "keywords": ["mock", "workflow"],
+                "implementation_steps": ["Define", "Pilot", "Measure"],
+                "score": 8,
+            }
+            for index in range(1, max(1, count) + 1)
+        ]
 
     def _fallback_parse(self, response: str) -> List[Dict[str, Any]]:
         """备用解析方法"""

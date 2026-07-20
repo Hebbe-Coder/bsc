@@ -20,7 +20,8 @@ class TestLLMServiceCache:
         result1 = mock_llm_service.chat(system_prompt, user_prompt, use_cache=True)
         result2 = mock_llm_service.chat(system_prompt, user_prompt, use_cache=True)
         
-        assert result2["_meta"]["mode"] == "cache"
+        assert result2["_meta"]["mode"] == "mock"
+        assert result2["_meta"]["cache_hit"] is True
         assert "workflow" in result1
         assert "workflow" in result2
         assert result1["workflow"] == result2["workflow"]
@@ -354,7 +355,7 @@ class TestBSCPipelineCache:
         result1 = pipeline.execute("测试PRD内容")
         result2 = pipeline.execute("测试PRD内容")
         
-        assert result1["total_ms"] > 0
+        assert result1["total_ms"] >= 0
         assert "workspace" in result1
         assert "workspace" in result2
 

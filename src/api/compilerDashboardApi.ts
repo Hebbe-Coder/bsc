@@ -65,8 +65,64 @@ export interface Evolution {
   recent_feedback: EvolutionFeedback[];
   stats: EvolutionStats;
 }
+export interface CapabilityExecutionAttempt {
+  attempt: number;
+  outcome: string;
+  elapsed_ms: number;
+  error_code: string;
+  error: string;
+  retryable: boolean;
+}
+
+export interface PromptContextUsage {
+  max_tokens: number;
+  estimated_tokens: number;
+  template_tokens: number;
+  input_tokens: number;
+  artifact_tokens: number;
+  artifacts_available: number;
+  artifacts_included: number;
+  artifacts_omitted: number;
+  artifacts_truncated: number;
+  input_truncated: boolean;
+}
+
+export interface ModelUsage {
+  provider: string;
+  model: string;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  total_tokens: number | null;
+  cached_tokens: number | null;
+  reasoning_tokens: number | null;
+  reported: boolean;
+  complete: boolean;
+}
+
+export interface CapabilityExecutionMetadata {
+  capability_name: string;
+  status: string;
+  artifacts_produced: string[];
+  error: string;
+  error_code: string;
+  elapsed_ms: number;
+  backend: string;
+  mode: string;
+  retries: number;
+  attempts: CapabilityExecutionAttempt[];
+  prompt_context: PromptContextUsage | null;
+  model_usage: ModelUsage | null;
+}
+
+export interface ExecutionMetadata {
+  status: string;
+  degraded: boolean;
+  stage_modes: Record<string, string>;
+  capability_executions: CapabilityExecutionMetadata[];
+}
 export interface DashboardData {
   session_id: string;
+  execution?: ExecutionMetadata;
   sop: { sops: any[]; _citation_coverage: CitationCoverage };
   risk: RiskPayload;
   business_model: any;
@@ -76,10 +132,11 @@ export interface DashboardData {
 }
 
 export async function fetchCompilerDashboard(sessionId: string): Promise<DashboardData> {
-  const r = await fetch(`/api/orchestrate/dashboard/${encodeURIComponent(sessionId)}`);
+  const r = await apiFetch(`/api/orchestrate/dashboard/${encodeURIComponent(sessionId)}`);
   if (!r.ok) {
     if (r.status === 404) throw new Error("session not found");
     throw new Error(`dashboard request failed: ${r.status}`);
   }
   return r.json();
 }
+import { apiFetch } from './fetchWrapper';

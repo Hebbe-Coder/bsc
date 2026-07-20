@@ -331,15 +331,24 @@ class MultiAgentBoard:
         # Build role-specific context
         artifacts_text = self._build_artifact_context(project_id)
 
-        # Try LLM if available, otherwise use simulated analysis
+        # Use the provider path; any rule-based fallback is policy-gated below.
         try:
             llm = self._get_llm()
             prompt = ROLE_PROMPTS.get(role.role_id, "").format(artifacts=artifacts_text)
             response = await llm.generate(prompt)
             data = self._parse_response(response)
-        except (Exception, AttributeError):
-            # Simulated analysis based on artifact data
-            data = self._simulate_role_analysis(role, project_id)
+        except (Exception, AttributeError) as exc:
+            # Rule-based analysis is a development fallback, not a silent
+            # substitute for a failed production model invocation.
+            from app.core.llm_policy import ensure_fallback_allowed
+
+            ensure_fallback_allowed("MultiAgentBoard role analysis")
+            logger.warning(
+                "Board role %s using rule-based fallback: %s",
+                role.role_id,
+                exc,
+            )
+            data = self._rule_based_role_analysis(role, project_id)
 
         return RoleOpinion(
             role_id=role.role_id,
@@ -387,13 +396,12 @@ class MultiAgentBoard:
 
         return "\n".join(lines) if lines else "(no artifacts)"
 
-    def _simulate_role_analysis(
+    def _rule_based_role_analysis(
         self, role: BoardRole, project_id: str
     ) -> dict[str, Any]:
-        """Simulated analysis based on actual Artifact Graph data.
+        """Deterministic development fallback based on Artifact Graph data.
 
-        In production, this is replaced by LLM. But even simulated,
-        it uses real artifact data — NOT hardcoded responses.
+        It is only reachable when the shared fallback policy allows it.
         """
         risks = self.store.get_by_type(ArtifactType.RISK)
         assumptions = self.store.get_by_type(ArtifactType.ASSUMPTION)

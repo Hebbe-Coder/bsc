@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     LOCALAI_MODEL: str = "gpt-4"
 
     LLM_PROVIDER: str = "mock"
+    BSC_RUNTIME_MODE: str = "business_runtime"
     ANALYSIS_PROVIDER: str = "deepseek"
     GENERATION_PROVIDER: str = "doubao"
     OCR_PROVIDER: str = "doubao"
@@ -83,6 +84,18 @@ class Settings(BaseSettings):
     LLM_TIMEOUT: int = 60
     LLM_TEMPERATURE: float = 0.7
     LLM_MAX_TOKENS: int = 8000
+    ALLOW_LLM_FALLBACK: bool = False
+    ALLOW_MOCK_LLM_IN_PRODUCTION: bool = False
+
+    # Shared BusinessRuntime capability execution limits. Every backend and
+    # direct compatibility callable uses this one bounded retry contract.
+    CAPABILITY_MAX_ATTEMPTS: int = 3
+    CAPABILITY_ATTEMPT_TIMEOUT_SECONDS: float = 90.0
+    CAPABILITY_INITIAL_BACKOFF_SECONDS: float = 0.25
+    CAPABILITY_MAX_BACKOFF_SECONDS: float = 4.0
+    CAPABILITY_PROMPT_MAX_TOKENS: int = 12_000
+    CAPABILITY_PROMPT_INPUT_MAX_TOKENS: int = 4_000
+    CAPABILITY_PROMPT_ARTIFACT_MAX_TOKENS: int = 1_200
 
     USE_LANGCHAIN: bool = True
     USE_AGENT: bool = False
@@ -91,6 +104,21 @@ class Settings(BaseSettings):
     # 仅具「读取/检索」权限的 Key；配置后 API_KEY 退居为 admin（写入/删除）权限。
     # 仅对 /knowledge/* 端点生效，且不授予非知识库端点的访问权。
     API_KEY_READER: str = ""
+    DEFAULT_TENANT_ID: str = "default"
+    AUTH_SESSION_COOKIE: str = "bsc_auth_session"
+    AUTH_SESSION_TTL_SECONDS: int = 43200
+    AUTH_SESSION_SECRET: str = ""
+    AUTH_COOKIE_SECURE: bool = False
+    AUTH_WHITELIST_PATHS: List[str] = [
+        "/",
+        "/live",
+        "/ready",
+        "/health",
+        "/metrics/prometheus",
+        "/docs",
+        "/openapi.json",
+    ]
+    AUTH_WHITELIST_PREFIXES: List[str] = ["/docs", "/openapi", "/static", "/assets", "/dashboard"]
 
     LOG_LEVEL: str = "INFO"
 

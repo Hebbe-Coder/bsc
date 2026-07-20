@@ -7,6 +7,7 @@ from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnableLambda
 from app.core.config import settings
+from app.core.llm_policy import ensure_fallback_allowed, ensure_mock_allowed
 
 logger = __import__('logging').getLogger(__name__)
 
@@ -70,6 +71,7 @@ class PRDQualityScorer:
         """懒加载LLM"""
         if self._llm is None:
             if self.use_mock:
+                ensure_mock_allowed("PRD Quality")
                 from app.services.llm_service import MockLLM
                 mock_llm = MockLLM()
                 self._llm = RunnableLambda(mock_llm.invoke)
@@ -83,6 +85,7 @@ class PRDQualityScorer:
                         temperature=0.2
                     )
                 except ImportError:
+                    ensure_fallback_allowed("PRD Quality")
                     from app.services.llm_service import MockLLM
                     mock_llm = MockLLM()
                     self._llm = RunnableLambda(mock_llm.invoke)
@@ -285,6 +288,8 @@ PRD文档：
                 "improvement_points": sum(1 for d in scores if d.score < 70)
             }
         except Exception as e:
+            if settings.is_production:
+                raise
             logger.error(f"LLM质量评估失败：{e}")
             return {
                 "overall_score": 50,

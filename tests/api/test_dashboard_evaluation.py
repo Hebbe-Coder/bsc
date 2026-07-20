@@ -9,6 +9,7 @@ from app.agent.state import ProjectDraftRepository, ProjectDraft
 def _put_draft(session_id: str, **kwargs):
     """写一条 draft 并返回裸字典 state。"""
     repo = ProjectDraftRepository()
+    kwargs.setdefault("status", "completed")
     draft = ProjectDraft(session_id=session_id, **kwargs)
     repo.save(draft)
     return draft.to_dict()

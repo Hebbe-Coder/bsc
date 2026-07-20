@@ -40,8 +40,18 @@ class ArtifactGraphStore:
 
     INDEX_FILE = "_index.json"
 
-    def __init__(self, data_dir: str = "./data/artifacts"):
+    def __init__(
+        self,
+        data_dir: str = "./data/artifacts",
+        *,
+        tenant_id: str = "",
+        project_id: str = "",
+        session_id: str = "",
+    ):
         self._data_dir = Path(data_dir)
+        self._tenant_id = tenant_id
+        self._project_id = project_id
+        self._session_id = session_id
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._index_path = self._data_dir / self.INDEX_FILE
         self._index: dict[str, dict[str, Any]] = {}
@@ -55,6 +65,8 @@ class ArtifactGraphStore:
                 self._index = data.get("artifacts", {})
                 self._children_index = defaultdict(list)
                 for art_id, meta in self._index.items():
+                    if not self._matches_scope(meta):
+                        continue
                     for pid in meta.get("parent_ids", []):
                         self._children_index[pid].append(art_id)
                 logger.debug("Loaded index: %d artifacts", len(self._index))
@@ -79,7 +91,42 @@ class ArtifactGraphStore:
     def _artifact_path(self, artifact_id: str) -> Path:
         return self._data_dir / f"{artifact_id}.json"
 
+    def _matches_scope(self, meta: dict[str, Any]) -> bool:
+        """Require every scope declared by this store to match persisted metadata."""
+        return all(
+            not expected or str(meta.get(key) or "") == expected
+            for key, expected in (
+                ("tenant_id", self._tenant_id),
+                ("project_id", self._project_id),
+                ("session_id", self._session_id),
+            )
+        )
+
+    def _snapshot_matches_scope(self, data: dict[str, Any]) -> bool:
+        expected = {
+            "tenant_id": self._tenant_id,
+            "project_id": self._project_id,
+            "session_id": self._session_id,
+        }
+        if not any(expected.values()):
+            return True
+        scope = data.get("scope")
+        if not isinstance(scope, dict):
+            return False
+        return all(
+            not value or str(scope.get(key) or "") == value
+            for key, value in expected.items()
+        )
+
     def add(self, artifact: BaseArtifact) -> str:
+        if self._project_id and artifact.project_id and artifact.project_id != self._project_id:
+            raise ValueError("artifact project_id is outside this store scope")
+        if self._project_id and not artifact.project_id:
+            artifact.project_id = self._project_id
+        for parent_id in artifact.parent_ids:
+            parent = self._index.get(parent_id)
+            if parent is not None and not self._matches_scope(parent):
+                raise ValueError("artifact parent is outside this store scope")
         artifact.updated_at = time.strftime("%Y-%m-%dT%H:%M:%S")
         path = self._artifact_path(artifact.artifact_id)
         path.write_text(
@@ -87,7 +134,9 @@ class ArtifactGraphStore:
         )
         self._index[artifact.artifact_id] = {
             "artifact_type": artifact.artifact_type.value,
+            "tenant_id": self._tenant_id,
             "project_id": artifact.project_id,
+            "session_id": self._session_id,
             "label": artifact.label,
             "parent_ids": artifact.parent_ids,
             "confidence": artifact.confidence,
@@ -104,6 +153,9 @@ class ArtifactGraphStore:
         return artifact.artifact_id
 
     def get(self, artifact_id: str) -> Optional[BaseArtifact]:
+        meta = self._index.get(artifact_id)
+        if meta is None or not self._matches_scope(meta):
+            return None
         path = self._artifact_path(artifact_id)
         if not path.exists():
             return None
@@ -113,7 +165,7 @@ class ArtifactGraphStore:
     def get_by_type(self, artifact_type: ArtifactType) -> list[BaseArtifact]:
         matching_ids = [
             aid for aid, meta in self._index.items()
-            if meta.get("artifact_type") == artifact_type.value
+            if meta.get("artifact_type") == artifact_type.value and self._matches_scope(meta)
         ]
         results = []
         for aid in matching_ids:
@@ -124,9 +176,11 @@ class ArtifactGraphStore:
         return results
 
     def get_by_project(self, project_id: str) -> list[BaseArtifact]:
+        if self._project_id and project_id != self._project_id:
+            return []
         matching_ids = [
             aid for aid, meta in self._index.items()
-            if meta.get("project_id") == project_id
+            if meta.get("project_id") == project_id and self._matches_scope(meta)
         ]
         results = []
         for aid in matching_ids:
@@ -137,11 +191,15 @@ class ArtifactGraphStore:
         return results
 
     def update(self, artifact: BaseArtifact) -> None:
-        if artifact.artifact_id not in self._index:
+        meta = self._index.get(artifact.artifact_id)
+        if meta is None or not self._matches_scope(meta):
             raise KeyError(f"Artifact not found: {artifact.artifact_id}")
         self.add(artifact)
 
     def delete(self, artifact_id: str) -> bool:
+        meta = self._index.get(artifact_id)
+        if meta is None or not self._matches_scope(meta):
+            return False
         path = self._artifact_path(artifact_id)
         existed = path.exists()
         if existed:
@@ -157,10 +215,14 @@ class ArtifactGraphStore:
         return existed
 
     def list_all(self) -> list[str]:
-        return sorted(self._index.keys())
+        return sorted(
+            artifact_id
+            for artifact_id, meta in self._index.items()
+            if self._matches_scope(meta)
+        )
 
     def count(self) -> int:
-        return len(self._index)
+        return len(self.list_all())
 
     def get_parents(self, artifact_id: str) -> list[BaseArtifact]:
         meta = self._index.get(artifact_id)
@@ -216,6 +278,9 @@ class ArtifactGraphStore:
         return {"nodes": nodes, "edges": edges, "root_id": root_id}
 
     def export(self, project_id: str | None = None) -> dict[str, Any]:
+        if self._project_id and project_id and project_id != self._project_id:
+            raise ValueError("artifact export is outside this store scope")
+        project_id = project_id or self._project_id or None
         artifacts = (
             self.get_by_project(project_id)
             if project_id
@@ -235,12 +300,12 @@ class ArtifactGraphStore:
         result: dict[str, Any] = {
             "business_domain": biz_models[0].domain if biz_models else "",
             "objectives": biz_models[0].objectives if biz_models else [],
-            "roles": [],
-            "workflow": [],
-            "responsibilities": [],
-            "sla": [],
-            "metrics": [],
-            "kpi": [],
+            "roles": _metadata_list(biz_models, "roles"),
+            "workflow": _metadata_list(biz_models, "workflow"),
+            "responsibilities": _metadata_list(biz_models, "responsibilities"),
+            "sla": _metadata_list(biz_models, "sla"),
+            "metrics": _metadata_list(biz_models, "metrics"),
+            "kpi": _metadata_list(biz_models, "kpi"),
             "risks": [
                 {"risk": r.risk_statement, "severity": r.severity.value,
                  "probability": r.probability.value, "mitigation": r.mitigation}
@@ -335,7 +400,11 @@ class ArtifactGraphStore:
             Snapshot metadata dict.
         """
         ts = time.strftime("%Y-%m-%dT%H:%M:%S")
-        snapshot_id = f"snap_{name or 'auto'}_{ts.replace(':', '-')}"
+        safe_name = "".join(
+            char if char.isalnum() or char in {"-", "_", "."} else "_"
+            for char in (name or "auto").strip()
+        )[:64] or "auto"
+        snapshot_id = f"snap_{safe_name}_{ts.replace(':', '-')}"
 
         # Collect all artifacts
         all_artifacts = {}
@@ -349,6 +418,11 @@ class ArtifactGraphStore:
             "name": name or "snapshot",
             "tag": tag,
             "created_at": ts,
+            "scope": {
+                "tenant_id": self._tenant_id,
+                "project_id": self._project_id,
+                "session_id": self._session_id,
+            },
             "total_artifacts": len(all_artifacts),
             "artifact_types": {
                 at.value: len([a for a in all_artifacts.values()
@@ -378,6 +452,8 @@ class ArtifactGraphStore:
         for f in sorted(self._data_dir.glob("snap_*.json"), reverse=True):
             try:
                 data = json.loads(f.read_text(encoding="utf-8"))
+                if not self._snapshot_matches_scope(data):
+                    continue
                 snapshots.append({
                     "snapshot_id": data.get("snapshot_id", f.stem),
                     "name": data.get("name", ""),
@@ -391,10 +467,13 @@ class ArtifactGraphStore:
 
     def load_snapshot(self, snapshot_id: str) -> Optional[dict[str, Any]]:
         """Load a snapshot by ID. Returns full snapshot data or None."""
+        if Path(snapshot_id).name != snapshot_id or not snapshot_id.startswith("snap_"):
+            return None
         snap_path = self._data_dir / f"{snapshot_id}.json"
         if not snap_path.exists():
             return None
-        return json.loads(snap_path.read_text(encoding="utf-8"))
+        data = json.loads(snap_path.read_text(encoding="utf-8"))
+        return data if self._snapshot_matches_scope(data) else None
 
     def diff(
         self,
@@ -511,7 +590,9 @@ class ArtifactGraphStore:
             )
             self._index[art.artifact_id] = {
                 "artifact_type": art.artifact_type.value,
+                "tenant_id": self._tenant_id,
                 "project_id": art.project_id,
+                "session_id": self._session_id,
                 "label": art.label,
                 "parent_ids": art.parent_ids,
                 "confidence": art.confidence,
@@ -530,3 +611,12 @@ class ArtifactGraphStore:
         self._save_index()
         logger.info("Restored snapshot %s: %d artifacts", snapshot_id, len(artifacts))
         return len(artifacts)
+
+
+def _metadata_list(artifacts: list[BaseArtifact], key: str) -> list[Any]:
+    for artifact in artifacts:
+        if isinstance(artifact.metadata, dict):
+            value = artifact.metadata.get(key)
+            if isinstance(value, list):
+                return value
+    return []

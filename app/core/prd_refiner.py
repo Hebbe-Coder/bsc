@@ -6,6 +6,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnableLambda
 from app.core.config import settings
+from app.core.llm_policy import ensure_fallback_allowed, ensure_mock_allowed
 from app.core.prd_quality_scorer import PRDQualityScorer
 
 logger = __import__('logging').getLogger(__name__)
@@ -62,6 +63,7 @@ class PRDRefiner:
         """懒加载LLM"""
         if self._llm is None:
             if self.use_mock:
+                ensure_mock_allowed("PRD Refiner")
                 from app.services.llm_service import MockLLM
                 mock_llm = MockLLM()
                 self._llm = RunnableLambda(mock_llm.invoke)
@@ -75,6 +77,7 @@ class PRDRefiner:
                         temperature=0.3
                     )
                 except ImportError:
+                    ensure_fallback_allowed("PRD Refiner")
                     from app.services.llm_service import MockLLM
                     mock_llm = MockLLM()
                     self._llm = RunnableLambda(mock_llm.invoke)
@@ -230,6 +233,8 @@ class PRDRefiner:
                     break
                     
             except Exception as e:
+                if settings.is_production:
+                    raise
                 logger.error(f"迭代{iteration}优化失败：{e}")
                 final_score = quality_report.overall_score
                 break

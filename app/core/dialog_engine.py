@@ -468,9 +468,12 @@ class DialogEngine:
         
         if compile:
             try:
-                from app.core.bsc_pipeline import compile_to_business_system
-                
-                bs = compile_to_business_system(result["prd_text"])
+                from app.capabilities.runner import run_legacy_bsc_runtime_sync
+
+                bs = run_legacy_bsc_runtime_sync(
+                    input_text=result["prd_text"],
+                    async_mode=False,
+                )
                 result["business_system"] = bs
             except Exception as e:
                 logger.error(f"Failed to compile: {e}")
@@ -686,6 +689,9 @@ PRD结构要求：
         Returns:
             PRD文本
         """
+        from app.core.llm_policy import ensure_fallback_allowed
+
+        ensure_fallback_allowed("Dialog PRD")
         collected_data = session.get("collected_data", {})
         industry = session.get("industry", "通用")
         input_text = session.get("input_text", "")

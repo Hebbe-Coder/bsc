@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field
 
 from .registry import Capability, CapabilityRegistry
 from app.artifacts.types import ArtifactType
+from app.core.llm_policy import ensure_fallback_allowed
 
 logger = logging.getLogger(__name__)
 
@@ -214,6 +215,7 @@ class MissionPlanner:
             return await self._plan_llm(prd_text, domain_hint, goals)
         except Exception as exc:
             logger.warning("LLM planning failed (%s), falling back to template", exc)
+            ensure_fallback_allowed("Mission Planner")
 
         # L1 fallback
         try:

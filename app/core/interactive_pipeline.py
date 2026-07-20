@@ -88,15 +88,16 @@ class InteractivePipeline:
         """
         启动初始编译 — 等价于 compile_to_business_system()
         """
-        from app.core.bsc_pipeline import compile_to_business_system
+        from app.capabilities.runner import run_legacy_bsc_runtime_sync
 
         self._state.phase = PipelinePhase.COMPILING
         self._state.version += 1
 
         try:
-            result = compile_to_business_system(
-                self._prd_content,
+            result = run_legacy_bsc_runtime_sync(
+                input_text=self._prd_content,
                 template_id=self._template_id,
+                async_mode=False,
             )
             self._state.business_system = result.get("business_system", {})
             self._state.stages = result.get("pipeline", {}).get("stages", [])

@@ -1,5 +1,6 @@
 import { SkillConfig, SkillContext, SkillExecution, SkillConstructor, BaseSkill, SkillPlan, SkillTask, SkillStatus, ProgressCallback } from './types';
 import { API_BASE } from '../config';
+import { apiFetch } from '../api/fetchWrapper';
 
 class SkillManager {
   private skills: Map<string, SkillConstructor> = new Map();
@@ -206,7 +207,7 @@ class SkillManager {
 
   async fetchSkillsFromBackend(): Promise<void> {
     try {
-      const response = await fetch(`${API_BASE}/api/skill/list`);
+      const response = await apiFetch(`${API_BASE}/api/skill/list`);
       const skills = await response.json();
 
       console.log('Fetched skills from backend:', skills.length);

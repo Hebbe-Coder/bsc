@@ -1,5 +1,5 @@
 """BSC API - BSC Pipeline 唯一入口"""
-from fastapi import APIRouter, UploadFile, File
+from fastapi import APIRouter, UploadFile, File, Request
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 import os
@@ -10,6 +10,37 @@ from app.core.config import settings
 router = APIRouter(prefix="/bsc", tags=["BSC Pipeline"])
 
 MAX_FILE_SIZE = settings.MAX_FILE_SIZE_MB * 1024 * 1024
+
+
+async def _run_legacy_compile(
+    input_text: str,
+    *,
+    template_id: str | None = None,
+    async_mode: bool = True,
+    request: Request | None = None,
+) -> dict[str, Any]:
+    """Keep the deprecated response contract while delegating execution to Runtime."""
+    from app.capabilities.runner import run_legacy_bsc_runtime
+
+    return await run_legacy_bsc_runtime(
+        input_text=input_text,
+        template_id=template_id,
+        async_mode=async_mode,
+        tenant_id=_tenant_id_from_request(request),
+        project_id=_project_id_from_request(request),
+    )
+
+
+def _tenant_id_from_request(request: Request | None) -> str:
+    if request is None:
+        return settings.DEFAULT_TENANT_ID
+    return str(getattr(request.state, "tenant_id", settings.DEFAULT_TENANT_ID))
+
+
+def _project_id_from_request(request: Request | None) -> str:
+    if request is None:
+        return ""
+    return str(getattr(request.state, "project_id", "") or "")
 
 
 class CompileRequest(BaseModel):
@@ -123,11 +154,14 @@ class CompileResponse(BaseModel):
 """,
     response_description="编译成功，返回完整的业务系统分析结果（并行执行）",
 )
-async def compile_prd(req: CompileRequest):
+async def compile_prd(req: CompileRequest, request: Request = None):
     """BSC Pipeline - 完整流程入口（异步并行模式，默认）"""
-    from app.core.async_pipeline import compile_to_business_system_async
-
-    result = await compile_to_business_system_async(req.input, template_id=req.template_id)
+    result = await _run_legacy_compile(
+        req.input,
+        template_id=req.template_id,
+        async_mode=True,
+        request=request,
+    )
     bs = result["business_system"]
 
     visuals = []
@@ -187,11 +221,9 @@ async def compile_prd(req: CompileRequest):
 """,
     response_description="编译成功，返回完整的业务系统分析结果（串行执行）",
 )
-async def compile_prd_sync(req: CompileRequest):
+async def compile_prd_sync(req: CompileRequest, request: Request = None):
     """BSC Pipeline - 同步流程入口（串行执行模式）"""
-    from app.core.bsc_pipeline import compile_to_business_system
-
-    result = compile_to_business_system(req.input)
+    result = await _run_legacy_compile(req.input, async_mode=False, request=request)
     bs = result["business_system"]
 
     visuals = []
@@ -272,9 +304,9 @@ async def compile_files(
     ),
     text: str = "",
     output_types: List[str] = ["html", "ppt", "json"],
+    request: Request = None,
 ):
     """BSC Pipeline - 完整流程入口（文件上传）"""
-    from app.core.bsc_pipeline import compile_to_business_system
     from app.core.document_parser import get_thread_local_parser
     from app.services.llm_service import LLMService
 
@@ -325,7 +357,7 @@ async def compile_files(
     if not prd_content:
         return ApiResponse.error("请提供文本内容或上传文件", code=400)
 
-    result = compile_to_business_system(prd_content)
+    result = await _run_legacy_compile(prd_content, async_mode=False, request=request)
     bs = result["business_system"]
 
     visuals = []
@@ -367,14 +399,17 @@ async def compile_files(
 """,
     response_description="阶段执行成功，返回阶段数据",
 )
-async def execute_stage(req: StageRequest):
+async def execute_stage(req: StageRequest, request: Request = None):
     """单独执行某个阶段"""
-    from app.core.bsc_pipeline import BSC_PIPELINE
-
-    chunks = [{"chunk_id": "001", "content": req.input}]
-
     try:
-        result = BSC_PIPELINE.execute_stage(req.stage_key, chunks)
+        from app.capabilities.runner import run_legacy_bsc_stage_runtime
+
+        result = await run_legacy_bsc_stage_runtime(
+            input_text=req.input,
+            stage_key=req.stage_key,
+            tenant_id=_tenant_id_from_request(request),
+            project_id=_project_id_from_request(request),
+        )
         return ApiResponse.ok({"stage": req.stage_key, "data": result})
     except ValueError as e:
         return ApiResponse.error(str(e), code=400)
@@ -427,9 +462,8 @@ async def health():
 """,
     response_description="导出结果，含逐格式状态表",
 )
-async def export_results(req: ExportRequest):
+async def export_results(req: ExportRequest, request: Request = None):
     """导出结果（多格式，默认容错降级）"""
-    from app.core.bsc_pipeline import compile_to_business_system
     from exporters.orchestrator import run_export
     from exporters.degrade import VALID_OUTPUT_TYPES
 
@@ -441,7 +475,7 @@ async def export_results(req: ExportRequest):
             "pipeline": {},
         }
     elif req.input:
-        result = compile_to_business_system(req.input)
+        result = await _run_legacy_compile(req.input, async_mode=False, request=request)
         bs = result["business_system"]
     else:
         return ApiResponse.error("请提供business_system或input参数", code=400)

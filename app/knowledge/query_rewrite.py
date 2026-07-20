@@ -15,6 +15,8 @@ import logging
 import re
 from typing import List, Dict, Optional
 
+from app.core.llm_policy import ensure_fallback_allowed, ensure_mock_allowed
+
 logger = logging.getLogger(__name__)
 
 _CACHE_SIZE = 500
@@ -188,6 +190,7 @@ class QueryRewriter:
 
 class MockQueryRewriter(QueryRewriter):
     def rewrite(self, query: str) -> Dict:
+        ensure_mock_allowed("Query Rewrite")
         cache_key = hashlib.md5(query.encode()).hexdigest()
         cached = self._cache_get(cache_key)
         if cached is not None:
@@ -262,6 +265,7 @@ class LLMQueryRewriter(QueryRewriter):
         return self._fallback_rewrite(query, cache_key)
 
     def _fallback_rewrite(self, query: str, cache_key: str) -> Dict:
+        ensure_fallback_allowed("Query Rewrite")
         result = super().rewrite(query)
         result["from_llm"] = False
         self._cache_set(cache_key, result)

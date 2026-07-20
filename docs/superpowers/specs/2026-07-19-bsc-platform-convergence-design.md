@@ -1,6 +1,6 @@
 # BSC Platform Convergence Design
 
-**Status:** Proposed
+**Status:** Implemented
 **Date:** 2026-07-19
 **Scope:** 收敛当前 BSC Pipeline、Orchestrator、Business Agent OS、Artifact Graph 与 React Workspace 的运行边界
 **Supersedes:** 不取代 ADR-010；本设计定义 ADR-010 从“已实现组件”走向“唯一生产运行时”的迁移路径

@@ -1,0 +1,4 @@
+-r requirements.txt
+celery>=5.4.0
+psycopg2-binary>=2.9.9
+redis>=5.0.0

@@ -50,6 +50,8 @@ def _split_sentences(text: str) -> List[str]:
 
 def _detect_section(line: str) -> str:
     line_lower = line.lower().strip()
+    if "\u9879\u76ee\u80cc\u666f" in line_lower:
+        return "\u9879\u76ee\u80cc\u666f"
     for name, pattern in SECTION_PATTERNS:
         if re.search(pattern, line_lower):
             return name

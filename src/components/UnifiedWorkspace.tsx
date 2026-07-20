@@ -149,6 +149,9 @@ export function UnifiedWorkspace() {
                 .then((dashboard) => {
                   applyDashboard(dashboard);
                   setDashData(dashboard);
+                  if (dashboard.execution?.degraded) {
+                    addLog('error', 'Completed with degraded LLM fallback output');
+                  }
                   addLog('result', 'Pipeline completed');
                 })
                 .catch((dashboardError: unknown) => {
@@ -177,12 +180,16 @@ export function UnifiedWorkspace() {
         const isBoard = effectiveMode === 'board';
         addLog('thinking', isBoard ? 'Convening board: CEO, CFO, CTO, Ops...' : 'Planning mission capabilities...');
         const result = await runAnalysis({ input: value, mode: 'llm', board: isBoard });
+        setSessionId(result.execution_id);
         addLog('agent', 'Mission: ' + result.mission.title);
         addLog('system', 'Steps: ' + result.mission.steps + ' | Mode: ' + result.mission.mode);
         if (result.artifacts > 0) addLog('result', 'Artifacts: ' + result.artifacts);
         if (result.gaps > 0) {
           addLog('tool', 'Gaps: ' + result.gaps);
           result.gap_details.forEach(g => addLog('tool', '[' + g.severity.toUpperCase() + '] ' + g.category + ': ' + g.description));
+        }
+        if (result.runtime.degraded) {
+          addLog('error', 'Analysis completed with degraded LLM fallback output');
         }
         if (result.board_verdict) {
           addLog('result', 'Verdict: ' + result.board_verdict.toUpperCase());

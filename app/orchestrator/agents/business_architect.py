@@ -56,8 +56,15 @@ class BusinessArchitectAgent(BaseAgent):
                   fix_instructions: list = None,
                   project_id: Optional[str] = None) -> dict:
         if _compile is None:
-            from app.core.async_pipeline import compile_to_business_system_async
-            _compile = compile_to_business_system_async
+            async def _compile(input_text: str, llm_service=None):
+                from app.capabilities.runner import run_legacy_bsc_runtime
+
+                return await run_legacy_bsc_runtime(
+                    input_text=input_text,
+                    project_id=project_id or "",
+                    llm_service=llm_service,
+                    async_mode=True,
+                )
 
         def compile_sync():
             result = _compile(idea, llm_service=self.llm_service)

@@ -42,10 +42,14 @@ def test_success_persists_completed_and_emits_terminal(draft_repo):
 
     asyncio.run(engine.run_pipeline("ok-1", "x"))
 
-    assert draft_repo.get("ok-1").status == "completed"
+    draft = draft_repo.get("ok-1")
+    assert draft.status == "completed"
+    assert draft.current_stage == "presenter"
+    assert draft.completed_at
     events = list(bus._history["ok-1"])
     assert events[-1].type == EventType.PIPELINE_COMPLETED
     assert events[-1].terminal is True
+    assert draft.event_seq == events[-1].seq
 
 
 def test_failure_persists_failed_and_emits_terminal(draft_repo):
@@ -60,10 +64,16 @@ def test_failure_persists_failed_and_emits_terminal(draft_repo):
     with pytest.raises(RuntimeError, match="planner exploded"):
         asyncio.run(engine.run_pipeline("bad-1", "x"))
 
-    assert draft_repo.get("bad-1").status == "failed"
+    draft = draft_repo.get("bad-1")
+    assert draft.status == "failed"
+    assert draft.current_stage == "planner"
+    assert draft.error_code == "pipeline_failed"
+    assert draft.error_message == "Pipeline failed"
+    assert draft.completed_at
     events = list(bus._history["bad-1"])
     assert events[-1].type == EventType.PIPELINE_FAILED
     assert events[-1].terminal is True
+    assert draft.event_seq == events[-1].seq
     assert "planner exploded" not in events[-1].message
 
 

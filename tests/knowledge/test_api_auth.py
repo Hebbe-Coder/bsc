@@ -8,25 +8,20 @@
 
 注：全局 AuthMiddleware 在 TestClient 下会把 401 以 HTTPException 形式抛出，故用 pytest.raises 校验。
 """
-import pytest
-from fastapi import HTTPException
-
 from app.middleware.rate_limiter import RateLimitMiddleware
 
 
 def test_knowledge_requires_api_key_401(anon_client):
-    with pytest.raises(HTTPException) as exc:
-        anon_client.get("/knowledge/documents")
-    assert exc.value.status_code == 401
+    response = anon_client.get("/knowledge/documents")
+    assert response.status_code == 401
 
 
 def test_knowledge_wrong_key_401(anon_client):
-    with pytest.raises(HTTPException) as exc:
-        anon_client.get(
-            "/knowledge/documents",
-            headers={"Authorization": "Bearer wrong-key"},
-        )
-    assert exc.value.status_code == 401
+    response = anon_client.get(
+        "/knowledge/documents",
+        headers={"Authorization": "Bearer wrong-key"},
+    )
+    assert response.status_code == 401
 
 
 def test_knowledge_valid_key_passes(client):
@@ -42,16 +37,14 @@ def test_knowledge_valid_key_passes(client):
 
 def test_knowledge_ingest_requires_key_401(anon_client):
     # 可灌入端点同样必须鉴权（防止未授权灌语料）
-    with pytest.raises(HTTPException) as exc:
-        anon_client.post("/knowledge/ingest", data={"text": "x"})
-    assert exc.value.status_code == 401
+    response = anon_client.post("/knowledge/ingest", data={"text": "x"})
+    assert response.status_code == 401
 
 
 def test_knowledge_rejected_when_api_key_unset(dev_unset_client):
     # 即使处于「未配置 API_KEY」的开发模式，知识库端点也必须被拒
-    with pytest.raises(HTTPException) as exc:
-        dev_unset_client.get("/knowledge/documents")
-    assert exc.value.status_code == 401
+    response = dev_unset_client.get("/knowledge/documents")
+    assert response.status_code == 401
     # 非知识库路径（如 /docs）在开发模式仍正常放行，证明收紧是范围限定的
     r = dev_unset_client.get("/docs")
     assert r.status_code == 200

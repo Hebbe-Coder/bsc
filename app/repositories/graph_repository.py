@@ -7,6 +7,12 @@ from .base_repository import BaseRepository
 class GraphRepository(BaseRepository):
     """图数据相关操作"""
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from app.core.migrations import ensure_persistence_schema
+
+        ensure_persistence_schema(self._get_connection())
+
     def save_graph_snapshot(
         self,
         graph_id: str,
@@ -30,8 +36,8 @@ class GraphRepository(BaseRepository):
             )
         else:
             self._execute(
-                "INSERT INTO graph_snapshots (id,name,domain,project_id,data,node_count,edge_count,created_at) VALUES (?,?,?,?,?,?,?,?)",
-                (graph_id, name, domain, project_id, data_json, node_count, edge_count, now),
+                "INSERT INTO graph_snapshots (id,name,domain,project_id,snapshot_type,data,node_count,edge_count,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                (graph_id, name, domain, project_id, "snapshot", data_json, node_count, edge_count, now),
             )
         self._commit()
         return self.get_graph_snapshot(graph_id)

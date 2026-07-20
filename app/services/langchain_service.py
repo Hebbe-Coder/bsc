@@ -32,6 +32,7 @@ from langchain_core.runnables import (
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_openai import ChatOpenAI
 from langchain_core.callbacks import AsyncCallbackHandler
+from app.core.llm_policy import ensure_fallback_allowed, ensure_mock_allowed
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +107,8 @@ class LangChainService:
     def __init__(self, provider: str = None, use_mock: bool = None):
         self.provider = provider or self._get_settings().LLM_PROVIDER
         self.use_mock = use_mock if use_mock is not None else (self.provider == "mock")
+        if self.use_mock:
+            ensure_mock_allowed("LangChain")
         self._llm = None
         self._async_llm = None
         self._question_parser = PydanticOutputParser(pydantic_object=DialogQuestionOutput)
@@ -124,6 +127,7 @@ class LangChainService:
         """懒加载同步LLM实例"""
         if self._llm is None:
             if self.use_mock:
+                ensure_mock_allowed("LangChain")
                 mock_llm = MockLLM()
                 self._llm = RunnableLambda(mock_llm.invoke)
             else:
@@ -135,6 +139,7 @@ class LangChainService:
         """懒加载异步LLM实例"""
         if self._async_llm is None:
             if self.use_mock:
+                ensure_mock_allowed("LangChain")
                 mock_llm = MockLLM()
                 self._async_llm = RunnableLambda(mock_llm.invoke)
             else:
@@ -188,6 +193,7 @@ class LangChainService:
         config = self._get_provider_config(self.provider)
         if not config or not config["api_key"]:
             logger.warning(f"No valid API key for {self.provider}, falling back to mock")
+            ensure_fallback_allowed("LangChain")
             self.use_mock = True
             mock_llm = MockLLM()
             return RunnableLambda(mock_llm.invoke)
@@ -207,6 +213,7 @@ class LangChainService:
         config = self._get_provider_config(self.provider)
         if not config or not config["api_key"]:
             logger.warning(f"No valid API key for {self.provider}, falling back to mock")
+            ensure_fallback_allowed("LangChain")
             self.use_mock = True
             mock_llm = MockLLM()
             return RunnableLambda(mock_llm.invoke)
@@ -760,6 +767,7 @@ PRD结构要求：
     def _fallback_prd_markdown(self, input_text: str, industry: str, 
                                collected_data: Dict[str, str]) -> str:
         """生成fallback PRD markdown"""
+        ensure_fallback_allowed("LangChain")
         objectives = collected_data.get("business_objectives", "待确认")
         features = collected_data.get("core_features", """### 核心功能模块1
 - 功能点1：详细描述功能的价值和作用
@@ -874,6 +882,7 @@ flowchart TD
     
     def _fallback_question(self, input_text: str, question_type: str) -> DialogQuestionOutput:
         """生成fallback问题"""
+        ensure_fallback_allowed("LangChain")
         question_map = {
             "business_objectives": "这个产品的核心业务目标是什么？比如是提升效率、降低成本还是增加收益？",
             "core_features": "为了达成业务目标，你认为系统需要哪些核心功能模块？",

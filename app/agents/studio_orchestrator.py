@@ -42,8 +42,11 @@ class StudioOrchestrator:
         bs = {}
         adapted_bm = {}
         try:
-            from app.core.bsc_pipeline import compile_to_business_system
-            pipeline_result = compile_to_business_system(input_text or question)
+            from app.capabilities.runner import run_legacy_bsc_runtime_sync
+            pipeline_result = run_legacy_bsc_runtime_sync(
+                input_text=input_text or question,
+                async_mode=False,
+            )
             bs = pipeline_result.get("business_system", {})
             detected_domain = bs.get("business_domain", "general")
             if not domain:

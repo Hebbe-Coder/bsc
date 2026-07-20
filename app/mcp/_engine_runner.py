@@ -9,7 +9,7 @@
     python -m app.mcp._engine_runner <mode> <json-payload>
 
 mode:
-    compile   -> 运行 compile_to_business_system_async，返回完整 result
+    compile   -> 通过 Legacy BSC Runtime 编译，返回完整 result
     sop       -> 先 compile 再生成 SOP 报告，返回 report dict
     analyze   -> 领域识别（关键词 + TF-IDF 混合分类器），返回领域/部门/置信度
     ask       -> 知识库 RAG 问答，返回 answer / citations / 降级标记
@@ -50,18 +50,25 @@ def _apply_mock_if_requested():
 
 
 def _run_compile(payload: dict):
-    from app.core.async_pipeline import compile_to_business_system_async
+    from app.capabilities.runner import run_legacy_bsc_runtime
 
-    return compile_to_business_system_async(
-        payload["description"], template_id=payload.get("template_id") or None
+    return run_legacy_bsc_runtime(
+        input_text=payload["description"],
+        template_id=payload.get("template_id") or None,
+        project_id=payload.get("project_id") or "",
+        async_mode=True,
     )
 
 
 async def _run_sop(payload: dict):
-    from app.core.async_pipeline import compile_to_business_system_async
+    from app.capabilities.runner import run_legacy_bsc_runtime
     from app.engines.sop_report_engine import SOPReportEngine
 
-    result = await compile_to_business_system_async(payload["description"])
+    result = await run_legacy_bsc_runtime(
+        input_text=payload["description"],
+        project_id=payload.get("project_id") or "",
+        async_mode=True,
+    )
     bs = result.get("business_system", {}) if isinstance(result, dict) else {}
     return SOPReportEngine().generate_full_sop_report(bs, enable_ai_analysis=True)
 
@@ -124,6 +131,7 @@ def main():
         elapsed = time.time() - start_time
         error_result = {
             "error": f"Task timeout after {elapsed:.1f}s (limit: {timeout_sec}s)",
+            "error_code": "timeout",
             "mode": mode,
             "timeout_sec": timeout_sec,
         }
@@ -132,6 +140,7 @@ def main():
     except Exception as e:
         error_result = {
             "error": str(e),
+            "error_code": "execution_error",
             "mode": mode,
             "exception_type": type(e).__name__,
         }

@@ -24,10 +24,10 @@ cp .env.example .env
 # 启动开发服务器（mock 模式无需 Key）
 LLM_PROVIDER=mock uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 
-# 编译 PRD
-curl -X POST http://localhost:8000/bsc/compile \
+# 创建一次可查询、可订阅的业务编排任务
+curl -X POST http://localhost:8000/api/orchestrate \
   -H "Content-Type: application/json" \
-  -d '{"input": "# 零售电商系统 PRD\n\n## 业务目标\n- 提升用户转化率\n- 优化供应链效率"}'
+  -d '{"idea": "零售电商系统：提升用户转化率并优化供应链效率"}'
 ```
 
 ## Orchestrator lifecycle
@@ -39,6 +39,8 @@ curl -X POST http://localhost:8000/bsc/compile \
 - `GET /api/orchestrate/dashboard/{session_id}` returns the completed analysis projection.
 
 The `/api/orchestrate/stream?session_id=...` endpoint is a temporary compatibility alias.
+`/bsc/*` remains available only as a deprecated compatibility surface through
+2026-12-31; new product integrations must use `/api/orchestrate`.
 
 ## 技术栈
 

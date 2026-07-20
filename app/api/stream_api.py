@@ -80,10 +80,12 @@ async def stream_compile(req: StreamCompileRequest):
     
     async def run_pipeline():
         try:
-            from app.core.async_pipeline import run_async_bsc_pipeline
-            result = await run_async_bsc_pipeline(
-                req.input, 
-                context={"stream_id": stream_id},
+            from app.capabilities.runner import run_legacy_bsc_runtime
+            result = await run_legacy_bsc_runtime(
+                input_text=req.input,
+                template_id=req.template_id,
+                async_mode=True,
+                legacy_context={"stream_id": stream_id},
             )
             
             total_ms = result.get("total_ms", 0)

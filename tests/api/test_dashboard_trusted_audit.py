@@ -23,7 +23,7 @@ def _seed():
     draft = ProjectDraft(
         session_id=TRUST_SESSION,
         idea="可信审计测试 PRD",
-        status="done",
+        status="completed",
         sop={
             "sops": [{"id": "s1", "source_ref": ["c1"]}],
             "_citation_coverage": {"coverage": 1.0, "covered": 1, "total": 1, "flagged": []},

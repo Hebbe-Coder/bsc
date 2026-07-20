@@ -36,9 +36,8 @@ def test_metrics_records_retrieval_and_auth(metrics_env):
     # 触发一次知识库鉴权失败（无 key）——按本仓库 T1-T7 约定，
     # 全局 AuthMiddleware 在 TestClient 下以 HTTPException(401) 抛出，
     # 但计数已在抛出前累加。
-    with pytest.raises(HTTPException) as exc:
-        client.get("/knowledge/documents")
-    assert exc.value.status_code in (401, 403)
+    response = client.get("/knowledge/documents")
+    assert response.status_code == 401
     r = client.get("/knowledge/metrics", headers={"Authorization": "Bearer ws4-admin"})
     assert r.json()["success"] is True
     data = r.json()["data"]

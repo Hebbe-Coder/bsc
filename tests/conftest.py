@@ -7,11 +7,19 @@ Pytest配置文件 - 测试框架配置
 - mock_llm_service: Mock LLM服务
 """
 import os
+import shutil
 import sys
 import pytest
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Test collection imports application modules eagerly. Set the configured
+# backend before those imports so no test can mutate the tracked runtime DB.
+_TEST_DB_DIR = tempfile.mkdtemp(prefix="bsc-pytest-")
+os.environ["DB_PATH"] = os.environ.get(
+    "TEST_DB_PATH", os.path.join(_TEST_DB_DIR, "bsc-test.db")
+)
 
 from app.repositories import ProjectRepository, KnowledgeRepository, GraphRepository
 from app.services.llm_service import LLMService
@@ -162,3 +170,8 @@ def reset_cache():
     cache = get_cache_service()
     cache.clear()
     yield
+
+
+def pytest_sessionfinish(session, exitstatus):
+    del session, exitstatus
+    shutil.rmtree(_TEST_DB_DIR, ignore_errors=True)

@@ -26,6 +26,7 @@ from langchain.agents import create_agent
 from langgraph.checkpoint.memory import MemorySaver
 
 from app.services.langchain_service import LangChainService, MockLLM
+from app.core.llm_policy import ensure_fallback_allowed, ensure_mock_allowed
 from app.core.preference_db import get_preference_db
 from app.core.prd_quality_scorer import PRDQualityScorer
 from app.core.prd_refiner import PRDRefiner
@@ -279,6 +280,8 @@ class LangChainAgentService:
     def __init__(self, provider: str = None, use_mock: bool = None):
         self.provider = provider or self._get_settings().LLM_PROVIDER
         self.use_mock = use_mock if use_mock is not None else (self.provider == "mock")
+        if self.use_mock:
+            ensure_mock_allowed("LangChain Agent")
         self._llm = None
         self._agent_graphs: Dict[str, Any] = {}
         self._tools = None
@@ -295,6 +298,7 @@ class LangChainAgentService:
         """懒加载LLM实例"""
         if self._llm is None:
             if self.use_mock:
+                ensure_mock_allowed("LangChain Agent")
                 mock_llm = MockLLM()
                 from langchain_core.runnables import RunnableLambda
                 self._llm = RunnableLambda(mock_llm.invoke)
@@ -333,6 +337,7 @@ class LangChainAgentService:
         config = provider_config.get(self.provider)
         if not config or not config["api_key"]:
             logger.warning(f"No valid API key for {self.provider}, falling back to mock")
+            ensure_fallback_allowed("LangChain Agent")
             self.use_mock = True
             mock_llm = MockLLM()
             from langchain_core.runnables import RunnableLambda

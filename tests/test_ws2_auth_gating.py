@@ -69,7 +69,8 @@ def test_download_no_token_rejected(monkeypatch):
 
 def test_download_with_token_ok(monkeypatch):
     client, name = _client_with_file(monkeypatch, "ws2-admin")
-    resp = client.get(f"/api/files/{name}?token=ws2-admin")
+    from app.api.auth_deps import download_url
+    resp = client.get(download_url(name))
     assert resp.status_code == 200
     assert resp.text == "<html>ok</html>"
 
@@ -85,4 +86,4 @@ def test_asset_agent_returns_protected_url(monkeypatch):
     from app.api.auth_deps import download_url
     url = download_url("report_x.html")
     assert url.startswith("/api/files/report_x.html?token=")
-    assert "ws2-admin" in url
+    assert "ws2-admin" not in url

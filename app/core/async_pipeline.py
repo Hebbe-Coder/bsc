@@ -531,7 +531,8 @@ async def run_async_bsc_pipeline(prd_content: str, context: Dict[str, Any] = Non
 
 
 async def compile_to_business_system_async(prd_content: str, llm_service=None,
-                                            template_id: Optional[str] = None) -> Dict[str, Any]:
+                                            template_id: Optional[str] = None,
+                                            context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     异步编译PRD到Business System Schema
     
@@ -552,7 +553,11 @@ async def compile_to_business_system_async(prd_content: str, llm_service=None,
         except Exception as e:
             logger.warning(f"Failed to load template {template_id}: {e}")
 
-    result = await run_async_bsc_pipeline(prd_content, llm_service=llm_service)
+    result = await run_async_bsc_pipeline(
+        prd_content,
+        context=context,
+        llm_service=llm_service,
+    )
 
     bs = result.get("business_understanding", {})
     sop = result.get("sop", {})

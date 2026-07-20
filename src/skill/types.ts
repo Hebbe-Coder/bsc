@@ -1,4 +1,5 @@
 import { API_BASE, STREAM_TIMEOUT, API_TIMEOUT } from '../config';
+import { apiFetch } from '../api/fetchWrapper';
 
 export type SkillStatus = 'idle' | 'running' | 'completed' | 'failed' | 'waiting';
 
@@ -93,7 +94,7 @@ export abstract class BaseSkill {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT);
 
-      const response = await fetch(`${API_BASE}/api/skill/execute`, {
+      const response = await apiFetch(`${API_BASE}/api/skill/execute`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -126,7 +127,7 @@ export abstract class BaseSkill {
     const startTime = Date.now();
 
     try {
-      const response = await fetch(`${API_BASE}/api/skill/stream/${executionId}`);
+      const response = await apiFetch(`${API_BASE}/api/skill/stream/${executionId}`);
 
       if (!response.ok) {
         throw new Error(`Stream request failed! status: ${response.status}`);
@@ -190,7 +191,7 @@ export abstract class BaseSkill {
 
     while (Date.now() - startTime < timeout) {
       try {
-        const response = await fetch(`${API_BASE}/api/skill/execution/${executionId}`);
+        const response = await apiFetch(`${API_BASE}/api/skill/execution/${executionId}`);
         const result = await response.json();
 
         if (onProgress && result.status) {

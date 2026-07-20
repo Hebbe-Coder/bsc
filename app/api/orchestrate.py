@@ -1,6 +1,7 @@
 # app/api/orchestrate.py
 from __future__ import annotations
 import asyncio
+import inspect
 import json
 import logging
 import uuid
@@ -8,8 +9,11 @@ from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import StreamingResponse
 from app.agent.state import ProjectDraftRepository, ProjectDraft
 from app.core.config import settings
+from app.db import get_db
 from app.orchestrator.contracts import EventType, JobStatus, is_terminal
 from app.orchestrator.engine import OrchestratorEngine
+from app.orchestrator.event_store import SQLiteEventStore
+from app.orchestrator.runtime_engine import RuntimeOrchestratorEngine
 from app.orchestrator.sse import SessionEventBus
 from app.services.llm_service import LLMService
 from app.audit import build_trusted_audit
@@ -17,7 +21,13 @@ from app.evaluation import CompilerOutputEvaluator
 from app.evolution import get_default_bridge
 
 router = APIRouter(prefix="/api/orchestrate", tags=["orchestrate"])
-_bus = SessionEventBus()
+
+
+def build_event_bus() -> SessionEventBus:
+    return SessionEventBus(event_store=SQLiteEventStore(get_db()))
+
+
+_bus = build_event_bus()
 _tasks: dict[str, asyncio.Task] = {}
 logger = logging.getLogger(__name__)
 
@@ -40,13 +50,17 @@ def _retain_task(session_id: str, coro) -> asyncio.Task:
                         "failed to persist pre-start orchestrator cancellation"
                     )
                 else:
-                    completed.get_loop().create_task(_bus.publish(
-                        session_id,
-                        EventType.PIPELINE_CANCELLED,
-                        status=JobStatus.CANCELLED.value,
-                        message="Pipeline cancelled",
-                        terminal=True,
-                    ))
+                    async def publish_cancellation() -> None:
+                        event = await _bus.publish(
+                            session_id,
+                            EventType.PIPELINE_CANCELLED,
+                            status=JobStatus.CANCELLED.value,
+                            message="Pipeline cancelled",
+                            terminal=True,
+                        )
+                        repo.record_event(event)
+
+                    completed.get_loop().create_task(publish_cancellation())
             return
         error = completed.exception()
         if error is not None:
@@ -83,18 +97,38 @@ async def orchestrate(request: Request):
     if not isinstance(idea, str) or not idea.strip():
         raise HTTPException(400, "idea required")
     sid = body.get("session_id") or uuid.uuid4().hex[:12]
+    tenant_id, project_id, owner_session_id = _creation_scope(request, body, sid)
     repo = ProjectDraftRepository()
     if repo.get(sid) is not None:
         raise HTTPException(status_code=409, detail="session already exists")
     # 立即落库，保证客户端拿到的 session_id 可立即查询（流水线在后台跑）
     repo.save(ProjectDraft(
         session_id=sid,
+        tenant_id=tenant_id,
+        project_id=project_id,
+        owner_session_id=owner_session_id,
         idea=idea.strip(),
         status=JobStatus.QUEUED.value,
     ))
-    llm = LLMService(force_mock=settings.LLM_PROVIDER == "mock")
-    engine = OrchestratorEngine(agents=build_agents(llm), repo=repo, bus=_bus)
-    _retain_task(sid, engine.run_pipeline(sid, idea.strip()))
+    if settings.BSC_RUNTIME_MODE == "business_runtime":
+        engine = RuntimeOrchestratorEngine(repo=repo, bus=_bus)
+        runtime_kwargs = {"project_id": project_id}
+        if _accepts_keyword(engine.run_pipeline, "tenant_id"):
+            runtime_kwargs["tenant_id"] = tenant_id
+        if _accepts_keyword(engine.run_pipeline, "owner_session_id"):
+            runtime_kwargs["owner_session_id"] = owner_session_id
+        _retain_task(
+            sid,
+            engine.run_pipeline(
+                sid,
+                idea.strip(),
+                **runtime_kwargs,
+            ),
+        )
+    else:
+        llm = LLMService(force_mock=settings.LLM_PROVIDER == "mock")
+        engine = OrchestratorEngine(agents=build_agents(llm), repo=repo, bus=_bus)
+        _retain_task(sid, engine.run_pipeline(sid, idea.strip()))
     return {
         "session_id": sid,
         "status": JobStatus.QUEUED.value,
@@ -105,28 +139,33 @@ async def orchestrate(request: Request):
 
 @router.get("/stream")
 async def stream(request: Request, session_id: str, after: int = 0):
-    if ProjectDraftRepository().get(session_id) is None:
-        raise HTTPException(status_code=404, detail="session not found")
+    _get_scoped_draft(request, session_id)
     return _event_response(session_id, _resume_after(request, after))
 
 
 @router.get("/{session_id}")
-async def get_status(session_id: str):
-    draft = ProjectDraftRepository().get(session_id)
-    if draft is None:
-        raise HTTPException(status_code=404, detail="session not found")
+async def get_status(request: Request, session_id: str):
+    draft = _get_scoped_draft(request, session_id)
     return {
         "session_id": session_id,
+        "tenant_id": draft.tenant_id,
+        "project_id": draft.project_id,
         "status": draft.status,
         "terminal": is_terminal(draft.status),
+        "current_stage": draft.current_stage,
+        "error_code": draft.error_code,
+        "error_message": draft.error_message,
+        "event_seq": draft.event_seq,
+        "created_at": draft.created_at,
+        "updated_at": draft.updated_at,
+        "completed_at": draft.completed_at,
     }
 
 
 @router.delete("/{session_id}", status_code=202)
-async def cancel(session_id: str):
-    draft = ProjectDraftRepository().get(session_id)
-    if draft is None:
-        raise HTTPException(status_code=404, detail="session not found")
+async def cancel(request: Request, session_id: str):
+    _require_write_access(request)
+    draft = _get_scoped_draft(request, session_id)
     if is_terminal(draft.status):
         return {
             "session_id": session_id,
@@ -169,18 +208,42 @@ def _event_response(session_id: str, after: int):
 
 @router.get("/{session_id}/events")
 async def events(request: Request, session_id: str, after: int = 0):
-    if ProjectDraftRepository().get(session_id) is None:
-        raise HTTPException(status_code=404, detail="session not found")
+    _get_scoped_draft(request, session_id)
     return _event_response(session_id, _resume_after(request, after))
 
 
 @router.get("/dashboard/{session_id}")
-async def dashboard(session_id: str):
+async def dashboard(request: Request, session_id: str):
     """将编译后的 ProjectDraft 重塑为仪表盘可用的负载。"""
     repo = ProjectDraftRepository()
-    draft = repo.get(session_id)
-    if draft is None:
-        raise HTTPException(status_code=404, detail="session not found")
+    draft = _get_scoped_draft(request, session_id, repo=repo)
+    if not is_terminal(draft.status):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "task_not_terminal",
+                "status": draft.status,
+                "message": "Task has not reached a terminal state",
+            },
+        )
+    if draft.status == JobStatus.FAILED.value:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": draft.error_code or "task_failed",
+                "status": draft.status,
+                "message": draft.error_message or "Task failed",
+            },
+        )
+    if draft.status != JobStatus.COMPLETED.value:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "task_not_completed",
+                "status": draft.status,
+                "message": "Task did not produce a completed dashboard",
+            },
+        )
     state = draft.to_dict()
     # sop 段可能缺失，采用空字典兜底
     sop = state.get("sop") or {}
@@ -193,8 +256,15 @@ async def dashboard(session_id: str):
     bridge = get_default_bridge()
     bridge.record(evaluation, state, session_id)
     evolution = {"recent_feedback": bridge.recent(limit=5), "stats": bridge.stats()}
+    runtime = _runtime_metadata(state)
     return {
         "session_id": session_id,
+        "execution": {
+            "status": draft.status,
+            "degraded": bool(runtime.get("degraded")) or "fallback" in runtime.get("stage_modes", {}).values(),
+            "stage_modes": runtime.get("stage_modes", {}),
+            "capability_executions": runtime.get("capability_executions", []),
+        },
         "sop": {
             "sops": sop.get("sops", []),
             "_citation_coverage": sop.get("_citation_coverage", {}),
@@ -210,3 +280,65 @@ async def dashboard(session_id: str):
         "evaluation": evaluation,
         "evolution": evolution,
     }
+
+
+def _creation_scope(request: Request, body: dict, session_id: str) -> tuple[str, str, str]:
+    role = getattr(request.state, "auth_role", "")
+    if role in {"reader", "project_reader"}:
+        raise HTTPException(status_code=403, detail="read-only key cannot create jobs")
+    tenant_id = str(getattr(request.state, "tenant_id", settings.DEFAULT_TENANT_ID))
+    bound_project = getattr(request.state, "project_id", None)
+    requested_project = str(body.get("project_id") or "")
+    if bound_project and requested_project and requested_project != bound_project:
+        raise HTTPException(status_code=403, detail="project key is bound to another project")
+    project_id = str(bound_project or requested_project or session_id)
+    owner_session_id = str(getattr(request.state, "browser_session_id", ""))
+    if not owner_session_id:
+        raise HTTPException(status_code=401, detail="secure browser session required")
+    return tenant_id, project_id, owner_session_id
+
+
+def _get_scoped_draft(request: Request, session_id: str, *, repo=None) -> ProjectDraft:
+    repo = repo or ProjectDraftRepository()
+    draft = repo.get(session_id)
+    if draft is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    tenant_id = str(getattr(request.state, "tenant_id", settings.DEFAULT_TENANT_ID))
+    project_id = getattr(request.state, "project_id", None)
+    owner_session_id = str(getattr(request.state, "browser_session_id", ""))
+    # Legacy rows with blank boundaries stay readable to preserve the A-C
+    # compatibility window. Every new execution has all three values.
+    if draft.tenant_id and draft.tenant_id != tenant_id:
+        raise HTTPException(status_code=404, detail="session not found")
+    if project_id and draft.project_id and draft.project_id != project_id:
+        raise HTTPException(status_code=404, detail="session not found")
+    if draft.owner_session_id and draft.owner_session_id != owner_session_id:
+        raise HTTPException(status_code=404, detail="session not found")
+    return draft
+
+
+def _require_write_access(request: Request) -> None:
+    if getattr(request.state, "auth_role", "") in {"reader", "project_reader"}:
+        raise HTTPException(status_code=403, detail="read-only key cannot modify jobs")
+
+
+def _runtime_metadata(state: dict) -> dict:
+    for candidate in (
+        state.get("business_model", {}).get("_runtime"),
+        state.get("sop", {}).get("_runtime"),
+        state.get("review", {}).get("runtime"),
+    ):
+        if isinstance(candidate, dict):
+            return candidate
+    for message in state.get("messages", []):
+        if isinstance(message, dict) and isinstance(message.get("runtime"), dict):
+            return message["runtime"]
+    return {}
+
+
+def _accepts_keyword(callable_obj, keyword: str) -> bool:
+    parameters = inspect.signature(callable_obj).parameters.values()
+    return any(
+        parameter.name == keyword or parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters
+    )

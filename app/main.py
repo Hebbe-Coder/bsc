@@ -3,14 +3,14 @@ BSC Backend - FastAPI Entry Point
 ----------------------------------
 Start: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 """
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import RedirectResponse, Response, HTMLResponse
-import os, time, logging
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+import os, time, logging, uuid
 
 from app.core.config import settings
-from pydantic import BaseModel
+from app.schemas.agent_os import AgentAnalysisResponse, AgentOSRequest
 from app.core.logger import setup_logging, get_logger
 
 _START_TIME = time.time()
@@ -20,6 +20,18 @@ logger = get_logger("main")
 
 from contextlib import asynccontextmanager
 
+
+async def recover_orchestrator_jobs_on_startup() -> list[str]:
+    from app.agent.state import ProjectDraftRepository
+    from app.api.orchestrate import _bus
+    from app.orchestrator.recovery import recover_orphaned_jobs
+
+    return await recover_orphaned_jobs(
+        repo=ProjectDraftRepository(),
+        bus=_bus,
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
@@ -27,7 +39,18 @@ async def lifespan(app: FastAPI):
         init_db()
         logger.info("Database initialized")
     except Exception as e:
-        logger.warning(f"DB init skipped: {e}")
+        logger.error(f"Database initialization failed: {e}")
+        if settings.is_production:
+            raise RuntimeError("configured database is unavailable") from e
+
+    try:
+        recovered = await recover_orchestrator_jobs_on_startup()
+        if recovered:
+            logger.warning(f"Recovered {len(recovered)} orphaned orchestrator jobs")
+    except Exception as e:
+        logger.error(f"Orchestrator recovery failed: {e}")
+        if settings.is_production:
+            raise RuntimeError("orchestrator recovery failed") from e
     
     try:
         from app.knowledge.schema import ensure_schema
@@ -37,7 +60,9 @@ async def lifespan(app: FastAPI):
         repo.close()
         logger.info("Knowledge schema ensured")
     except Exception as e:
-        logger.warning(f"Knowledge schema init skipped: {e}")
+        logger.error(f"Knowledge schema initialization failed: {e}")
+        if settings.is_production:
+            raise RuntimeError("knowledge schema initialization failed") from e
     
     logger.info(f"Service started: http://{settings.APP_HOST}:{settings.APP_PORT} | Docs: /docs | Product: /")
     yield
@@ -176,6 +201,21 @@ class TimingMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(TimingMiddleware)
 
+
+class LegacyDeprecationMiddleware(BaseHTTPMiddleware):
+    """Advertise the bounded compatibility window for legacy BSC endpoints."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/bsc/"):
+            response.headers["Deprecation"] = "true"
+            response.headers["Sunset"] = "Thu, 31 Dec 2026 23:59:59 GMT"
+            response.headers["Link"] = "</api/orchestrate>; rel=\"successor-version\""
+        return response
+
+
+app.add_middleware(LegacyDeprecationMiddleware)
+
 try:
     from app.middleware.rate_limiter import RateLimitMiddleware
     app.add_middleware(RateLimitMiddleware, rate=settings.RATE_LIMIT_RATE, burst=settings.RATE_LIMIT_BURST)
@@ -265,6 +305,45 @@ async def root():
     return RedirectResponse(url=f"/dashboard/index.html?v={ts}")
 
 # Health
+@app.get("/live", tags=["health"])
+async def live():
+    """Liveness is process-only and never depends on external services."""
+    return {"status": "ok", "uptime_sec": int(time.time() - _START_TIME)}
+
+
+@app.get("/ready", tags=["health"])
+async def ready():
+    """Readiness fails closed when a configured required dependency is unavailable."""
+    dependencies = {}
+    try:
+        from app.core.database import get_database_backend
+
+        backend = get_database_backend()
+        dependencies["database"] = {"status": "ok" if backend.test_connection() else "error"}
+        backend.close()
+    except Exception as exc:
+        dependencies["database"] = {"status": "error", "message": str(exc)}
+
+    if settings.CACHE_TYPE == "redis":
+        try:
+            from redis import Redis
+
+            dependencies["redis"] = {
+                "status": "ok" if Redis.from_url(settings.REDIS_URL, socket_timeout=3).ping() else "error"
+            }
+        except Exception as exc:
+            dependencies["redis"] = {"status": "error", "message": str(exc)}
+    else:
+        dependencies["redis"] = {"status": "skipped"}
+
+    is_ready = all(item["status"] in {"ok", "skipped"} for item in dependencies.values())
+    status_code = 200 if is_ready else 503
+    return JSONResponse(
+        status_code=status_code,
+        content={"status": "ok" if is_ready else "not_ready", "dependencies": dependencies},
+    )
+
+
 @app.get("/health", tags=["health"])
 async def health():
     dependencies = {}
@@ -272,7 +351,7 @@ async def health():
     try:
         from app.repositories import ProjectRepository
         db_ok = ProjectRepository.test_connection()
-        dependencies["database"] = {"status": "ok" if db_ok else "error", "message": "SQLite connection"}
+        dependencies["database"] = {"status": "ok" if db_ok else "error", "message": f"{settings.DB_TYPE} connection"}
     except Exception as e:
         dependencies["database"] = {"status": "error", "message": str(e)}
     
@@ -346,13 +425,6 @@ async def metrics_prometheus():
 # Agent OS Routes (ADR-010)
 # ============================================================
 
-class AgentOSRequest(BaseModel):
-    input: str
-    mode: str = "llm"
-    domain: str = ""
-    board: bool = False
-
-
 @app.get("/agent/analyze", include_in_schema=False)
 async def agent_analyze_page():
     """Agent OS info page"""
@@ -419,39 +491,71 @@ async def agent_health():
     }
 
 
-@app.post("/agent/analyze", tags=["Agent OS"])
-async def agent_analyze(req: AgentOSRequest):
-    """Run full Agent OS pipeline: Plan -> Execute -> Reflect -> Board -> Report"""
-    from app.artifacts import ArtifactGraphStore, BusinessModelArtifact
-    from app.capabilities import build_default_registry, MissionPlanner, ReflectionPipeline
+@app.post("/agent/analyze", tags=["Agent OS"], response_model=AgentAnalysisResponse)
+async def agent_analyze(req: AgentOSRequest, request: Request):
+    """Run Agent OS through the shared BusinessRuntime."""
+    from app.capabilities.runner import run_business_runtime
+    from app.agent.state import ProjectDraft, ProjectDraftRepository
+    from app.orchestrator.contracts import JobStatus
+    from app.orchestrator.runtime_engine import _draft_from_state, _runtime_failed, runtime_response_to_project_state
 
-    store = ArtifactGraphStore(data_dir="./data/artifacts")
-    reg = build_default_registry()
-    planner = MissionPlanner(registry=reg, mode=req.mode)
-
-    mission = await planner.plan(req.input, domain_hint=req.domain)
-    bm = BusinessModelArtifact(label=mission.title, project_id="api", domain=mission.domain)
-    store.add(bm)
-    pipe = ReflectionPipeline(store, reg)
-    reflection = pipe.run()
-    board_result = None
-    if req.board:
-        from app.capabilities.board import MultiAgentBoard
-        board = MultiAgentBoard(store)
-        board_result = await board.convene(project_id="api")
-    return {
-        "status": "completed",
-        "mission": {"title": mission.title, "steps": len(mission.steps), "mode": mission.planning_mode},
-        "artifacts": store.count(),
-        "gaps": reflection["stages"]["reflect"]["gaps_found"],
-        "gap_details": reflection["gaps"],
-        "board": {
-            "verdict": board_result.final_verdict,
-            "consensus": board_result.consensus,
-            "votes": board_result.votes,
-        } if board_result else None,
-        "report": store.export(),
-    }
+    bound_project = getattr(request.state, "project_id", None)
+    if bound_project and req.project_id and req.project_id != bound_project:
+        raise HTTPException(status_code=403, detail="project key is bound to another project")
+    execution_id = uuid.uuid4().hex[:12]
+    tenant_id = getattr(request.state, "tenant_id", settings.DEFAULT_TENANT_ID)
+    project_id = bound_project or req.project_id or execution_id
+    owner_session_id = getattr(request.state, "browser_session_id", "")
+    repo = ProjectDraftRepository()
+    repo.save(ProjectDraft(
+        session_id=execution_id,
+        tenant_id=tenant_id,
+        project_id=project_id,
+        owner_session_id=owner_session_id,
+        idea=req.input,
+        status=JobStatus.QUEUED.value,
+    ))
+    repo.transition(execution_id, JobStatus.RUNNING)
+    try:
+        response = await run_business_runtime(
+            input_text=req.input,
+            domain=req.domain,
+            mode=req.mode,
+            project_id=project_id,
+            execution_id=execution_id,
+            board=req.board,
+            tenant_id=tenant_id,
+        )
+        state = runtime_response_to_project_state(
+            session_id=execution_id,
+            idea=req.input,
+            response=response,
+        )
+        repo.save(_draft_from_state(
+            session_id=execution_id,
+            idea=req.input,
+            state=state,
+            status=JobStatus.RUNNING.value,
+        ))
+        if _runtime_failed(response):
+            repo.transition(
+                execution_id,
+                JobStatus.FAILED,
+                error_code="runtime_failed",
+                error_message="Analysis failed",
+            )
+        else:
+            repo.transition(execution_id, JobStatus.COMPLETED)
+        return response
+    except Exception as exc:
+        repo.transition(
+            execution_id,
+            JobStatus.FAILED,
+            error_code="runtime_failed",
+            error_message="Analysis failed",
+        )
+        logger.error(f"Agent analysis failed: {exc}")
+        raise HTTPException(status_code=502, detail="analysis failed") from exc
 
 if __name__ == "__main__":
     import uvicorn

@@ -29,7 +29,7 @@ export interface OrchestratorEvent {
 export async function startOrchestrate(
   idea: string,
 ): Promise<StartOrchestrateResponse> {
-  const response = await fetch('/api/orchestrate', {
+  const response = await apiFetch('/api/orchestrate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ idea }),
@@ -41,7 +41,7 @@ export async function startOrchestrate(
 }
 
 export async function cancelOrchestrate(sessionId: string): Promise<void> {
-  const response = await fetch(
+  const response = await apiFetch(
     `/api/orchestrate/${encodeURIComponent(sessionId)}`,
     { method: 'DELETE' },
   );
@@ -58,7 +58,7 @@ export function subscribeStream(
   const url = typeof response === 'string'
     ? `/api/orchestrate/stream?session_id=${encodeURIComponent(response)}`
     : response.events_url;
-  const source = new EventSource(url);
+  const source = new EventSource(url, { withCredentials: true });
   const eventTypes: OrchestratorEvent['type'][] = [
     'pipeline.started',
     'stage.started',
@@ -75,3 +75,4 @@ export function subscribeStream(
   source.onerror = onTransportError;
   return source;
 }
+import { apiFetch } from './fetchWrapper';

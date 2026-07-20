@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from typing import List, Dict, Optional
 
+from app.core.llm_policy import ensure_fallback_allowed, ensure_mock_allowed
 from app.knowledge.query_rewrite import get_query_rewriter
 from app.knowledge.service import KnowledgeService
 
@@ -58,7 +59,7 @@ SELF_RAG_PROMPT = """你是一个专业的检索评估专家，负责判断检�
 class SelfRAG:
     def __init__(self, provider: str = "mock", max_retries: int = 3,
                  service: Optional[KnowledgeService] = None):
-        self.provider = provider
+        self.provider = provider.lower()
         self.max_retries = max_retries
         self.service = service or KnowledgeService()
         self._llm_client = None
@@ -87,6 +88,7 @@ class SelfRAG:
             }
 
         if self.provider == "mock":
+            ensure_mock_allowed("Self-RAG")
             return self._mock_evaluate(question, chunks)
 
         llm = self._get_llm()
@@ -141,6 +143,7 @@ class SelfRAG:
         }
 
     def _fallback_evaluate(self, question: str, chunks: List[dict]) -> Dict:
+        ensure_fallback_allowed("Self-RAG")
         titles = [c.get("doc_title", "").lower() for c in chunks]
         question_lower = question.lower()
 

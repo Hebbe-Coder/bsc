@@ -199,14 +199,14 @@ def compile_with_compaction(
     output_types: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     """Compile and attach measured context statistics to the result."""
-    from app.core.bsc_pipeline import compile_to_business_system
+    from app.capabilities.runner import run_legacy_bsc_runtime_sync
 
     started = time.perf_counter()
     context = ContextManager()
-    result = compile_to_business_system(
-        prd_content,
+    result = run_legacy_bsc_runtime_sync(
+        input_text=prd_content,
         llm_service=llm_service,
-        output_types=output_types,
+        async_mode=False,
     )
     for stage in result.get("pipeline", {}).get("stages", []):
         context.add_agent_result(

@@ -14,12 +14,13 @@
 - dialog_sessions: 对话会话记录
 """
 from __future__ import annotations
-import sqlite3
 import json
 import uuid
-import os
 import logging
 from typing import Dict, Any, Optional, List
+
+from app.core.database import DatabaseBackend, SQLiteBackend
+from app.db import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -27,21 +28,15 @@ logger = logging.getLogger(__name__)
 class PreferenceDB:
     """用户偏好数据库操作类"""
     
-    def __init__(self, db_path: str = None):
-        self.db_path = db_path or self._get_default_path()
+    def __init__(self, db_path: str = None, backend: DatabaseBackend = None):
+        self._backend = backend or (SQLiteBackend(db_path) if db_path else get_db())
+        self._owns_backend = backend is not None or db_path is not None
         self._ensure_tables()
     
-    def _get_default_path(self) -> str:
-        """获取默认数据库路径"""
-        data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
-        os.makedirs(data_dir, exist_ok=True)
-        return os.path.join(data_dir, "preferences.db")
-    
-    def _get_connection(self) -> sqlite3.Connection:
+    def _get_connection(self) -> "_BackendConnection":
         """获取数据库连接"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+        self._backend.connect()
+        return _BackendConnection(self._backend, close_on_release=self._owns_backend)
     
     def _ensure_tables(self):
         """确保表存在，自动迁移"""
@@ -140,9 +135,14 @@ class PreferenceDB:
             cursor = conn.cursor()
             
             cursor.execute('''
-                INSERT OR REPLACE INTO users 
+                INSERT INTO users
                 (user_id, name, email, default_depth, updated_at)
                 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    name=excluded.name,
+                    email=excluded.email,
+                    default_depth=excluded.default_depth,
+                    updated_at=excluded.updated_at
             ''', (user_id, name, email, default_depth))
             
             conn.commit()
@@ -220,7 +220,7 @@ class PreferenceDB:
             cursor = conn.cursor()
             
             cursor.execute('''
-                INSERT OR REPLACE INTO user_preferences 
+                INSERT INTO user_preferences
                 (user_id, key, value, category)
                 VALUES (?, ?, ?, ?)
             ''', (user_id, key, json.dumps(value), category))
@@ -544,6 +544,35 @@ class PreferenceDB:
         except Exception as e:
             logger.error(f"Failed to get user dialog sessions: {e}")
             return []
+
+
+class _BackendConnection:
+    """Cursor-shaped facade for legacy PreferenceDB methods."""
+
+    def __init__(self, backend: DatabaseBackend, *, close_on_release: bool) -> None:
+        self._backend = backend
+        self._close_on_release = close_on_release
+        self._cursor = None
+
+    def cursor(self) -> "_BackendConnection":
+        return self
+
+    def execute(self, sql: str, params: tuple = ()) -> "_BackendConnection":
+        self._cursor = self._backend.execute(sql, params)
+        return self
+
+    def fetchone(self):
+        return self._cursor.fetchone() if self._cursor is not None else None
+
+    def fetchall(self):
+        return self._cursor.fetchall() if self._cursor is not None else []
+
+    def commit(self) -> None:
+        self._backend.commit()
+
+    def close(self) -> None:
+        if self._close_on_release:
+            self._backend.close()
 
 
 _preference_db: Optional[PreferenceDB] = None

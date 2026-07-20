@@ -7,13 +7,11 @@
 
 此模块仅作为兼容层保留，供现有代码逐步迁移使用。
 """
-import sqlite3
-import os
 import json
 import uuid
 import time
+from app.core.database import get_database_backend
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "bsc_cloud.db")
 _connection = None
 
 
@@ -21,10 +19,8 @@ def get_db():
     """获取数据库连接（兼容旧代码）"""
     global _connection
     if _connection is None:
-        _connection = sqlite3.connect(DB_PATH, check_same_thread=False)
-        _connection.row_factory = sqlite3.Row
-        _connection.execute("PRAGMA journal_mode=WAL")
-        _connection.execute("PRAGMA foreign_keys=ON")
+        _connection = get_database_backend()
+        _connection.connect()
     return _connection
 
 

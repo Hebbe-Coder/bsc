@@ -34,7 +34,7 @@ class OrchestratorEngine:
                 "done": EventType.STAGE_COMPLETED,
                 "loopback": EventType.STAGE_LOOPBACK,
             }.get(status, EventType.STAGE_COMPLETED)
-        return await self.bus.publish(
+        event = await self.bus.publish(
             sid,
             event_type,
             stage=stage,
@@ -43,6 +43,9 @@ class OrchestratorEngine:
             terminal=terminal,
             data=data,
         )
+        if event is not None:
+            self.repo.record_event(event)
+        return event
 
     async def run_pipeline(self, session_id: str, idea: str) -> dict:
         if self.repo.get(session_id) is None:
@@ -83,7 +86,12 @@ class OrchestratorEngine:
             )
             raise
         except Exception:
-            self.repo.transition(session_id, JobStatus.FAILED)
+            self.repo.transition(
+                session_id,
+                JobStatus.FAILED,
+                error_code="pipeline_failed",
+                error_message="Pipeline failed",
+            )
             await self._emit(
                 session_id,
                 "pipeline",

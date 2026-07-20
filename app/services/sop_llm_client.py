@@ -14,6 +14,8 @@ from typing import Any, Dict, Optional
 import httpx
 
 from app.core.config import settings
+from app.core.llm_policy import ensure_mock_allowed
+from app.core.llm_usage import ModelUsage, extract_model_usage
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +82,7 @@ class SOPLLMClient:
         self._http = http_client
 
         if self.provider == "mock":
+            ensure_mock_allowed("SOP")
             self.base_url = ""
             self.model = "mock"
             self.api_key = ""
@@ -111,7 +114,14 @@ class SOPLLMClient:
     ) -> Dict[str, Any]:
         """返回 {"content": <str>}。mock 模式返回内置有效 JSON 字符串。"""
         if self.provider == "mock":
-            return {"content": self._mock_content(system_prompt)}
+            return {
+                "content": self._mock_content(system_prompt),
+                "_meta": {
+                    "usage": ModelUsage(
+                        provider="mock", model="mock"
+                    ).model_dump(mode="json"),
+                },
+            }
 
         body = {
             "model": self.model,
@@ -150,7 +160,14 @@ class SOPLLMClient:
                     # 其余 4xx(如 400/403/404/422)为不可重试的客户端错误,直接上报,不切换 key
                     resp.raise_for_status()
                     data = resp.json()
-                    return {"content": data["choices"][0]["message"]["content"]}
+                    return {
+                        "content": data["choices"][0]["message"]["content"],
+                        "_meta": {
+                            "usage": extract_model_usage(
+                                data, provider=self.provider, model=self.model
+                            ).model_dump(mode="json"),
+                        },
+                    }
                 finally:
                     if self._http is None:
                         client.close()

@@ -24,6 +24,8 @@ import time
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List
 
+from app.core.llm_usage import ModelUsage, extract_model_usage
+
 logger = logging.getLogger(__name__)
 
 
@@ -70,9 +72,11 @@ class LLMAdapter(ABC):
                          elapsed_ms: int, error: str, provider: str, 
                          model: str) -> dict:
         """生成降级结果（当API调用失败时）"""
+        from app.core.llm_policy import ensure_fallback_allowed
         from app.services.llm_service import LLMService
-        
-        llm = LLMService(provider="mock")
+
+        ensure_fallback_allowed("LLM adapter")
+        llm = LLMService(provider=provider)
         result = llm._mock(system_prompt, user_prompt)
         result["_meta"] = {
             "provider": provider,
@@ -80,6 +84,7 @@ class LLMAdapter(ABC):
             "mode": "fallback",
             "elapsed_ms": elapsed_ms,
             "error": error,
+            "usage": ModelUsage(provider=provider, model=model).model_dump(mode="json"),
         }
         return result
 
@@ -136,6 +141,9 @@ class OpenAICompatibleAdapter(LLMAdapter):
                     "model": self.model,
                     "mode": "api",
                     "elapsed_ms": elapsed_ms,
+                    "usage": extract_model_usage(
+                        response, provider="openai-compatible", model=self.model
+                    ).model_dump(mode="json"),
                 },
             }
         except Exception as e:
@@ -216,6 +224,9 @@ class OllamaAdapter(LLMAdapter):
                     "model": self.model,
                     "mode": "local",
                     "elapsed_ms": elapsed_ms,
+                    "usage": extract_model_usage(
+                        response, provider="ollama", model=self.model
+                    ).model_dump(mode="json"),
                 },
             }
         except Exception as e:
@@ -293,6 +304,9 @@ class vLLMAdapter(LLMAdapter):
                     "model": self.model,
                     "mode": "local",
                     "elapsed_ms": elapsed_ms,
+                    "usage": extract_model_usage(
+                        response, provider="vllm", model=self.model
+                    ).model_dump(mode="json"),
                 },
             }
         except Exception as e:
@@ -369,6 +383,9 @@ class LocalAIAdapter(LLMAdapter):
                     "model": self.model,
                     "mode": "local",
                     "elapsed_ms": elapsed_ms,
+                    "usage": extract_model_usage(
+                        response, provider="localai", model=self.model
+                    ).model_dump(mode="json"),
                 },
             }
         except Exception as e:
@@ -415,6 +432,7 @@ class MockAdapter(LLMAdapter):
             "model": "mock",
             "mode": "mock",
             "elapsed_ms": elapsed_ms,
+            "usage": ModelUsage(provider="mock", model="mock").model_dump(mode="json"),
         }
         return result
     

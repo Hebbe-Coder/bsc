@@ -105,12 +105,13 @@ def cmd_compile(args):
 
     # 编译
     print("🔄 Compiling...")
-    from app.core.bsc_pipeline import compile_to_business_system
+    from app.capabilities.runner import run_legacy_bsc_runtime_sync
 
     try:
-        result = compile_to_business_system(
-            content,
+        result = run_legacy_bsc_runtime_sync(
+            input_text=content,
             template_id=args.template,
+            async_mode=False,
         )
     except Exception as e:
         print(f"❌ Compilation failed: {e}")
@@ -215,53 +216,38 @@ def cmd_agent(args):
         print("Error: Input too short (min 10 chars)")
         sys.exit(1)
 
-    from app.artifacts import ArtifactGraphStore
-    from app.capabilities import (
-        build_default_registry, MissionPlanner, BusinessRuntime,
-        ReflectionPipeline,
-    )
-
-    store = ArtifactGraphStore(data_dir="./data/artifacts")
-    reg = build_default_registry()
-    planner = MissionPlanner(registry=reg, mode=args.mode)
-    runtime = BusinessRuntime(store=store, registry=reg, planner=planner)
+    from app.capabilities.runner import run_business_runtime
+    from app.core.config import settings
 
     t0 = time.perf_counter()
     print(f"Agent OS: Planning with mode={args.mode}...")
 
     async def run():
-        # Plan
-        mission = await planner.plan(content_text, domain_hint=args.domain)
-        print(f"  Mission: {mission.title} ({len(mission.steps)} steps)")
-
-        # Execute (simulated ? seeds business model)
-        from app.artifacts import BusinessModelArtifact
-        bm = BusinessModelArtifact(
-            label=mission.title, project_id="cli_run",
-            domain=mission.domain,
+        response = await run_business_runtime(
+            input_text=content_text,
+            domain=args.domain,
+            mode=args.mode,
+            board=args.board,
+            tenant_id=settings.DEFAULT_TENANT_ID,
         )
-        store.add(bm)
+        if response["status"] != "completed":
+            raise RuntimeError(response.get("runtime", {}).get("errors") or "Agent OS failed")
 
-        # Reflect
-        pipe = ReflectionPipeline(store, reg)
-        report = pipe.run()
-        print(f"  Gaps found: {report['stages']['reflect']['gaps_found']}")
+        mission = response["mission"]
+        runtime = response["runtime"]
+        print(f"  Mission: {mission['title']} ({mission['steps']} steps)")
+        print(f"  Gaps found: {response['gaps']}")
+        if response.get("board_verdict"):
+            print(
+                f"  Board Verdict: {response['board_verdict'].upper()} "
+                f"({response['board_consensus']})"
+            )
 
-        # Board (optional)
-        board_decision = None
-        if args.board:
-            print("  Board: convening...")
-            from app.capabilities.board import MultiAgentBoard
-            board = MultiAgentBoard(store)
-            board_decision = await board.convene(project_id="cli_run")
-            print(f"  Board Verdict: {board_decision.final_verdict.upper()} ({board_decision.consensus})")
-
-        # Export
-        export_data = store.export()
-        export_data["mission"] = mission.model_dump()
-        export_data["reflection"] = report
-        if board_decision:
-            export_data["board"] = board_decision.model_dump()
+        export_data = response["report"]
+        export_data["mission"] = mission
+        export_data["runtime"] = runtime
+        if response.get("board"):
+            export_data["board"] = response["board"]
 
         output_path = Path(args.output)
         output_path.write_text(
@@ -272,10 +258,10 @@ def cmd_agent(args):
 
         elapsed = (time.perf_counter() - t0)
         print(f"\nAgent OS complete in {elapsed:.1f}s")
-        print(f"  Artifacts: {store.count()}")
-        print(f"  Gaps: {report['stages']['reflect']['gaps_found']}")
-        if board_decision:
-            print(f"  Board: {board_decision.final_verdict} ({board_decision.consensus})")
+        print(f"  Artifacts: {response['artifacts']}")
+        print(f"  Gaps: {response['gaps']}")
+        if response.get("board_verdict"):
+            print(f"  Board: {response['board_verdict']} ({response['board_consensus']})")
 
     asyncio.run(run())
 

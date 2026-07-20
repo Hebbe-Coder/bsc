@@ -14,6 +14,7 @@ Dual-track: Legacy pipeline (static) and Adaptive Runtime coexist.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import time
 import logging
 from dataclasses import dataclass, field
@@ -26,7 +27,7 @@ from app.artifacts.types import (
     GapArtifact, GapCategory, DecisionArtifact,
 )
 from .registry import CapabilityRegistry, Capability
-from .executor import CapabilityExecutor
+from .executor import CapabilityExecutor, ExecutionResult
 from .memory import BusinessMemory
 from .planner import MissionPlanner, MissionGraph, MissionStep
 
@@ -57,6 +58,7 @@ class RuntimeState:
     loop-level metadata.
     """
     phase: str = RuntimePhase.IDLE
+    input_text: str = ""
     iteration: int = 0
     max_iterations: int = 3
     mission_active: bool = False
@@ -77,10 +79,13 @@ class RuntimeResult:
     status: str = RuntimePhase.COMPLETED
     artifact_graph: Optional[ArtifactGraphStore] = None
     export: dict[str, Any] = field(default_factory=dict)
+    mission: dict[str, Any] = field(default_factory=dict)
     iterations: int = 0
     elapsed_ms: float = 0.0
     errors: list[str] = field(default_factory=list)
     gaps: list[str] = field(default_factory=list)
+    stage_modes: dict[str, str] = field(default_factory=dict)
+    capability_executions: list[dict[str, Any]] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +113,7 @@ class BusinessRuntime:
         max_iterations: int = 3,
         executor: Optional[CapabilityExecutor] = None,
         executor_backend: str = "local",
+        execution_context: Optional[dict[str, Any]] = None,
     ):
         self.store = store
         self.registry = registry
@@ -119,6 +125,7 @@ class BusinessRuntime:
             self._executor = CapabilityExecutor(store, backend=executor_backend)
         self._memory: Optional[BusinessMemory] = None
         self._agent_pool = None
+        self._execution_context = dict(execution_context or {})
 
     @property
     def agent_pool(self):
@@ -148,8 +155,10 @@ class BusinessRuntime:
             RuntimeResult with final artifact graph export.
         """
         t0 = time.perf_counter()
-        state = RuntimeState(max_iterations=self.max_iterations)
+        state = RuntimeState(input_text=prd_text, max_iterations=self.max_iterations)
         errors: list[str] = []
+        self._stage_modes: dict[str, str] = {}
+        self._capability_executions: list[dict[str, Any]] = []
 
         try:
             # ── Mission Loop ──
@@ -199,18 +208,30 @@ class BusinessRuntime:
             errors.append(str(exc))
             state.phase = RuntimePhase.ERROR
 
-        # Finalize
-        state.phase = RuntimePhase.COMPLETED
+        # Finalize without masking runtime errors.
+        if errors:
+            state.phase = RuntimePhase.ERROR
+        elif state.mission_active and state.iteration >= state.max_iterations:
+            state.phase = RuntimePhase.MAX_ITERATIONS
+        else:
+            state.phase = RuntimePhase.COMPLETED
         elapsed = (time.perf_counter() - t0) * 1000
 
         return RuntimeResult(
             status=state.phase,
             artifact_graph=self.store,
             export=self.store.export(project_id=project_id) if project_id else self.store.export(),
+            mission={
+                "title": state.mission.title if state.mission else "",
+                "steps": len(state.mission.steps) if state.mission else 0,
+                "mode": state.mission.planning_mode if state.mission else "",
+            },
             iterations=state.iteration,
             elapsed_ms=elapsed,
             errors=errors,
             gaps=[f"iteration={state.iteration}, found={state.gaps_found}, resolved={state.gaps_resolved}"],
+            stage_modes=dict(self._stage_modes),
+            capability_executions=list(self._capability_executions),
         )
 
     # ------------------------------------------------------------------
@@ -254,30 +275,82 @@ class BusinessRuntime:
         # Try direct callable first
         if cap.executor_fn:
             try:
-                result = cap.executor_fn()
+                invocation = await self._executor.execute_callable(
+                    cap,
+                    lambda: self._invoke_executor_fn(
+                        cap.executor_fn,
+                        capability=cap,
+                        input_text=state.input_text,
+                        project_id=project_id,
+                        store=self.store,
+                        state=state,
+                        step=step,
+                        execution_context=self._execution_context,
+                    ),
+                    backend="compatibility",
+                )
+                self._record_capability_execution(invocation.execution)
+                if invocation.execution.status != "success":
+                    raise RuntimeError(invocation.execution.error or "capability execution failed")
+                result = invocation.value
                 if isinstance(result, BaseArtifact):
                     result.project_id = project_id or result.project_id
                     self.store.add(result)
+                elif isinstance(result, list):
+                    for item in result:
+                        if isinstance(item, BaseArtifact):
+                            item.project_id = project_id or item.project_id
+                            self.store.add(item)
                 elif isinstance(result, dict):
                     # Try to deserialize into correct artifact type
                     self._persist_dict_result(result, cap, project_id)
+                self._stage_modes[cap.name] = "compatibility"
             except Exception as exc:
                 logger.error("Executor failed for %s: %s", cap.name, exc)
+                raise RuntimeError(f"capability failed: {cap.name}") from exc
             return
 
         # Use CapabilityExecutor
         try:
-            result = await self._executor.execute(cap, input_text="", project_id=project_id)
+            result = await self._executor.execute(
+                cap,
+                input_text=state.input_text,
+                project_id=project_id,
+            )
+            self._record_capability_execution(result)
             if result.status == "success":
+                self._stage_modes[cap.name] = result.mode or "real"
                 logger.info("Executor: %s produced %d artifacts via %s",
                             cap.name, len(result.artifacts_produced), result.backend)
             else:
                 logger.warning("Executor failed for %s: %s", cap.name, result.error)
+                raise RuntimeError(f"capability failed: {cap.name}: {result.error}")
         except Exception as exc:
             logger.error("Executor error for %s: %s", cap.name, exc)
-        return
+            raise
 
-        logger.debug("No executor for %s — skipping", cap.name)
+    def _record_capability_execution(self, result: ExecutionResult) -> None:
+        self._capability_executions.append(result.model_dump(mode="json"))
+
+    async def _invoke_executor_fn(self, executor_fn, **kwargs):
+        """Call direct capability executors with only the kwargs they accept."""
+        signature = inspect.signature(executor_fn)
+        accepts_var_kwargs = any(
+            param.kind == inspect.Parameter.VAR_KEYWORD
+            for param in signature.parameters.values()
+        )
+        if accepts_var_kwargs:
+            result = executor_fn(**kwargs)
+        else:
+            allowed = {
+                name: value
+                for name, value in kwargs.items()
+                if name in signature.parameters
+            }
+            result = executor_fn(**allowed)
+        if inspect.isawaitable(result):
+            return await result
+        return result
 
     async def _execute_via_agent(
         self, cap: Capability, step: MissionStep, project_id: str

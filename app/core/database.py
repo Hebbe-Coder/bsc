@@ -24,6 +24,14 @@ from typing import List, Dict, Any, Protocol
 from app.core.config import settings
 
 
+def resolve_sqlite_path(db_path: str | None = None) -> str:
+    """Resolve SQLite paths through the single configured DB_PATH source."""
+    configured = db_path or settings.DB_PATH
+    if configured == ":memory:" or os.path.isabs(configured):
+        return configured
+    return os.path.join(os.path.dirname(os.path.dirname(__file__)), configured)
+
+
 class DatabaseBackend(Protocol):
     """数据库后端协议接口"""
     
@@ -68,12 +76,13 @@ class SQLiteBackend:
     """SQLite数据库后端 - 线程安全实现"""
     
     _global_thread_local = threading.local()
+    dialect = "sqlite"
     
     def __init__(self, db_path: str = None):
-        self._db_path = db_path or os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), "bsc_cloud.db"
-        )
+        self._db_path = resolve_sqlite_path(db_path)
         self._instance_id = id(self)
+        self._connections: Dict[int, sqlite3.Connection] = {}
+        self._connections_lock = threading.RLock()
     
     def _get_connection(self) -> sqlite3.Connection:
         """获取当前线程的数据库连接"""
@@ -84,11 +93,14 @@ class SQLiteBackend:
             conn = sqlite3.connect(
                 self._db_path,
                 timeout=30,
+                check_same_thread=False,
             )
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA foreign_keys=ON")
             self._global_thread_local.connections[self._instance_id] = conn
+            with self._connections_lock:
+                self._connections[threading.get_ident()] = conn
         
         return self._global_thread_local.connections[self._instance_id]
     
@@ -96,10 +108,13 @@ class SQLiteBackend:
         self._get_connection()
     
     def close(self):
+        with self._connections_lock:
+            connections = list(self._connections.values())
+            self._connections.clear()
+        for connection in connections:
+            connection.close()
         if hasattr(self._global_thread_local, "connections"):
-            if self._instance_id in self._global_thread_local.connections:
-                self._global_thread_local.connections[self._instance_id].close()
-                del self._global_thread_local.connections[self._instance_id]
+            self._global_thread_local.connections.pop(self._instance_id, None)
     
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
         conn = self._get_connection()
@@ -151,6 +166,7 @@ class PostgreSQLBackend:
         self._db_url = db_url or settings.DB_URL
         self._connection = None
         self._pool = None
+        self.dialect = "postgresql"
     
     def connect(self):
         try:
@@ -172,8 +188,11 @@ class PostgreSQLBackend:
     def execute(self, sql: str, params: tuple = ()) -> 'psycopg2.extensions.cursor':
         self.connect()
         try:
-            cursor = self._connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            cursor.execute(sql, params)
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+
+            cursor = self._connection.cursor(cursor_factory=RealDictCursor)
+            cursor.execute(self._postgresql_sql(sql), params)
             return cursor
         except psycopg2.Error:
             self._connection.rollback()
@@ -182,8 +201,9 @@ class PostgreSQLBackend:
     def executemany(self, sql: str, params: List[tuple]) -> 'psycopg2.extensions.cursor':
         self.connect()
         try:
+            import psycopg2
             cursor = self._connection.cursor()
-            cursor.executemany(sql, params)
+            cursor.executemany(self._postgresql_sql(sql), params)
             return cursor
         except psycopg2.Error:
             self._connection.rollback()
@@ -203,6 +223,15 @@ class PostgreSQLBackend:
     def rows_to_list(self, cursor) -> List[Dict[str, Any]]:
         return [dict(row) for row in cursor.fetchall()]
     
+    @staticmethod
+    def _postgresql_sql(sql: str) -> str:
+        """Adapt DB-API qmark placeholders used by repositories for psycopg2."""
+        normalized = sql.replace(
+            "INTEGER PRIMARY KEY AUTOINCREMENT",
+            "BIGSERIAL PRIMARY KEY",
+        ).replace("BLOB", "BYTEA")
+        return normalized.replace("%", "%%").replace("?", "%s")
+
     def test_connection(self) -> bool:
         try:
             self.connect()
@@ -226,9 +255,10 @@ def get_database_backend(db_type: str = None) -> DatabaseBackend:
         return SQLiteBackend()
 
 
-def init_database():
+def init_database(backend: DatabaseBackend | None = None):
     """初始化数据库（创建必要的表）"""
-    backend = get_database_backend()
+    owns_backend = backend is None
+    backend = backend or get_database_backend()
     
     create_tables = [
         """
@@ -416,8 +446,13 @@ def init_database():
         for sql in create_tables:
             backend.execute(sql)
         backend.commit()
-        backend.close()
+        from app.core.migrations import ensure_persistence_schema
+
+        ensure_persistence_schema(backend)
+        if owns_backend:
+            backend.close()
     except Exception:
         backend.rollback()
-        backend.close()
+        if owns_backend:
+            backend.close()
         raise

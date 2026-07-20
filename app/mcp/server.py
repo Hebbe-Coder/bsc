@@ -59,6 +59,23 @@ _MCP_API_KEY = os.environ.get("MCP_API_KEY") or ""
 _SETTINGS_API_KEY_CACHE = None
 
 
+class MCPExecutionError(RuntimeError):
+    """Stable failure contract for an isolated MCP engine invocation."""
+
+    def __init__(
+        self,
+        mode: str,
+        error_code: str,
+        message: str,
+        *,
+        stderr: str = "",
+    ) -> None:
+        self.mode = mode
+        self.error_code = error_code
+        self.stderr = stderr
+        super().__init__(f"MCP engine {mode} failed [{error_code}]: {message}")
+
+
 def _get_settings_api_key() -> str:
     """从配置文件获取API_KEY（缓存结果）"""
     global _SETTINGS_API_KEY_CACHE
@@ -125,19 +142,44 @@ def _get_windows_job_object():
     max_mem_mb = int(os.environ.get("BSC_MCP_MAX_MEM_MB", "512"))
     max_cpu_sec = int(os.environ.get("BSC_MCP_MAX_CPU_SEC", str(600)))
     
+    class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ('PerProcessUserTimeLimit', ctypes.c_int64),
+            ('PerJobUserTimeLimit', ctypes.c_int64),
+            ('LimitFlags', ctypes.wintypes.DWORD),
+            ('MinimumWorkingSetSize', ctypes.c_size_t),
+            ('MaximumWorkingSetSize', ctypes.c_size_t),
+            ('ActiveProcessLimit', ctypes.wintypes.DWORD),
+            ('Affinity', ctypes.c_size_t),
+            ('PriorityClass', ctypes.wintypes.DWORD),
+            ('SchedulingClass', ctypes.wintypes.DWORD),
+        ]
+
+    class IO_COUNTERS(ctypes.Structure):
+        _fields_ = [
+            ('ReadOperationCount', ctypes.c_uint64),
+            ('WriteOperationCount', ctypes.c_uint64),
+            ('OtherOperationCount', ctypes.c_uint64),
+            ('ReadTransferCount', ctypes.c_uint64),
+            ('WriteTransferCount', ctypes.c_uint64),
+            ('OtherTransferCount', ctypes.c_uint64),
+        ]
+
     class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
         _fields_ = [
-            ('BasicLimitInformation', ctypes.c_uint64 * 6),
-            ('IoInfo', ctypes.c_uint64 * 4),
+            ('BasicLimitInformation', JOBOBJECT_BASIC_LIMIT_INFORMATION),
+            ('IoInfo', IO_COUNTERS),
             ('ProcessMemoryLimit', ctypes.c_uint64),
             ('JobMemoryLimit', ctypes.c_uint64),
             ('PeakProcessMemoryUsed', ctypes.c_uint64),
             ('PeakJobMemoryUsed', ctypes.c_uint64),
         ]
-    
+
     limit_info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
-    limit_info.BasicLimitInformation[0] = JOB_OBJECT_LIMIT_PROCESS_MEMORY | JOB_OBJECT_LIMIT_JOB_TIME
-    limit_info.BasicLimitInformation[3] = max_cpu_sec * 10000000
+    limit_info.BasicLimitInformation.LimitFlags = (
+        JOB_OBJECT_LIMIT_PROCESS_MEMORY | JOB_OBJECT_LIMIT_JOB_TIME
+    )
+    limit_info.BasicLimitInformation.PerJobUserTimeLimit = max_cpu_sec * 10000000
     limit_info.ProcessMemoryLimit = max_mem_mb * 1024 * 1024
     
     if not kernel32.SetInformationJobObject(
@@ -162,7 +204,7 @@ def _run_engine_subprocess(mode: str, payload: dict, timeout: float = 600) -> di
     if sys.platform == "win32":
         job_handle = _get_windows_job_object()
         if job_handle:
-            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_SUSPENDED
+            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
     else:
         try:
             import resource
@@ -195,14 +237,17 @@ def _run_engine_subprocess(mode: str, payload: dict, timeout: float = 600) -> di
             
             kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
             kernel32.AssignProcessToJobObject(job_handle, proc._handle)
-            kernel32.ResumeThread(proc._handle)
             
             try:
                 stdout, stderr = proc.communicate(timeout=timeout)
                 returncode = proc.returncode
             except subprocess.TimeoutExpired:
                 proc.kill()
-                raise RuntimeError(f"engine subprocess timed out ({mode}) after {timeout}s")
+                raise MCPExecutionError(
+                    mode,
+                    "timeout",
+                    f"engine subprocess timed out after {timeout}s",
+                )
         else:
             proc = subprocess.run(
                 [_PYTHON, "-m", "app.mcp._engine_runner", mode, json.dumps(payload, ensure_ascii=False)],
@@ -219,20 +264,57 @@ def _run_engine_subprocess(mode: str, payload: dict, timeout: float = 600) -> di
             )
             stdout, stderr, returncode = proc.stdout, proc.stderr, proc.returncode
     except subprocess.TimeoutExpired:
-        raise RuntimeError(f"engine subprocess timed out ({mode}) after {timeout}s")
+        raise MCPExecutionError(
+            mode,
+            "timeout",
+            f"engine subprocess timed out after {timeout}s",
+        )
     finally:
         if job_handle:
             kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
             kernel32.CloseHandle(job_handle)
     
     if returncode != 0:
-        if returncode == -signal.SIGKILL or (sys.platform == "win32" and returncode == 1):
-            raise RuntimeError(f"engine subprocess killed due to resource limits ({mode})")
-        raise RuntimeError(
-            f"engine subprocess failed ({mode}): rc={returncode}\n"
-            f"stderr: {stderr[-2000:]}"
+        child_error = _child_error_payload(stdout)
+        sigkill = getattr(signal, "SIGKILL", None)
+        if sigkill is not None and returncode == -sigkill:
+            raise MCPExecutionError(
+                mode,
+                "terminated",
+                "engine subprocess was terminated",
+                stderr=stderr[-2000:],
+            )
+        raise MCPExecutionError(
+            mode,
+            str(child_error.get("error_code") or "child_failed"),
+            str(child_error.get("error") or f"engine subprocess exited with code {returncode}"),
+            stderr=stderr[-2000:],
         )
-    return json.loads(stdout)
+    try:
+        result = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise MCPExecutionError(
+            mode,
+            "invalid_runner_output",
+            "engine subprocess returned invalid JSON",
+            stderr=stderr[-2000:],
+        ) from exc
+    if not isinstance(result, dict):
+        raise MCPExecutionError(
+            mode,
+            "invalid_runner_output",
+            "engine subprocess returned a non-object JSON payload",
+            stderr=stderr[-2000:],
+        )
+    return result
+
+
+def _child_error_payload(stdout: str) -> dict:
+    try:
+        payload = json.loads(stdout)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 @mcp.tool()

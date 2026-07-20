@@ -5,19 +5,25 @@ from collections import defaultdict, deque
 from typing import AsyncIterator
 
 from app.orchestrator.contracts import EventType, OrchestratorEvent
+from app.orchestrator.event_store import EventStore
 
 
 _CLOSE = object()
 
 
 class SessionEventBus:
-    def __init__(self, history_limit: int = 256):
+    def __init__(
+        self,
+        history_limit: int = 256,
+        event_store: EventStore | None = None,
+    ):
         self._history_limit = history_limit
         self._history: dict[str, deque[OrchestratorEvent]] = defaultdict(
             lambda: deque(maxlen=self._history_limit)
         )
         self._subscribers: dict[str, set[asyncio.Queue]] = defaultdict(set)
-        self._seq: dict[str, int] = defaultdict(int)
+        self._seq: dict[str, int] = {}
+        self._event_store = event_store
         self._lock = asyncio.Lock()
 
     async def publish(
@@ -43,10 +49,16 @@ class SessionEventBus:
             }.get(status, EventType.STAGE_COMPLETED)
             data = {**(data or {}), "legacy": True}
         async with self._lock:
-            self._seq[session_id] += 1
+            previous_seq = self._seq.get(session_id)
+            if previous_seq is None:
+                previous_seq = (
+                    self._event_store.last_seq(session_id)
+                    if self._event_store is not None
+                    else 0
+                )
             event = OrchestratorEvent(
                 session_id=session_id,
-                seq=self._seq[session_id],
+                seq=previous_seq + 1,
                 type=event_type,
                 stage=stage,
                 status=status,
@@ -54,6 +66,9 @@ class SessionEventBus:
                 terminal=terminal,
                 data=data or {},
             )
+            if self._event_store is not None:
+                self._event_store.append(event)
+            self._seq[session_id] = event.seq
             self._history[session_id].append(event)
             subscribers = tuple(self._subscribers.get(session_id, ()))
 
@@ -68,12 +83,14 @@ class SessionEventBus:
     ) -> AsyncIterator[OrchestratorEvent]:
         queue: asyncio.Queue = asyncio.Queue()
         async with self._lock:
-            history = tuple(self._history.get(session_id, ()))
-            replay = [
-                event for event in history
-                if event.seq > after
-            ]
-            session_terminal = bool(history and history[-1].terminal)
+            if self._event_store is not None:
+                replay = self._event_store.events_after(session_id, after)
+                latest = self._event_store.latest_event(session_id)
+                session_terminal = bool(latest and latest.terminal)
+            else:
+                history = tuple(self._history.get(session_id, ()))
+                replay = [event for event in history if event.seq > after]
+                session_terminal = bool(history and history[-1].terminal)
             if not session_terminal:
                 self._subscribers[session_id].add(queue)
 

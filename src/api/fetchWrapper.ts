@@ -105,6 +105,19 @@ export class FetchWrapper {
     throw lastError || new Error('Request failed');
   }
 
+  async request(url: string, options: FetchOptions = {}): Promise<Response> {
+    const fullUrl = url.startsWith('http') ? url : `${this.baseUrl}${url}`;
+    const requestWithAuth = this.applyAuthHeaders(options);
+    if (this.interceptorConfig.logRequests) {
+      this.logRequest(fullUrl, requestWithAuth);
+    }
+    const response = await this.executeRequest(fullUrl, requestWithAuth);
+    if (this.interceptorConfig.logResponses) {
+      this.logResponse(response);
+    }
+    return response;
+  }
+
   async fetchStream(url: string, options: FetchOptions = {}): Promise<ReadableStream> {
     const { ...requestInit } = options;
     
@@ -159,6 +172,7 @@ export class FetchWrapper {
     return {
       ...options,
       headers,
+      credentials: options.credentials ?? 'same-origin',
     };
   }
 
@@ -205,3 +219,4 @@ export const createFetchWrapper = (config?: { baseUrl?: string; timeout?: number
 };
 
 export const fetchWrapper = new FetchWrapper();
+export const apiFetch = (url: string, options?: FetchOptions) => fetchWrapper.request(url, options);

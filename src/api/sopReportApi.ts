@@ -139,7 +139,7 @@ export const sopReportApi = {
   },
 
   exportReport: async (businessSystem: BusinessSystem, format: 'html' | 'markdown' | 'pptx'): Promise<string> => {
-    const response = await fetch('/sop-report/export', {
+    const response = await fetchWrapper.request('/sop-report/export', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ business_system: businessSystem, format }),
@@ -196,7 +196,7 @@ export const sopReportApi = {
   },
 
   downloadReport: async (businessSystem: BusinessSystem, format: 'html' | 'markdown') => {
-    const response = await fetch('/sop-report/export', {
+    const response = await fetchWrapper.request('/sop-report/export', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ business_system: businessSystem, format }),

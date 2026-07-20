@@ -46,4 +46,8 @@ build/
 # ---- SQLite runtime artifacts (WAL/SHM sidecars, regenerated every run) ----
 *.db-wal
 *.db-shm
+app/data/local-production-smoke.db
+data/local-production-smoke.db
+data/artifacts/default/
+data/artifacts/legacy_*/
 nul

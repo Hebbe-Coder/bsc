@@ -147,8 +147,7 @@ def test_create_project_requires_admin():
     try:
         # 无 Authorization → 中间件应 401（知识库端点强制鉴权）。
         # 真实实现：TestClient 下 AuthMiddleware 以 HTTPException 形式抛出（见 test_api_auth.py 约定）。
-        with pytest.raises(HTTPException) as exc:
-            c.post("/knowledge/projects", json={"name": "X"})
-        assert exc.value.status_code in (401, 403)
+        response = c.post("/knowledge/projects", json={"name": "X"})
+        assert response.status_code == 401
     finally:
         _cleanup(p, repo, svc)

@@ -708,6 +708,9 @@ def _generate_fallback_business_system(prd_content: str) -> Dict[str, Any]:
     Returns:
         dict: 回退的业务系统数据
     """
+    from app.core.llm_policy import ensure_fallback_allowed
+
+    ensure_fallback_allowed("Legacy BSC")
     try:
         from app.services.llm_service import LLMService
         

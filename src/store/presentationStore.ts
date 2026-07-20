@@ -4,6 +4,7 @@ import { themes } from '../theme/themes';
 import { bscApi, BusinessSystem } from '../api/bscApi';
 import { convertBusinessSystemToPresentation } from '../utils/bscConverter';
 import { API_BASE } from '../config';
+import { apiFetch } from '../api/fetchWrapper';
 
 interface LayoutTemplate {
   name: string;
@@ -1134,7 +1135,7 @@ const usePresentationStore = create<PresentationStore>((set, get) => {
             updateStage(stageId, { progress, output: accumulatedOutput.slice(-2000) });
           };
 
-          const response = await fetch(`${API_BASE}/api/skill/execute`, {
+          const response = await apiFetch(`${API_BASE}/api/skill/execute`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1155,7 +1156,7 @@ const usePresentationStore = create<PresentationStore>((set, get) => {
           
           if (result.status === 'streaming' && result.execution_id) {
             const decoder = new TextDecoder();
-            const streamResponse = await fetch(`${API_BASE}/api/skill/stream/${result.execution_id}`, {
+            const streamResponse = await apiFetch(`${API_BASE}/api/skill/stream/${result.execution_id}`, {
               signal: abortController.signal,
             });
 
@@ -1481,7 +1482,7 @@ const usePresentationStore = create<PresentationStore>((set, get) => {
           contextData.risks = pipelineContext?.prdStructure?.risks || [];
         }
 
-        const response = await fetch(`${API_BASE}/api/skill/execute`, {
+        const response = await apiFetch(`${API_BASE}/api/skill/execute`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1501,7 +1502,7 @@ const usePresentationStore = create<PresentationStore>((set, get) => {
 
         if (result.status === 'streaming' && result.execution_id) {
           const decoder = new TextDecoder();
-          const streamResponse = await fetch(`${API_BASE}/api/skill/stream/${result.execution_id}`);
+          const streamResponse = await apiFetch(`${API_BASE}/api/skill/stream/${result.execution_id}`);
 
           if (!streamResponse.ok) {
             throw new Error(`Stream request failed! status: ${streamResponse.status}`);

@@ -43,7 +43,7 @@ async def send_message(req: ChatMessage):
 
     repo.add_message(conv_id, "user", msg)
 
-    response = _route(msg, conv_id)
+    response = await _route(msg, conv_id)
 
     repo.add_message(conv_id, "assistant", response["content"],
                      response.get("data"))
@@ -81,11 +81,11 @@ async def delete_conversation(conv_id: str):
     return {"status": "ok", "conv_id": conv_id}
 
 
-def _route(msg: str, conv_id: str) -> dict:
+async def _route(msg: str, conv_id: str) -> dict:
     """路由用户消息"""
 
     if len(msg) > 30 and any(kw in msg for kw in ["PRD", "审核", "客服", "风控", "电商", "系统", "流程", "需求", "项目"]):
-        return _handle_compile(msg)
+        return await _handle_compile(msg)
 
     if any(kw in msg for kw in ["为什么", "原因", "根因"]):
         return _handle_followup(msg, conv_id, "root_cause")
@@ -108,11 +108,32 @@ def _route(msg: str, conv_id: str) -> dict:
     return _default(msg)
 
 
-def _handle_compile(msg: str) -> dict:
-    """调用BSC Pipeline"""
-    from app.core.bsc_pipeline import run_bsc_pipeline
+async def _handle_compile(msg: str) -> dict:
+    """Run chat compilation through the canonical Runtime compatibility path."""
+    from app.capabilities.runner import run_legacy_bsc_runtime
 
-    result = run_bsc_pipeline(msg)
+    runtime_result = await run_legacy_bsc_runtime(
+        input_text=msg,
+        async_mode=False,
+    )
+    business_system = runtime_result.get("business_system") or {}
+    pipeline = runtime_result.get("pipeline") or {}
+    result = {
+        "total_ms": pipeline.get("total_ms", 0),
+        "sop": {
+            "workflow": business_system.get("workflow", []),
+            "roles": business_system.get("roles", []),
+            "sla": business_system.get("sla", []),
+            "kpi": business_system.get("kpi", business_system.get("metrics", [])),
+        },
+        "risk": business_system.get("risk", {}),
+        "strategy": business_system.get("strategy", {}),
+        "optimization": business_system.get("optimization", {}),
+        "business_system": business_system,
+        "pipeline": pipeline,
+        "workspace": runtime_result.get("workspace", {}),
+        "summary": runtime_result.get("summary", ""),
+    }
 
     lines = ["**BSC编译完成**\n"]
     lines.append(f"耗时: {result['total_ms']}ms\n")

@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: bsc_test
+          POSTGRES_USER: bsc
+          POSTGRES_PASSWORD: bsc
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bsc -d bsc_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      TEST_POSTGRES_URL: postgresql://bsc:bsc@localhost:5432/bsc_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements-production.txt pytest
+      - name: Collect Python tests
+        run: python -m pytest --collect-only -q
+      - name: Run Python tests
+        run: python -m pytest -q
+      - name: Quality inventory
+        run: python scripts/quality_inventory.py --root .
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: TypeScript check
+        run: npm run check
+      - name: ESLint
+        run: npm run lint
+      - name: Build container
+        run: docker build -t bsc-backend:ci .
+      - name: Start mocked production container
+        run: >
+          docker run -d --name bsc-smoke -p 8000:8000
+          -e ENVIRONMENT=production
+          -e API_KEY=ci-smoke-key
+          -e LLM_PROVIDER=mock
+          -e ALLOW_MOCK_LLM_IN_PRODUCTION=true
+          -e BSC_RUNTIME_MODE=business_runtime
+          bsc-backend:ci
+      - name: Container smoke job
+        run: |
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8000/ready; then break; fi
+            sleep 1
+          done
+          python scripts/container_smoke.py --base-url http://127.0.0.1:8000 --api-key ci-smoke-key
+      - name: Container logs on failure
+        if: failure()
+        run: docker logs bsc-smoke
+      - name: Stop smoke container
+        if: always()
+        run: docker rm -f bsc-smoke

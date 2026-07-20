@@ -217,6 +217,10 @@ def build_default_registry() -> CapabilityRegistry:
     a Capability entry without changing the agent code.
     """
     reg = CapabilityRegistry()
+    from .legacy_bsc import (
+        run_legacy_bsc_compatibility,
+        run_legacy_bsc_stage_compatibility,
+    )
 
     # Core analysis capabilities (mapped to existing agents)
     capabilities = [
@@ -328,7 +332,27 @@ def build_default_registry() -> CapabilityRegistry:
             tags=["synthesis", "export"],
             success_rate=0.90,
         ),
+        Capability(
+            name="legacy_bsc_compatibility",
+            description="Run the legacy /bsc compiler path and project its output into Artifact Graph artifacts",
+            input_artifact_types=[],
+            output_artifact_types=[ArtifactType.BUSINESS_MODEL, ArtifactType.RISK, ArtifactType.DECISION],
+            executor_fn=run_legacy_bsc_compatibility,
+            tags=["legacy", "compatibility", "bsc"],
+            success_rate=0.95,
+        ),
+        Capability(
+            name="legacy_bsc_stage_compatibility",
+            description="Run a single legacy /bsc stage through the shared runtime",
+            input_artifact_types=[],
+            output_artifact_types=[ArtifactType.DECISION],
+            executor_fn=run_legacy_bsc_stage_compatibility,
+            tags=["legacy", "compatibility", "bsc", "stage"],
+            success_rate=0.95,
+        ),
     ]
 
     reg.register_many(capabilities)
+    from .executor import assert_mock_coverage
+    assert_mock_coverage(reg)
     return reg

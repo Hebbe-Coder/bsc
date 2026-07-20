@@ -1,145 +1,264 @@
-"""Authentication Middleware - API密钥认证"""
-import logging
-import hmac
-import hashlib
-import sqlite3
-import os
-from typing import Optional, Tuple
+"""Bearer and same-origin signed-session authentication middleware."""
 
-from fastapi import HTTPException, Request
+from __future__ import annotations
+
+import base64
+import hashlib
+import hmac
+import json
+import logging
+import os
+import secrets
+import time
+from dataclasses import dataclass
+from typing import Any, Optional, Tuple
+
+from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
+
 from app.core.config import settings
 from app.knowledge import metrics as _metrics
 
+
 logger = logging.getLogger(__name__)
 
+
 def _normalize_path(path: str) -> str:
-    """规范化路径，防止路径遍历攻击"""
     return os.path.normpath(path).replace("\\", "/")
 
 
-class AuthMiddleware(BaseHTTPMiddleware):
-    """API密钥认证中间件
+@dataclass(frozen=True)
+class AuthPrincipal:
+    role: str
+    tenant_id: str
+    project_id: str | None
+    principal_id: str
+    browser_session_id: str
 
-    安全策略：
-    - /knowledge/* 端点：无论环境都强制鉴权，且支持 admin / reader 两种角色
-      （admin = 全局 API_KEY；reader = API_KEY_READER，仅可读/检索）。
-    - 非知识库端点：仅全局 API_KEY 有效；API_KEY 未配置时开发模式放行、生产模式拒绝。
-    - 白名单路径（/docs、/health 等）跳过鉴权。
-    """
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    """Authenticate APIs and bind each request to a scoped principal."""
 
     async def dispatch(self, request: Request, call_next):
         if self._is_whitelisted(request):
             return await call_next(request)
 
-        path = request.url.path
-        auth_header = request.headers.get("Authorization", "")
-        has_bearer = auth_header.startswith("Bearer ")
-        api_key = auth_header[7:] if has_bearer else None
+        bearer = _extract_bearer(request)
+        supports_browser_session = (
+            request.url.path.startswith("/api/orchestrate")
+            or request.url.path == "/agent/analyze"
+        )
+        principal = (
+            _principal_from_bearer(bearer)
+            if bearer
+            else _principal_from_cookie(request) if supports_browser_session else None
+        )
+        issued_cookie = False
 
-        # ---- 知识库端点：始终需有效 Key；支持 admin / reader / project_* 多种角色 ----
-        if path.startswith("/knowledge/"):
-            if not has_bearer:
-                _metrics.metrics.record_auth_failure()
-                raise HTTPException(
-                    status_code=401,
-                    detail="知识库端点已强制鉴权：请在请求头携带 Authorization: Bearer <API_KEY>",
-                )
-            auth = resolve_knowledge_auth(api_key)
-            if auth is None:
-                _metrics.metrics.record_auth_failure()
-                raise HTTPException(status_code=401, detail="无效的API密钥")
-            request.state.knowledge_role = auth[0]
-            request.state.knowledge_project_id = auth[1]
-            return await call_next(request)
+        if principal is None and request.url.path.startswith("/knowledge/"):
+            _metrics.metrics.record_auth_failure()
+            return _auth_error(401, "authentication required")
+        if principal is None and not settings.API_KEY and not settings.is_production:
+            principal = _development_principal()
+            issued_cookie = True
+        elif principal is None:
+            _metrics.metrics.record_auth_failure()
+            return _auth_error(401, "authentication required")
 
-        # ---- 非知识库端点：原鉴权逻辑（仅 admin key 有效；dev 未配置则放行）----
-        if not has_bearer:
-            if not settings.API_KEY and not settings.is_production:
-                logger.warning("API_KEY未配置，非知识库请求将被允许（仅开发环境）")
-                return await call_next(request)
-            raise HTTPException(status_code=401, detail="未提供认证信息，请在请求头中添加 Authorization: Bearer <API_KEY>")
+        if bearer and supports_browser_session:
+            # A successful bearer authentication always renews the browser session.
+            principal = _with_browser_session(principal, request.cookies.get(settings.AUTH_SESSION_COOKIE))
+            issued_cookie = True
 
-        if not settings.API_KEY:
-            if settings.is_production:
-                logger.critical("API_KEY未配置，生产环境拒绝所有请求")
-                raise HTTPException(status_code=500, detail="服务配置不完整，请联系管理员")
-            logger.warning("API_KEY未配置，非知识库请求将被允许（仅开发环境）")
-            return await call_next(request)
+        if principal.role == "reader" and not request.url.path.startswith("/knowledge/"):
+            return _auth_error(403, "read-only key cannot access this endpoint")
+        if principal.role.startswith("project_") and not (
+            request.url.path.startswith("/knowledge/")
+            or request.url.path.startswith("/api/orchestrate")
+        ):
+            return _auth_error(403, "project key is not valid for this endpoint")
 
-        if not hmac.compare_digest(api_key, settings.API_KEY):
-            api_key_hash = hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:16]
-            logger.warning(f"无效的API密钥尝试，密钥哈希: {api_key_hash}")
-            raise HTTPException(status_code=401, detail="无效的API密钥")
-
-        return await call_next(request)
+        _set_request_principal(request, principal)
+        response = await call_next(request)
+        if issued_cookie:
+            _set_session_cookie(response, principal)
+        return response
 
     def _resolve_knowledge_role(self, api_key: str) -> Optional[str]:
-        """解析知识库端点的角色：admin（全局 API_KEY）或 reader（API_KEY_READER）。
-
-        reader key 仅对 /knowledge/* 生效，且不授予非知识库端点的访问权。
-        兼容旧调用方：仅返回全局角色（不含 project key）。
-        """
         return _global_role(api_key)
 
     def _is_whitelisted(self, request: Request) -> bool:
-        """判断请求路径是否在白名单中"""
         path = _normalize_path(request.url.path)
         if ".." in path:
-            logger.warning(f"路径遍历尝试被拒绝: {request.url.path}")
+            logger.warning("path traversal attempt rejected: %s", request.url.path)
             return False
-        for whitelist_path in (settings.AUTH_WHITELIST_PATHS if hasattr(settings, 'AUTH_WHITELIST_PATHS') else ['/health', '/docs', '/openapi.json', '/agent/']):
-            if path == whitelist_path:
-                return True
-        for prefix in (settings.AUTH_WHITELIST_PREFIXES if hasattr(settings, 'AUTH_WHITELIST_PREFIXES') else ['/health', '/docs', '/openapi', '/agent', '/static']):
-            if path.startswith(prefix):
-                return True
-        return False
+        if path in settings.AUTH_WHITELIST_PATHS:
+            return True
+        return any(path.startswith(prefix) for prefix in settings.AUTH_WHITELIST_PREFIXES)
+
+
+def _extract_bearer(request: Request) -> str | None:
+    header = request.headers.get("Authorization", "")
+    return header[7:] if header.startswith("Bearer ") else None
+
+
+def _auth_error(status_code: int, detail: str) -> JSONResponse:
+    """Return auth failures directly; HTTPException escapes BaseHTTPMiddleware."""
+    return JSONResponse(status_code=status_code, content={"detail": detail})
 
 
 def _global_role(api_key: str) -> Optional[str]:
-    """解析全局角色：admin（API_KEY）或 reader（API_KEY_READER）。
-
-    使用 hmac.compare_digest 进行常量时间比较，避免时序侧信道。
-    """
     if settings.API_KEY and hmac.compare_digest(api_key, settings.API_KEY):
         return "admin"
-    reader_key = settings.API_KEY_READER if hasattr(settings, "API_KEY_READER") else ""
+    reader_key = settings.API_KEY_READER
     if reader_key and hmac.compare_digest(api_key, reader_key):
         return "reader"
     return None
 
 
 def _resolve_project_key(api_key: str, repo=None):
-    """按 key 哈希在知识库项目中解析项目级角色。
-
-    返回 (role, project_id) 或 None。
-    若项目密钥表/数据库不可用（如 schema 未迁移），按“无项目密钥”失败关闭返回 None，
-    避免将鉴权路径变成 500。
-    """
     from app.repositories.knowledge_repository import KnowledgeRepository
 
     repo = repo or KnowledgeRepository()
     key_hash = hashlib.sha256(api_key.encode("utf-8")).hexdigest()
     try:
         return repo.get_project_key_by_hash(key_hash)
-    except sqlite3.Error:
-        logger.warning("项目密钥查询失败（可能 schema 未迁移），按无项目密钥处理")
+    except Exception:
+        logger.warning("project key lookup failed; rejecting request", exc_info=True)
         return None
 
 
 def resolve_knowledge_auth(api_key: str, repo=None) -> Optional[Tuple[str, str]]:
-    """统一解析知识库鉴权：返回 (role, project_id) 或 None。
-
-    role ∈ {admin, reader, project_admin, project_reader}；
-    admin / reader 的 project_id 为 None。
-    """
     if not api_key:
         return None
     role = _global_role(api_key)
     if role in ("admin", "reader"):
-        return (role, None)
-    proj = _resolve_project_key(api_key, repo=repo)
-    if proj:
-        return proj
-    return None
+        return role, None
+    return _resolve_project_key(api_key, repo=repo)
+
+
+def _principal_from_bearer(api_key: str | None) -> AuthPrincipal | None:
+    if not api_key:
+        return None
+    auth = resolve_knowledge_auth(api_key)
+    if auth is None:
+        return None
+    role, project_id = auth
+    return AuthPrincipal(
+        role=role,
+        tenant_id=settings.DEFAULT_TENANT_ID,
+        project_id=project_id,
+        principal_id=hashlib.sha256(api_key.encode("utf-8")).hexdigest(),
+        browser_session_id="",
+    )
+
+
+def _development_principal() -> AuthPrincipal:
+    return AuthPrincipal(
+        role="admin",
+        tenant_id=settings.DEFAULT_TENANT_ID,
+        project_id=None,
+        principal_id="development",
+        browser_session_id=secrets.token_urlsafe(18),
+    )
+
+
+def _with_browser_session(principal: AuthPrincipal, cookie: str | None) -> AuthPrincipal:
+    existing = _decode_session(cookie or "")
+    if existing and _same_principal(existing, principal):
+        session_id = str(existing.get("sid", ""))
+    else:
+        session_id = secrets.token_urlsafe(18)
+    return AuthPrincipal(
+        role=principal.role,
+        tenant_id=principal.tenant_id,
+        project_id=principal.project_id,
+        principal_id=principal.principal_id,
+        browser_session_id=session_id,
+    )
+
+
+def _principal_from_cookie(request: Request) -> AuthPrincipal | None:
+    payload = _decode_session(request.cookies.get(settings.AUTH_SESSION_COOKIE, ""))
+    if payload is None:
+        return None
+    return AuthPrincipal(
+        role=str(payload["role"]),
+        tenant_id=str(payload["tenant_id"]),
+        project_id=payload.get("project_id") or None,
+        principal_id=str(payload["principal_id"]),
+        browser_session_id=str(payload["sid"]),
+    )
+
+
+def _set_request_principal(request: Request, principal: AuthPrincipal) -> None:
+    request.state.auth_principal = principal
+    request.state.auth_role = principal.role
+    request.state.tenant_id = principal.tenant_id
+    request.state.project_id = principal.project_id
+    request.state.principal_id = principal.principal_id
+    request.state.browser_session_id = principal.browser_session_id
+    if request.url.path.startswith("/knowledge/"):
+        request.state.knowledge_role = principal.role
+        request.state.knowledge_project_id = principal.project_id
+
+
+def _set_session_cookie(response: Any, principal: AuthPrincipal) -> None:
+    response.set_cookie(
+        key=settings.AUTH_SESSION_COOKIE,
+        value=_encode_session(principal),
+        max_age=settings.AUTH_SESSION_TTL_SECONDS,
+        httponly=True,
+        secure=settings.AUTH_COOKIE_SECURE or settings.is_production,
+        samesite="lax",
+        path="/",
+    )
+
+
+def _encode_session(principal: AuthPrincipal) -> str:
+    payload = {
+        "role": principal.role,
+        "tenant_id": principal.tenant_id,
+        "project_id": principal.project_id or "",
+        "principal_id": principal.principal_id,
+        "sid": principal.browser_session_id,
+        "exp": int(time.time()) + settings.AUTH_SESSION_TTL_SECONDS,
+    }
+    raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    encoded = base64.urlsafe_b64encode(raw).rstrip(b"=")
+    signature = hmac.new(_session_secret(), encoded, hashlib.sha256).hexdigest().encode("ascii")
+    return f"{encoded.decode('ascii')}.{signature.decode('ascii')}"
+
+
+def _decode_session(value: str) -> dict[str, Any] | None:
+    if not value or "." not in value:
+        return None
+    encoded_text, signature_text = value.rsplit(".", 1)
+    encoded = encoded_text.encode("ascii", "ignore")
+    expected = hmac.new(_session_secret(), encoded, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature_text, expected):
+        return None
+    try:
+        padded = encoded + b"=" * (-len(encoded) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded))
+    except (ValueError, json.JSONDecodeError):
+        return None
+    required = {"role", "tenant_id", "principal_id", "sid", "exp"}
+    if not required.issubset(payload) or int(payload["exp"]) < int(time.time()):
+        return None
+    return payload
+
+
+def _session_secret() -> bytes:
+    secret = settings.AUTH_SESSION_SECRET or settings.API_KEY or "development-session-secret"
+    return secret.encode("utf-8")
+
+
+def _same_principal(payload: dict[str, Any], principal: AuthPrincipal) -> bool:
+    return (
+        payload.get("principal_id") == principal.principal_id
+        and payload.get("tenant_id") == principal.tenant_id
+        and (payload.get("project_id") or None) == principal.project_id
+        and payload.get("role") == principal.role
+    )
