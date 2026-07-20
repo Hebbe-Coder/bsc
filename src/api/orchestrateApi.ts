@@ -15,6 +15,8 @@ export interface OrchestratorEvent {
     | 'stage.started'
     | 'stage.completed'
     | 'stage.loopback'
+    | 'capability.completed'
+    | 'capability.failed'
     | 'pipeline.completed'
     | 'pipeline.failed'
     | 'pipeline.cancelled';
@@ -64,6 +66,8 @@ export function subscribeStream(
     'stage.started',
     'stage.completed',
     'stage.loopback',
+    'capability.completed',
+    'capability.failed',
     'pipeline.completed',
     'pipeline.failed',
     'pipeline.cancelled',

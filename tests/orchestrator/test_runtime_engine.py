@@ -80,14 +80,32 @@ def test_runtime_engine_persists_completed_and_emits_terminal(draft_repo):
         assert kwargs["execution_id"] == "rt-ok"
         return _success_response(project_id=kwargs["project_id"])
 
-    draft_repo.save(ProjectDraft(session_id="rt-ok", idea="x", status="queued"))
+    draft_repo.save(ProjectDraft(
+        session_id="rt-ok",
+        tenant_id="tenant-a",
+        project_id="runtime-project",
+        owner_session_id="browser-a",
+        idea="x",
+        status="queued",
+    ))
+    created_at = draft_repo.get("rt-ok").created_at
     bus = SessionEventBus()
     engine = RuntimeOrchestratorEngine(repo=draft_repo, bus=bus, runner=fake_runner)
 
-    state = asyncio.run(engine.run_pipeline("rt-ok", "x", project_id="runtime-project"))
+    state = asyncio.run(engine.run_pipeline(
+        "rt-ok",
+        "x",
+        project_id="runtime-project",
+        tenant_id="tenant-a",
+        owner_session_id="browser-a",
+    ))
 
     draft = draft_repo.get("rt-ok")
     assert draft.status == "completed"
+    assert draft.tenant_id == "tenant-a"
+    assert draft.project_id == "runtime-project"
+    assert draft.owner_session_id == "browser-a"
+    assert draft.created_at == created_at
     assert draft.current_stage == "runtime"
     assert draft.completed_at
     assert state["project"]["runtime_mode"] == "business_runtime"
@@ -95,6 +113,13 @@ def test_runtime_engine_persists_completed_and_emits_terminal(draft_repo):
     assert state["business_model"]["domain"] == "retail"
     assert state["risk"]["gate"]["decision"] == "pass"
     events = list(bus._history["rt-ok"])
+    capability_events = [
+        event for event in events
+        if event.type == EventType.CAPABILITY_COMPLETED
+    ]
+    assert len(capability_events) == 1
+    assert capability_events[0].stage == "business_understanding"
+    assert capability_events[0].data["parent_stage"] == "runtime"
     assert events[-1].type == EventType.PIPELINE_COMPLETED
     assert events[-1].terminal is True
     assert events[-1].data["runtime"]["capability_executions"][0]["retries"] == 1
@@ -132,3 +157,36 @@ def test_runtime_engine_marks_failed_when_runtime_response_failed(draft_repo):
     assert events[-1].type == EventType.PIPELINE_FAILED
     assert events[-1].terminal is True
     assert draft.event_seq == events[-1].seq
+
+
+def test_runtime_engine_does_not_send_context_keywords_to_legacy_runner(draft_repo):
+    captured = {}
+
+    async def legacy_runner(input_text, domain, mode, project_id, execution_id):
+        captured.update({
+            "input_text": input_text,
+            "domain": domain,
+            "mode": mode,
+            "project_id": project_id,
+            "execution_id": execution_id,
+        })
+        return _success_response(project_id=project_id)
+
+    draft_repo.save(ProjectDraft(session_id="rt-legacy", idea="x", status="queued"))
+    engine = RuntimeOrchestratorEngine(
+        repo=draft_repo,
+        bus=SessionEventBus(),
+        runner=legacy_runner,
+    )
+
+    asyncio.run(engine.run_pipeline(
+        "rt-legacy",
+        "x",
+        project_id="runtime-project",
+        context_policy="fork",
+        context_items=[{"role": "user", "content": "parent"}],
+    ))
+
+    assert captured["project_id"] == "runtime-project"
+    assert "context_policy" not in captured
+    assert "context_items" not in captured

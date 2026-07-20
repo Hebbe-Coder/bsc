@@ -59,6 +59,8 @@ class RuntimeOrchestratorEngine:
         project_id: str = "",
         tenant_id: str = "",
         owner_session_id: str = "",
+        context_policy: str = "fresh",
+        context_items: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         if self.repo.get(session_id) is None:
             self.repo.save(ProjectDraft(
@@ -96,17 +98,62 @@ class RuntimeOrchestratorEngine:
             }
             if _accepts_keyword(self.runner, "tenant_id"):
                 runner_kwargs["tenant_id"] = tenant_id
+            if _accepts_keyword(self.runner, "context_policy"):
+                runner_kwargs["context_policy"] = context_policy
+            if _accepts_keyword(self.runner, "context_items"):
+                runner_kwargs["context_items"] = context_items or []
             result = await self.runner(**runner_kwargs)
+            for index, execution in enumerate(
+                _list(_dict(result.get("runtime")).get("capability_executions"))
+            ):
+                capability = _dict(execution)
+                capability_name = str(
+                    capability.get("capability_name") or f"capability-{index + 1}"
+                )
+                capability_status = str(capability.get("status") or "completed")
+                failed = capability_status in {"failed", "error", "timeout"}
+                await self._emit(
+                    session_id,
+                    capability_name,
+                    capability_status,
+                    capability.get("error")
+                    or f"{capability_name} {capability_status}",
+                    event_type=(
+                        EventType.CAPABILITY_FAILED
+                        if failed
+                        else EventType.CAPABILITY_COMPLETED
+                    ),
+                    data={
+                        "kind": "capability",
+                        "parent_stage": "runtime",
+                        "capability_index": index,
+                        "execution": capability,
+                    },
+                )
             state = runtime_response_to_project_state(
                 session_id=session_id,
                 idea=idea,
                 response=result,
             )
+            current_draft = self.repo.get(session_id)
             self.repo.save(_draft_from_state(
                 session_id=session_id,
                 idea=idea,
                 state=state,
                 status=JobStatus.RUNNING.value,
+                tenant_id=tenant_id or (current_draft.tenant_id if current_draft else ""),
+                project_id=(
+                    project_id
+                    or (current_draft.project_id if current_draft else "")
+                    or session_id
+                ),
+                owner_session_id=(
+                    owner_session_id
+                    or (current_draft.owner_session_id if current_draft else "")
+                ),
+                current_stage=current_draft.current_stage if current_draft else "",
+                event_seq=current_draft.event_seq if current_draft else 0,
+                created_at=current_draft.created_at if current_draft else None,
             ))
             await self._emit(
                 session_id,
@@ -252,9 +299,18 @@ def _draft_from_state(
     idea: str,
     state: dict[str, Any],
     status: str,
+    tenant_id: str,
+    project_id: str,
+    owner_session_id: str,
+    current_stage: str,
+    event_seq: int,
+    created_at: str | None,
 ) -> ProjectDraft:
     return ProjectDraft(
         session_id=session_id,
+        tenant_id=tenant_id,
+        project_id=project_id,
+        owner_session_id=owner_session_id,
         idea=idea,
         project=_dict(state.get("project")),
         requirements=_list(state.get("requirements")),
@@ -265,6 +321,9 @@ def _draft_from_state(
         presentation=_dict(state.get("presentation")),
         status=status,
         messages=_list(state.get("messages")),
+        current_stage=current_stage,
+        event_seq=event_seq,
+        created_at=created_at,
     )
 
 

@@ -96,6 +96,7 @@ class Settings(BaseSettings):
     CAPABILITY_PROMPT_MAX_TOKENS: int = 12_000
     CAPABILITY_PROMPT_INPUT_MAX_TOKENS: int = 4_000
     CAPABILITY_PROMPT_ARTIFACT_MAX_TOKENS: int = 1_200
+    SKILL_ROOT: str = "skills"
 
     USE_LANGCHAIN: bool = True
     USE_AGENT: bool = False

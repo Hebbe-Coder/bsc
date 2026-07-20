@@ -6,7 +6,7 @@ import {
   subscribeStream,
   type OrchestratorEvent,
 } from '../api/orchestrateApi';
-import { runAnalysis, type AgentAnalysisResponse } from '../api/agentOsApi';
+import { runAnalysis } from '../api/agentOsApi';
 import { adaptAgentOsToDashboard } from '../utils/agentOsAdapter';
 import { fetchCompilerDashboard, type DashboardData } from '../api/compilerDashboardApi';
 import { RiskPanel } from './RiskPanel';
@@ -18,6 +18,7 @@ import { EvolutionPanel } from './EvolutionPanel';
 import { BusinessGraph } from './BusinessGraph';
 import { SopPanel } from './SopPanel';
 import PipelineProgress from './PipelineProgress';
+import { AgentTerminal } from './AgentTerminal';
 
 // ---- Types ----
 type Mode = 'auto' | 'analyze' | 'compile' | 'board';
@@ -77,7 +78,10 @@ export function UnifiedWorkspace() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Workspace store
-  const workspaceSet = useWorkspace((s) => s.set);
+  const beginSession = useWorkspace((s) => s.beginSession);
+  const appendEvent = useWorkspace((s) => s.appendEvent);
+  const clearTerminal = useWorkspace((s) => s.clearTerminal);
+  const terminalEvents = useWorkspace((s) => s.terminalEvents);
   const applyDashboard = useWorkspace((s) => s.applyDashboard);
   const businessModel = useWorkspace((s) => s.businessModel);
   const sop = useWorkspace((s) => s.sop);
@@ -110,6 +114,7 @@ export function UnifiedWorkspace() {
     const value = input.trim();
     setInput(''); setLoading(true); setError(null); setDashData(null); setLogs([]);
     logCounter = 0; setPipelineStages({});
+    clearTerminal();
 
     addLog('system', 'Mode: ' + MODE_LABELS[effectiveMode] + (mode === 'auto' ? ' (auto)' : ''));
     addLog('system', 'Input: ' + (value.length > 80 ? value.slice(0, 80) + '...' : value));
@@ -120,7 +125,7 @@ export function UnifiedWorkspace() {
         setCompiling(true);
         addLog('agent', 'Starting compiler pipeline...');
         const res = await startOrchestrate(value);
-        workspaceSet({ sessionId: res.session_id, idea: value });
+        beginSession(res.session_id, value);
         setSessionId(res.session_id);
         addLog('system', 'Session ' + res.session_id.slice(0, 8));
 
@@ -128,6 +133,7 @@ export function UnifiedWorkspace() {
         source = subscribeStream(
           res,
           (event: OrchestratorEvent) => {
+            appendEvent(event);
             const status = event.status === 'done'
               ? 'completed'
               : (event.status || 'running');
@@ -180,6 +186,7 @@ export function UnifiedWorkspace() {
         const isBoard = effectiveMode === 'board';
         addLog('thinking', isBoard ? 'Convening board: CEO, CFO, CTO, Ops...' : 'Planning mission capabilities...');
         const result = await runAnalysis({ input: value, mode: 'llm', board: isBoard });
+        beginSession(result.execution_id, value);
         setSessionId(result.execution_id);
         addLog('agent', 'Mission: ' + result.mission.title);
         addLog('system', 'Steps: ' + result.mission.steps + ' | Mode: ' + result.mission.mode);
@@ -226,8 +233,8 @@ export function UnifiedWorkspace() {
 
       {/* Input Bar */}
       <div className='border-b border-[var(--border-default)] bg-[var(--bg-secondary)] px-4 py-3'>
-        <div className='flex gap-2'>
-          <div className='flex rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] overflow-hidden shrink-0' role='radiogroup'>
+        <div className='flex flex-wrap gap-2'>
+          <div className='flex max-w-full shrink-0 overflow-x-auto rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)]' role='radiogroup'>
             {(['auto', 'analyze', 'compile', 'board'] as Mode[]).map(m => (
               <button key={m} role='radio' aria-checked={mode === m} onClick={() => setMode(m)}
                 className={'px-3 py-1.5 text-xs font-medium transition-colors duration-150 ' + (mode === m ? 'bg-[var(--accent-blue)] text-white' : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]')}>
@@ -238,7 +245,7 @@ export function UnifiedWorkspace() {
           <input ref={inputRef} type='text' value={input} onChange={e => setInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
             placeholder='Describe your business idea, PRD, or strategic question...'
-            className='flex-1 rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] px-4 py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-placeholder)] focus:border-[var(--accent-blue)] focus:ring-1 focus:ring-[var(--accent-blue)] focus:outline-none disabled:opacity-50 transition-colors duration-150'
+            className='min-w-[200px] flex-1 rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] px-4 py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-placeholder)] focus:border-[var(--accent-blue)] focus:ring-1 focus:ring-[var(--accent-blue)] focus:outline-none disabled:opacity-50 transition-colors duration-150'
             disabled={loading} aria-label='Business analysis input' />
           <button onClick={handleSubmit} disabled={loading || !input.trim()}
             className='shrink-0 rounded-lg bg-[var(--status-success)] px-5 py-2 text-sm font-semibold text-white hover:bg-[#2ea043] active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150'
@@ -253,37 +260,43 @@ export function UnifiedWorkspace() {
       </div>
 
       {/* Main Content */}
-      <div className='flex flex-1 overflow-hidden'>
+      <div className='flex flex-1 flex-col overflow-hidden lg:flex-row'>
         {/* Activity Log */}
-        <aside className='w-[40%] min-w-[300px] border-r border-[var(--border-default)] flex flex-col bg-[var(--bg-primary)]' aria-label='Activity log'>
-          <div className='flex items-center justify-between border-b border-[var(--border-default)] px-4 py-2'>
-            <span className='text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider'>Activity</span>
-            {logs.length > 0 && <span className='text-[10px] text-[var(--text-placeholder)]'>{logs.length} entries</span>}
-          </div>
-          <div className='flex-1 overflow-auto p-3' role='log' aria-live='polite'>
-            {logs.length === 0 && !loading && (
-              <div className='flex flex-col items-center justify-center h-full text-center px-4'>
-                <div className='text-3xl mb-3 opacity-20'>{'\u25B6'}</div>
-                <p className='text-sm text-[var(--text-muted)] font-medium'>Start your analysis</p>
-                <p className='text-xs text-[var(--text-placeholder)] mt-1 max-w-[240px]'>Enter a business idea above and press Enter</p>
+        <aside className='flex min-h-[280px] w-full flex-col border-b border-[var(--border-default)] bg-[var(--bg-primary)] lg:min-h-0 lg:w-[40%] lg:min-w-[300px] lg:border-b-0 lg:border-r' aria-label='Activity log'>
+          {(terminalEvents.length > 0 || effectiveMode === 'compile') ? (
+            <AgentTerminal />
+          ) : (
+            <>
+              <div className='flex items-center justify-between border-b border-[var(--border-default)] px-4 py-2'>
+                <span className='text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider'>Activity</span>
+                {logs.length > 0 && <span className='text-[10px] text-[var(--text-placeholder)]'>{logs.length} entries</span>}
               </div>
-            )}
-            <div className='space-y-0.5'>
-              {logs.map(entry => (
-                <div key={entry.id} className='log-entry' style={{ animationDelay: '0ms' }}>
-                  <span className='text-[var(--text-placeholder)] shrink-0 w-14 text-right select-none font-mono text-[11px]'>{entry.time}</span>
-                  <span className={LOG_COLORS[entry.type] + ' break-words'}>{entry.text}</span>
+              <div className='flex-1 overflow-auto p-3' role='log' aria-live='polite'>
+                {logs.length === 0 && !loading && (
+                  <div className='flex flex-col items-center justify-center h-full text-center px-4'>
+                    <div className='text-3xl mb-3 opacity-20'>{'\u25B6'}</div>
+                    <p className='text-sm text-[var(--text-muted)] font-medium'>Start your analysis</p>
+                    <p className='text-xs text-[var(--text-placeholder)] mt-1 max-w-[240px]'>Enter a business idea above and press Enter</p>
+                  </div>
+                )}
+                <div className='space-y-0.5'>
+                  {logs.map(entry => (
+                    <div key={entry.id} className='log-entry' style={{ animationDelay: '0ms' }}>
+                      <span className='text-[var(--text-placeholder)] shrink-0 w-14 text-right select-none font-mono text-[11px]'>{entry.time}</span>
+                      <span className={LOG_COLORS[entry.type] + ' break-words'}>{entry.text}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-            {loading && (
-              <div className='log-entry' style={{ opacity: 1 }}>
-                <span className='text-[var(--text-placeholder)] shrink-0 w-14 text-right select-none font-mono text-[11px]'>{new Date().toLocaleTimeString('en-US', { hour12: false })}</span>
-                <span className='text-[var(--accent-purple)] animate-pulse'>{compiling ? 'Pipeline running...' : 'Thinking\u2026'}</span>
+                {loading && (
+                  <div className='log-entry' style={{ opacity: 1 }}>
+                    <span className='text-[var(--text-placeholder)] shrink-0 w-14 text-right select-none font-mono text-[11px]'>{new Date().toLocaleTimeString('en-US', { hour12: false })}</span>
+                    <span className='text-[var(--accent-purple)] animate-pulse'>{compiling ? 'Pipeline running...' : 'Thinking\u2026'}</span>
+                  </div>
+                )}
+                <div ref={logEndRef} />
               </div>
-            )}
-            <div ref={logEndRef} />
-          </div>
+            </>
+          )}
         </aside>
 
         {/* Results Panel */}
@@ -392,7 +405,7 @@ export function UnifiedWorkspace() {
       </div>
 
       {/* Status Bar */}
-      <footer className='border-t border-[var(--border-default)] px-4 py-1.5 flex items-center gap-4 text-[11px] text-[var(--text-placeholder)] bg-[var(--bg-secondary)]'>
+      <footer className='flex flex-wrap items-center gap-3 border-t border-[var(--border-default)] bg-[var(--bg-secondary)] px-4 py-1.5 text-[11px] text-[var(--text-placeholder)]'>
         <span className='font-medium text-[var(--text-muted)]'>{mode === 'auto' && detectedMode ? 'Auto \u2192 ' + MODE_LABELS[detectedMode] : MODE_LABELS[effectiveMode]}</span>
         {sessionId && <><span className='text-[var(--border-default)]'>|</span><span className='font-mono'>session: {sessionId.slice(0, 12)}</span></>}
         {compiling && <><span className='text-[var(--border-default)]'>|</span><span className='text-[var(--accent-yellow)] animate-pulse'>Pipeline active</span></>}

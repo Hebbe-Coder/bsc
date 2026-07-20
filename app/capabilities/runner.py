@@ -18,6 +18,7 @@ from app.capabilities import (
     RuntimeResult,
     build_default_registry,
 )
+from app.core.context_policy import ContextItem, ContextManager, ContextPolicy
 
 
 def new_project_id(prefix: str = "agent") -> str:
@@ -50,6 +51,9 @@ async def run_business_runtime(
     data_dir: str = "./data/artifacts",
     executor_backend: str = "nanobot",
     max_iterations: int = 3,
+    context_policy: ContextPolicy | str = ContextPolicy.FRESH,
+    context_items: list[ContextItem | dict[str, Any]] | None = None,
+    context_max_tokens: int = 12_000,
 ) -> dict[str, Any]:
     """Execute the shared BusinessRuntime and map it to the Agent OS API shape."""
     scoped_project_id = project_id.strip() if project_id else new_project_id()
@@ -76,8 +80,13 @@ async def run_business_runtime(
         executor_backend=executor_backend,
     )
 
+    context_packet = ContextManager(max_tokens=context_max_tokens).build(
+        input_text,
+        policy=context_policy,
+        inherited_items=context_items or [],
+    )
     result = await runtime.run(
-        prd_text=input_text,
+        prd_text=context_packet.rendered_input,
         domain_hint=domain,
         project_id=scoped_project_id,
     )
@@ -97,6 +106,7 @@ async def run_business_runtime(
         execution_id=scoped_execution_id,
         artifact_scope=artifact_scope,
         board=board_payload,
+        context_usage=context_packet.usage.model_dump(mode="json"),
     )
 
 
@@ -253,6 +263,7 @@ def _runtime_result_to_agent_response(
     execution_id: str,
     artifact_scope: str,
     board: dict[str, Any] | None,
+    context_usage: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     export = result.export or {}
     graph = export.get("_artifact_graph", {})
@@ -281,6 +292,7 @@ def _runtime_result_to_agent_response(
             "stage_modes": result.stage_modes,
             "degraded": any(mode == "fallback" for mode in result.stage_modes.values()),
             "capability_executions": result.capability_executions,
+            "context": context_usage or {},
         },
         "report": export,
     }

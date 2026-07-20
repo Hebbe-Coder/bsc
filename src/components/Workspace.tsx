@@ -11,8 +11,9 @@ import { SopPanel } from "./SopPanel";
 import { AgentLog } from "./AgentLog";
 
 export function Workspace() {
-  const set = useWorkspace((s) => s.set);
   const pushLog = useWorkspace((s) => s.pushLog);
+  const beginSession = useWorkspace((s) => s.beginSession);
+  const appendEvent = useWorkspace((s) => s.appendEvent);
   const setStage = useWorkspace((s) => s.setStage);
   const applyDashboard = useWorkspace((s) => s.applyDashboard);
   const businessModel = useWorkspace((s) => s.businessModel);
@@ -20,11 +21,12 @@ export function Workspace() {
 
   const start = async (idea: string) => {
     const res = await startOrchestrate(idea);
-    set({ sessionId: res.session_id, idea });
+    beginSession(res.session_id, idea);
     let source: EventSource | null = null;
     source = subscribeStream(
       res,
       (event: OrchestratorEvent) => {
+        appendEvent(event);
         const status = event.status === "done" ? "completed" : event.status;
         setStage(event.stage, status);
         pushLog(event.stage, event.message);

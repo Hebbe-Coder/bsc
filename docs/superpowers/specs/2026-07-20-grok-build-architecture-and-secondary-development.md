@@ -479,3 +479,74 @@ and commercial boundary.
 - ACP guide: `crates/codegen/xai-grok-pager/docs/user-guide/15-agent-mode.md`
 - Subagent guide: `crates/codegen/xai-grok-pager/docs/user-guide/16-subagents.md`
 - Dashboard guide: `crates/codegen/xai-grok-pager/docs/user-guide/23-dashboard.md`
+
+## 12. Phase 2 Supplement: Terminal, Context, Plugins and MCP
+
+The archive contains 2,736 files in a generated Rust workspace. The relevant
+behavior is divided across narrow crates rather than hidden in one monolith.
+
+### 12.1 Visual terminal interface
+
+`xai-grok-pager` is the application shell. `xai-grok-pager-render` owns terminal
+rendering and appearance, while `ptyctl` owns PTY sessions and
+`xai-grok-pager-pty-harness` verifies real screen behavior. The important
+pattern for BSC is not Ratatui itself; it is the unidirectional event loop:
+
+```text
+event -> action -> state reducer -> async effect -> result event -> render
+```
+
+Grok keeps dashboard, parent transcript, child transcript, tool progress,
+permissions, queue state and scrollback as separate projections. A compact
+child lifecycle block links to a full transcript instead of flooding the main
+conversation. BSC's React workspace should follow the same hierarchy using its
+existing durable orchestrator SSE stream.
+
+### 12.2 Context management
+
+`xai-chat-state` serializes mutations through an actor task and persists the
+conversation. Its state includes token estimates, usage, prompt capture,
+rewind metadata, credential opacity and harness traces. Startup repairs
+duplicate tool results and dangling tool calls caused by cancellation or crash.
+
+`xai-grok-compaction` separates policies:
+
+- full-replace for code-agent sessions;
+- tail-keep intra-turn compaction;
+- chunked inter-turn compaction;
+- history filtering and user-query preservation.
+
+The shared selector snaps away from tool-result pairs, so compaction never
+creates an invalid model request. BSC already has deterministic prompt budgets;
+the Phase 2 implementation adds explicit `fresh`, `fork` and `resume` policies
+on that boundary instead of introducing a second conversation store.
+
+### 12.3 Skill and plugin ecosystem
+
+The marketplace scanner prefers a signed/indexed catalog and falls back to
+filesystem discovery. A plugin entry can advertise skills, hooks, agents and
+MCP configuration, plus keywords/domains used for matching. Install resolution
+is separate from discovery, and relative paths are canonicalized with root and
+symlink checks.
+
+BSC's existing frontend `SkillManager` already models execution and dependency
+plans, but the backend list is hardcoded and process-local execution metadata is
+not a plugin contract. The Phase 2 registry adds manifest discovery and source
+provenance while keeping execution behind the existing capability and LLM
+policy gates.
+
+### 12.4 MCP compatibility layers
+
+The Grok stack has two useful boundaries. `xai-grok-mcp` handles wire/server
+discovery, HTTP/SSE, OAuth and ACP transport. The computer-hub adapter handles
+the semantic bridge: `initialize`, `tools/list`, one typed handler per tool,
+`tools/call`, and conversion of text/image/resource/error blocks into the local
+tool output wire format.
+
+BSC's `app.mcp.server` already exposes real FastMCP stdio tools and isolates
+business execution in a subprocess with timeout and resource limits. Phase 2
+adds an explicit compatibility profile and normalization layer so supported
+and unsupported transports/capabilities are inspectable rather than implied.
+
+The execution plan and acceptance criteria for this supplement are recorded in
+`docs/superpowers/specs/2026-07-21-grok-build-secondary-development-phase2.md`.

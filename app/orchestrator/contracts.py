@@ -35,6 +35,8 @@ class EventType(str, Enum):
     STAGE_STARTED = "stage.started"
     STAGE_COMPLETED = "stage.completed"
     STAGE_LOOPBACK = "stage.loopback"
+    CAPABILITY_COMPLETED = "capability.completed"
+    CAPABILITY_FAILED = "capability.failed"
     PIPELINE_COMPLETED = "pipeline.completed"
     PIPELINE_FAILED = "pipeline.failed"
     PIPELINE_CANCELLED = "pipeline.cancelled"

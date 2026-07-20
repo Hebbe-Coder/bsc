@@ -15,6 +15,7 @@ from app.orchestrator.engine import OrchestratorEngine
 from app.orchestrator.event_store import SQLiteEventStore
 from app.orchestrator.runtime_engine import RuntimeOrchestratorEngine
 from app.orchestrator.sse import SessionEventBus
+from app.core.context_policy import ContextPolicy
 from app.services.llm_service import LLMService
 from app.audit import build_trusted_audit
 from app.evaluation import CompilerOutputEvaluator
@@ -97,7 +98,41 @@ async def orchestrate(request: Request):
     if not isinstance(idea, str) or not idea.strip():
         raise HTTPException(400, "idea required")
     sid = body.get("session_id") or uuid.uuid4().hex[:12]
+    try:
+        context_policy = ContextPolicy(str(body.get("context_policy") or ContextPolicy.FRESH.value))
+    except ValueError as exc:
+        raise HTTPException(400, "invalid context_policy") from exc
+    context_items: list[dict] = []
+    parent_session_id = str(body.get("parent_session_id") or "")
     tenant_id, project_id, owner_session_id = _creation_scope(request, body, sid)
+    if context_policy is not ContextPolicy.FRESH:
+        if not parent_session_id:
+            raise HTTPException(400, "parent_session_id required for inherited context")
+        parent = _get_scoped_draft(request, parent_session_id, repo=ProjectDraftRepository())
+        requested_project = str(
+            body.get("project_id")
+            or getattr(request.state, "project_id", None)
+            or ""
+        )
+        if requested_project:
+            if parent.project_id and parent.project_id != project_id:
+                raise HTTPException(status_code=404, detail="session not found")
+        else:
+            project_id = parent.project_id or project_id
+        if context_policy is ContextPolicy.RESUME and not is_terminal(parent.status):
+            raise HTTPException(409, "resume source must be terminal")
+        context_items = [
+            {"role": "user", "content": parent.idea, "source_session_id": parent.session_id, "priority": 80},
+            {
+                "role": "runtime",
+                "content": json.dumps(
+                    {"project": parent.project, "business_model": parent.business_model, "risk": parent.risk},
+                    ensure_ascii=False,
+                ),
+                "source_session_id": parent.session_id,
+                "priority": 50,
+            },
+        ]
     repo = ProjectDraftRepository()
     if repo.get(sid) is not None:
         raise HTTPException(status_code=409, detail="session already exists")
@@ -117,6 +152,9 @@ async def orchestrate(request: Request):
             runtime_kwargs["tenant_id"] = tenant_id
         if _accepts_keyword(engine.run_pipeline, "owner_session_id"):
             runtime_kwargs["owner_session_id"] = owner_session_id
+        if _accepts_keyword(engine.run_pipeline, "context_policy"):
+            runtime_kwargs["context_policy"] = context_policy.value
+            runtime_kwargs["context_items"] = context_items
         _retain_task(
             sid,
             engine.run_pipeline(
@@ -134,6 +172,8 @@ async def orchestrate(request: Request):
         "status": JobStatus.QUEUED.value,
         "status_url": f"/api/orchestrate/{sid}",
         "events_url": f"/api/orchestrate/{sid}/events",
+        "context_policy": context_policy.value,
+        "parent_session_id": parent_session_id or None,
     }
 
 

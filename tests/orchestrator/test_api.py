@@ -361,3 +361,96 @@ def test_business_runtime_is_the_default_mode(client, monkeypatch):
 
     assert response.status_code == 202
     assert captured["project_id"] == "project-default"
+
+
+def test_resume_rejects_non_terminal_parent(client, monkeypatch):
+    _enable_auth(monkeypatch)
+
+    async def blocked_run(self, session_id, idea):
+        return {}
+
+    monkeypatch.setattr(
+        "app.orchestrator.engine.OrchestratorEngine.run_pipeline",
+        blocked_run,
+    )
+    parent = client.post(
+        "/api/orchestrate",
+        json={"idea": "parent task"},
+        headers={"Authorization": "Bearer test-key-123"},
+    )
+    assert parent.status_code == 202
+
+    response = client.post(
+        "/api/orchestrate",
+        json={
+            "idea": "resume task",
+            "context_policy": "resume",
+            "parent_session_id": parent.json()["session_id"],
+        },
+        headers={"Authorization": "Bearer test-key-123"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["message"] == "resume source must be terminal"
+
+
+def test_fork_rejects_parent_from_another_browser(client, monkeypatch):
+    _enable_auth(monkeypatch)
+
+    async def blocked_run(self, session_id, idea):
+        return {}
+
+    monkeypatch.setattr(
+        "app.orchestrator.engine.OrchestratorEngine.run_pipeline",
+        blocked_run,
+    )
+    parent = client.post(
+        "/api/orchestrate",
+        json={"idea": "private parent"},
+        headers={"Authorization": "Bearer test-key-123"},
+    )
+    assert parent.status_code == 202
+
+    other_browser = TestClient(app)
+    response = other_browser.post(
+        "/api/orchestrate",
+        json={
+            "idea": "cross browser fork",
+            "context_policy": "fork",
+            "parent_session_id": parent.json()["session_id"],
+        },
+        headers={"Authorization": "Bearer test-key-123"},
+    )
+
+    assert response.status_code == 404
+
+
+def test_fork_rejects_parent_from_another_requested_project(client, monkeypatch):
+    _enable_auth(monkeypatch)
+
+    async def blocked_run(self, session_id, idea):
+        return {}
+
+    monkeypatch.setattr(
+        "app.orchestrator.engine.OrchestratorEngine.run_pipeline",
+        blocked_run,
+    )
+    parent = client.post(
+        "/api/orchestrate",
+        json={"idea": "project a parent", "project_id": "project-a"},
+        headers={"Authorization": "Bearer test-key-123"},
+    )
+    assert parent.status_code == 202
+
+    response = client.post(
+        "/api/orchestrate",
+        json={
+            "idea": "project b fork",
+            "project_id": "project-b",
+            "context_policy": "fork",
+            "parent_session_id": parent.json()["session_id"],
+        },
+        headers={"Authorization": "Bearer test-key-123"},
+    )
+
+    assert response.status_code == 404

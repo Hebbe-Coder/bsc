@@ -531,11 +531,18 @@ async def agent_analyze(req: AgentOSRequest, request: Request):
             idea=req.input,
             response=response,
         )
+        current_draft = repo.get(execution_id)
         repo.save(_draft_from_state(
             session_id=execution_id,
             idea=req.input,
             state=state,
             status=JobStatus.RUNNING.value,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            owner_session_id=owner_session_id,
+            current_stage=current_draft.current_stage if current_draft else "",
+            event_seq=current_draft.event_seq if current_draft else 0,
+            created_at=current_draft.created_at if current_draft else None,
         ))
         if _runtime_failed(response):
             repo.transition(

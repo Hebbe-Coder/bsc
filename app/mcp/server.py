@@ -37,6 +37,7 @@ import hmac
 import hashlib
 
 from mcp.server.fastmcp import FastMCP
+from app.mcp.compatibility import build_compatibility_profile
 
 logger = logging.getLogger(__name__)
 
@@ -315,6 +316,14 @@ def _child_error_payload(stdout: str) -> dict:
     except (TypeError, json.JSONDecodeError):
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+@mcp.tool()
+def bsc_mcp_compatibility_profile(api_key: str = "") -> dict:
+    """Return the concrete MCP transports, auth and isolation capabilities."""
+    _require_auth(api_key)
+    configured = bool(_MCP_API_KEY or _get_settings_api_key())
+    return build_compatibility_profile(api_key_configured=configured).model_dump()
 
 
 @mcp.tool()
