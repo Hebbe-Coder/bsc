@@ -4,6 +4,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from app.api.orchestrate import router
 from app.agent.state import ProjectDraftRepository, ProjectDraft
+from app.evolution.feedback_bridge import CompilerFeedbackBridge
+from app.knowledge.feedback import FeedbackStore
 
 
 def _put_draft(session_id: str, **kwargs):
@@ -66,6 +68,27 @@ def test_evolution_low_score_records_thumbs_down():
     r = _client().get(f"/api/orchestrate/dashboard/{state['session_id']}")
     last = r.json()["evolution"]["recent_feedback"][0]
     assert last["feedback_type"] == "thumbs_down"
+
+
+def test_dashboard_evolution_records_each_session_once(monkeypatch):
+    bridge = CompilerFeedbackBridge(store=FeedbackStore())
+    monkeypatch.setattr("app.api.orchestrate.get_default_bridge", lambda: bridge)
+    state = _put_draft(
+        "evo-idempotent",
+        idea="repeat dashboard reads must not repeat feedback",
+        sop={"sops": [{"id": "s1", "title": "S"}]},
+        business_model={"flows": [{"id": "f1"}]},
+        risk={"gate": {"decision": "pass"}},
+    )
+    client = _client()
+
+    first = client.get(f"/api/orchestrate/dashboard/{state['session_id']}")
+    second = client.get(f"/api/orchestrate/dashboard/{state['session_id']}")
+
+    assert first.status_code == second.status_code == 200
+    assert first.json()["evolution"]["stats"]["total"] == 1
+    assert second.json()["evolution"]["stats"]["total"] == 1
+    assert len(bridge.store.get_by_trace_id(state["session_id"])) == 1
 
 
 def test_evolution_accumulates_across_sessions():

@@ -243,7 +243,15 @@ def _event_response(session_id: str, after: int):
                 f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
             )
 
-    return StreamingResponse(event_gen(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/{session_id}/events")

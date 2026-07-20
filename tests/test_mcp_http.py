@@ -57,6 +57,37 @@ def test_mcp_http_returns_json_rpc_errors(monkeypatch):
     assert response.json()["error"]["code"] == -32601
 
 
+def test_mcp_http_rejects_invalid_tool_arguments_before_execution(monkeypatch):
+    client = _client(monkeypatch)
+
+    missing = client.post(
+        "/api/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 8,
+            "method": "tools/call",
+            "params": {"name": "bsc_compile", "arguments": {}},
+        },
+    )
+    unexpected = client.post(
+        "/api/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 9,
+            "method": "tools/call",
+            "params": {
+                "name": "bsc_mcp_compatibility_profile",
+                "arguments": {"untrusted": True},
+            },
+        },
+    )
+
+    assert missing.json()["error"]["code"] == -32602
+    assert "Missing required arguments" in missing.json()["error"]["message"]
+    assert unexpected.json()["error"]["code"] == -32602
+    assert "Unexpected arguments" in unexpected.json()["error"]["message"]
+
+
 def test_mcp_sse_message_routes_response_to_live_session(monkeypatch):
     monkeypatch.setattr(server, "_require_auth", lambda api_key="": None)
 

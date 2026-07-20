@@ -159,6 +159,9 @@ async def _call_tool(request_id: Any, params: Any, *, api_key: str) -> dict[str,
     if not isinstance(arguments, dict):
         return _error(request_id, -32602, "tools/call arguments must be an object")
     arguments = dict(arguments)
+    argument_error = _validate_tool_arguments(name, arguments)
+    if argument_error:
+        return _error(request_id, -32602, argument_error)
     arguments["api_key"] = api_key
     try:
         result = await asyncio.to_thread(_TOOL_HANDLERS[name], **arguments)
@@ -182,6 +185,35 @@ def _tool_list() -> list[dict[str, Any]]:
         }
         for name, spec in _TOOL_SPECS.items()
     ]
+
+
+def _validate_tool_arguments(name: str, arguments: dict[str, Any]) -> str | None:
+    """Apply the advertised MCP tool contract before entering a handler."""
+    spec = _TOOL_SPECS[name]
+    properties = spec.get("properties", {})
+    unexpected = sorted(set(arguments) - set(properties))
+    if unexpected:
+        return f"Unexpected arguments for {name}: {', '.join(unexpected)}"
+
+    missing = [key for key in spec.get("required", []) if key not in arguments]
+    if missing:
+        return f"Missing required arguments for {name}: {', '.join(missing)}"
+
+    for key, value in arguments.items():
+        schema = properties[key]
+        expected_type = schema.get("type")
+        if expected_type == "string" and not isinstance(value, str):
+            return f"Argument {key} for {name} must be a string"
+        if expected_type == "integer":
+            if isinstance(value, bool) or not isinstance(value, int):
+                return f"Argument {key} for {name} must be an integer"
+            minimum = schema.get("minimum")
+            maximum = schema.get("maximum")
+            if minimum is not None and value < minimum:
+                return f"Argument {key} for {name} must be at least {minimum}"
+            if maximum is not None and value > maximum:
+                return f"Argument {key} for {name} must be at most {maximum}"
+    return None
 
 
 def _wire_result(result) -> dict[str, Any]:

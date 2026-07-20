@@ -198,6 +198,17 @@ def test_resume_cursor_uses_last_event_id_header():
     assert orchestrate_api._resume_after(request, after=3) == 7
 
 
+def test_event_stream_disables_proxy_buffering():
+    from app.api import orchestrate as orchestrate_api
+
+    response = orchestrate_api._event_response("sse-headers", after=0)
+
+    assert response.media_type == "text/event-stream"
+    assert response.headers["cache-control"] == "no-cache"
+    assert response.headers["connection"] == "keep-alive"
+    assert response.headers["x-accel-buffering"] == "no"
+
+
 def test_unknown_status_returns_404(client, monkeypatch):
     _enable_auth(monkeypatch)
     response = client.get(

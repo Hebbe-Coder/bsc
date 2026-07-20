@@ -46,6 +46,13 @@ class CompilerFeedbackBridge:
         self.store = store or FeedbackStore()
 
     def record(self, evaluation: dict, state: dict, session_id: str) -> FeedbackRecord:
+        # Dashboard reads can happen repeatedly as a browser reconnects. A
+        # compiler evaluation is one immutable observation per completed run,
+        # so a repeated read must not amplify it into synthetic feedback.
+        for existing in self.store.get_by_trace_id(session_id):
+            if existing.user_id == "compiler_evaluator":
+                return existing
+
         evaluation = evaluation or {}
         overall = int(evaluation.get("overall_score") or 0)
         passed = bool(evaluation.get("is_passed"))
