@@ -80,7 +80,9 @@ class WikiCompiler:
         persisted_run = self.repository.create_run(run)
         try:
             response = self.provider.compile_wiki(self._build_prompt(rules, context_pack))
-            proposal = self._validate_response(project_id, sources, response, context_pack)
+            proposal = self._validate_response(
+                project_id, sources, response, context_pack, self._snapshot_revision(page_snapshots or [])
+            )
             persisted_proposal = self.repository.create_proposal(proposal, actor_id=actor_id)
             completed_run = self.repository.update_run_status(
                 project_id,
@@ -123,13 +125,11 @@ class WikiCompiler:
         sources: list[dict[str, Any]],
         response: Any,
         context_pack: ContextPack,
+        base_revision: str,
     ) -> WikiProposal:
         if not isinstance(response, dict):
             raise WikiCompilationError("provider response must be an object")
         selected_ids = {source["id"] for source in sources}
-        base_revision = hashlib.sha256(
-            "|".join(f"{source['id']}:{source['content_hash']}" for source in sources).encode("utf-8")
-        ).hexdigest()
         try:
             operations = [WikiOperation.model_validate(value) for value in response.get("operations", [])]
         except ValidationError as exc:
@@ -161,6 +161,21 @@ class WikiCompiler:
                     source_ids=sorted(selected_ids),
                 )
             )
+        if not any(operation.path == "wiki/overview.md" for operation in operations):
+            changed_paths = [
+                operation.path for operation in operations
+                if operation.path not in {"wiki/index.md", "wiki/log.md"}
+            ]
+            operations.append(
+                WikiOperation(
+                    operation=WikiOperationType.APPEND,
+                    path="wiki/overview.md",
+                    content="\n- Evidence-backed Wiki update: " + ", ".join(
+                        f"[[{path}]]" for path in changed_paths
+                    ) + " " + " ".join(f"[source:{source_id}]" for source_id in sorted(selected_ids)) + "\n",
+                    source_ids=sorted(selected_ids),
+                )
+            )
         return WikiProposal(
             project_id=project_id,
             base_revision=base_revision,
@@ -169,3 +184,14 @@ class WikiCompiler:
             rationale=str(response.get("rationale") or ""),
             eval_summary={"context_pack_revision": context_pack.revision},
         )
+
+    @staticmethod
+    def _snapshot_revision(pages: list[dict[str, Any]]) -> str:
+        if not pages:
+            return ""
+        records = [
+            f"{page['path']}:{hashlib.sha256(str(page.get('content') or '').encode('utf-8')).hexdigest()}"
+            for page in sorted(pages, key=lambda item: str(item.get("path") or ""))
+            if str(page.get("path") or "") == "AGENTS.md" or str(page.get("path") or "").startswith("wiki/")
+        ]
+        return "vault:" + hashlib.sha256("\n".join(records).encode("utf-8")).hexdigest() if records else ""

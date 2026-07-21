@@ -103,6 +103,8 @@ services:
     networks:
       - bsc-network
     restart: unless-stopped
+    healthcheck:
+      disable: true
     profiles:
       - celery
       - full
@@ -129,6 +131,8 @@ services:
     networks:
       - bsc-network
     restart: unless-stopped
+    healthcheck:
+      disable: true
     profiles:
       - celery
       - full

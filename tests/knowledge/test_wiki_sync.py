@@ -38,3 +38,25 @@ def test_obsidian_sync_imports_text_and_canvas_as_immutable_structured_evidence(
         assert sources["map.canvas"]["metadata"]["extension"] == ".canvas"
     finally:
         repo.close()
+
+
+def test_obsidian_sync_excludes_all_configured_managed_project_roots(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    (root / "research.md").write_text("External research", encoding="utf-8")
+    (root / "clients" / "acme" / "wiki").mkdir(parents=True)
+    (root / "clients" / "acme" / "wiki" / "overview.md").write_text("Managed Acme Wiki", encoding="utf-8")
+    (root / "clients" / "beta").mkdir(parents=True)
+    (root / "clients" / "beta" / "AGENTS.md").write_text("Managed Beta rules", encoding="utf-8")
+    (root / "projects" / "legacy" / "wiki").mkdir(parents=True)
+    (root / "projects" / "legacy" / "wiki" / "overview.md").write_text("Legacy managed Wiki", encoding="utf-8")
+    repo = WikiRepository(db_path=str(tmp_path / "sync-mappings.db"))
+    repo.configure_vault("project-a", "clients/acme")
+    repo.configure_vault("project-b", "clients/beta")
+    try:
+        report = ObsidianSyncService(repo, root).sync(project_id="project-a")
+
+        assert report == {"scanned": 1, "created": 1, "duplicates": 0, "skipped": 0}
+        assert [source["origin"] for source in repo.list_sources("project-a")] == ["research.md"]
+    finally:
+        repo.close()

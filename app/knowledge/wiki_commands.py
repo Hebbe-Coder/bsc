@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from app.core.celery_app import is_celery_real
 from app.core.config import settings
 from app.knowledge.proposal_gate import ProposalGate, ProposalGateError
-from app.knowledge.scheduler import KnowledgeScheduler
+from app.knowledge.scheduler import KnowledgeScheduler, ScheduleValidationError
 from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.wiki_contracts import KnowledgeRun, ProposalStatus, RunStatus, WikiProposal
 from app.knowledge.wiki_evaluator import WikiEvaluator
 from app.knowledge.wiki_lint import WikiLint
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_rules import ProjectRules, parse_project_rules
+from app.knowledge.wiki_source_capture import CapturedSourceInput, SourceCaptureService
 
 
 class WikiCommandError(ValueError):
@@ -28,13 +30,59 @@ class WikiCommandService:
         self.repository = repository
 
     def create_proposal(self, payload: dict[str, Any], *, actor_id: str = "") -> dict:
+        project_id = str(payload.get("project_id") or "").strip()
+        if not project_id:
+            raise WikiCommandError("project_id is required")
+        if not payload.get("base_revision"):
+            vault = self._vault(project_id)
+            payload = {**payload, "base_revision": ProposalGate.project_revision(vault.contents)}
         try:
             proposal = WikiProposal.model_validate({**payload, "manual": True, "status": ProposalStatus.DRAFT})
         except Exception as exc:
             raise WikiCommandError(f"invalid Wiki proposal: {exc}") from exc
-        if not proposal.project_id.strip():
-            raise WikiCommandError("project_id is required")
         return self.repository.create_proposal(proposal, actor_id=actor_id)
+
+    def capture_source(self, payload: dict[str, Any], *, actor_id: str = "") -> dict:
+        try:
+            source_input = CapturedSourceInput.model_validate(payload)
+        except Exception as exc:
+            raise WikiCommandError(f"invalid immutable source payload: {exc}") from exc
+        if not self.repository.get_vault(source_input.project_id):
+            raise WikiCommandError("project Vault mapping is not configured")
+        run = KnowledgeRun(
+            project_id=source_input.project_id,
+            run_type="source_capture",
+            trigger="http",
+            actor_id=actor_id,
+            status=RunStatus.QUEUED,
+            input_refs={"source_type": source_input.source_type, "origin": source_input.origin},
+        )
+        self.repository.create_run(run)
+        self.repository.update_run_status(source_input.project_id, run.id, RunStatus.RUNNING)
+        try:
+            result = SourceCaptureService(self.repository).capture(source_input)
+            source = result.source
+            self.repository.append_run_event(
+                project_id=source_input.project_id,
+                run_id=run.id,
+                event_type="knowledge.source.captured",
+                payload={"source_id": source["id"], "created": result.created, "status": source["status"]},
+            )
+            if source["status"] == "eligible":
+                self.repository.append_run_event(
+                    project_id=source_input.project_id,
+                    run_id=run.id,
+                    event_type="knowledge.source.eligible",
+                    payload={"source_id": source["id"]},
+                )
+            self.repository.update_run_status(
+                source_input.project_id, run.id, RunStatus.COMPLETED,
+                output_refs={"source_id": source["id"], "created": result.created},
+            )
+            return {"source": source, "created": result.created, "run_id": run.id}
+        except Exception as exc:
+            self.repository.update_run_status(source_input.project_id, run.id, RunStatus.FAILED, error=str(exc))
+            raise WikiCommandError(str(exc)) from exc
 
     def lint_proposal(self, *, project_id: str, proposal_id: str) -> dict:
         proposal = self._proposal(project_id, proposal_id)
@@ -70,28 +118,94 @@ class WikiCommandService:
             project_id=project_id, job_type=job_type, cron=cron, timezone_name=timezone_name
         )
 
-    def start_run(self, *, project_id: str, job_type: str, trigger: str) -> dict:
+    def set_schedule_enabled(self, *, project_id: str, schedule_id: str, enabled: bool) -> dict:
+        schedule = self.repository.get_schedule(project_id, schedule_id)
+        if not schedule:
+            raise WikiCommandError("knowledge schedule not found")
+        if enabled and not is_celery_real():
+            raise WikiCommandError("durable scheduler unavailable; use a manual run instead")
+        next_run_at = ""
+        if enabled:
+            try:
+                next_run_at = KnowledgeScheduler.next_run(str(schedule["cron"]), datetime.now(timezone.utc)).isoformat()
+            except ScheduleValidationError as exc:
+                raise WikiCommandError(str(exc)) from exc
+        return self.repository.set_schedule_enabled(
+            project_id=project_id, schedule_id=schedule_id, enabled=enabled, next_run_at=next_run_at
+        )
+
+    def reject_proposal(self, *, project_id: str, proposal_id: str) -> dict:
+        proposal = self.repository.get_proposal(project_id, proposal_id)
+        if not proposal:
+            raise WikiCommandError("Wiki proposal not found")
+        if proposal["status"] not in {ProposalStatus.DRAFT.value, ProposalStatus.VALIDATING.value, ProposalStatus.APPROVED.value}:
+            raise WikiCommandError("only un-published proposals can be rejected")
+        return self.repository.update_proposal_status(project_id, proposal_id, ProposalStatus.REJECTED)
+
+    def start_run(
+        self,
+        *,
+        project_id: str,
+        job_type: str,
+        trigger: str,
+        input_refs: dict[str, Any] | None = None,
+        retry_of: str | None = None,
+    ) -> dict:
+        try:
+            KnowledgeScheduler._validate_job_type(job_type)
+        except ScheduleValidationError as exc:
+            raise WikiCommandError(str(exc)) from exc
+        run = KnowledgeRun(
+            project_id=project_id,
+            run_type=job_type,
+            trigger=trigger,
+            status=RunStatus.QUEUED,
+            input_refs=input_refs or {},
+            retry_of=retry_of,
+        )
         if not is_celery_real():
             # Local mode has no durable scheduler, but an explicit user action
             # must still execute through the same persisted task contract.
-            run = KnowledgeRun(project_id=project_id, run_type=job_type, trigger=trigger, status=RunStatus.QUEUED)
             self.repository.create_run(run)
             from app.tasks.knowledge_tasks import execute_knowledge_run
 
             result = execute_knowledge_run(project_id, run.id, repository=self.repository)
             return {**result, "execution": "synchronous"}
-        scheduler = KnowledgeScheduler(self.repository, scheduler_available=is_celery_real())
-        result = scheduler.run_now(project_id=project_id, job_type=job_type, trigger=trigger)
-        if result["status"] != "queued":
-            return result
+        self.repository.create_run(run)
         try:
             from app.tasks.knowledge_tasks import knowledge_execute
 
-            task = knowledge_execute.apply_async(args=[project_id, result["run_id"]])
-            return {**result, "task_id": task.id}
+            task = knowledge_execute.apply_async(args=[project_id, run.id])
+            return {"status": "queued", "run_id": run.id, "task_id": task.id}
         except Exception as exc:
-            self.repository.update_run_status(project_id, result["run_id"], RunStatus.FAILED, error=f"queue submission failed: {exc}")
+            self.repository.update_run_status(project_id, run.id, RunStatus.FAILED, error=f"queue submission failed: {exc}")
             raise WikiCommandError(f"queue submission failed: {exc}") from exc
+
+    def retry_run(self, *, project_id: str, run_id: str) -> dict:
+        run = self.repository.get_run(project_id, run_id)
+        if not run:
+            raise WikiCommandError("knowledge run not found")
+        if run["status"] not in {RunStatus.FAILED.value, RunStatus.UNAVAILABLE.value, RunStatus.CANCELLED.value}:
+            raise WikiCommandError("only terminal failed, unavailable, or cancelled runs can be retried")
+        return self.start_run(
+            project_id=project_id,
+            job_type=run["run_type"],
+            trigger="retry",
+            input_refs=run.get("input_refs") or {},
+            retry_of=run_id,
+        )
+
+    def read_distillation(self, *, project_id: str, distillation_id: str) -> dict:
+        record = self.repository.get_distillation(project_id, distillation_id)
+        if not record:
+            raise WikiCommandError("weekly distillation not found")
+        vault = self._vault(project_id)
+        snapshot = vault.contents
+        paths = (record["knowledge_path"], record["content_path"], record["context_path"])
+        documents = {path: snapshot[path] for path in paths if path in snapshot}
+        if len(documents) != len(paths):
+            raise WikiCommandError("weekly distillation files are missing from the configured Vault")
+        return {"distillation": record, "documents": documents}
 
     def start_horizon_capture(self, *, project_id: str, horizon_run_id: str, stage: str, trigger: str) -> dict:
         if stage not in {"filtered", "enriched"}:
@@ -138,7 +252,7 @@ class WikiCommandService:
         if not settings.OBSIDIAN_VAULT_ROOT:
             raise WikiCommandError("OBSIDIAN_VAULT_ROOT is not configured")
         try:
-            return FilesystemWikiVault(Path(settings.OBSIDIAN_VAULT_ROOT), project_id)
+            return FilesystemWikiVault(Path(settings.OBSIDIAN_VAULT_ROOT), project_id, configured["vault_path"])
         except ProposalGateError as exc:
             raise WikiCommandError(str(exc)) from exc
 

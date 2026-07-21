@@ -49,7 +49,8 @@ class WikiLint:
         findings: list[WikiLintFinding] = []
         operations = proposal.operations
         proposal_paths = {operation.path for operation in operations}
-        known_paths = set(existing_paths) | proposal_paths
+        existing_paths = set(existing_paths)
+        known_paths = existing_paths | proposal_paths
         substantive = [operation for operation in operations if operation.path not in {"wiki/index.md", "wiki/log.md"}]
         if substantive and "wiki/index.md" not in proposal_paths:
             findings.append(self._finding("missing_index_update", "wiki/index.md", "Substantive changes require a Wiki index update."))
@@ -66,7 +67,8 @@ class WikiLint:
             if operation.operation not in {WikiOperationType.CREATE, WikiOperationType.REPLACE, WikiOperationType.APPEND}:
                 continue
             frontmatter = self._frontmatter(operation.content)
-            if operation.path != "wiki/index.md":
+            requires_frontmatter = operation.operation in {WikiOperationType.CREATE, WikiOperationType.REPLACE} or operation.path not in existing_paths
+            if operation.path != "wiki/index.md" and requires_frontmatter:
                 if frontmatter is None:
                     findings.append(self._finding("missing_frontmatter", operation.path, "Wiki pages require YAML frontmatter."))
                 elif frontmatter.get("kind") not in rules.allowed_page_kinds:

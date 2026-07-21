@@ -27,6 +27,7 @@ def test_source_sync_task_imports_only_non_managed_obsidian_notes(tmp_path, monk
     repo.create_run(run)
     vault_root = tmp_path / "vault"
     vault_root.mkdir()
+    repo.configure_vault("project-a", "projects/project-a")
     (vault_root / "research.md").write_text("# Research\nGrounded observation.", encoding="utf-8")
     (vault_root / "projects" / "project-a" / "wiki").mkdir(parents=True)
     (vault_root / "projects" / "project-a" / "wiki" / "overview.md").write_text("managed output", encoding="utf-8")
@@ -36,9 +37,36 @@ def test_source_sync_task_imports_only_non_managed_obsidian_notes(tmp_path, monk
         result = execute_knowledge_run("project-a", run.id)
 
         assert result["status"] == "completed"
-        assert result["sync"] == {"scanned": 1, "created": 1, "duplicates": 0, "skipped": 0}
+        assert result["sync"] == {"scanned": 1, "created": 1, "duplicates": 0, "skipped": 0, "wiki_pages": 1}
         assert repo.get_run("project-a", run.id)["status"] == "completed"
         assert repo.list_sources("project-a")[0]["origin"] == "research.md"
+    finally:
+        repo.close()
+
+
+def test_source_sync_task_reconciles_user_edited_managed_wiki_pages(tmp_path, monkeypatch):
+    repo = WikiRepository(db_path=str(tmp_path / "tasks-wiki-sync.db"))
+    run = KnowledgeRun(project_id="project-a", run_type="source_sync", trigger="manual")
+    repo.create_run(run)
+    vault_root = tmp_path / "vault"
+    project_root = vault_root / "clients" / "acme"
+    (project_root / "wiki" / "concepts").mkdir(parents=True)
+    (project_root / "AGENTS.md").write_text("---\nproject_id: project-a\n---\n# Rules\n", encoding="utf-8")
+    (project_root / "wiki" / "concepts" / "approval.md").write_text(
+        "---\ntitle: Approval\nkind: concept\n---\n# Approval\nUser-maintained page.\n", encoding="utf-8"
+    )
+    repo.configure_vault("project-a", "clients/acme")
+    monkeypatch.setattr("app.tasks.knowledge_tasks.WikiRepository", lambda: repo)
+    monkeypatch.setattr("app.tasks.knowledge_tasks.settings.OBSIDIAN_VAULT_ROOT", str(vault_root))
+    try:
+        result = execute_knowledge_run("project-a", run.id)
+
+        assert result["status"] == "completed"
+        assert result["sync"]["wiki_pages"] == 2
+        page = next(page for page in repo.list_pages("project-a") if page["path"] == "wiki/concepts/approval.md")
+        assert repo.get_page_content("project-a", page["id"])["content"].endswith("User-maintained page.\n")
+        events = repo.list_run_events(project_id="project-a", run_id=run.id)
+        assert any(event["event_type"] == "knowledge.wiki.snapshot.synced" for event in events)
     finally:
         repo.close()
 
@@ -49,6 +77,7 @@ def test_wiki_maintenance_task_is_unavailable_without_a_real_configured_llm(tmp_
     repo.create_run(run)
     vault_root = tmp_path / "vault"
     vault_root.mkdir()
+    repo.configure_vault("project-a", "projects/project-a")
     project_root = vault_root / "projects" / "project-a"
     project_root.mkdir(parents=True)
     (project_root / "AGENTS.md").write_text(
@@ -85,6 +114,7 @@ def test_weekly_distillation_task_writes_project_bundle(tmp_path, monkeypatch):
     repo.create_run(run)
     vault_root = tmp_path / "vault"
     vault_root.mkdir()
+    repo.configure_vault("project-a", "projects/project-a")
     project_root = vault_root / "projects" / "project-a"
     project_root.mkdir(parents=True)
     (project_root / "AGENTS.md").write_text("rules", encoding="utf-8")

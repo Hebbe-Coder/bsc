@@ -45,6 +45,28 @@ class KnowledgeGraphService:
     def list_edges(self, project_id: str, edge_type: str | None = None) -> list[dict]:
         return self.repository.list_graph_edges(project_id, edge_type=edge_type)
 
+    def visualization(self, *, project_id: str, edge_type: str | None = None) -> dict[str, list[dict]]:
+        """Return only persisted graph entities so the UI never invents graph nodes."""
+        edges = self.list_edges(project_id, edge_type=edge_type)
+        nodes: dict[str, dict] = {}
+        for source in self.repository.list_sources(project_id):
+            nodes[source["id"]] = {
+                "id": source["id"], "node_type": "source", "label": source.get("origin") or source["id"],
+                "status": source.get("status", ""), "created_at": source.get("captured_at", ""),
+            }
+        for page in self.repository.list_pages(project_id):
+            nodes[page["id"]] = {
+                "id": page["id"], "node_type": "page", "label": page.get("title") or page.get("path") or page["id"],
+                "status": page.get("status", "published"), "created_at": page.get("published_at") or page.get("created_at", ""),
+            }
+        for proposal in self.repository.list_proposals(project_id):
+            nodes[proposal["id"]] = {
+                "id": proposal["id"], "node_type": "proposal", "label": proposal.get("rationale") or proposal["id"],
+                "status": proposal.get("status", ""), "created_at": proposal.get("created_at", ""),
+            }
+        referenced_ids = {edge["from_id"] for edge in edges} | {edge["to_id"] for edge in edges}
+        return {"nodes": [node for node_id, node in nodes.items() if node_id in referenced_ids], "edges": edges}
+
     @staticmethod
     def _edge(project_id: str, from_id: str, to_id: str, edge_type: str) -> KnowledgeGraphEdge:
         edge_id = hashlib.sha256(f"{project_id}|{from_id}|{to_id}|{edge_type}".encode("utf-8")).hexdigest()[:24]

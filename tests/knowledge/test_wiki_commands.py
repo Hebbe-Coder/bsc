@@ -7,12 +7,12 @@ from app.knowledge.wiki_source_capture import CapturedSourceInput, SourceCapture
 def test_command_service_creates_lints_and_publishes_only_through_project_vault(tmp_path, monkeypatch):
     vault_root = tmp_path / "vault"
     vault_root.mkdir()
-    project_root = vault_root / "projects" / "project-a"
+    project_root = vault_root / "clients" / "acme"
     project_root.mkdir(parents=True)
     (project_root / "AGENTS.md").write_text(build_default_agents_rules("project-a"), encoding="utf-8")
     monkeypatch.setattr("app.knowledge.wiki_commands.settings.OBSIDIAN_VAULT_ROOT", str(vault_root))
     repo = WikiRepository(db_path=str(tmp_path / "commands.db"))
-    repo.configure_vault("project-a", "projects/project-a")
+    repo.configure_vault("project-a", "clients/acme")
     source = SourceCaptureService(repo).capture(
         CapturedSourceInput(
             project_id="project-a", source_type="manual_upload", origin="brief.md",
@@ -60,6 +60,7 @@ def test_command_service_creates_lints_and_publishes_only_through_project_vault(
         assert repo.list_citations("project-a", approval["id"])[0]["source_id"] == source["id"]
         assert any(edge["edge_type"] == "wiki_cites_source" for edge in repo.list_graph_edges("project-a"))
         assert not (vault_root / "wiki").exists()
+        assert not (vault_root / "projects" / "project-a").exists()
     finally:
         repo.close()
 

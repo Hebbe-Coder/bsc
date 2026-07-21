@@ -176,6 +176,18 @@ Deliver a Karpathy-style, Obsidian-compatible, self-maintaining knowledge Wiki f
 
 ## Current Handoff Contract
 
+## Latest Verification (2026-07-21)
+
+- VPN restored Docker Hub access. `docker pull redis:7-alpine` completed, Redis started as `bsc-backend-redis-1`, and `redis-cli ping` returned `PONG`.
+- `docker compose build bsc-backend` completed with the current frontend and backend. A health-checked API container runs at `http://127.0.0.1:8002/live`; it returned `200 {"status":"ok"}` after image rebuild and restart.
+- A real deployment defect was fixed: Celery CLI expected `app.core.celery_app.celery`, while the module exposed only a factory. The conventional module entrypoint now reuses `get_celery_app()`. Worker and Beat are launched independently with the Dockerfile HTTP healthcheck disabled; the Compose services carry the same disablement.
+- Docker recovery was verified. After a complete API/Worker/Beat restart with persisted Redis/data/Vault mounts, Beat dispatched `knowledge.reconcile_schedules` and Worker consumed it successfully with `queued=0`, `duplicates=0`, `failures=0`.
+- Filesystem lifecycle E2E was added. It uses a temporary mapped Vault and validates immutable Obsidian and Horizon evidence, rule preservation, proposal compilation, deterministic evaluation, atomic publication, revisions, citations, graph edges, and processed source state.
+- Two correctness defects were fixed during E2E hardening: all configured Vault roots are excluded from source sync (not only `projects/`), and append operations on existing Markdown pages no longer require duplicate YAML frontmatter. Compensating proposals may cite previously published immutable evidence.
+- Browser acceptance against the latest dedicated `5176 -> 8001` development pair verified real project data, graph filtering by edge/type/status, desktop layout, mobile pane switching, and ECharts mount lifecycle. At 390x844, hidden inspector charts were not mounted; selecting Inspect mounted all charts at a nonzero 340x180 size. The browser viewport was restored afterward.
+- Current regression result: `./.venv/Scripts/python.exe -m pytest tests/knowledge tests/integration tests/api/test_knowledge_workspace_api.py tests/api/test_wiki_http_contract.py tests/test_celery_app.py tests/test_docker_compose_contract.py -q` -> **226 passed**, 1 existing Starlette/httpx deprecation warning. `npm run check`, `npm run build`, `docker compose config --quiet`, and `git diff --check` passed before the final documentation update.
+- Remaining release gates are recorded in P8's execution ledger: configure a real LLM provider for maintenance, configure a Horizon endpoint, add a safe review/diff/distillation browser fixture, and run dedicated two-principal MCP transport E2E. These are not marked complete.
+
 - `SourceCaptureService.capture` accepts a normalized `CapturedSourceInput`, computes the content hash, checks same-project duplicates, persists a `SourceRecord`, and returns whether a new record was created.
 - `SourceTrustPolicy.assess` promotes trusted/manual or configured trusted-source evidence to `eligible`; unknown external feeds remain `validated`.
 - `HorizonSignal.to_source_input` maps Horizon radar items into immutable `horizon_signal` evidence records without performing network calls.

@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
 from app.knowledge.proposal_gate import InMemoryWikiVault, ProposalGateError
@@ -16,17 +16,19 @@ _PROJECT_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 class FilesystemWikiVault(InMemoryWikiVault):
     """Stage a complete project snapshot and atomically swap it into an Obsidian Vault."""
 
-    def __init__(self, root: Path | str, project_id: str) -> None:
+    def __init__(self, root: Path | str, project_id: str, vault_path: str = "") -> None:
         self.root = Path(root).resolve()
         if not self.root.is_dir():
             raise ProposalGateError("Obsidian Vault root does not exist")
         if not _PROJECT_ID.fullmatch(project_id):
             raise ProposalGateError("project_id is not safe for a Vault path")
         self.project_id = project_id
+        self.vault_path = vault_path or f"projects/{project_id}"
+        self._project_root = self._resolve_project_root(self.vault_path)
 
     @property
     def project_root(self) -> Path:
-        return self.root / "projects" / self.project_id
+        return self._project_root
 
     @property
     def contents(self) -> dict[str, str]:
@@ -76,4 +78,14 @@ class FilesystemWikiVault(InMemoryWikiVault):
         candidate = (root / relative_path).resolve()
         if root.resolve() not in candidate.parents:
             raise ProposalGateError("Vault operation escaped its staged project directory")
+        return candidate
+
+    def _resolve_project_root(self, vault_path: str) -> Path:
+        normalized = str(vault_path).replace("\\", "/").strip("/")
+        relative = PurePosixPath(normalized)
+        if not normalized or relative.is_absolute() or any(part in {"", ".", ".."} for part in relative.parts):
+            raise ProposalGateError("project Vault mapping must be a non-empty relative path")
+        candidate = (self.root.joinpath(*relative.parts)).resolve()
+        if candidate == self.root or self.root not in candidate.parents:
+            raise ProposalGateError("project Vault mapping escaped OBSIDIAN_VAULT_ROOT")
         return candidate

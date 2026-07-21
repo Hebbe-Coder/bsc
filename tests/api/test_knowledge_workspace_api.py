@@ -6,6 +6,7 @@ from app.main import app
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus
 from app.knowledge.wiki_source_capture import CapturedSourceInput, SourceCaptureService
+from app.knowledge.vault import FilesystemWikiVault
 
 
 def test_workspace_api_requires_scope_and_redacts_raw_evidence(tmp_path):
@@ -102,5 +103,98 @@ def test_workspace_source_transition_requires_scoped_writer_and_changes_lifecycl
         assert response.json()["data"]["source"]["status"] == "eligible"
     finally:
         settings.API_KEY = previous_key
+        app.dependency_overrides.clear()
+        repo.close()
+
+
+def test_workspace_admin_operations_are_scoped_and_read_distillation_files(tmp_path, monkeypatch):
+    repo = WikiRepository(db_path=str(tmp_path / "workspace-operations.db"))
+    vault_root = tmp_path / "vault"
+    vault_root.mkdir()
+    previous_key = settings.API_KEY
+    previous_root = settings.OBSIDIAN_VAULT_ROOT
+    settings.API_KEY = "workspace-admin"
+    settings.OBSIDIAN_VAULT_ROOT = str(vault_root)
+    app.dependency_overrides[get_wiki_repository] = lambda: repo
+    client = TestClient(app)
+    headers = {"Authorization": "Bearer workspace-admin"}
+    try:
+        mapping = client.put(
+            "/knowledge/workspaces/project-a/vault",
+            headers=headers,
+            json={"vault_path": "clients/acme"},
+        )
+        assert mapping.status_code == 200
+        assert mapping.json()["data"]["vault"]["vault_path"] == "clients/acme"
+
+        source = SourceCaptureService(repo).capture(
+            CapturedSourceInput(project_id="project-a", source_type="manual_upload", origin="brief.md", raw_content="private evidence")
+        ).source
+        source_response = client.get(f"/knowledge/sources/{source['id']}?project_id=project-a", headers=headers)
+        assert source_response.status_code == 200
+        assert "raw_content" not in source_response.json()["data"]["source"]
+
+        captured = client.post(
+            "/knowledge/sources/capture",
+            headers=headers,
+            json={
+                "project_id": "project-a", "source_type": "manual_upload", "origin": "interview.txt",
+                "raw_content": "Customer confirms approval is required.", "trust_level": "reviewed",
+            },
+        )
+        assert captured.status_code == 200
+        assert "raw_content" not in captured.json()["data"]["source"]
+        capture_events = repo.list_run_events(project_id="project-a", run_id=captured.json()["data"]["run_id"])
+        assert any(event["event_type"] == "knowledge.source.captured" for event in capture_events)
+
+        proposal = client.post(
+            "/knowledge/proposals",
+            headers=headers,
+            json={
+                "project_id": "project-a",
+                "rationale": "No longer needed",
+                "operations": [{"operation": "append", "path": "wiki/log.md", "content": "- rejected\n"}],
+            },
+        ).json()["data"]["proposal"]
+        rejected = client.post(
+            f"/knowledge/proposals/{proposal['id']}/reject?project_id=project-a", headers=headers
+        )
+        assert rejected.status_code == 200
+        assert rejected.json()["data"]["proposal"]["status"] == "rejected"
+
+        schedule = repo.upsert_schedule(
+            project_id="project-a", job_type="source_sync", cron="*/5 * * * *", timezone_name="UTC", enabled=False, next_run_at=""
+        )
+        paused = client.patch(
+            f"/knowledge/schedules/{schedule['id']}", headers=headers,
+            json={"project_id": "project-a", "enabled": False},
+        )
+        assert paused.status_code == 200
+        assert paused.json()["data"]["schedule"]["enabled"] == 0
+
+        vault = FilesystemWikiVault(vault_root, "project-a", "clients/acme")
+        paths = [
+            "distillations/2026-W30/knowledge-action.md",
+            "distillations/2026-W30/content-creation.md",
+            "distillations/2026-W30/context-pack.md",
+        ]
+        vault.commit({path: f"# {path}\n" for path in paths})
+        record = repo.record_distillation(
+            project_id="project-a", week="2026-W30", paths=paths, source_cutoff="cutoff"
+        )
+        distillation = client.get(f"/knowledge/distillations/{record['id']}?project_id=project-a", headers=headers)
+        assert distillation.status_code == 200
+        assert set(distillation.json()["data"]["documents"]) == set(paths)
+
+        failed = KnowledgeRun(project_id="project-a", run_type="source_sync", trigger="manual")
+        repo.create_run(failed)
+        repo.update_run_status("project-a", failed.id, RunStatus.FAILED, error="temporary")
+        retried = client.post(f"/knowledge/runs/{failed.id}/retry?project_id=project-a", headers=headers)
+        assert retried.status_code == 200
+        retry_id = retried.json()["data"]["run_id"]
+        assert repo.get_run("project-a", retry_id)["retry_of"] == failed.id
+    finally:
+        settings.API_KEY = previous_key
+        settings.OBSIDIAN_VAULT_ROOT = previous_root
         app.dependency_overrides.clear()
         repo.close()

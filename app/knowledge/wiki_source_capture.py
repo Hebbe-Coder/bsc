@@ -141,6 +141,7 @@ class SourceCaptureService:
         created = self.repository.create_source(source)
         if prior and prior["status"] not in {SourceStatus.REJECTED.value, SourceStatus.SUPERSEDED.value}:
             self.repository.update_source_status(payload.project_id, prior["id"], SourceStatus.SUPERSEDED)
+            self.repository.mark_source_citations_stale(payload.project_id, prior["id"])
             self.repository.record_source_supersession(
                 project_id=payload.project_id,
                 prior_source_id=prior["id"],

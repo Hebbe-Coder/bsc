@@ -36,6 +36,36 @@ def test_lint_accepts_cited_pages_with_index_and_append_only_log():
     assert report.findings == ()
 
 
+def test_lint_allows_a_frontmatter_free_append_to_an_existing_page():
+    report = WikiLint().lint_proposal(
+        _proposal(
+            WikiOperation(
+                operation=WikiOperationType.APPEND,
+                path="wiki/overview.md",
+                content="\n- Evidence-backed update. [source:source-a]\n",
+                source_ids=["source-a"],
+            ),
+            WikiOperation(
+                operation=WikiOperationType.APPEND,
+                path="wiki/index.md",
+                content="\n- Overview updated\n",
+                source_ids=["source-a"],
+            ),
+            WikiOperation(
+                operation=WikiOperationType.APPEND,
+                path="wiki/log.md",
+                content="\n- Overview updated. [source:source-a]\n",
+                source_ids=["source-a"],
+            ),
+        ),
+        rules=parse_project_rules(build_default_agents_rules("project-a")),
+        source_ids={"source-a"},
+        existing_paths={"wiki/overview.md", "wiki/index.md", "wiki/log.md"},
+    )
+
+    assert report.valid is True
+
+
 def test_lint_reports_invalid_metadata_citations_links_and_maintenance_updates():
     report = WikiLint().lint_proposal(
         _proposal(

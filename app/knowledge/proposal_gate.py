@@ -67,9 +67,12 @@ class ProposalGate:
         persisted = self.repository.get_proposal(proposal.project_id, proposal.id)
         if not persisted or persisted["status"] != ProposalStatus.DRAFT.value:
             raise ProposalGateError("proposal must exist in draft status")
+        if proposal.base_revision.startswith("vault:") and proposal.base_revision != self.project_revision(self.vault.contents):
+            raise ProposalGateError("revision conflict: the project Wiki changed after this proposal was compiled")
         sources = [self.repository.get_source(proposal.project_id, source_id) for source_id in proposal.source_ids]
-        if any(source is None or source["status"] != SourceStatus.ELIGIBLE.value for source in sources):
-            raise ProposalGateError("all proposal sources must remain eligible")
+        publishable_source_states = {SourceStatus.ELIGIBLE.value, SourceStatus.PROCESSED.value}
+        if any(source is None or source["status"] not in publishable_source_states for source in sources):
+            raise ProposalGateError("all proposal sources must remain eligible or previously published")
         rules = parse_project_rules(rules_text)
         lint_report = self.lint.lint_proposal(
             proposal,
@@ -109,3 +112,13 @@ class ProposalGate:
             "paths": sorted(staged),
             "evaluation_score": evaluation.score,
         }
+
+    @staticmethod
+    def project_revision(contents: dict[str, str]) -> str:
+        """Hash the publishable Wiki/rule snapshot, excluding generated distillations and raw evidence."""
+        records = [
+            f"{path}:{hashlib.sha256(content.encode('utf-8')).hexdigest()}"
+            for path, content in sorted(contents.items())
+            if path == "AGENTS.md" or path.startswith("wiki/")
+        ]
+        return "vault:" + hashlib.sha256("\n".join(records).encode("utf-8")).hexdigest()

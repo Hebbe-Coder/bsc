@@ -1,7 +1,7 @@
 # Karpathy LLM Wiki Knowledge Growth - Implementation Index
 
 **Design authority:** `docs/superpowers/specs/2026-07-21-karpathy-llm-wiki-knowledge-growth-prd.md`
-**Execution status:** P1 contracts/repository implemented; P2 immutable evidence capture foundation implemented; P3 rules/context/proposal compiler foundation implemented
+**Execution status:** P1-P7 implementation is present and regression-tested. P8 now has a filesystem lifecycle E2E test plus verified local Docker API/Redis/Worker/Beat operation; broader release scenarios remain explicitly tracked in P8.
 **Working log:** `docs/superpowers/worklogs/2026-07-21-karpathy-llm-wiki-knowledge-growth.md`
 
 ## Delivery Order
@@ -80,6 +80,9 @@ The following boundaries are cross-plan contracts. A sub-agent must not change t
 
 ## Implemented Slices
 
-- P1: typed project-scoped contracts, additive schema, and `WikiRepository` are implemented and tested. Vault filesystem resolution remains deferred until a configured Obsidian Vault exists.
-- P2: captured evidence is persisted immutably as `raw_content` plus SHA-256 hash, with project-local deduplication, trust policy, Horizon signal mapping, and source lifecycle guards. Obsidian scanning and live Horizon HTTP transport remain deferred.
-- P3: `AGENTS.md` parsing, bounded context packs with omission records, a provider-injected compiler that persists only draft proposals/runs, and an opt-in SOP Builder context bridge are implemented and tested. Wiki file publishing and filesystem-aware page snapshots remain pending.
+- P1: typed project-scoped contracts, additive schema, `WikiRepository`, safe mapped filesystem Vault access, and no-overwrite bootstrap are implemented and tested.
+- P2: captured evidence is persisted immutably as `raw_content` plus SHA-256 hash, with project-local deduplication, trust policy, Horizon signal mapping, lifecycle guards, structured Obsidian import, and exclusion of every configured managed project root.
+- P3/P4: `AGENTS.md` parsing, bounded context packs, proposal-only compilation, deterministic lint/evaluation, stale-snapshot protection, atomic filesystem publication, citations, graph edges, and compensating proposals using already-published evidence are implemented and tested.
+- P5/P6: persisted schedules, Celery reconciliation, weekly distillation, project-scoped REST/SSE, and MCP Wiki tools are implemented. Redis, Worker, and Beat are now verified in a local Docker deployment.
+- P7: the three-pane Knowledge workspace reads real Vault/evidence/proposal/run/graph/health data, has responsive mobile panes, ECharts trends, React Flow filters, and authenticated browser acceptance against the local API.
+- P8: `tests/integration/test_knowledge_wiki_e2e.py` proves a mapped filesystem Vault lifecycle from Obsidian/Horizon evidence through compiler, gates, atomic publish, revisions, citations, graph, and source processing. The remaining P8 release scenarios are tracked in its execution ledger.

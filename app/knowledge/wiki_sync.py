@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from pathlib import PurePosixPath
 
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_source_capture import CapturedSourceInput, SourceCaptureService
@@ -20,11 +21,16 @@ class ObsidianSyncService:
 
     def sync(self, *, project_id: str) -> dict[str, int]:
         report = {"scanned": 0, "created": 0, "duplicates": 0, "skipped": 0}
+        managed_roots = {("projects",)} | {
+            PurePosixPath(str(mapping["vault_path"]).replace("\\", "/")).parts
+            for mapping in self.repository.list_vaults()
+            if mapping.get("vault_path")
+        }
         for path in self.vault_root.rglob("*"):
             if not path.is_file() or path.suffix.lower() not in {".md", ".txt", ".json", ".canvas"}:
                 continue
             relative = path.relative_to(self.vault_root)
-            if self._excluded(relative):
+            if self._excluded(relative, managed_roots):
                 continue
             try:
                 content = path.read_text(encoding="utf-8").strip()
@@ -54,5 +60,8 @@ class ObsidianSyncService:
         return report
 
     @staticmethod
-    def _excluded(relative: Path) -> bool:
-        return relative.parts[0].startswith(".") or relative.parts[0] == "projects"
+    def _excluded(relative: Path, managed_roots: set[tuple[str, ...]] | None = None) -> bool:
+        if relative.parts[0].startswith("."):
+            return True
+        parts = relative.parts
+        return any(parts[:len(root)] == root for root in managed_roots or {("projects",)})

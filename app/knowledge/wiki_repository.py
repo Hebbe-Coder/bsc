@@ -60,6 +60,10 @@ class WikiRepository(BaseRepository):
         row = self._execute("SELECT * FROM knowledge_vaults WHERE project_id=?", (project_id,)).fetchone()
         return self._decode(row, ("metadata_json",))
 
+    def list_vaults(self) -> list[dict]:
+        rows = self._execute("SELECT * FROM knowledge_vaults ORDER BY project_id").fetchall()
+        return [self._decode(row, ("metadata_json",)) or {} for row in rows]
+
     def create_source(self, source: SourceRecord) -> dict:
         self._execute(
             "INSERT INTO knowledge_sources "
@@ -80,6 +84,14 @@ class WikiRepository(BaseRepository):
             "SELECT * FROM knowledge_sources WHERE project_id=? AND id=?", (project_id, source_id)
         ).fetchone()
         return self._decode(row, ("metadata_json",))
+
+    def update_source_metadata(self, project_id: str, source_id: str, metadata: dict[str, Any]) -> dict:
+        self._execute(
+            "UPDATE knowledge_sources SET metadata_json=?,updated_at=? WHERE project_id=? AND id=?",
+            (self._json_dumps(metadata), self._now(), project_id, source_id),
+        )
+        self._commit()
+        return self.get_source(project_id, source_id) or {}
 
     def find_source_by_content_hash(self, project_id: str, content_hash: str) -> dict | None:
         row = self._execute(
@@ -118,6 +130,13 @@ class WikiRepository(BaseRepository):
         )
         self._commit()
         return self.get_source(project_id, source_id) or {}
+
+    def mark_source_citations_stale(self, project_id: str, source_id: str) -> None:
+        self._execute(
+            "UPDATE knowledge_citations SET status='stale' WHERE project_id=? AND source_id=? AND status='active'",
+            (project_id, source_id),
+        )
+        self._commit()
 
     def create_proposal(self, proposal: WikiProposal, actor_id: str = "") -> dict:
         self._execute(
@@ -179,6 +198,22 @@ class WikiRepository(BaseRepository):
             "SELECT * FROM knowledge_schedules WHERE project_id=? ORDER BY job_type", (project_id,)
         ).fetchall()
         return [self._decode(row) or {} for row in rows]
+
+    def get_schedule(self, project_id: str, schedule_id: str) -> dict | None:
+        row = self._execute(
+            "SELECT * FROM knowledge_schedules WHERE project_id=? AND id=?", (project_id, schedule_id)
+        ).fetchone()
+        return self._decode(row)
+
+    def set_schedule_enabled(self, *, project_id: str, schedule_id: str, enabled: bool, next_run_at: str = "") -> dict:
+        cursor = self._execute(
+            "UPDATE knowledge_schedules SET enabled=?,next_run_at=?,updated_at=? WHERE project_id=? AND id=?",
+            (1 if enabled else 0, next_run_at if enabled else "", self._now(), project_id, schedule_id),
+        )
+        self._commit()
+        if cursor.rowcount != 1:
+            raise KeyError("knowledge schedule not found")
+        return self.get_schedule(project_id, schedule_id) or {}
 
     def list_due_schedules(self, now: str) -> list[dict]:
         rows = self._execute(
@@ -272,15 +307,16 @@ class WikiRepository(BaseRepository):
         ).fetchone()
         return self._decode(row)
 
-    def list_citations(self, project_id: str, page_id: str = "") -> list[dict]:
+    def list_citations(self, project_id: str, page_id: str = "", include_stale: bool = False) -> list[dict]:
+        status_clause = "" if include_stale else " AND status='active'"
         if page_id:
             rows = self._execute(
-                "SELECT * FROM knowledge_citations WHERE project_id=? AND wiki_page_id=? AND status='active' ORDER BY id",
+                "SELECT * FROM knowledge_citations WHERE project_id=? AND wiki_page_id=?" + status_clause + " ORDER BY id",
                 (project_id, page_id),
             ).fetchall()
         else:
             rows = self._execute(
-                "SELECT * FROM knowledge_citations WHERE project_id=? AND status='active' ORDER BY wiki_page_id,id", (project_id,)
+                "SELECT * FROM knowledge_citations WHERE project_id=?" + status_clause + " ORDER BY wiki_page_id,id", (project_id,)
             ).fetchall()
         return [self._decode(row) or {} for row in rows]
 
@@ -327,9 +363,15 @@ class WikiRepository(BaseRepository):
         ).fetchall()
         return [self._decode(row) or {} for row in rows]
 
+    def get_distillation(self, project_id: str, distillation_id: str) -> dict | None:
+        row = self._execute(
+            "SELECT * FROM knowledge_distillations WHERE project_id=? AND id=?", (project_id, distillation_id)
+        ).fetchone()
+        return self._decode(row)
+
     def record_publication(self, *, project_id: str, proposal_id: str = "", contents: dict[str, str], source_ids: list[str]) -> None:
         """Persist a published Vault snapshot, citations, and its derived graph atomically."""
-        pages = {path: content for path, content in contents.items() if path.startswith("wiki/")}
+        pages = {path: content for path, content in contents.items() if path.startswith("wiki/") or path == "AGENTS.md"}
         existing = {
             page["path"]: page
             for page in [self._decode(row, ("metadata_json",)) or {} for row in self._execute(
@@ -376,13 +418,17 @@ class WikiRepository(BaseRepository):
                     (revision_id, project_id, page_id, version, content_hash, content, proposal_id, now),
                 )
             self._execute("DELETE FROM knowledge_citations WHERE project_id=?", (project_id,))
+            source_statuses = {source["id"]: source["status"] for source in self.list_sources(project_id)}
             for page in indexed_pages:
                 for sequence, source_id in enumerate(self._source_ids(page["content"])):
                     citation_id = hashlib.sha256(f"{page['id']}|{source_id}|{sequence}".encode("utf-8")).hexdigest()[:24]
                     self._execute(
                         "INSERT INTO knowledge_citations (id,project_id,wiki_page_id,source_id,anchor,claim_text,status,created_at) "
                         "VALUES (?,?,?,?,?,?,?,?)",
-                        (citation_id, project_id, page["id"], source_id, "", self._citation_claim(page["content"], source_id), "active", now),
+                        (
+                            citation_id, project_id, page["id"], source_id, "", self._citation_claim(page["content"], source_id),
+                            "stale" if source_statuses.get(source_id) in {"superseded", "rejected"} else "active", now,
+                        ),
                     )
             self._replace_graph_edges_in_transaction(project_id, indexed_pages, proposal_id, now)
             if proposal_id:
@@ -451,7 +497,7 @@ class WikiRepository(BaseRepository):
                 if isinstance(parsed, dict):
                     metadata = parsed
         title = str(metadata.get("title") or Path(path).stem.replace("-", " ").title())
-        page_kind = str(metadata.get("kind") or ("index" if path.endswith("index.md") else "general"))
+        page_kind = str(metadata.get("kind") or ("rules" if path == "AGENTS.md" else "index" if path.endswith("index.md") else "general"))
         return {"title": title, "page_kind": page_kind, "metadata": metadata}
 
     def create_run(self, run: KnowledgeRun) -> dict:

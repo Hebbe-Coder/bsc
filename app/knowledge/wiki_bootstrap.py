@@ -26,7 +26,7 @@ class WikiBootstrapService:
             raise WikiBootstrapError("project Vault mapping is not configured")
         if not settings.OBSIDIAN_VAULT_ROOT:
             raise WikiBootstrapError("OBSIDIAN_VAULT_ROOT is not configured")
-        vault = FilesystemWikiVault(Path(settings.OBSIDIAN_VAULT_ROOT), project_id)
+        vault = FilesystemWikiVault(Path(settings.OBSIDIAN_VAULT_ROOT), project_id, mapping["vault_path"])
         snapshot = dict(vault.contents)
         defaults = self._defaults(project_id)
         created = []
@@ -36,7 +36,9 @@ class WikiBootstrapService:
                 created.append(path)
         if created:
             vault.commit(snapshot)
-            self.repository.record_publication(project_id=project_id, contents=snapshot, source_ids=[])
+        # User-owned rule edits are authoritative, but still need a revision ledger.
+        # The complete snapshot prevents unrelated Wiki pages from being archived.
+        self.repository.record_publication(project_id=project_id, contents=snapshot, source_ids=[])
         return {"project_id": project_id, "created": created, "status": "initialized" if created else "already_initialized"}
 
     @staticmethod

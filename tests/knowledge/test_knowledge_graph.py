@@ -1,5 +1,6 @@
 from app.knowledge.knowledge_graph import KnowledgeGraphService
 from app.knowledge.wiki_repository import WikiRepository
+from app.knowledge.wiki_source_capture import CapturedSourceInput, SourceCaptureService
 
 
 def test_graph_rebuilds_project_scoped_page_and_evidence_edges_idempotently(tmp_path):
@@ -34,5 +35,24 @@ def test_graph_rebuilds_project_scoped_page_and_evidence_edges_idempotently(tmp_
         }
         assert second == first
         assert graph.list_edges("project-b") == []
+    finally:
+        repo.close()
+
+
+def test_graph_visualization_returns_only_persisted_entity_nodes(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "visualization.db"))
+    source = SourceCaptureService(repo).capture(
+        CapturedSourceInput(project_id="project-a", source_type="manual_upload", origin="brief.md", raw_content="Evidence", trust_level="trusted")
+    ).source
+    try:
+        repo.record_publication(
+            project_id="project-a",
+            contents={"wiki/overview.md": "# Overview\n[source:%s]\n" % source["id"]},
+            source_ids=[],
+        )
+        payload = KnowledgeGraphService(repo).visualization(project_id="project-a")
+
+        assert {node["node_type"] for node in payload["nodes"]} == {"page", "source"}
+        assert payload["edges"][0]["edge_type"] == "wiki_cites_source"
     finally:
         repo.close()

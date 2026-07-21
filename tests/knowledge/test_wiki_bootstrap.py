@@ -19,6 +19,9 @@ def test_bootstrap_creates_only_missing_managed_files_and_indexes_pages(tmp_path
         assert set(first["created"]) == {"wiki/overview.md", "wiki/index.md", "wiki/log.md"}
         assert second["status"] == "already_initialized"
         assert (project_root / "AGENTS.md").read_text(encoding="utf-8") == user_agents
-        assert {page["path"] for page in repo.list_pages("project-a")} == {"wiki/overview.md", "wiki/index.md", "wiki/log.md"}
+        rules_page = next(page for page in repo.list_pages("project-a") if page["path"] == "AGENTS.md")
+        assert rules_page["page_kind"] == "rules"
+        assert repo.get_page_content("project-a", rules_page["id"])["content"] == user_agents
+        assert {page["path"] for page in repo.list_pages("project-a")} == {"AGENTS.md", "wiki/overview.md", "wiki/index.md", "wiki/log.md"}
     finally:
         repo.close()

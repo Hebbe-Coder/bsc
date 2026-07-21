@@ -223,3 +223,7 @@ def is_celery_real():
     """检查是否为真正的Celery（非同步模拟）"""
     app = get_celery_app()
     return not isinstance(app, SyncCelery)
+
+
+# Celery CLI resolves this conventional module attribute for Worker and Beat.
+celery = get_celery_app()

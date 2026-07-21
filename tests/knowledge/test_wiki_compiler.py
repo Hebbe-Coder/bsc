@@ -57,6 +57,7 @@ def test_compiler_persists_draft_proposal_without_mutating_evidence(tmp_path):
         assert result.run["status"] == "completed"
         assert repo.get_source("project-a", source["id"])["status"] == "eligible"
         assert "wiki/log.md" in [item["path"] for item in result.proposal["operations"]]
+        assert {"wiki/overview.md", "wiki/index.md", "wiki/log.md"} <= {item["path"] for item in result.proposal["operations"]}
         assert provider.prompts
     finally:
         repo.close()

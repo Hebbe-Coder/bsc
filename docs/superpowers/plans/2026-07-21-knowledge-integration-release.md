@@ -64,6 +64,18 @@ Create two isolated temporary projects with distinct Vault mappings, rules, trus
 - [ ] Update the worklog with results, test counts, Docker evidence, browser scenarios, known non-goals, and rollback verification.
 - [ ] Prepare a release note that describes required configuration (`OBSIDIAN_VAULT_ROOT`, feature flags, Horizon and Celery settings), migration behavior, rollout sequence, and operational alarms.
 
+## Execution Ledger (2026-07-21)
+
+| Gate | Status | Evidence |
+|---|---|---|
+| Source-to-publish filesystem lifecycle | Complete | `tests/integration/test_knowledge_wiki_e2e.py` creates a mapped Vault, imports Obsidian and Horizon evidence, compiles a proposal, passes evaluation, publishes atomically, and verifies citations, revisions, graph edges, and processed sources. |
+| Stale proposal, lint, evaluation, and compensation gates | Complete | `tests/knowledge/test_proposal_gate.py` and `tests/knowledge/test_wiki_lint.py` cover stale base revisions, missing baselines, processed-evidence compensating proposals, and append semantics. |
+| Docker API/Redis/Celery/Beat proof | Complete | Local image build succeeded; `bsc-backend-app-8002` is healthy on port 8002, Redis returned `PONG`, and Beat dispatched `knowledge.reconcile_schedules` to the restarted Worker. |
+| Full profile with Ollama and live LLM maintenance | Pending external configuration | The deployed Worker can execute scheduled jobs, but real maintenance requires an explicitly configured `KNOWLEDGE_WIKI_LLM_PROVIDER`; Ollama is intentionally not downloaded or started by this release proof. |
+| Horizon sidecar live capture | Pending external configuration | The bounded client/import contract is tested; no production Horizon endpoint or credential has been configured. |
+| Full browser proposal/run/weekly journey | Pending fixture data | Desktop and mobile workspace, graph filtering, real Vault/evidence state, and chart lifecycle are accepted. A safely seeded review/diff/distillation browser fixture is still required for every P8 interaction. |
+| Role/MCP adversarial E2E | Pending dedicated fixtures | Existing API and HTTP contract regression passes. Dedicated two-principal MCP transport E2E remains required before a multi-user release claim. |
+
 ## Acceptance, Rollback, Handoff
 
 - The full chain is source-backed, project-isolated, atomic on failure, evaluable, traceable, and visible in the browser/MCP without fabricated state.

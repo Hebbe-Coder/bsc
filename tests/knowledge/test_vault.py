@@ -1,6 +1,8 @@
 from pathlib import Path
 
-from app.knowledge.proposal_gate import InMemoryWikiVault
+import pytest
+
+from app.knowledge.proposal_gate import InMemoryWikiVault, ProposalGateError
 from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.wiki_contracts import WikiOperation, WikiOperationType, WikiProposal
 
@@ -41,3 +43,18 @@ def test_filesystem_vault_reloads_published_snapshot(tmp_path):
     vault.commit(vault.stage(proposal))
 
     assert FilesystemWikiVault(root, "project-a").contents == {"wiki/log.md": "first\n"}
+
+
+def test_filesystem_vault_honors_a_safe_configured_project_mapping(tmp_path):
+    root = Path(tmp_path)
+    vault = FilesystemWikiVault(root, "project-a", "clients/acme/wiki-project")
+    vault.commit({"wiki/overview.md": "# Acme\n"})
+
+    assert vault.project_root == root / "clients" / "acme" / "wiki-project"
+    assert (root / "clients" / "acme" / "wiki-project" / "wiki" / "overview.md").is_file()
+    assert not (root / "projects" / "project-a").exists()
+
+
+def test_filesystem_vault_rejects_a_mapping_that_escapes_the_configured_root(tmp_path):
+    with pytest.raises(ProposalGateError, match="mapping"):
+        FilesystemWikiVault(Path(tmp_path), "project-a", "../another-vault")

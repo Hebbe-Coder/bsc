@@ -67,3 +67,75 @@ def test_gate_failure_leaves_vault_proposal_and_sources_unchanged(tmp_path):
         assert repo.get_source("project-a", source["id"])["status"] == "eligible"
     finally:
         repo.close()
+
+
+def test_gate_rejects_a_compiled_snapshot_after_the_project_wiki_changes(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "gate-revision.db"))
+    vault = InMemoryWikiVault({"AGENTS.md": "rules", "wiki/index.md": "# Index\n", "wiki/log.md": "# Log\n"})
+    source = _source(repo)
+    proposal = _proposal(source["id"])
+    proposal = proposal.model_copy(update={"base_revision": ProposalGate.project_revision(vault.contents)})
+    repo.create_proposal(proposal)
+    WikiEvaluator(repo).save_case(project_id="project-a", case_id="citation", case_type="citation", expected={"source_ids": [source["id"]]})
+    vault.contents["wiki/index.md"] = "# Index\n- User changed this page\n"
+    try:
+        with pytest.raises(ProposalGateError, match="revision conflict"):
+            ProposalGate(repo, vault).publish(proposal=proposal, rules_text=build_default_agents_rules("project-a"))
+
+        assert repo.get_proposal("project-a", proposal.id)["status"] == "draft"
+        assert repo.get_source("project-a", source["id"])["status"] == "eligible"
+    finally:
+        repo.close()
+
+
+def test_gate_allows_a_compensating_proposal_to_reuse_published_evidence(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "gate-compensation.db"))
+    vault = InMemoryWikiVault()
+    source = _source(repo)
+    initial = _proposal(source["id"])
+    repo.create_proposal(initial)
+    WikiEvaluator(repo).save_case(project_id="project-a", case_id="citation", case_type="citation", expected={"source_ids": [source["id"]]})
+    rules = build_default_agents_rules("project-a")
+    try:
+        ProposalGate(repo, vault).publish(proposal=initial, rules_text=rules)
+        assert repo.get_source("project-a", source["id"])["status"] == "processed"
+
+        compensation = WikiProposal(
+            project_id="project-a",
+            source_ids=[source["id"]],
+            manual=True,
+            operations=[
+                WikiOperation(
+                    operation=WikiOperationType.REPLACE,
+                    path="wiki/concepts/approval.md",
+                    content=(
+                        "---\ntitle: Approval\nkind: concept\n---\n"
+                        f"Human approval remains mandatory after review. [source:{source['id']}]"
+                    ),
+                    source_ids=[source["id"]],
+                ),
+                WikiOperation(
+                    operation=WikiOperationType.APPEND,
+                    path="wiki/index.md",
+                    content="\n- [[wiki/concepts/approval.md]] reviewed compensation\n",
+                    source_ids=[source["id"]],
+                ),
+                WikiOperation(
+                    operation=WikiOperationType.APPEND,
+                    path="wiki/log.md",
+                    content=f"\n- Approval compensation recorded. [source:{source['id']}]\n",
+                    source_ids=[source["id"]],
+                ),
+            ],
+        )
+        repo.create_proposal(compensation)
+
+        result = ProposalGate(repo, vault).publish(proposal=compensation, rules_text=rules)
+
+        assert result["status"] == "published"
+        assert repo.get_proposal("project-a", compensation.id)["status"] == "published"
+        assert "after review" in vault.contents["wiki/concepts/approval.md"]
+        page = next(page for page in repo.list_pages("project-a") if page["path"] == "wiki/concepts/approval.md")
+        assert len(repo.list_page_revisions("project-a", page["id"])) == 2
+    finally:
+        repo.close()

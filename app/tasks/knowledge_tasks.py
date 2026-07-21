@@ -32,10 +32,24 @@ def execute_knowledge_run(
             raise ValueError("knowledge run not found")
         repo.update_run_status(project_id, run_id, RunStatus.RUNNING)
         if run["run_type"] == "source_sync":
-            if not settings.OBSIDIAN_VAULT_ROOT:
+            mapping = repo.get_vault(project_id)
+            if not settings.OBSIDIAN_VAULT_ROOT or not mapping:
                 repo.update_run_status(project_id, run_id, RunStatus.UNAVAILABLE, error="Obsidian Vault is not configured")
                 return {"status": "unavailable", "run_id": run_id}
             report = ObsidianSyncService(repo, Path(settings.OBSIDIAN_VAULT_ROOT)).sync(project_id=project_id)
+            managed_vault = FilesystemWikiVault(Path(settings.OBSIDIAN_VAULT_ROOT), project_id, mapping["vault_path"])
+            if managed_vault.project_root.is_dir():
+                snapshot = managed_vault.contents
+                repo.record_publication(project_id=project_id, contents=snapshot, source_ids=[])
+                report["wiki_pages"] = len([path for path in snapshot if path == "AGENTS.md" or path.startswith("wiki/")])
+                repo.append_run_event(
+                    project_id=project_id,
+                    run_id=run_id,
+                    event_type="knowledge.wiki.snapshot.synced",
+                    payload={"pages": report["wiki_pages"]},
+                )
+            else:
+                report["wiki_pages"] = 0
             repo.append_run_event(
                 project_id=project_id, run_id=run_id, event_type="knowledge.source.sync.completed", payload=report
             )
@@ -75,7 +89,11 @@ def execute_knowledge_run(
             if not settings.OBSIDIAN_VAULT_ROOT:
                 repo.update_run_status(project_id, run_id, RunStatus.UNAVAILABLE, error="Obsidian Vault is not configured")
                 return {"status": "unavailable", "run_id": run_id}
-            vault = FilesystemWikiVault(Path(settings.OBSIDIAN_VAULT_ROOT), project_id)
+            mapping = repo.get_vault(project_id)
+            if not mapping:
+                repo.update_run_status(project_id, run_id, RunStatus.UNAVAILABLE, error="project Vault mapping is not configured")
+                return {"status": "unavailable", "run_id": run_id}
+            vault = FilesystemWikiVault(Path(settings.OBSIDIAN_VAULT_ROOT), project_id, mapping["vault_path"])
             rules_path = vault.project_root / "AGENTS.md"
             if not rules_path.is_file():
                 repo.update_run_status(project_id, run_id, RunStatus.UNAVAILABLE, error="project AGENTS.md is required")
@@ -85,6 +103,8 @@ def execute_knowledge_run(
                 content = repo.get_page_content(project_id, page["id"])
                 if content:
                     page_snapshots.append({**page, "content": content["content"]})
+            if not any(page.get("path") == "AGENTS.md" for page in page_snapshots):
+                page_snapshots.append({"project_id": project_id, "path": "AGENTS.md", "content": rules_path.read_text(encoding="utf-8")})
             try:
                 result = WikiCompiler(repo, SOPWikiCompilerProvider()).compile_maintenance(
                     project_id=project_id,
@@ -112,10 +132,11 @@ def execute_knowledge_run(
         if not sources:
             repo.update_run_status(project_id, run_id, RunStatus.UNAVAILABLE, error="no eligible source evidence")
             return {"status": "unavailable", "run_id": run_id}
-        if not settings.OBSIDIAN_VAULT_ROOT:
+        mapping = repo.get_vault(project_id)
+        if not settings.OBSIDIAN_VAULT_ROOT or not mapping:
             repo.update_run_status(project_id, run_id, RunStatus.UNAVAILABLE, error="Obsidian Vault is not configured")
             return {"status": "unavailable", "run_id": run_id}
-        vault = FilesystemWikiVault(Path(settings.OBSIDIAN_VAULT_ROOT), project_id)
+        vault = FilesystemWikiVault(Path(settings.OBSIDIAN_VAULT_ROOT), project_id, mapping["vault_path"])
         rules_path = vault.project_root / "AGENTS.md"
         rule_revision = hashlib.sha256(
             rules_path.read_bytes() if rules_path.exists() else b""
