@@ -355,6 +355,9 @@ RULES:
             else:
                 logger.warning("LLM suggested unknown capability: %s", cap_name)
 
+        if not valid_steps:
+            raise ValueError("LLM mission plan has no executable capability steps")
+
         goals = [
             MissionGoal(**g) for g in data.get("goals", [])
         ]

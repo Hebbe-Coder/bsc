@@ -1,6 +1,16 @@
 import type { AgentAnalysisResponse } from '../api/agentOsApi';
 import type { DashboardData, RiskItem, RiskPayload, TrustedAudit, Evaluation, QualityDimension, CitationCoverage } from '../api/compilerDashboardApi';
 
+function isTrustedAudit(value: unknown): value is TrustedAudit {
+  if (!value || typeof value !== 'object') return false;
+  const audit = value as Partial<TrustedAudit>;
+  return typeof audit.chain_hash === 'string'
+    && typeof audit.verified === 'boolean'
+    && Array.isArray(audit.source_refs)
+    && Array.isArray(audit.audit)
+    && Boolean(audit.coverage && typeof audit.coverage === 'object');
+}
+
 export function adaptAgentOsToDashboard(resp: AgentAnalysisResponse): DashboardData {
   // Artifact exports are intentionally extensible; normalize them at the UI boundary.
   const report = (resp.report || {}) as Record<string, any>;
@@ -56,28 +66,9 @@ export function adaptAgentOsToDashboard(resp: AgentAnalysisResponse): DashboardD
     improvement_points: resp.gaps || 0,
   };
 
-  const trustedAudit: TrustedAudit = {
-    source_refs: ['agent-os:' + (resp.mission?.title || 'analysis'), 'mode:' + (resp.mission?.mode || 'llm')],
-    coverage: {
-      coverage_pct: riskPayload.coverage.coverage_pct,
-      covered: riskPayload.coverage.covered,
-      total: riskPayload.coverage.total,
-      uncovered_ids: riskPayload.coverage.uncovered_ids,
-      gate_decision: resp.board_verdict || 'PENDING',
-    },
-    audit: [{
-      seq: 1,
-      agent: 'Business Agent OS',
-      action: resp.mission?.title || 'Business Analysis',
-      input_hash: 'mission-' + (resp.mission?.steps || 0) + '-steps',
-      output_hash: (resp.artifacts || 0) + '-artifacts-' + (resp.gaps || 0) + '-gaps',
-      hash: 'agent-os-' + Date.now(),
-      prev_hash: 'genesis',
-      timestamp: new Date().toISOString(),
-    }],
-    chain_hash: 'agent-os-chain-' + Date.now(),
-    verified: resp.status === 'completed',
-  };
+  const trustedAudit = isTrustedAudit(resp.trusted_audit)
+    ? resp.trusted_audit
+    : undefined;
 
   const citationCoverage: CitationCoverage = {
     coverage: riskPayload.coverage.coverage_pct,
@@ -98,7 +89,7 @@ export function adaptAgentOsToDashboard(resp: AgentAnalysisResponse): DashboardD
       objectives: report.objectives || [],
       artifacts: artifactGraph,
     },
-    trusted_audit: trustedAudit,
+    ...(trustedAudit ? { trusted_audit: trustedAudit } : {}),
     evaluation,
     evolution: {
       recent_feedback: [],

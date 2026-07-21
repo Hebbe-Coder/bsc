@@ -531,6 +531,9 @@ async def agent_analyze(req: AgentOSRequest, request: Request):
             idea=req.input,
             response=response,
         )
+        from app.audit import build_trusted_audit
+
+        response["trusted_audit"] = build_trusted_audit(state)
         current_draft = repo.get(execution_id)
         repo.save(_draft_from_state(
             session_id=execution_id,

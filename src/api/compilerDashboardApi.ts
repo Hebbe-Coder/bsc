@@ -126,7 +126,7 @@ export interface DashboardData {
   sop: { sops: any[]; _citation_coverage: CitationCoverage };
   risk: RiskPayload;
   business_model: any;
-  trusted_audit: TrustedAudit;
+  trusted_audit?: TrustedAudit;
   evaluation: Evaluation;
   evolution: Evolution;
 }

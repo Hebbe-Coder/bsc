@@ -100,6 +100,7 @@ export interface AgentAnalysisResponse {
   board_verdict: string;
   board_consensus: string;
   board_votes: Record<string, unknown>;
+  trusted_audit: Record<string, unknown> | null;
   runtime: AgentRuntimeMetadata;
   report: Record<string, unknown>;
 }

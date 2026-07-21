@@ -99,3 +99,25 @@ Do not include runtime data:
 - Focused regression: `19 passed` across frontend API policy and Agent OS
   runtime convergence tests. Type check, quiet lint, and production build also
   passed locally.
+
+## 2026-07-21 Agent OS Completion Guard
+
+- Rejected empty or wholly invalid LLM mission graphs. Development now uses the
+  existing template plan, while production preserves its policy to reject an
+  unapproved fallback rather than report a zero-step success.
+- Added a runtime-level guard so alternate planners cannot mark an empty
+  capability plan as completed.
+- When an approved development fallback occurs, every native capability now
+  persists its own typed deterministic fixture instead of attempting to parse
+  generic provider fallback text. This keeps partial provider failures visible
+  as degraded while still producing a complete, inspectable result.
+- Agent OS responses now carry the server-built SHA-256 trusted audit record.
+  The React adapter no longer fabricates audit hashes, and failed responses are
+  surfaced as run errors rather than rendered as a completed analysis.
+- Browser verification used the inventory-and-cashflow SaaS scenario. The
+  configured provider returned HTTP 402, so the clearly labeled development
+  fallback executed all 9 planned capabilities, produced 8 artifacts and 2
+  evidence gaps, and rendered a valid two-node SHA-256 audit chain.
+- Final focused regression: `39 passed`; TypeScript check, quiet lint and the
+  production bundle passed. A duplicate evaluation-dimension React key found
+  during the first browser pass was fixed and did not recur.

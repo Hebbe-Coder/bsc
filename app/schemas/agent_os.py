@@ -82,5 +82,6 @@ class AgentAnalysisResponse(BaseModel):
     board_verdict: str = ""
     board_consensus: str = ""
     board_votes: dict[str, Any] = Field(default_factory=dict)
+    trusted_audit: dict[str, Any] | None = None
     runtime: AgentRuntimeMetadata
     report: dict[str, Any] = Field(default_factory=dict)

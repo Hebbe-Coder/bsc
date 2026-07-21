@@ -54,6 +54,8 @@ def test_agent_analyze_routes_through_business_runtime(monkeypatch):
     assert body["project_id"] == "tenant-a-project-1"
     assert body["execution_id"] == "run-test"
     assert body["runtime"]["iterations"] == 1
+    assert body["trusted_audit"]["verified"] is True
+    assert len(body["trusted_audit"]["chain_hash"]) == 64
     assert calls["input_text"] == "Build a support automation business"
     assert calls["domain"] == "customer_service"
     assert calls["mode"] == "template"
@@ -429,6 +431,48 @@ def test_business_runtime_preserves_error_terminal_phase(tmp_path):
     assert result.errors == ["planner exploded"]
 
 
+def test_mission_planner_falls_back_when_llm_returns_no_executable_steps():
+    from app.capabilities import MissionPlanner, build_default_registry
+
+    class EmptyPlanLLM:
+        async def generate(self, prompt):
+            return '{"mission":"evaluate","steps":[]}'
+
+    planner = MissionPlanner(
+        registry=build_default_registry(),
+        llm_service=EmptyPlanLLM(),
+        mode="llm",
+    )
+
+    mission = asyncio.run(planner.plan("Analyze a SaaS support business"))
+
+    assert mission.planning_mode == "template"
+    assert mission.steps
+    assert mission.steps[0].capability_name == "business_understanding"
+
+
+def test_business_runtime_rejects_an_empty_mission_plan(tmp_path):
+    from app.artifacts import ArtifactGraphStore
+    from app.capabilities.planner import MissionGraph
+    from app.capabilities.registry import CapabilityRegistry
+    from app.capabilities.runtime import BusinessRuntime, RuntimePhase
+
+    class EmptyPlanner:
+        async def plan(self, prd_text, domain_hint="", goals=None):
+            return MissionGraph(title="Empty mission")
+
+    runtime = BusinessRuntime(
+        store=ArtifactGraphStore(str(tmp_path)),
+        registry=CapabilityRegistry(),
+        planner=EmptyPlanner(),
+    )
+
+    result = asyncio.run(runtime.run("Empty mission input", project_id="empty-plan"))
+
+    assert result.status == RuntimePhase.ERROR
+    assert result.errors == ["Mission plan has no executable capability steps"]
+
+
 def test_default_registry_registers_legacy_compatibility_and_mock_coverage():
     from app.artifacts.types import ArtifactType
     from app.capabilities.executor import assert_mock_coverage
@@ -582,3 +626,38 @@ def test_nanobot_mock_backend_produces_structured_artifacts(tmp_path, monkeypatc
     assert result.export["business_domain"] == "customer_service"
     assert result.export["objectives"]
     assert result.export["_artifact_graph"]["biz_models"]
+
+
+def test_nanobot_fallback_backend_uses_structured_capability_fixtures(tmp_path):
+    from app.artifacts import ArtifactGraphStore
+    from app.capabilities.executor import CapabilityExecutor
+    from app.capabilities.registry import build_default_registry
+
+    class FallbackLLM:
+        last_mode = "fallback"
+        last_usage = None
+
+        async def generate(self, prompt):
+            return '{"content":"generic fallback text"}'
+
+    store = ArtifactGraphStore(str(tmp_path))
+    executor = CapabilityExecutor(store, llm_service=FallbackLLM())
+    native_capabilities = [
+        capability
+        for capability in build_default_registry().list_all()
+        if capability.executor_fn is None
+    ]
+
+    async def run_all():
+        return [
+            await executor.execute(capability, "Fallback execution input", "fallback-project")
+            for capability in native_capabilities
+        ]
+
+    results = asyncio.run(run_all())
+
+    assert all(result.status == "success" for result in results)
+    assert all(result.mode == "fallback" for result in results)
+    for capability, result in zip(native_capabilities, results):
+        if capability.output_artifact_types:
+            assert result.artifacts_produced

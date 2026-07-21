@@ -390,10 +390,16 @@ class NanobotAgentBackend:
             usage = getattr(llm, "last_usage", None)
             model_usage = usage if isinstance(usage, ModelUsage) else None
 
-            # Parse response into artifacts
-            artifact_ids = self._persist_response(
-                response_text, capability, project_id
-            )
+            execution_mode = getattr(llm, "last_mode", "") or "real"
+            if execution_mode == "fallback":
+                # LLMService has already policy-gated this development fallback.
+                # Use the capability's structured fixture rather than parsing its
+                # generic fallback text, which cannot satisfy each output schema.
+                artifact_ids = self._persist_mock_response(capability, project_id)
+            else:
+                artifact_ids = self._persist_response(
+                    response_text, capability, project_id
+                )
 
             elapsed = (time.perf_counter() - t0) * 1000
             logger.info(
@@ -407,7 +413,7 @@ class NanobotAgentBackend:
                 artifacts_produced=artifact_ids,
                 elapsed_ms=elapsed,
                 backend="nanobot",
-                mode=getattr(llm, "last_mode", "") or "real",
+                mode=execution_mode,
                 prompt_context=prompt_context,
                 model_usage=model_usage,
             )

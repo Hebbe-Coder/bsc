@@ -185,6 +185,18 @@ def test_production_rejects_mission_planner_and_dialog_template_fallback(monkeyp
     with pytest.raises(RuntimeError, match="Mission Planner LLM fallback is disabled"):
         asyncio.run(planner.plan("production planning input"))
 
+    class EmptyPlanLLM:
+        async def generate(self, prompt):
+            return '{"mission":"evaluate","steps":[]}'
+
+    empty_plan_planner = MissionPlanner(
+        registry=build_default_registry(),
+        llm_service=EmptyPlanLLM(),
+        mode="llm",
+    )
+    with pytest.raises(RuntimeError, match="Mission Planner LLM fallback is disabled"):
+        asyncio.run(empty_plan_planner.plan("production planning input"))
+
     dialog = DialogEngine.__new__(DialogEngine)
     with pytest.raises(RuntimeError, match="Dialog PRD LLM fallback is disabled"):
         dialog._generate_fallback_prd({"input_text": "fallback input"})

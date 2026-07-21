@@ -231,6 +231,9 @@ export function UnifiedWorkspace() {
         const isBoard = effectiveMode === 'board';
         addLog('thinking', isBoard ? 'Convening board: CEO, CFO, CTO, Ops...' : 'Planning mission capabilities...');
         const result = await runAnalysis({ input: value, mode: 'llm', board: isBoard });
+        if (result.status !== 'completed') {
+          throw new Error(result.runtime.errors[0] || 'Agent OS did not complete the analysis');
+        }
         beginSession(result.execution_id, value);
         setSessionId(result.execution_id);
         addLog('agent', 'Mission: ' + result.mission.title);

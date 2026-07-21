@@ -86,8 +86,8 @@ export function CompilerEvalPanel({ evaluation }: { evaluation?: Evaluation | nu
 
         {/* 维度条 */}
         <div className="space-y-3">
-          {(evaluation.dimensions ?? []).map((d) => (
-            <DimensionBar key={d.name} dim={d} />
+          {(evaluation.dimensions ?? []).map((d, index) => (
+            <DimensionBar key={`${d.name}-${index}`} dim={d} />
           ))}
         </div>
 

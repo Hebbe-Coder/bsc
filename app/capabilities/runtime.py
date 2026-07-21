@@ -168,6 +168,8 @@ class BusinessRuntime:
             state.mission = await self.planner.plan(
                 prd_text, domain_hint=domain_hint,
             )
+            if not state.mission.steps:
+                raise RuntimeError("Mission plan has no executable capability steps")
             state.mission_active = True
             logger.info(
                 "Mission planned: %s (%d steps, mode=%s)",

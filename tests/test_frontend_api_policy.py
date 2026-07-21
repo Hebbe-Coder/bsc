@@ -46,6 +46,25 @@ def test_vite_proxies_agent_os_routes_to_backend():
     assert "target: 'http://localhost:8000'" in source
 
 
+def test_agent_os_ui_uses_backend_status_and_trusted_audit():
+    workspace = (SRC / "components" / "UnifiedWorkspace.tsx").read_text(encoding="utf-8")
+    adapter = (SRC / "utils" / "agentOsAdapter.ts").read_text(encoding="utf-8")
+
+    assert "if (result.status !== 'completed')" in workspace
+    assert workspace.index("if (result.status !== 'completed')") < workspace.index(
+        "setDashData(adaptAgentOsToDashboard(result))"
+    )
+    assert "isTrustedAudit(resp.trusted_audit)" in adapter
+    assert "agent-os-chain-" not in adapter
+
+
+def test_evaluation_dimensions_have_unique_react_keys():
+    source = (SRC / "components" / "CompilerEvalPanel.tsx").read_text(encoding="utf-8")
+
+    assert ".map((d, index) =>" in source
+    assert "key={`${d.name}-${index}`}" in source
+
+
 def test_workspace_waits_for_terminal_event_before_loading_dashboard():
     source = (SRC / "components" / "UnifiedWorkspace.tsx").read_text(encoding="utf-8")
 
