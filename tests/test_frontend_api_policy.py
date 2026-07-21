@@ -73,8 +73,8 @@ def test_agent_os_uses_an_extended_request_budget():
 def test_evaluation_dimensions_have_unique_react_keys():
     source = (SRC / "components" / "CompilerEvalPanel.tsx").read_text(encoding="utf-8")
 
-    assert ".map((d, index) =>" in source
-    assert "key={`${d.name}-${index}`}" in source
+    assert ".map((dimension, index) =>" in source
+    assert "key={`${dimension.name}-${index}`}" in source
 
 
 def test_agent_os_results_render_the_generated_business_brief():
@@ -86,6 +86,30 @@ def test_agent_os_results_render_the_generated_business_brief():
     assert "Operating Constraints" in brief
 
 
+def test_agent_os_dashboard_keeps_decision_readiness_and_source_evidence_honest():
+    adapter = (SRC / "utils" / "agentOsAdapter.ts").read_text(encoding="utf-8")
+    readiness = (SRC / "components" / "CompilerEvalPanel.tsx").read_text(encoding="utf-8")
+    citations = (SRC / "components" / "CitationPanel.tsx").read_text(encoding="utf-8")
+
+    assert "const citationCoverage: CitationCoverage" in adapter
+    assert "coverage: sops.length > 0 ? Math.round" in adapter
+    assert "is_passed: overallScore >= 70 && criticalGapCount === 0" in adapter
+    assert "决策就绪度" in readiness
+    assert "不等同于模型输出文本质量" in readiness
+    assert "raw <= 1 ? raw * 100 : raw" in citations
+    assert "待补外部证据" in citations
+
+
+def test_result_panels_expose_visual_decision_signals():
+    coverage = (SRC / "components" / "ConstraintCoveragePanel.tsx").read_text(encoding="utf-8")
+    audit = (SRC / "components" / "TrustedAuditPanel.tsx").read_text(encoding="utf-8")
+
+    assert "coverage-ring" in coverage
+    assert "优先补证" in coverage
+    assert "完整性已验证" in audit
+    assert "审计事件" in audit
+
+
 def test_workspace_waits_for_terminal_event_before_loading_dashboard():
     source = (SRC / "components" / "UnifiedWorkspace.tsx").read_text(encoding="utf-8")
 
@@ -94,3 +118,11 @@ def test_workspace_waits_for_terminal_event_before_loading_dashboard():
     assert "if (event.type === 'pipeline.completed')" in source
     assert "fetchCompilerDashboard(res.session_id)" in source
     assert "applyDashboard(dashboard)" in source
+
+
+def test_agent_os_pipeline_uses_real_capability_execution_metadata():
+    source = (SRC / "components" / "UnifiedWorkspace.tsx").read_text(encoding="utf-8")
+
+    assert "function projectAgentPipeline" in source
+    assert "result.runtime.capability_executions" in source
+    assert "setPipelineStages(projectAgentPipeline" in source

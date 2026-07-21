@@ -169,3 +169,27 @@ Do not include runtime data:
 - No remote push was attempted. The only remaining worktree changes are the
   intentionally untracked SQLite runtime files `app/bsc_cloud.db` and
   `app/bsc_cloud.db-shm`.
+
+## 2026-07-21 Decision Intelligence UI Rebuild
+
+- Replaced the misleading "compiler artifact quality" surface with a
+  decision-readiness view. Its pass state is now derived from the same score
+  and critical-gap threshold shown to the user, eliminating the previous
+  green-pass/red-score contradiction.
+- Rebuilt the result visualizations as decision-oriented panels: a constraint
+  coverage ring and evidence queue, source-traceability meter, tamper-evident
+  audit timeline, and a readiness gauge with ranked issues and next actions.
+- Agent OS no longer presents constraint coverage or generated artifact IDs as
+  methodology citations. It reports real external-source coverage; when the
+  model provides no sources, every conclusion is clearly labeled as requiring
+  evidence rather than silently treated as verified.
+- Connected the left capability rail to the persisted Agent OS
+  `capability_executions`. Browser revalidation confirms the completed run now
+  displays `8/8` completed instead of the incorrect `0/8 pending`.
+- Real DeepSeek revalidation completed a 12-step plan with 35 artifacts, 12
+  gaps, 66% constraint coverage, no external-source citations, and a verified
+  two-event audit chain. The UI consistently recommends against immediate
+  launch because six critical gaps remain.
+- Final verification: `35 passed` across focused runtime/API tests,
+  TypeScript check, quiet lint, and production build. No BSC browser-console
+  error occurred; the only ignored message was Codex-host Statsig telemetry.

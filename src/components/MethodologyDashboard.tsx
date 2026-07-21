@@ -80,7 +80,7 @@ export function MethodologyDashboard({ mode = 'orchestrator', agentOsResponse }:
         )}
         {data.evaluation && (
           <div className='md:col-span-2'>
-            <CompilerEvalPanel evaluation={data.evaluation} />
+            <CompilerEvalPanel evaluation={data.evaluation} coverage={data.risk.coverage} />
           </div>
         )}
         {data.evolution && (

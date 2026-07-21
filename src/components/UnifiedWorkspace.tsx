@@ -96,6 +96,16 @@ function stageLabel(stage: string): string {
   return stage.replace(/_/g, ' ');
 }
 
+function projectAgentPipeline(executions: Array<{ capability_name: string; status: string; error: string }>): Record<string, string> {
+  const byCapability = new Map(executions.map((execution) => [execution.capability_name, execution]));
+  return Object.fromEntries(PIPELINE_STAGES.map((stage) => {
+    const execution = byCapability.get(stage);
+    if (!execution) return [stage, 'pending'];
+    if (execution.status === 'success' || execution.status === 'completed') return [stage, 'completed'];
+    return [stage, execution.error ? 'failed' : execution.status || 'pending'];
+  }));
+}
+
 export function UnifiedWorkspace() {
   const [input, setInput] = useState('');
   const [mode, setMode] = useState<Mode>('auto');
@@ -237,6 +247,7 @@ export function UnifiedWorkspace() {
         }
         beginSession(result.execution_id, value);
         setSessionId(result.execution_id);
+        setPipelineStages(projectAgentPipeline(result.runtime.capability_executions));
         addLog('agent', 'Mission: ' + result.mission.title);
         addLog('system', 'Steps: ' + result.mission.steps + ' | Mode: ' + result.mission.mode);
         if (result.artifacts > 0) addLog('result', 'Artifacts: ' + result.artifacts);
@@ -322,7 +333,7 @@ export function UnifiedWorkspace() {
           </section>
 
           <section className="rail-section rail-stages">
-            <div className="rail-section__heading"><p className="rail-label">PIPELINE</p><span>{completedStages}/{PIPELINE_STAGES.length}</span></div>
+            <div className="rail-section__heading"><p className="rail-label">{effectiveMode === 'compile' ? 'PIPELINE' : 'CAPABILITY PLAN'}</p><span>{completedStages}/{PIPELINE_STAGES.length}</span></div>
             <ol>
               {PIPELINE_STAGES.map((stage) => {
                 const stageStatus = pipelineStages[stage] || 'pending';
@@ -397,7 +408,7 @@ export function UnifiedWorkspace() {
               <section className="result-block"><ConstraintCoveragePanel coverage={dashData.risk.coverage} /></section>
               <section className="result-block"><CitationPanel sop={dashData.sop} /></section>
               {dashData.trusted_audit && <section className="result-block"><TrustedAuditPanel trustedAudit={dashData.trusted_audit} /></section>}
-              {dashData.evaluation && <section className="result-block"><CompilerEvalPanel evaluation={dashData.evaluation} /></section>}
+              {dashData.evaluation && <section className="result-block"><CompilerEvalPanel evaluation={dashData.evaluation} coverage={dashData.risk.coverage} /></section>}
               {dashData.evolution && <section className="result-block"><EvolutionPanel evolution={dashData.evolution} /></section>}
             </div>
           )}

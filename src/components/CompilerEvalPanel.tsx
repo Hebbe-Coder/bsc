@@ -1,110 +1,79 @@
-import type { Evaluation, QualityDimension } from "../api/compilerDashboardApi";
+import { useState } from 'react';
+import { ArrowUpRight, CheckCircle2, CircleAlert, Gauge, Layers3 } from 'lucide-react';
+import type { Evaluation, QualityDimension, RiskPayload } from '../api/compilerDashboardApi';
 
-function scoreColor(score: number): string {
-  if (score >= 80) return "bg-emerald-500";
-  if (score >= 60) return "bg-amber-500";
-  return "bg-red-500";
+type Tone = 'ready' | 'review' | 'blocked';
+
+function scoreTone(score: number): Tone {
+  if (score >= 80) return 'ready';
+  if (score >= 60) return 'review';
+  return 'blocked';
 }
 
-function scoreTextColor(score: number): string {
-  if (score >= 80) return "text-emerald-700";
-  if (score >= 60) return "text-amber-700";
-  return "text-red-700";
+function severityFor(dim: QualityDimension): string {
+  const match = dim.details.match(/Severity:\s*([a-z]+)/i);
+  return match?.[1]?.toLowerCase() ?? (dim.score <= 20 ? 'critical' : dim.score <= 40 ? 'high' : 'medium');
 }
 
-function levelLabel(score: number): string {
-  if (score >= 90) return "优秀";
-  if (score >= 80) return "良好";
-  if (score >= 70) return "合格";
-  if (score >= 60) return "待改进";
-  return "不合格";
+function labelForTone(tone: Tone): string {
+  return tone === 'ready' ? '可进入决策' : tone === 'review' ? '需要复核' : '不建议推进';
 }
 
-function DimensionBar({ dim }: { dim: QualityDimension }) {
-  const pct = Math.max(0, Math.min(100, dim.score));
+function actionText(value: string): string {
+  return value.replace(/^Address gap:\s*/i, '');
+}
+
+function IssueRow({ dimension }: { dimension: QualityDimension }) {
+  const severity = severityFor(dimension);
   return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between text-xs">
-        <span className="font-medium text-slate-700">{dim.name}</span>
-        <span className={`font-semibold ${scoreTextColor(dim.score)}`}>{dim.score}</span>
-      </div>
-      <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
-        <div
-          className={`h-full rounded-full ${scoreColor(dim.score)} transition-all`}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-      {dim.feedback ? (
-        <p className="text-[11px] leading-snug text-slate-400">{dim.feedback}</p>
-      ) : null}
+    <div className="readiness-issue" data-severity={severity}>
+      <span>{severity}</span>
+      <div><strong>{dimension.name.replace(/_/g, ' ')}</strong><p>{dimension.feedback}</p></div>
+      <ArrowUpRight size={14} aria-hidden="true" />
     </div>
   );
 }
 
-export function CompilerEvalPanel({ evaluation }: { evaluation?: Evaluation | null }) {
-  if (!evaluation) {
-    return (
-      <div className="rounded-2xl border border-slate-200 bg-white/70 shadow-sm backdrop-blur transition hover:shadow-md">
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-          <h3 className="text-sm font-semibold tracking-wide text-slate-800">编译器产物质量评分</h3>
-        </div>
-        <div className="px-5 py-6 text-sm text-slate-400">暂无评分数据</div>
-      </div>
-    );
-  }
+export function CompilerEvalPanel({ evaluation, coverage }: { evaluation?: Evaluation | null; coverage?: RiskPayload['coverage'] }) {
+  const [showAll, setShowAll] = useState(false);
+  if (!evaluation) return null;
 
-  const passed = evaluation.is_passed;
+  const score = Math.max(0, Math.min(100, evaluation.overall_score));
+  const tone = scoreTone(score);
+  const dimensions = [...(evaluation.dimensions ?? [])].sort((a, b) => a.score - b.score);
+  const criticalCount = dimensions.filter((dimension) => severityFor(dimension) === 'critical').length;
+  const shownIssues = showAll ? dimensions : dimensions.slice(0, 4);
+  const circumference = 2 * Math.PI * 42;
+  const dashOffset = circumference - (circumference * score) / 100;
+  const actions = (evaluation.suggestions ?? []).slice(0, 3);
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white/70 shadow-sm backdrop-blur transition hover:shadow-md">
-      <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
-        <h3 className="text-sm font-semibold tracking-wide text-slate-800">编译器产物质量评分</h3>
-        <span
-          className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-            passed
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-              : "border-amber-200 bg-amber-50 text-amber-700"
-          }`}
-        >
-          {passed ? "✓ 质量合格" : "⚠ 待改进"}
-        </span>
+    <section className="insight-panel readiness-panel" data-tone={tone} aria-label="决策就绪度">
+      <header className="insight-panel__header">
+        <div>
+          <p className="insight-kicker">GO / NO-GO SIGNAL</p>
+          <h3>决策就绪度</h3>
+        </div>
+        <span className="insight-status">{tone === 'ready' ? <CheckCircle2 size={14} /> : <CircleAlert size={14} />}{labelForTone(tone)}</span>
+      </header>
+
+      <div className="readiness-hero">
+        <div className="readiness-gauge" aria-label={`决策就绪度 ${score} 分（满分 100）`}>
+          <svg viewBox="0 0 104 104" aria-hidden="true"><circle className="readiness-gauge__track" cx="52" cy="52" r="42" /><circle className="readiness-gauge__value" cx="52" cy="52" r="42" strokeDasharray={circumference} strokeDashoffset={dashOffset} /></svg>
+          <div><strong>{score}</strong><span>/ 100</span></div>
+        </div>
+        <div className="readiness-hero__copy"><p>{labelForTone(tone)}</p><strong>{evaluation.summary}</strong><small>该分数衡量当前证据是否足以支撑下一步决策，不等同于模型输出文本质量。</small></div>
       </div>
 
-      <div className="space-y-4 px-5 py-4">
-        {/* 总分 */}
-        <div className="flex items-end gap-3">
-          <span className={`text-4xl font-bold leading-none ${scoreTextColor(evaluation.overall_score)}`}>
-            {evaluation.overall_score}
-          </span>
-          <span className="pb-1 text-sm font-medium text-slate-500">
-            分 · {levelLabel(evaluation.overall_score)}
-            <span className="ml-1 text-xs font-normal text-slate-400">
-              （{evaluation.improvement_points} 个改进点）
-            </span>
-          </span>
-        </div>
-
-        {/* 维度条 */}
-        <div className="space-y-3">
-          {(evaluation.dimensions ?? []).map((d, index) => (
-            <DimensionBar key={`${d.name}-${index}`} dim={d} />
-          ))}
-        </div>
-
-        {/* 改进建议 */}
-        {evaluation.suggestions && evaluation.suggestions.length > 0 ? (
-          <div className="rounded-xl border border-amber-100 bg-amber-50/60 px-4 py-3">
-            <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-amber-600">
-              改进建议
-            </p>
-            <ul className="list-inside list-disc space-y-0.5 text-xs text-amber-800">
-              {evaluation.suggestions.map((s, i) => (
-                <li key={i}>{s}</li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
+      <div className="readiness-stats">
+        <div><Gauge size={15} /><span>约束覆盖</span><strong>{coverage ? `${coverage.covered}/${coverage.total}` : '—'}</strong></div>
+        <div><CircleAlert size={15} /><span>严重缺口</span><strong>{criticalCount}</strong></div>
+        <div><Layers3 size={15} /><span>待补事项</span><strong>{evaluation.improvement_points}</strong></div>
       </div>
-    </div>
+
+      {dimensions.length > 0 && <div className="readiness-issues"><div><p>优先处理</p><span>按影响排序</span></div>{shownIssues.map((dimension, index) => <IssueRow dimension={dimension} key={`${dimension.name}-${index}`} />)}{dimensions.length > 4 && <button type="button" onClick={() => setShowAll((value) => !value)}>{showAll ? '收起问题列表' : `查看全部 ${dimensions.length} 项问题`}</button>}</div>}
+
+      {actions.length > 0 && <div className="readiness-actions"><p>建议下一步</p><ol>{actions.map((action, index) => <li key={`${action}-${index}`}><b>{index + 1}</b><span>{actionText(action)}</span></li>)}</ol></div>}
+    </section>
   );
 }
