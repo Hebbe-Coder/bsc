@@ -147,9 +147,9 @@ Do not include runtime data:
 
 - [x] Run the focused regression, TypeScript check, lint, and production build
   again after real-provider verification.
-- [ ] Stage only the Agent OS code, tests, and this worklog; exclude
+- [x] Stage only the Agent OS code, tests, and this worklog; exclude
   `app/bsc_cloud.db` and `app/bsc_cloud.db-shm` runtime data.
-- [ ] Create a local commit on `master` without pushing it.
+- [x] Create a local commit on `master` without pushing it.
 
 ## Final Verification
 
@@ -160,3 +160,12 @@ Do not include runtime data:
   main-chunk advisory only.
 - Browser console: no BSC application warning or error. The only ignored
   message was the Codex-host `Statsig` telemetry registration timeout.
+
+## Local Commit
+
+- `c1d0b48 fix: harden real agent os runs` contains the runtime fixes,
+  client timeout policy, audit/coverage projection, business-brief UI,
+  regression tests, and the initial verification record.
+- No remote push was attempted. The only remaining worktree changes are the
+  intentionally untracked SQLite runtime files `app/bsc_cloud.db` and
+  `app/bsc_cloud.db-shm`.
