@@ -27,6 +27,10 @@ class ContextPack(BaseModel):
     page_ids: tuple[str, ...] = ()
     source_ids: tuple[str, ...] = ()
     omitted_refs: tuple[str, ...] = ()
+    retrieval_refs: tuple[str, ...] = ()
+    section_refs: tuple[str, ...] = ()
+    weekly_distillation_id: str = ""
+    token_budget: int = Field(ge=128)
 
 
 class ContextPackBuilder:
@@ -48,6 +52,7 @@ class ContextPackBuilder:
         sources: Iterable[dict[str, Any]] = (),
         evaluations: Iterable[dict[str, Any]] = (),
         weekly_distillation: dict[str, Any] | None = None,
+        retrieval_refs: Iterable[str] = (),
     ) -> ContextPack:
         if rules.project_id != project_id:
             raise ValueError("rules must be project scoped")
@@ -68,6 +73,7 @@ class ContextPackBuilder:
         omitted: list[str] = []
         page_ids: list[str] = []
         source_ids: list[str] = []
+        section_refs: list[str] = []
         used = 0
         for kind, ref_id, label, content in sections:
             rendered = f"## [{kind}:{ref_id}] {label}\n{content.strip()}\n"
@@ -76,6 +82,7 @@ class ContextPackBuilder:
                 continue
             included.append(rendered)
             used += len(rendered)
+            section_refs.append(f"{kind}:{ref_id}")
             if kind == "page":
                 page_ids.append(ref_id)
             elif kind == "source":
@@ -94,6 +101,10 @@ class ContextPackBuilder:
             page_ids=tuple(page_ids),
             source_ids=tuple(source_ids),
             omitted_refs=tuple(omitted),
+            retrieval_refs=tuple(dict.fromkeys(str(ref) for ref in retrieval_refs if str(ref))),
+            section_refs=tuple(section_refs),
+            weekly_distillation_id=str(weekly_distillation.get("id") or "") if weekly_distillation else "",
+            token_budget=self.max_characters // 4,
         )
 
     @staticmethod
@@ -125,13 +136,20 @@ class WikiContextProvider:
         *,
         vault_root: Path | str | None = None,
         max_characters: int = 12_000,
+        retrieval_service=None,
     ) -> None:
         self.repository = repository or WikiRepository()
         self.vault_root = Path(vault_root) if vault_root else Path(settings.OBSIDIAN_VAULT_ROOT) if settings.OBSIDIAN_VAULT_ROOT else None
         self.builder = ContextPackBuilder(max_characters=max_characters)
+        if retrieval_service is None:
+            from app.knowledge.service import KnowledgeService
+
+            retrieval_service = KnowledgeService(repo=self.repository)
+        self.retrieval_service = retrieval_service
 
     def build_context(self, *, project_id: str, task_constraints: Iterable[str] = ()) -> ContextPack | None:
         """Return ``None`` when the project has no configured Wiki authority."""
+        task_constraints = tuple(task_constraints)
         mapping = self.repository.get_vault(project_id)
         if not mapping or self.vault_root is None:
             return None
@@ -157,6 +175,13 @@ class WikiContextProvider:
             for status in ("eligible", "processed")
             for source in self.repository.list_sources(project_id, status=status)
         ]
+        retrieval_refs = self._candidate_refs(project_id, task_constraints)
+        if retrieval_refs:
+            selected_page_paths = {ref for ref in retrieval_refs if ref == "AGENTS.md" or ref.startswith("wiki/")}
+            selected_source_ids = retrieval_refs - selected_page_paths
+            decisions = [item for item in decisions if item.get("path") in selected_page_paths]
+            pages = [item for item in pages if item.get("path") in selected_page_paths]
+            sources = [item for item in sources if item.get("id") in selected_source_ids]
         evaluations = [
             {
                 "id": evaluation["id"],
@@ -175,7 +200,24 @@ class WikiContextProvider:
             sources=sources,
             evaluations=evaluations,
             weekly_distillation=weekly,
+            retrieval_refs=sorted(retrieval_refs),
         )
+
+    def _candidate_refs(self, project_id: str, task_constraints: Iterable[str]) -> set[str]:
+        query = "\n".join(str(item).strip() for item in task_constraints if str(item).strip())
+        if not query:
+            return set()
+        hits = self.retrieval_service.retrieve(query, project_id=project_id, top_k=24, rerank=True)
+        references: set[str] = set()
+        for hit in hits or []:
+            source = str(hit.get("source") or "")
+            evidence_prefix = f"evidence://{project_id}/"
+            wiki_prefix = f"wiki://{project_id}/"
+            if source.startswith(evidence_prefix):
+                references.add(source[len(evidence_prefix):])
+            elif source.startswith(wiki_prefix):
+                references.add(source[len(wiki_prefix):])
+        return references
 
     def _latest_distillation(self, project_id: str, vault: FilesystemWikiVault) -> dict[str, Any] | None:
         records = self.repository.list_distillations(project_id)

@@ -85,6 +85,9 @@ class KnowledgeHealthService:
             {
                 "at": item.get("created_at", ""),
                 "score": item.get("summary", {}).get("score"),
+                "baseline_score": item.get("summary", {}).get("baseline_score"),
+                "score_delta": item.get("summary", {}).get("score_delta"),
+                "latency_ms": item.get("summary", {}).get("latency_ms"),
                 "status": item.get("status", ""),
             }
             for item in reversed(self.repository.list_eval_runs(project_id, limit=100))

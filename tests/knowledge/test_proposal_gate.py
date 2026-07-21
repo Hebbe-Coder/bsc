@@ -1,7 +1,7 @@
 import pytest
 
 from app.knowledge.proposal_gate import InMemoryWikiVault, ProposalGate, ProposalGateError
-from app.knowledge.wiki_contracts import WikiOperation, WikiOperationType, WikiProposal
+from app.knowledge.wiki_contracts import KnowledgeRun, WikiOperation, WikiOperationType, WikiProposal
 from app.knowledge.wiki_evaluator import WikiEvaluator
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_rules import build_default_agents_rules
@@ -27,6 +27,12 @@ def _proposal(source_id, expected_content_hash=""):
                 source_ids=[source_id], expected_content_hash=expected_content_hash,
             ),
             WikiOperation(operation=WikiOperationType.APPEND, path="wiki/index.md", content="\n- [[wiki/concepts/approval.md]]\n", source_ids=[source_id]),
+            WikiOperation(
+                operation=WikiOperationType.CREATE,
+                path="wiki/overview.md",
+                content="---\ntitle: Overview\nkind: brief\n---\n- [[wiki/concepts/approval.md]] [source:%s]\n" % source_id,
+                source_ids=[source_id],
+            ),
             WikiOperation(operation=WikiOperationType.APPEND, path="wiki/log.md", content="\n- Approval added. [source:%s]\n" % source_id, source_ids=[source_id]),
         ],
     )
@@ -63,7 +69,8 @@ def test_gate_failure_leaves_vault_proposal_and_sources_unchanged(tmp_path):
             ProposalGate(repo, vault).publish(proposal=proposal, rules_text=build_default_agents_rules("project-a"))
 
         assert vault.contents == {}
-        assert repo.get_proposal("project-a", proposal.id)["status"] == "draft"
+        assert repo.get_proposal("project-a", proposal.id)["status"] == "failed"
+        assert repo.get_proposal("project-a", proposal.id)["eval_summary"]["evaluation"]["status"] == "unavailable"
         assert repo.get_source("project-a", source["id"])["status"] == "eligible"
     finally:
         repo.close()
@@ -122,6 +129,12 @@ def test_gate_allows_a_compensating_proposal_to_reuse_published_evidence(tmp_pat
                 ),
                 WikiOperation(
                     operation=WikiOperationType.APPEND,
+                    path="wiki/overview.md",
+                    content=f"\n- [[wiki/concepts/approval.md]] compensation reviewed. [source:{source['id']}]\n",
+                    source_ids=[source["id"]],
+                ),
+                WikiOperation(
+                    operation=WikiOperationType.APPEND,
                     path="wiki/log.md",
                     content=f"\n- Approval compensation recorded. [source:{source['id']}]\n",
                     source_ids=[source["id"]],
@@ -137,5 +150,79 @@ def test_gate_allows_a_compensating_proposal_to_reuse_published_evidence(tmp_pat
         assert "after review" in vault.contents["wiki/concepts/approval.md"]
         page = next(page for page in repo.list_pages("project-a") if page["path"] == "wiki/concepts/approval.md")
         assert len(repo.list_page_revisions("project-a", page["id"])) == 2
+    finally:
+        repo.close()
+
+
+def test_gate_auto_publishes_only_when_project_policy_and_sources_are_trusted(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "gate-auto.db"))
+    repo.configure_vault("project-a", "projects/project-a", metadata={"auto_publish_enabled": True})
+    vault = InMemoryWikiVault()
+    source = _source(repo)
+    proposal = _proposal(source["id"])
+    repo.create_proposal(proposal, actor_id="knowledge-task")
+    WikiEvaluator(repo).save_case(
+        project_id="project-a", case_id="citation", case_type="citation", expected={"source_ids": [source["id"]]}
+    )
+    run = KnowledgeRun(project_id="project-a", run_type="wiki_publish", trigger="automatic")
+    repo.create_run(run)
+    try:
+        result = ProposalGate(repo, vault).publish(
+            proposal=proposal,
+            rules_text=build_default_agents_rules("project-a"),
+            publication_mode="automatic",
+            actor_id="knowledge-task",
+            actor_role="system",
+            audit_run_id=run.id,
+        )
+
+        assert result["status"] == "published"
+        assert result["publication_policy"]["mode"] == "automatic"
+        events = repo.list_run_events(project_id="project-a", run_id=run.id)
+        assert any(event["event_type"] == "knowledge.proposal.publication.policy.accepted" for event in events)
+    finally:
+        repo.close()
+
+
+def test_gate_admin_override_keeps_failed_gate_evidence_and_reason_in_audit(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "gate-override.db"))
+    vault = InMemoryWikiVault()
+    source = _source(repo)
+    proposal = _proposal(source["id"])
+    repo.create_proposal(proposal, actor_id="global-admin")
+    run = KnowledgeRun(project_id="project-a", run_type="wiki_publish", trigger="manual", actor_id="global-admin")
+    repo.create_run(run)
+    reason = "Incident recovery approved by the knowledge owner"
+    try:
+        with pytest.raises(ProposalGateError, match="administrator permission"):
+            ProposalGate(repo, vault).publish(
+                proposal=proposal,
+                rules_text=build_default_agents_rules("project-a"),
+                actor_id="project-admin",
+                actor_role="project_admin",
+                override_reason=reason,
+                audit_run_id=run.id,
+            )
+        assert repo.get_proposal("project-a", proposal.id)["status"] == "draft"
+
+        result = ProposalGate(repo, vault).publish(
+            proposal=proposal,
+            rules_text=build_default_agents_rules("project-a"),
+            actor_id="global-admin",
+            actor_role="admin",
+            override_reason=reason,
+            audit_run_id=run.id,
+        )
+
+        assert result["status"] == "published"
+        persisted = repo.get_proposal("project-a", proposal.id)
+        assert persisted["eval_summary"]["evaluation"]["status"] == "unavailable"
+        assert persisted["eval_summary"]["publication_policy"]["override_reason"] == reason
+        event = next(
+            item for item in repo.list_run_events(project_id="project-a", run_id=run.id)
+            if item["event_type"] == "knowledge.proposal.override.applied"
+        )
+        assert event["payload"]["evaluation_status"] == "unavailable"
+        assert event["payload"]["override_reason"] == reason
     finally:
         repo.close()

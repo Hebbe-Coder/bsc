@@ -42,12 +42,29 @@ class KnowledgeGraphService:
                 edges.append(self._edge(project_id, proposal_id, page_id, "proposal_changes_page"))
         return self.repository.replace_graph_edges(project_id, edges)
 
-    def list_edges(self, project_id: str, edge_type: str | None = None) -> list[dict]:
-        return self.repository.list_graph_edges(project_id, edge_type=edge_type)
+    def list_edges(
+        self, project_id: str, edge_type: str | None = None, *, limit: int = 1000, offset: int = 0
+    ) -> list[dict]:
+        return self.repository.list_graph_edges(project_id, edge_type=edge_type, limit=limit, offset=offset)
 
-    def visualization(self, *, project_id: str, edge_type: str | None = None) -> dict[str, list[dict]]:
+    def backlinks(self, *, project_id: str, page_id: str, limit: int = 200) -> list[dict]:
+        if not self.repository.get_page(project_id, page_id):
+            return []
+        return self.repository.list_backlinks(project_id, page_id, limit=limit)
+
+    def visualization(
+        self,
+        *,
+        project_id: str,
+        edge_type: str | None = None,
+        limit: int = 500,
+        offset: int = 0,
+    ) -> dict[str, Any]:
         """Return only persisted graph entities so the UI never invents graph nodes."""
-        edges = self.list_edges(project_id, edge_type=edge_type)
+        limit = max(1, min(int(limit), 500))
+        offset = max(0, int(offset))
+        edges = self.list_edges(project_id, edge_type=edge_type, limit=limit, offset=offset)
+        total = self.repository.count_graph_edges(project_id, edge_type=edge_type)
         nodes: dict[str, dict] = {}
         for source in self.repository.list_sources(project_id):
             nodes[source["id"]] = {
@@ -65,7 +82,14 @@ class KnowledgeGraphService:
                 "status": proposal.get("status", ""), "created_at": proposal.get("created_at", ""),
             }
         referenced_ids = {edge["from_id"] for edge in edges} | {edge["to_id"] for edge in edges}
-        return {"nodes": [node for node_id, node in nodes.items() if node_id in referenced_ids], "edges": edges}
+        return {
+            "nodes": [node for node_id, node in nodes.items() if node_id in referenced_ids],
+            "edges": edges,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "truncated": offset + len(edges) < total,
+        }
 
     @staticmethod
     def _edge(project_id: str, from_id: str, to_id: str, edge_type: str) -> KnowledgeGraphEdge:

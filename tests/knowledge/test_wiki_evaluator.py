@@ -30,6 +30,10 @@ def test_evaluator_persists_project_baselines_and_reports_non_regression(tmp_pat
 
         assert passing.status == "passed"
         assert passing.score == 1.0
+        assert passing.baseline_score is None
+        assert failing.baseline_score == 1.0
+        assert failing.score_delta == -1.0
+        assert failing.latency_ms >= 0
         assert {row["summary"]["score"] for row in repo.list_eval_runs("project-a")} == {0.0, 1.0}
         assert failing.status == "failed"
         assert {finding["code"] for finding in failing.findings} == {"missing_expected_source", "missing_required_constraint"}

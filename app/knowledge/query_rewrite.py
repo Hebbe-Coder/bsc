@@ -143,7 +143,7 @@ class QueryRewriter:
         return []
 
     def rewrite(self, query: str) -> Dict:
-        cache_key = hashlib.md5(query.encode()).hexdigest()
+        cache_key = hashlib.sha256(query.encode()).hexdigest()
         cached = self._cache_get(cache_key)
         if cached is not None:
             return cached
@@ -191,7 +191,7 @@ class QueryRewriter:
 class MockQueryRewriter(QueryRewriter):
     def rewrite(self, query: str) -> Dict:
         ensure_mock_allowed("Query Rewrite")
-        cache_key = hashlib.md5(query.encode()).hexdigest()
+        cache_key = hashlib.sha256(query.encode()).hexdigest()
         cached = self._cache_get(cache_key)
         if cached is not None:
             return cached
@@ -235,7 +235,7 @@ class LLMQueryRewriter(QueryRewriter):
         return self._llm_client
 
     def rewrite(self, query: str) -> Dict:
-        cache_key = hashlib.md5(query.encode()).hexdigest()
+        cache_key = hashlib.sha256(query.encode()).hexdigest()
         cached = self._cache_get(cache_key)
         if cached is not None:
             return cached

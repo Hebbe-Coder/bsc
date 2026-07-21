@@ -12,6 +12,16 @@ from app.knowledge.wiki_source_capture import (
 )
 
 
+class RecordingSourceIndex:
+    def __init__(self, result=None):
+        self.sources = []
+        self.result = result or {"status": "ingested", "doc_id": "source-doc"}
+
+    def project_source(self, source):
+        self.sources.append(dict(source))
+        return dict(self.result)
+
+
 def test_source_capture_hashes_and_deduplicates_project_evidence(tmp_path):
     repo = WikiRepository(db_path=str(tmp_path / "source-capture.db"))
     service = SourceCaptureService(repo)
@@ -141,5 +151,59 @@ def test_source_capture_versions_changed_content_at_the_same_origin(tmp_path):
         assert [(edge["from_id"], edge["to_id"], edge["edge_type"]) for edge in repo.list_graph_edges("project-a")] == [
             (second.source["id"], first.source["id"], "source_supersedes_source")
         ]
+    finally:
+        repo.close()
+
+
+def test_source_registry_precedes_projection_and_retains_projection_failure(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "source-projection.db"))
+    index = RecordingSourceIndex({"status": "error", "reason": "backend unavailable"})
+    service = SourceCaptureService(repo, search_index=index)
+    try:
+        result = service.capture(
+            CapturedSourceInput(
+                project_id="project-a",
+                source_type="manual_upload",
+                origin="evidence.md",
+                raw_content="Registered before projection.",
+                trust_level="trusted",
+            )
+        )
+
+        assert index.sources[0]["id"] == result.source["id"]
+        persisted = repo.get_source("project-a", result.source["id"])
+        assert persisted["raw_content"] == "Registered before projection."
+        assert persisted["metadata"]["projection"]["status"] == "failed"
+        assert persisted["metadata"]["projection"]["code"] == "index_backend_error"
+    finally:
+        repo.close()
+
+
+def test_trust_assessment_records_freshness_relevance_curation_and_extraction(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "source-assessment.db"))
+    service = SourceCaptureService(repo, search_index=RecordingSourceIndex())
+    try:
+        result = service.capture(
+            CapturedSourceInput(
+                project_id="project-a",
+                source_type="horizon_signal",
+                origin="https://trusted.example/items/1",
+                raw_content="A complete extracted signal with enough material for synthesis and review.",
+                trust_level="reviewed",
+                metadata={
+                    "published_at": datetime.now(timezone.utc).isoformat(),
+                    "ai_score": 9.2,
+                    "curated": True,
+                    "extraction_status": "complete",
+                },
+            )
+        )
+
+        assessment = result.source["metadata"]["policy_assessment"]
+        assert assessment["freshness"] == "fresh"
+        assert assessment["relevance"] == "high"
+        assert assessment["curation"] == "user_curated"
+        assert assessment["extraction_quality"] == "complete"
+        assert assessment["reasons"]
     finally:
         repo.close()

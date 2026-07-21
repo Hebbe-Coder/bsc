@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import ReactFlow, { Background, Controls, type Edge, type Node } from 'reactflow';
 import 'reactflow/dist/style.css';
 import {
@@ -13,86 +13,62 @@ import {
   fetchWeeklyDistillation, fetchWeeklyDistillations, lintKnowledgeProposal, publishKnowledgeProposal,
   rejectKnowledgeProposal, restoreKnowledgePageRevision, retryKnowledgeRun, runKnowledgeJob, setKnowledgeScheduleState,
   setKnowledgeWorkspaceAccessKey, streamKnowledgeRunEvents, transitionKnowledgeSource,
-  type KnowledgeGraph, type KnowledgeGraphNode, type KnowledgeHealth, type KnowledgeHealthTrend,
+  type KnowledgeGraphNode, type KnowledgeHealth,
   type KnowledgePage, type KnowledgePageDetail, type KnowledgeProposal, type KnowledgeRun,
-  type KnowledgeRunEvent, type KnowledgeSchedule, type KnowledgeSource, type KnowledgeWorkspaceData,
+  type KnowledgeRunEvent, type KnowledgeSchedule, type KnowledgeSource,
   type WeeklyDistillation, type WeeklyDistillationDetail,
 } from '../api/knowledgeWorkspaceApi';
+import { useKnowledgeWorkspaceStore, type KnowledgeProposalBaselines } from '../store/knowledgeWorkspaceStore';
 
 type Props = { onClose: () => void };
-type CenterView = 'page' | 'proposal' | 'run' | 'graph' | 'distillation';
-type MobilePane = 'tree' | 'main' | 'inspector';
 type GraphNodeData = { record: KnowledgeGraphNode; label: string };
-type ProposalBaseline = Record<string, string>;
 
 const JOB_TYPES = ['source_sync', 'horizon_capture', 'wiki_maintenance', 'knowledge_lint_eval', 'weekly_distillation'];
 const TERMINAL_RUNS = new Set(['completed', 'failed', 'cancelled', 'unavailable']);
 const TrendChart = lazy(() => import('echarts-for-react'));
 
 export function KnowledgeWorkspace({ onClose }: Props) {
-  const [projectId, setProjectId] = useState('default');
   const [accessKey, setAccessKey] = useState('');
-  const [workspace, setWorkspace] = useState<KnowledgeWorkspaceData | null>(null);
-  const [sources, setSources] = useState<KnowledgeSource[]>([]);
-  const [runs, setRuns] = useState<KnowledgeRun[]>([]);
-  const [schedules, setSchedules] = useState<KnowledgeSchedule[]>([]);
-  const [graph, setGraph] = useState<KnowledgeGraph>({ nodes: [], edges: [], count: 0 });
-  const [proposals, setProposals] = useState<KnowledgeProposal[]>([]);
-  const [pages, setPages] = useState<KnowledgePage[]>([]);
-  const [distillations, setDistillations] = useState<WeeklyDistillation[]>([]);
-  const [health, setHealth] = useState<KnowledgeHealth | null>(null);
-  const [trend, setTrend] = useState<KnowledgeHealthTrend | null>(null);
-  const [selectedPage, setSelectedPage] = useState<KnowledgePageDetail | null>(null);
-  const [selectedSource, setSelectedSource] = useState<KnowledgeSource | null>(null);
-  const [selectedProposal, setSelectedProposal] = useState<KnowledgeProposal | null>(null);
-  const [selectedRun, setSelectedRun] = useState<KnowledgeRun | null>(null);
-  const [selectedDistillation, setSelectedDistillation] = useState<WeeklyDistillationDetail | null>(null);
-  const [proposalBaselines, setProposalBaselines] = useState<ProposalBaseline>({});
-  const [runEvents, setRunEvents] = useState<KnowledgeRunEvent[]>([]);
-  const [centerView, setCenterView] = useState<CenterView>('page');
-  const [mobilePane, setMobilePane] = useState<MobilePane>('main');
+  const {
+    projectId, workspace, sources, runs, schedules, graph, proposals, pages, distillations, health, trend,
+    selectedPage, selectedSource, selectedProposal, selectedRun, selectedDistillation, proposalBaselines,
+    runEvents, centerView, mobilePane, graphEdgeType, graphNodeType, graphNodeStatus, error, actionMessage,
+    loading, actionBusy, setProjectId, beginLoad, applyLoad, failLoad, setSelectedPage, setSelectedSource,
+    setSelectedProposal, setSelectedRun, setSelectedDistillation, setProposalBaselines, clearRunEvents,
+    appendRunEvents, setCenterView, setMobilePane, setGraphEdgeType, setGraphNodeType, setGraphNodeStatus,
+    setError, setActionMessage, setActionBusy,
+  } = useKnowledgeWorkspaceStore();
   const [isCompactViewport, setIsCompactViewport] = useState(() => window.matchMedia('(max-width: 780px)').matches);
-  const [graphEdgeType, setGraphEdgeType] = useState('');
-  const [graphNodeType, setGraphNodeType] = useState('');
-  const [graphNodeStatus, setGraphNodeStatus] = useState('');
   const [scheduleJobType, setScheduleJobType] = useState('source_sync');
   const [scheduleCron, setScheduleCron] = useState('0 8 * * 1');
-  const [error, setError] = useState('');
-  const [actionMessage, setActionMessage] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [actionBusy, setActionBusy] = useState(false);
-  const requestVersion = useRef(0);
 
-  const load = async (graphFilter = graphEdgeType) => {
-    const version = ++requestVersion.current;
-    setLoading(true);
-    setError('');
+  const load = useCallback(async (graphFilter = graphEdgeType) => {
+    const requestedProject = projectId;
+    const version = beginLoad(requestedProject);
     try {
       const [nextWorkspace, nextSources, nextRuns, nextGraph, nextSchedules, nextProposals, nextPages, nextDistillations, nextHealth, nextTrend] = await Promise.all([
         fetchKnowledgeWorkspace(projectId), fetchKnowledgeSources(projectId), fetchKnowledgeRuns(projectId), fetchKnowledgeGraph(projectId, graphFilter),
         fetchKnowledgeSchedules(projectId), fetchKnowledgeProposals(projectId), fetchKnowledgePages(projectId), fetchWeeklyDistillations(projectId),
         fetchKnowledgeHealth(projectId), fetchKnowledgeHealthTrend(projectId),
       ]);
-      if (version !== requestVersion.current) return;
-      setWorkspace(nextWorkspace);
-      setSources(nextSources.sources);
-      setRuns(nextRuns.runs);
-      setGraph(nextGraph);
-      setSchedules(nextSchedules.schedules);
-      setProposals(nextProposals.proposals);
-      setPages(nextPages.pages);
-      setDistillations(nextDistillations.distillations);
-      setHealth(nextHealth);
-      setTrend(nextTrend);
+      applyLoad(version, requestedProject, {
+        workspace: nextWorkspace,
+        sources: nextSources.sources,
+        runs: nextRuns.runs,
+        graph: nextGraph,
+        schedules: nextSchedules.schedules,
+        proposals: nextProposals.proposals,
+        pages: nextPages.pages,
+        distillations: nextDistillations.distillations,
+        health: nextHealth,
+        trend: nextTrend,
+      });
     } catch (reason) {
-      if (version === requestVersion.current) setError(reason instanceof Error ? reason.message : 'Knowledge workspace failed to load');
-    } finally {
-      if (version === requestVersion.current) setLoading(false);
+      failLoad(version, requestedProject, reason instanceof Error ? reason.message : 'Knowledge workspace failed to load');
     }
-  };
+  }, [applyLoad, beginLoad, failLoad, graphEdgeType, projectId]);
 
-  useEffect(() => { void load(); }, [projectId]);
-  useEffect(() => { void load(graphEdgeType); }, [graphEdgeType]);
+  useEffect(() => { void load(graphEdgeType); }, [graphEdgeType, load]);
   useEffect(() => {
     const query = window.matchMedia('(max-width: 780px)');
     const sync = () => setIsCompactViewport(query.matches);
@@ -107,13 +83,8 @@ export function KnowledgeWorkspace({ onClose }: Props) {
     let lastSequence = 0;
     let active = true;
     const appendEvents = (incoming: KnowledgeRunEvent[]) => {
-      setRunEvents((previous) => {
-        const current = new Map(previous.map((event) => [event.sequence, event]));
-        for (const event of incoming) current.set(event.sequence, event);
-        const next = [...current.values()].sort((left, right) => left.sequence - right.sequence);
-        lastSequence = next.at(-1)?.sequence ?? lastSequence;
-        return next;
-      });
+      appendRunEvents(projectId, selectedRun.id, incoming);
+      lastSequence = Math.max(lastSequence, ...incoming.map((event) => event.sequence));
     };
     const connect = async () => {
       try {
@@ -128,10 +99,10 @@ export function KnowledgeWorkspace({ onClose }: Props) {
         if (active && !controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Run event stream failed');
       }
     };
-    setRunEvents([]);
+    clearRunEvents();
     void connect();
     return () => { active = false; controller.abort(); };
-  }, [projectId, selectedRun?.id]);
+  }, [appendRunEvents, clearRunEvents, projectId, selectedRun, setError]);
 
   useEffect(() => {
     if (!selectedProposal) return undefined;
@@ -151,7 +122,7 @@ export function KnowledgeWorkspace({ onClose }: Props) {
       if (active) setError(reason instanceof Error ? reason.message : 'Proposal baseline failed to load');
     });
     return () => { active = false; };
-  }, [projectId, selectedProposal?.id, pages]);
+  }, [pages, projectId, selectedProposal, setError, setProposalBaselines]);
 
   const showMessage = (message: string) => { setError(''); setActionMessage(message); };
   const withAction = async (action: () => Promise<void>) => {
@@ -261,6 +232,7 @@ export function KnowledgeWorkspace({ onClose }: Props) {
   const sourceValues = trend?.source_throughput.map((item) => item.count) ?? [];
   const evalLabels = trend?.evaluations.map((item) => item.at.slice(0, 10)) ?? [];
   const evalValues = trend?.evaluations.map((item) => item.score) ?? [];
+  const evalDeltaValues = trend?.evaluations.map((item) => item.score_delta) ?? [];
   const proposalLabels = trend?.proposal_outcomes.map((item) => item.date) ?? [];
   const proposalStatuses = [...new Set((trend?.proposal_outcomes ?? []).flatMap((item) => Object.keys(item.statuses)))].sort();
   const proposalValues = Object.fromEntries(proposalStatuses.map((status) => [
@@ -268,6 +240,7 @@ export function KnowledgeWorkspace({ onClose }: Props) {
     (trend?.proposal_outcomes ?? []).map((item) => item.statuses[status] ?? 0),
   ]));
   const showTrendCharts = !isCompactViewport || mobilePane === 'inspector';
+  const canWrite = workspace?.access.can_write ?? false;
 
   return <section className="knowledge-workspace" aria-label="Knowledge workspace">
     <header className="knowledge-workspace__header">
@@ -276,8 +249,8 @@ export function KnowledgeWorkspace({ onClose }: Props) {
         <label><span>Project</span><input value={projectId} onChange={(event) => setProjectId(event.target.value)} aria-label="Project ID" /></label>
         <label><span>Access key</span><input type="password" value={accessKey} onChange={(event) => setAccessKey(event.target.value)} placeholder="Access key" aria-label="Knowledge access key" /></label>
         <button onClick={() => { setKnowledgeWorkspaceAccessKey(accessKey); void load(); }} title="Use this key only for the current browser session"><KeyRound size={15} /> Connect</button>
-        <button onClick={() => void runJob('source_sync')} disabled={actionBusy} title="Capture user-authored Obsidian material as immutable evidence"><Download size={15} /> Sync</button>
-        <button onClick={() => void runJob('wiki_maintenance')} disabled={actionBusy} title="Compile eligible evidence into a reviewable proposal"><WandSparkles size={15} /> Maintain</button>
+        <button onClick={() => void runJob('source_sync')} disabled={actionBusy || !canWrite} title="Capture user-authored Obsidian material as immutable evidence"><Download size={15} /> Sync</button>
+        <button onClick={() => void runJob('wiki_maintenance')} disabled={actionBusy || !canWrite} title="Compile eligible evidence into a reviewable proposal"><WandSparkles size={15} /> Maintain</button>
         <button onClick={() => void load()} disabled={loading} title="Refresh current project state"><RefreshCw size={15} className={loading ? 'spin' : ''} /> Refresh</button>
         <button className="icon-button" onClick={onClose} aria-label="Close knowledge workspace"><X size={18} /></button>
       </div>
@@ -315,23 +288,46 @@ export function KnowledgeWorkspace({ onClose }: Props) {
             <ViewTab active={centerView === 'graph'} onClick={() => setCenterView('graph')} icon={<Network size={14} />} label="Graph" />
             <ViewTab active={centerView === 'distillation'} onClick={() => setCenterView('distillation')} icon={<Sparkles size={14} />} label="Weekly" />
           </nav>
-          {centerView === 'page' && <WikiReader page={selectedPage} pages={pages} busy={actionBusy} onCitation={inspectSource} onWikiLink={followWikiLink} onRestore={restoreRevision} />}
-          {centerView === 'proposal' && <ProposalReview proposal={selectedProposal} baselines={proposalBaselines} busy={actionBusy} onLint={lintProposal} onPublish={publishProposal} onReject={rejectProposal} />}
+          {centerView === 'page' && <WikiReader page={selectedPage} pages={pages} busy={actionBusy} canWrite={canWrite} onCitation={inspectSource} onWikiLink={followWikiLink} onRestore={restoreRevision} />}
+          {centerView === 'proposal' && <ProposalReview proposal={selectedProposal} baselines={proposalBaselines} busy={actionBusy} canWrite={canWrite} onLint={lintProposal} onPublish={publishProposal} onReject={rejectProposal} />}
           {centerView === 'run' && <RunTimeline runs={runs} selectedRun={selectedRun} events={runEvents} busy={actionBusy} onSelect={inspectRun} onRetry={retryRun} />}
-          {centerView === 'graph' && <section className="knowledge-graph-view"><header className="knowledge-content-header"><div><span className="eyebrow">RELATIONSHIP GRAPH</span><h3>Traceable knowledge relations</h3></div><div className="knowledge-graph-filters"><label className="knowledge-select-label">Edge filter<select value={graphEdgeType} onChange={(event) => setGraphEdgeType(event.target.value)}><option value="">All edges</option>{graphTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label><label className="knowledge-select-label">Node type<select value={graphNodeType} onChange={(event) => setGraphNodeType(event.target.value)}><option value="">All types</option>{graphNodeTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label><label className="knowledge-select-label">Node status<select value={graphNodeStatus} onChange={(event) => setGraphNodeStatus(event.target.value)}><option value="">All states</option>{graphNodeStatuses.map((status) => <option key={status} value={status}>{status}</option>)}</select></label></div></header><div className="knowledge-graph-canvas">{flowNodes.length ? <ReactFlow nodes={flowNodes} edges={flowEdges} fitView nodesDraggable={false} nodesConnectable={false} onNodeClick={(_, node) => { const record = node.data.record; if (record.node_type === 'source') inspectSource(record.id); if (record.node_type === 'page') { const page = pages.find((item) => item.id === record.id); if (page) void inspectPage(page); } if (record.node_type === 'proposal') { const proposal = proposals.find((item) => item.id === record.id); if (proposal) inspectProposal(proposal); } }}><Background gap={22} size={1} /><Controls showInteractive={false} /></ReactFlow> : <Empty text="No persisted relationships match the selected graph filters." />}</div>{filteredGraphNodes.length > maxNodes && <p className="knowledge-limit-note">Showing {maxNodes} of {filteredGraphNodes.length} persisted nodes. Narrow the graph filters to inspect a smaller relationship slice.</p>}</section>}
+          {centerView === 'graph' && <section className="knowledge-graph-view">
+            <header className="knowledge-content-header"><div><span className="eyebrow">RELATIONSHIP GRAPH</span><h3>Traceable knowledge relations</h3></div><div className="knowledge-graph-filters"><label className="knowledge-select-label">Edge filter<select value={graphEdgeType} onChange={(event) => setGraphEdgeType(event.target.value)}><option value="">All edges</option>{graphTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label><label className="knowledge-select-label">Node type<select value={graphNodeType} onChange={(event) => setGraphNodeType(event.target.value)}><option value="">All types</option>{graphNodeTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label><label className="knowledge-select-label">Node status<select value={graphNodeStatus} onChange={(event) => setGraphNodeStatus(event.target.value)}><option value="">All states</option>{graphNodeStatuses.map((status) => <option key={status} value={status}>{status}</option>)}</select></label></div></header>
+            <div className="knowledge-graph-canvas">{flowNodes.length ? <ReactFlow
+              nodes={flowNodes}
+              edges={flowEdges}
+              fitView
+              nodesDraggable={false}
+              nodesConnectable={false}
+              onNodeClick={(_, node) => {
+                const record = node.data.record;
+                if (record.node_type === 'source') inspectSource(record.id);
+                if (record.node_type === 'page') { const page = pages.find((item) => item.id === record.id); if (page) void inspectPage(page); }
+                if (record.node_type === 'proposal') { const proposal = proposals.find((item) => item.id === record.id); if (proposal) inspectProposal(proposal); }
+              }}
+              onEdgeClick={(_, edge) => {
+                const target = graph.nodes.find((record) => record.id === edge.target);
+                if (!target) return;
+                if (target.node_type === 'source') inspectSource(target.id);
+                if (target.node_type === 'page') { const page = pages.find((item) => item.id === target.id); if (page) void inspectPage(page); }
+                if (target.node_type === 'proposal') { const proposal = proposals.find((item) => item.id === target.id); if (proposal) inspectProposal(proposal); }
+              }}
+            ><Background gap={22} size={1} /><Controls showInteractive={false} /></ReactFlow> : <Empty text="No persisted relationships match the selected graph filters." />}</div>
+            {(graph.truncated || filteredGraphNodes.length > maxNodes) && <p className="knowledge-limit-note">Showing a bounded relationship slice ({flowNodes.length} nodes / {graph.edges.length} of {graph.total} edges). Narrow the filters to inspect another slice.</p>}
+          </section>}
           {centerView === 'distillation' && <DistillationReader records={distillations} selected={selectedDistillation} onSelect={inspectDistillation} />}
         </main>
 
         <aside className="knowledge-pane knowledge-pane--inspector" aria-label="Evidence and health inspector">
           <PaneHeader title="Source inspector" detail={selectedSource?.status || 'select evidence'} />
-          {selectedSource ? <SourceInspector source={selectedSource} busy={actionBusy} onApprove={promoteSource} /> : <Empty text="Select evidence to inspect immutable provenance, policy state, and capture metadata." />}
+          {selectedSource ? <SourceInspector source={selectedSource} busy={actionBusy} canWrite={canWrite} onApprove={promoteSource} /> : <Empty text="Select evidence to inspect immutable provenance, policy state, and capture metadata." />}
           <PaneHeader title="Automation" detail={`${schedules.length} schedules`} />
-          <div className="knowledge-list">{schedules.length ? schedules.map((schedule) => <div className="knowledge-schedule" key={schedule.id}><div><strong>{schedule.job_type}</strong><small>{schedule.cron} / {schedule.timezone}</small><small>{schedule.enabled ? `Next ${formatTimestamp(schedule.next_run_at)}` : 'Manual-only or paused'}</small></div><button className="icon-button" disabled={actionBusy} title={schedule.enabled ? 'Pause schedule' : 'Enable schedule'} onClick={() => void toggleSchedule(schedule)}>{schedule.enabled ? <Pause size={14} /> : <Play size={14} />}</button></div>) : <Empty text="Schedules remain unavailable until durable Celery execution is configured." />}</div>
-          <form className="knowledge-schedule-form" onSubmit={createSchedule}><label>Job<select value={scheduleJobType} onChange={(event) => setScheduleJobType(event.target.value)}>{JOB_TYPES.map((jobType) => <option key={jobType} value={jobType}>{jobType}</option>)}</select></label><label>Cron<input value={scheduleCron} onChange={(event) => setScheduleCron(event.target.value)} aria-label="Schedule cron" /></label><button disabled={actionBusy} type="submit"><Clock3 size={14} /> Save cadence</button></form>
+          <div className="knowledge-list">{schedules.length ? schedules.map((schedule) => <div className="knowledge-schedule" key={schedule.id}><div><strong>{schedule.job_type}</strong><small>{schedule.cron} / {schedule.timezone}</small><small>{schedule.enabled ? `Next ${formatTimestamp(schedule.next_run_at)}` : schedule.scheduler_available ? 'Paused' : 'Scheduler unavailable; manual execution only'}</small><small>Last result: {schedule.last_result ? `${schedule.last_result.status} / ${formatTimestamp(schedule.last_result.updated_at)}` : 'not run'}</small></div><div className="knowledge-schedule__actions"><button className="icon-button" disabled={actionBusy || !canWrite} title={`Run ${schedule.job_type} now`} aria-label={`Run ${schedule.job_type} now`} onClick={() => void runJob(schedule.job_type)}><Play size={14} /></button><button className="icon-button" disabled={actionBusy || !canWrite || !schedule.scheduler_available} title={schedule.enabled ? 'Pause schedule' : 'Enable schedule'} aria-label={schedule.enabled ? 'Pause schedule' : 'Enable schedule'} onClick={() => void toggleSchedule(schedule)}>{schedule.enabled ? <Pause size={14} /> : <Clock3 size={14} />}</button></div></div>) : <Empty text={workspace?.scheduler.available ? 'No schedules configured for this project.' : 'Durable scheduling is unavailable. Manual governed runs remain available.'} />}</div>
+          <form className="knowledge-schedule-form" onSubmit={createSchedule}><label>Job<select value={scheduleJobType} onChange={(event) => setScheduleJobType(event.target.value)}>{JOB_TYPES.map((jobType) => <option key={jobType} value={jobType}>{jobType}</option>)}</select></label><label>Cron<input value={scheduleCron} onChange={(event) => setScheduleCron(event.target.value)} aria-label="Schedule cron" /></label><button disabled={actionBusy || !canWrite} type="submit"><Clock3 size={14} /> Save cadence</button></form>
           <PaneHeader title="Knowledge health" detail={health?.status || 'unavailable'} />
           <HealthInspector health={health} />
           <PaneHeader title="Observed trends" detail="persisted records only" />
-          {showTrendCharts && <><section className="knowledge-chart"><Suspense fallback={<Empty text="Loading source trend..." />}><TrendChart option={trendOption('Sources captured', sourceLabels, sourceValues, '#64d5a9')} style={{ height: 180 }} notMerge lazyUpdate /></Suspense></section><section className="knowledge-chart"><Suspense fallback={<Empty text="Loading proposal trend..." />}><TrendChart option={proposalTrendOption(proposalLabels, proposalValues)} style={{ height: 180 }} notMerge lazyUpdate /></Suspense></section><section className="knowledge-chart"><Suspense fallback={<Empty text="Loading evaluation trend..." />}><TrendChart option={trendOption('Evaluation score', evalLabels, evalValues, '#88b9ff', true)} style={{ height: 180 }} notMerge lazyUpdate /></Suspense></section></>}
+          {showTrendCharts && <><section className="knowledge-chart"><Suspense fallback={<Empty text="Loading source trend..." />}><TrendChart option={trendOption('Sources captured', sourceLabels, sourceValues, '#64d5a9')} style={{ height: 180 }} notMerge lazyUpdate /></Suspense></section><section className="knowledge-chart"><Suspense fallback={<Empty text="Loading proposal trend..." />}><TrendChart option={proposalTrendOption(proposalLabels, proposalValues)} style={{ height: 180 }} notMerge lazyUpdate /></Suspense></section><section className="knowledge-chart"><Suspense fallback={<Empty text="Loading evaluation trend..." />}><TrendChart option={trendOption('Evaluation score', evalLabels, evalValues, '#88b9ff', true)} style={{ height: 180 }} notMerge lazyUpdate /></Suspense></section><section className="knowledge-chart"><Suspense fallback={<Empty text="Loading evaluation delta..." />}><TrendChart option={trendOption('Evaluation delta', evalLabels, evalDeltaValues, '#e8ba62')} style={{ height: 180 }} notMerge lazyUpdate /></Suspense></section>{health && <section className="knowledge-chart"><Suspense fallback={<Empty text="Loading knowledge debt..." />}><TrendChart option={qualityDebtOption(health)} style={{ height: 180 }} notMerge lazyUpdate /></Suspense></section>}</>}
         </aside>
       </div>
     </>}
@@ -350,9 +346,9 @@ function VaultTree({ pages, selectedPageId, onSelect }: { pages: KnowledgePage[]
   return <nav className="knowledge-vault-tree">{[...grouped.entries()].map(([folder, children]) => <section key={folder}><p><ChevronRight size={12} />{folder}</p>{children.map((page) => <button key={page.id} className={selectedPageId === page.id ? 'is-selected' : ''} onClick={() => onSelect(page)}><FileText size={13} />{page.title}</button>)}</section>)}</nav>;
 }
 
-function WikiReader({ page, pages, busy, onCitation, onWikiLink, onRestore }: { page: KnowledgePageDetail | null; pages: KnowledgePage[]; busy: boolean; onCitation: (id: string) => void; onWikiLink: (path: string) => void; onRestore: (revisionId: string) => void }) {
+export function WikiReader({ page, pages, busy, canWrite, onCitation, onWikiLink, onRestore }: { page: KnowledgePageDetail | null; pages: KnowledgePage[]; busy: boolean; canWrite: boolean; onCitation: (id: string) => void; onWikiLink: (path: string) => void; onRestore: (revisionId: string) => void }) {
   if (!page) return <section className="knowledge-reader-empty"><BookOpen size={26} /><h3>Choose a published page</h3><p>The reader displays stored Markdown, revision metadata, citations, and safe internal page links.</p></section>;
-  return <section className="knowledge-reader-view"><header className="knowledge-content-header"><div><span className="eyebrow">PUBLISHED WIKI</span><h3>{page.page.title}</h3><p>{page.page.path} / revision {page.page.version}</p></div><span className="record-kind">{page.page.page_kind}</span></header><SafeMarkdown content={page.content} pages={pages} onCitation={onCitation} onWikiLink={onWikiLink} /><section className="knowledge-citations"><h4><Link2 size={14} /> Citations</h4>{page.citations.length ? page.citations.map((citation) => <button key={`${citation.source_id}-${citation.claim_text}`} onClick={() => onCitation(citation.source_id)}><span>[source:{citation.source_id}]</span>{citation.claim_text || citation.anchor || 'Open source provenance'}</button>) : <Empty text="This page has no active source citations." />}</section><section className="knowledge-revisions"><h4><RotateCcw size={14} /> Revision history</h4>{page.revisions.map((revision) => <div key={revision.id}><span>v{revision.version} / {formatTimestamp(revision.created_at)}</span><button disabled={busy || revision.version === page.page.version || page.page.path === 'wiki/log.md'} onClick={() => onRestore(revision.id)}>Restore as proposal</button></div>)}</section></section>;
+  return <section className="knowledge-reader-view"><header className="knowledge-content-header"><div><span className="eyebrow">PUBLISHED WIKI</span><h3>{page.page.title}</h3><p>{page.page.path} / revision {page.page.version}</p></div><span className="record-kind">{page.page.page_kind}</span></header><SafeMarkdown content={page.content} pages={pages} onCitation={onCitation} onWikiLink={onWikiLink} /><section className="knowledge-citations"><h4><Link2 size={14} /> Citations</h4>{page.citations.length ? page.citations.map((citation) => <button key={`${citation.source_id}-${citation.claim_text}`} onClick={() => onCitation(citation.source_id)}><span>[source:{citation.source_id}]</span>{citation.claim_text || citation.anchor || 'Open source provenance'}</button>) : <Empty text="This page has no active source citations." />}</section><section className="knowledge-backlinks"><h4><Network size={14} /> Backlinks</h4>{page.backlinks.length ? page.backlinks.map((backlink) => { const sourcePage = pages.find((candidate) => candidate.id === backlink.from_id); return <button key={backlink.id} disabled={!sourcePage} onClick={() => sourcePage && onWikiLink(sourcePage.path)}>{sourcePage?.title || backlink.from_id}</button>; }) : <Empty text="No published page links here yet." />}</section><section className="knowledge-revisions"><h4><RotateCcw size={14} /> Revision history</h4>{page.revisions.map((revision) => <div key={revision.id}><span>v{revision.version} / {formatTimestamp(revision.created_at)}</span><button disabled={busy || !canWrite || revision.version === page.page.version || page.page.path === 'wiki/log.md'} onClick={() => onRestore(revision.id)}>Restore as proposal</button></div>)}</section></section>;
 }
 
 function SafeMarkdown({ content, pages, onCitation, onWikiLink }: { content: string; pages: KnowledgePage[]; onCitation: (id: string) => void; onWikiLink: (path: string) => void }) {
@@ -377,9 +373,9 @@ function SafeMarkdown({ content, pages, onCitation, onWikiLink }: { content: str
   })}</article>;
 }
 
-function ProposalReview({ proposal, baselines, busy, onLint, onPublish, onReject }: { proposal: KnowledgeProposal | null; baselines: ProposalBaseline; busy: boolean; onLint: (proposal: KnowledgeProposal) => void; onPublish: (proposal: KnowledgeProposal) => void; onReject: (proposal: KnowledgeProposal) => void }) {
+export function ProposalReview({ proposal, baselines, busy, canWrite, onLint, onPublish, onReject }: { proposal: KnowledgeProposal | null; baselines: KnowledgeProposalBaselines; busy: boolean; canWrite: boolean; onLint: (proposal: KnowledgeProposal) => void; onPublish: (proposal: KnowledgeProposal) => void; onReject: (proposal: KnowledgeProposal) => void }) {
   if (!proposal) return <section className="knowledge-reader-empty"><GitPullRequest size={26} /><h3>Select a proposal</h3><p>Review each persisted operation against its current page body before asking the governed publication gate to apply it.</p></section>;
-  const canAct = proposal.status === 'draft';
+  const canAct = canWrite && ['draft', 'failed'].includes(proposal.status);
   return <section className="proposal-review"><header className="knowledge-content-header"><div><span className="eyebrow">GOVERNED PATCH</span><h3>{proposal.rationale || proposal.id}</h3><p>{proposal.source_ids.length} evidence references / {proposal.operations.length} operations</p></div><span className="record-kind">{proposal.status}</span></header><div className="proposal-actions"><button disabled={busy || !canAct} onClick={() => onLint(proposal)}><Search size={14} /> Lint</button><button disabled={busy || !canAct} onClick={() => onPublish(proposal)}><ShieldCheck size={14} /> Publish</button><button className="is-danger" disabled={busy || !canAct} onClick={() => onReject(proposal)}><X size={14} /> Reject</button></div><div className="proposal-operations">{proposal.operations.map((operation) => { const before = baselines[operation.path] ?? ''; const after = operation.operation === 'append' ? `${before}${operation.content}` : operation.operation === 'archive' ? '' : operation.content; return <article key={operation.id}><header><span>{operation.operation}</span><strong>{operation.path}</strong>{operation.destination_path && <small>to {operation.destination_path}</small>}</header><div className="proposal-diff"><pre><small>Before</small>{before || '(new page or no stored revision)'}</pre><pre><small>After</small>{after || '(archived)'}</pre></div><p>Evidence: {operation.source_ids.length ? operation.source_ids.join(', ') : 'manual operation; no immutable source claim'}</p></article>; })}</div></section>;
 }
 
@@ -392,9 +388,9 @@ function DistillationReader({ records, selected, onSelect }: { records: WeeklyDi
   return <section className="distillation-reader"><header className="knowledge-content-header"><div><span className="eyebrow">WEEKLY DISTILLATION</span><h3>{selected?.distillation.week || 'Choose a weekly bundle'}</h3><p>{selected ? `Source cutoff ${selected.distillation.source_cutoff}` : 'Three deterministic documents are generated from eligible evidence.'}</p></div><FileClock size={20} /></header><div className="distillation-reader__body"><nav>{records.length ? records.map((item) => <button key={item.id} className={selected?.distillation.id === item.id ? 'is-selected' : ''} onClick={() => onSelect(item)}><span>{item.status}</span><strong>{item.week}</strong><small>{formatTimestamp(item.created_at)}</small></button>) : <Empty text="No source-backed weekly distillation has been generated." />}</nav><section>{documentEntries.length ? documentEntries.map(([path, content]) => <article key={path}><h4>{path.split('/').at(-1)}</h4><pre>{content}</pre></article>) : <Empty text="Select a bundle to read its stored evidence-backed documents." />}</section></div></section>;
 }
 
-function SourceInspector({ source, busy, onApprove }: { source: KnowledgeSource; busy: boolean; onApprove: (source: KnowledgeSource) => void }) {
+export function SourceInspector({ source, busy, canWrite, onApprove }: { source: KnowledgeSource; busy: boolean; canWrite: boolean; onApprove: (source: KnowledgeSource) => void }) {
   const curated = Boolean(source.metadata.curated || source.metadata.user_annotation || source.metadata.annotation);
-  return <section className="source-inspector"><span className={`source-status source-status--${source.status}`}>{source.status}</span><h3>{source.origin || source.id}</h3><dl><div><dt>Type</dt><dd>{source.source_type}</dd></div><div><dt>Trust</dt><dd>{source.trust_level}</dd></div><div><dt>Captured</dt><dd>{formatTimestamp(source.captured_at)}</dd></div><div><dt>SHA-256</dt><dd>{source.content_hash}</dd></div><div><dt>Vault path</dt><dd>{source.vault_path || 'external or API import'}</dd></div><div><dt>Interpretation</dt><dd>{curated ? 'Curated opinion or user annotation' : 'Immutable evidence record'}</dd></div></dl>{source.supersedes_id && <p className="source-supersedes">Supersedes source {source.supersedes_id}</p>}{source.status === 'validated' && <button disabled={busy} onClick={() => onApprove(source)}><CheckCircle2 size={14} /> Approve for synthesis</button>}</section>;
+  return <section className="source-inspector"><span className={`source-status source-status--${source.status}`}>{source.status}</span><h3>{source.origin || source.id}</h3><dl><div><dt>Type</dt><dd>{source.source_type}</dd></div><div><dt>Trust</dt><dd>{source.trust_level}</dd></div><div><dt>Captured</dt><dd>{formatTimestamp(source.captured_at)}</dd></div><div><dt>SHA-256</dt><dd>{source.content_hash}</dd></div><div><dt>Vault path</dt><dd>{source.vault_path || 'external or API import'}</dd></div><div><dt>Interpretation</dt><dd>{curated ? 'Curated opinion or user annotation' : 'Immutable evidence record'}</dd></div></dl>{source.supersedes_id && <p className="source-supersedes">Supersedes source {source.supersedes_id}</p>}{source.status === 'validated' && <button disabled={busy || !canWrite} onClick={() => onApprove(source)}><CheckCircle2 size={14} /> Approve for synthesis</button>}</section>;
 }
 
 function HealthInspector({ health }: { health: KnowledgeHealth | null }) { if (!health) return <Empty text="Health records are unavailable until the workspace loads." />; return <div className="health-inspector"><HealthRow label="Dangling citations" value={health.dangling_citation_count} /><HealthRow label="Stale citations" value={health.stale_citation_count} /><HealthRow label="Stale pages" value={health.stale_page_ids.length} /><HealthRow label="Orphan pages" value={health.orphan_page_ids.length} /><HealthRow label="Uncited eligible evidence" value={health.uncited_eligible_source_ids.length} /><HealthRow label="Pending proposals" value={health.pending_proposal_ids.length} /><HealthRow label="Contradictions" value={health.contradiction_count} /></div>; }
@@ -408,6 +404,12 @@ function proposalTrendOption(labels: string[], values: Record<string, number[]>)
   const statuses = Object.keys(values);
   const palette: Record<string, string> = { approved: '#64d5a9', published: '#78d4df', rejected: '#e78787', failed: '#e8ba62', draft: '#88b9ff', validating: '#c7a7e8', superseded: '#8195a4' };
   return { animation: false, color: statuses.map((status) => palette[status] ?? '#9eb5c5'), title: { text: 'Proposal outcomes', textStyle: { color: '#b9c9d9', fontSize: 11, fontWeight: 500 } }, legend: { data: statuses, top: 19, textStyle: { color: '#91a5b5', fontSize: 9 }, itemWidth: 8, itemHeight: 8 }, tooltip: { trigger: 'axis' }, grid: { top: 52, right: 12, bottom: 28, left: 32 }, xAxis: { type: 'category', data: labels, axisLabel: { color: '#8093a5', fontSize: 10 }, axisLine: { lineStyle: { color: '#2e4051' } } }, yAxis: { type: 'value', minInterval: 1, axisLabel: { color: '#8093a5', fontSize: 10 }, splitLine: { lineStyle: { color: '#1b2935' } } }, series: statuses.map((status) => ({ name: status, type: 'bar', stack: 'proposals', data: values[status], barMaxWidth: 26 })), graphic: labels.length ? undefined : [{ type: 'text', left: 'center', top: 'middle', style: { text: 'No persisted proposal outcomes', fill: '#8093a5', fontSize: 11 } }] };
+}
+
+function qualityDebtOption(health: KnowledgeHealth) {
+  const labels = ['Stale pages', 'Orphan pages', 'Dangling citations', 'Stale citations', 'Uncited evidence'];
+  const values = [health.stale_page_ids.length, health.orphan_page_ids.length, health.dangling_citation_count, health.stale_citation_count, health.uncited_eligible_source_ids.length];
+  return { animation: false, title: { text: 'Current knowledge debt', textStyle: { color: '#b9c9d9', fontSize: 11, fontWeight: 500 } }, tooltip: { trigger: 'axis' }, grid: { top: 34, right: 12, bottom: 48, left: 32 }, xAxis: { type: 'category', data: labels, axisLabel: { color: '#8093a5', fontSize: 9, rotate: 25 }, axisLine: { lineStyle: { color: '#2e4051' } } }, yAxis: { type: 'value', minInterval: 1, axisLabel: { color: '#8093a5', fontSize: 10 }, splitLine: { lineStyle: { color: '#1b2935' } } }, series: [{ type: 'bar', data: values, itemStyle: { color: '#e78787' }, barMaxWidth: 28 }] };
 }
 
 function formatTimestamp(value: string | undefined) { if (!value) return 'Not recorded'; const date = new Date(value); return Number.isNaN(date.getTime()) ? value : date.toLocaleString(); }

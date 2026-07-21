@@ -24,36 +24,36 @@ Add `wiki_guide`, `wiki_search`, `wiki_read`, `wiki_propose_update`, `wiki_apply
 
 ## Task 1: REST Router And Authorization
 
-- [ ] Add failing route tests for missing project ID, reader/admin permissions, invalid mapping, source transition, proposal conflict, schedule unavailable, and unknown resource IDs.
-- [ ] Implement typed request/response Pydantic models without duplicating P1 domain models.
-- [ ] Register the router in `app/main.py`; reuse current response envelope and auth conventions.
-- [ ] Map service conflicts to actionable status/code and redact sensitive paths, credentials, and internal errors.
-- [ ] Keep handlers thin: authorization, request validation, facade call, normalized response.
-- [ ] Verify with `./.venv/Scripts/python.exe -m pytest tests/api/test_knowledge_workspace_api.py -q`.
+- [x] Add failing route tests for missing project ID, reader/admin permissions, invalid mapping, source transition, proposal conflict, schedule unavailable, and unknown resource IDs.
+- [x] Implement typed request/response Pydantic models without duplicating P1 domain models.
+- [x] Register the router in `app/main.py`; reuse current response envelope and auth conventions.
+- [x] Map service conflicts to actionable status/code and redact sensitive paths, credentials, and internal errors.
+- [x] Keep handlers thin: authorization, request validation, facade call, normalized response.
+- [x] Verify with `./.venv/Scripts/python.exe -m pytest tests/api/test_knowledge_workspace_api.py -q`.
 
 ## Task 2: Runs And Server-Sent Events
 
-- [ ] Reuse sequenced orchestrator-style event semantics for knowledge runs: no timer-inferred progress and no process-local-only completion claim.
-- [ ] Add capture, eligibility, proposal, validation, publish, lint, distillation, retry, and terminal events with project/run identity and monotonic sequence.
-- [ ] Implement replay from durable run/event records. Reconnect resumes after caller sequence and rejects cross-project events.
-- [ ] Test ordered replay, reconnect, cancellation, terminal close, permissions, stale sequence, and failure state.
-- [ ] Verify with `./.venv/Scripts/python.exe -m pytest tests/api/test_knowledge_workspace_sse.py -q`.
+- [x] Reuse sequenced orchestrator-style event semantics for knowledge runs: no timer-inferred progress and no process-local-only completion claim.
+- [x] Add capture, eligibility, proposal, validation, publish, lint, distillation, retry, and terminal events with project/run identity and monotonic sequence.
+- [x] Implement replay from durable run/event records. Reconnect resumes after caller sequence and rejects cross-project events.
+- [x] Test ordered replay, reconnect, cancellation, terminal close, permissions, stale sequence, and failure state.
+- [x] Verify with `./.venv/Scripts/python.exe -m pytest tests/api/test_knowledge_workspace_sse.py -q`.
 
 ## Task 3: MCP Wiki Tools
 
-- [ ] Add unit tests for input validation, project isolation, read result, proposal-only write behavior, gate error mapping, graph query, and scheduler-unavailable state.
-- [ ] Implement tool handlers against the service facade and register them in the existing stdio server.
-- [ ] Add matching HTTP JSON-RPC tool specifications/handlers while retaining existing tool names and initialization behavior.
-- [ ] Update compatibility profile only to describe actual support; do not claim OAuth or unimplemented protocol features.
-- [ ] Verify live JSON-RPC `initialize`, `tools/list`, and every Wiki `tools/call` plus existing tool compatibility using `./.venv/Scripts/python.exe -m pytest tests/mcp/test_wiki_tools.py tests/mcp/test_wiki_http_contract.py -q`.
+- [x] Add unit tests for input validation, project isolation, read result, proposal-only write behavior, gate error mapping, graph query, and scheduler-unavailable state.
+- [x] Implement tool handlers against the service facade and register them in the existing stdio server.
+- [x] Add matching HTTP JSON-RPC tool specifications/handlers while retaining existing tool names and initialization behavior.
+- [x] Update compatibility profile only to describe actual support; do not claim OAuth or unimplemented protocol features.
+- [x] Verify live JSON-RPC `initialize`, `tools/list`, and every Wiki `tools/call` plus existing tool compatibility using `./.venv/Scripts/python.exe -m pytest tests/mcp/test_wiki_tools.py tests/mcp/test_wiki_http_contract.py -q`.
 
 ## Task 4: Contract And Compatibility Regression
 
-- [ ] Freeze frontend-consumable workspace, source, proposal, run, schedule, graph, health, and distillation shapes.
-- [ ] Verify HTTP/MCP error results retain actionable non-sensitive message/code pairs.
-- [ ] Run current knowledge API and MCP HTTP/SSE regression suites; removing an existing endpoint field blocks release.
-- [ ] Record request examples and compatibility evidence in the worklog.
-- [ ] Run `./.venv/Scripts/python.exe -m pytest tests/api/test_knowledge_workspace_api.py tests/api/test_knowledge_workspace_sse.py tests/mcp/test_wiki_tools.py tests/mcp/test_wiki_http_contract.py -q`, then `./.venv/Scripts/python.exe -m pytest tests/knowledge tests/integration/mcp -q`, and finally `git diff --check`.
+- [x] Freeze frontend-consumable workspace, source, proposal, run, schedule, graph, health, and distillation shapes.
+- [x] Verify HTTP/MCP error results retain actionable non-sensitive message/code pairs.
+- [x] Run current knowledge API and MCP HTTP/SSE regression suites; removing an existing endpoint field blocks release.
+- [x] Record request examples and compatibility evidence in the worklog.
+- [x] Run `./.venv/Scripts/python.exe -m pytest tests/api/test_knowledge_workspace_api.py tests/api/test_knowledge_workspace_sse.py tests/mcp/test_wiki_tools.py tests/mcp/test_wiki_http_contract.py -q`, then `./.venv/Scripts/python.exe -m pytest tests/knowledge tests/integration/mcp -q`, and finally `git diff --check`.
 
 ## Acceptance, Rollback, Handoff
 

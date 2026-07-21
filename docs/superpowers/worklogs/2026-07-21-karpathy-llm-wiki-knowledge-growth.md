@@ -229,3 +229,34 @@ Deliver a Karpathy-style, Obsidian-compatible, self-maintaining knowledge Wiki f
 - Frontend release checks: `npm run check`, `npm run lint`, and `npm run build` passed. Lint reports 197 pre-existing warnings and no errors; the production build retains the known >500 kB chunk advisory.
 - Latest Docker deployment: `docker compose build bsc-backend` rebuilt image `bsc-backend-bsc-backend:latest`; `bsc-backend-app-8002` returned `200 /live`, Redis returned `PONG`, and new Worker consumed `knowledge.reconcile_schedules` with `queued=0`, `duplicates=0`, and `failures=0`. Worker/Beat intentionally run with Docker healthchecks disabled because the image HTTP probe is not valid for Celery processes.
 - Release scope: local Docker API/Redis/Worker/Beat and all automated local contracts are current. Live Horizon import and real Wiki maintenance remain external configuration gates; they are not represented as completed.
+
+## Final Completion Audit (2026-07-22)
+
+### Implementation Changes
+
+- Added explicit `KNOWLEDGE_WIKI_AUTO_PUBLISH_ENABLED` and project mapping `metadata.auto_publish_enabled` policy. Automatic publication now requires both flags, trusted-only evidence, passing deterministic gates, and a durable audit run.
+- Added administrator publication override with role `admin`, a meaningful reason, persisted lint/evaluation findings, and `knowledge.proposal.override.applied` audit event. Path, source eligibility, and revision integrity gates remain non-overridable.
+- Added structured contradiction candidates for shared concepts/entities with conflicting claims ordered by source recency; the compiler exposes review findings without resolving them.
+- Added typed terminal failure categories for task configuration, policy, transient dependency, compiler, gate, evaluation, and distillation outcomes.
+- Added real Celery broker health probing. Celery-disabled and Redis-unreachable states now report `available:false, mode:manual`; manual work remains auditable and real queue submission never claims success without a reachable broker.
+- Fixed the Knowledge workspace terminal-event replay loop: replaying an already-terminal run no longer replaces the selected run object and clears its events.
+- Added root test isolation for local `.env` API/LLM settings so legacy tests do not inherit user credentials or thread-local providers.
+
+### Final Verification
+
+- Python: `766 passed, 5 skipped, 3 warnings` from the complete `pytest -q` run. Disposable PostgreSQL 16 then passed both knowledge and orchestrator contracts (`2 passed`). Linux production-image isolation/recovery/Celery suite passed (`6 passed`).
+- Frontend: Vitest `9 passed`; `npm run check`, `npm run lint`, and `npm run build` passed. `npm audit --omit=dev` reported 0 vulnerabilities; `pip check`, Bandit, compileall, Compose config, and `git diff --check` passed.
+- Runtime: latest image built; API `8002/live` returned `{"status":"ok"}`, Redis `PONG`, Worker/Beat healthy, Beat dispatch and Worker consumption returned `queued=0, duplicates=0, failures=0`. Restart preserved a completed run, event sequence `[1,2]`, schedule, and output references.
+- Browser fixture: authenticated desktop at 1440x900 and mobile at 390x844 verified project connection, Wiki page, citation-to-source SHA-256 inspector, revision restore draft and Diff, Lint, run event sequence 1-4, graph filter/node navigation, weekly three-document/source cutoff view, mobile pane retention, no horizontal overflow, five 340x180 ECharts canvases with visible rendered series, and keyboard focus outline.
+
+### External Boundaries
+
+Live Horizon endpoint/API credentials and a real Wiki-maintenance LLM provider remain intentionally unconfigured. Their unavailable behavior is tested and documented; no run, source import, or publication is claimed for either external dependency.
+
+## Final Runtime Rebuild (2026-07-22)
+
+- Rebuilt `bsc-backend-bsc-backend:latest` after the Knowledge workspace terminal-event replay fix. The resulting image digest is `sha256:5d69a130026ffa321befdda19cca77f14c9ba89b0007b0949992ac83da5e5f66`.
+- Replaced only `bsc-backend-app-8002`, `bsc-celery-worker`, and `bsc-celery-beat`. The deployment kept `bsc-backend_bsc-network`, the `bsc-data`/`bsc-output` volumes, and the user Vault bind `D:\bsc\bsc:/vault`; ports `8000`, `5174`, and the user Vault were not touched.
+- Runtime proof: `GET http://127.0.0.1:8002/live` returned `{"status":"ok"}`, Redis returned `PONG`, all three containers are running on the new digest, and the authenticated workspace status reported `scheduler.available=true, mode=celery`.
+- Beat dispatched `knowledge.reconcile_schedules`; Worker consumed it and returned `queued=0, duplicates=0, failures=0, recovered=0`.
+- The mounted runtime database currently contains no project, schedule, or run rows. No synthetic records were created to make persistence appear complete; persistence/recovery remains covered by the disposable integration and restart tests recorded above.

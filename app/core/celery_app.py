@@ -225,5 +225,25 @@ def is_celery_real():
     return not isinstance(app, SyncCelery)
 
 
+def is_celery_broker_available(timeout_seconds: float = 1.0) -> bool:
+    """Return whether the configured real Celery broker accepts a connection."""
+    app = get_celery_app()
+    if isinstance(app, SyncCelery):
+        return False
+    connection = None
+    try:
+        connection = app.connection_for_read(connect_timeout=timeout_seconds)
+        connection.ensure_connection(max_retries=0)
+        return bool(connection.connected)
+    except Exception:
+        return False
+    finally:
+        if connection is not None:
+            try:
+                connection.release()
+            except Exception:
+                pass
+
+
 # Celery CLI resolves this conventional module attribute for Worker and Beat.
 celery = get_celery_app()

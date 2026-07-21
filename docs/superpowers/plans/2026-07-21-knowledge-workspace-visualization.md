@@ -35,42 +35,42 @@
 
 ## Task 1: Typed Client And State
 
-- [ ] Add failing tests for request construction, project ID propagation, API error normalization, SSE reconnection/event de-duplication, and stale project response rejection.
-- [ ] Implement TypeScript interfaces directly from P6 response/event contracts. Do not use `any`, invented mock values, or a local parallel data model.
-- [ ] Implement feature-local Zustand state for selected project/page/source/proposal/run, loading/error state, graph filters, activity sequence, and mobile active pane.
-- [ ] Reuse the existing EventSource lifecycle discipline: close prior streams on project/run change, reject duplicate/stale/cross-run events, and show terminal state from backend events.
-- [ ] Verify with `npm run check` and the focused frontend contract tests.
+- [x] Add failing tests for request construction, project ID propagation, API error normalization, SSE reconnection/event de-duplication, and stale project response rejection.
+- [x] Implement TypeScript interfaces directly from P6 response/event contracts. Do not use `any`, invented mock values, or a local parallel data model.
+- [x] Implement feature-local Zustand state for selected project/page/source/proposal/run, loading/error state, graph filters, activity sequence, and mobile active pane.
+- [x] Reuse the existing EventSource lifecycle discipline: close prior streams on project/run change, reject duplicate/stale/cross-run events, and show terminal state from backend events.
+- [x] Verify with `npm run check` and the focused frontend contract tests.
 
 ## Task 2: Vault, Page, Evidence, And Proposal Review
 
-- [ ] Implement tree loading/expansion, path-safe labels, empty vault, unconfigured vault, permission denied, and source-sync status states.
-- [ ] Render selected Markdown page with title/frontmatter, backlinks, citations, and source anchors. A citation click opens the immutable source inspector, including origin, hash, trust/policy status, and user-curation distinction.
-- [ ] Implement proposal comparison as semantic operation list plus readable before/after diff. Publish/reject/retry controls must reflect P6 permission/status and show the returned run/proposal ID.
-- [ ] Never imply publication while a proposal is validating or queued. Do not allow edit/write controls in raw source panels.
-- [ ] Add component tests for empty/error/loading, navigation, citation selection, proposal conflict, and writer versus reader control visibility.
+- [x] Implement tree loading/expansion, path-safe labels, empty vault, unconfigured vault, permission denied, and source-sync status states.
+- [x] Render selected Markdown page with title/frontmatter, backlinks, citations, and source anchors. A citation click opens the immutable source inspector, including origin, hash, trust/policy status, and user-curation distinction.
+- [x] Implement proposal comparison as semantic operation list plus readable before/after diff. Publish/reject/retry controls must reflect P6 permission/status and show the returned run/proposal ID.
+- [x] Never imply publication while a proposal is validating or queued. Do not allow edit/write controls in raw source panels.
+- [x] Add component tests for empty/error/loading, navigation, citation selection, proposal conflict, and writer versus reader control visibility.
 
 ## Task 3: Activity, Schedules, And Distillation
 
-- [ ] Render run timeline from P6 events/history with source/proposal/gate/diff links and terminal failure reason.
-- [ ] Show scheduler availability, next run, last result, paused/disabled state, and manual run action. Disabled Celery must read as unavailable, not pending.
-- [ ] Render weekly folders and the three distillation documents with source cutoff/revision metadata and links back to source/page context.
-- [ ] Add accessible non-blocking loading states and retry commands for network failure; do not poll aggressively or fabricate activity.
+- [x] Render run timeline from P6 events/history with source/proposal/gate/diff links and terminal failure reason.
+- [x] Show scheduler availability, next run, last result, paused/disabled state, and manual run action. Disabled Celery must read as unavailable, not pending.
+- [x] Render weekly folders and the three distillation documents with source cutoff/revision metadata and links back to source/page context.
+- [x] Add accessible non-blocking loading states and retry commands for network failure; do not poll aggressively or fabricate activity.
 
 ## Task 4: Health Trends And Knowledge Graph
 
-- [ ] Render ECharts trends from real health/evaluation data: source throughput, citation coverage, stale/orphan count, proposal/gate success, and evaluation delta. Missing data must render an explicit empty state.
-- [ ] Build React Flow nodes/edges from P6 graph contract with node type, status, age, and provenance. Support filter by page/source/proposal/edge type/status and fit/reset controls.
-- [ ] Ensure selecting any node/edge updates the existing selected record rather than opening an unrelated static modal.
-- [ ] Bound graph rendering for large projects through backend filters/pagination or local visible-node limits; record truncation to the user.
-- [ ] Test graph filter/navigation, no-data graph, large-graph cap, chart resize, and reduced-motion behavior.
+- [x] Render ECharts trends from real health/evaluation data: source throughput, citation coverage, stale/orphan count, proposal/gate success, and evaluation delta. Missing data must render an explicit empty state.
+- [x] Build React Flow nodes/edges from P6 graph contract with node type, status, age, and provenance. Support filter by page/source/proposal/edge type/status and fit/reset controls.
+- [x] Ensure selecting any node/edge updates the existing selected record rather than opening an unrelated static modal.
+- [x] Bound graph rendering for large projects through backend filters/pagination or local visible-node limits; record truncation to the user.
+- [x] Test graph filter/navigation, no-data graph, large-graph cap, chart resize, and reduced-motion behavior.
 
 ## Task 5: Unified Workspace Integration And Browser Acceptance
 
-- [ ] Integrate the feature as a first-class workspace mode, preserving existing Auto/Agent OS/Compiler/Board actions and their tests.
-- [ ] Ensure mode switch preserves current orchestrator session and knowledge selection independently.
-- [ ] Run `npm run check`, `npm run lint`, and `npm run build`.
-- [ ] Use browser acceptance against a real backend fixture: desktop vault-to-citation-to-source-to-proposal flow; live run timeline; graph filtering; weekly output; mobile pane switching; permission/error/unavailable scheduler state.
-- [ ] Capture the actual verification result in the worklog, including viewport sizes and any accessibility fix.
+- [x] Integrate the feature as a first-class workspace mode, preserving existing Auto/Agent OS/Compiler/Board actions and their tests.
+- [x] Ensure mode switch preserves current orchestrator session and knowledge selection independently.
+- [x] Run `npm run check`, `npm run lint`, and `npm run build`.
+- [x] Use browser acceptance against a real backend fixture: desktop vault-to-citation-to-source-to-proposal flow; live run timeline; graph filtering; weekly output; mobile pane switching; permission/error/unavailable scheduler state.
+- [x] Capture the actual verification result in the worklog, including viewport sizes and any accessibility fix.
 
 ## Acceptance, Rollback, Handoff
 

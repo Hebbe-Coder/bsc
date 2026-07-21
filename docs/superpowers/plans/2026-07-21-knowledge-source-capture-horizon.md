@@ -24,11 +24,11 @@
 
 ## Task 1: Source Registry And Idempotency
 
-- [ ] Add failing tests for capture, same-content skip, changed-content supersession, rejected-source retention, project isolation, and retrieval-index projection.
-- [ ] Implement `SourceRegistry.capture` and lifecycle transition guards. Terminal source states cannot silently return to eligible.
-- [ ] Persist content hash, source type, vault path/origin, trust level, extraction result, policy decision, and lineage before calling any index backend.
-- [ ] Project text through `KnowledgeService.ingest_text` with source-specific `doc_format`; keep the registry, not the index, as provenance authority.
-- [ ] On index failure retain the source and record the projection failure; do not erase extracted evidence.
+- [x] Add failing tests for capture, same-content skip, changed-content supersession, rejected-source retention, project isolation, and retrieval-index projection.
+- [x] Implement `SourceRegistry.capture` and lifecycle transition guards. Terminal source states cannot silently return to eligible.
+- [x] Persist content hash, source type, vault path/origin, trust level, extraction result, policy decision, and lineage before calling any index backend.
+- [x] Project text through `KnowledgeService.ingest_text` with source-specific `doc_format`; keep the registry, not the index, as provenance authority.
+- [x] On index failure retain the source and record the projection failure; do not erase extracted evidence.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests\knowledge\test_source_registry.py -q
@@ -36,11 +36,11 @@
 
 ## Task 2: Deterministic Obsidian Sync
 
-- [ ] Implement `scan_project(project_id)` to list allowed source/import paths, calculate hashes, classify new/changed/deleted files, and return a typed report.
-- [ ] Exclude `.bsc/`, editor lock files, temporary files, and published `wiki/` paths. Wiki page changes are page revisions, not raw evidence imports.
-- [ ] Preserve vault-relative path and extension; never move, normalize in place, or replace a user file.
-- [ ] Support Markdown/text/structured data and current BSC document extraction paths; retain unsupported formats with explicit rejection/extraction status.
-- [ ] Track write-origin/hashes so BSC generated page writes do not return through the external-source scan.
+- [x] Implement `scan_project(project_id)` to list allowed source/import paths, calculate hashes, classify new/changed/deleted files, and return a typed report.
+- [x] Exclude `.bsc/`, editor lock files, temporary files, and published `wiki/` paths. Wiki page changes are page revisions, not raw evidence imports.
+- [x] Preserve vault-relative path and extension; never move, normalize in place, or replace a user file.
+- [x] Support Markdown/text/structured data and current BSC document extraction paths; retain unsupported formats with explicit rejection/extraction status.
+- [x] Track write-origin/hashes so BSC generated page writes do not return through the external-source scan.
 
 Tests use temporary vaults and cover nested imports, repeated scans, deletion/supersession, cross-project mappings, malformed UTF-8, excluded paths, and a user edit after processing.
 
@@ -50,11 +50,11 @@ Tests use temporary vaults and cover nested imports, repeated scans, deletion/su
 
 ## Task 3: Horizon Sidecar Adapter
 
-- [ ] Define `HORIZON_API_BASE_URL`, optional `HORIZON_API_KEY`, timeout, enabled flag, and per-project allowed source configuration.
-- [ ] Implement a client for Horizon public staged/full-pipeline interfaces. Validate response shape and map run IDs, URLs, timestamps, summaries, scores, source names, and raw payload hash into `horizon_signal` records.
-- [ ] Reuse BSC-safe HTTP principles: reject non-HTTP(S), private/loopback targets, malformed/oversized payload references, and redact credentials from errors.
-- [ ] Preserve Horizon run/stage references and score/filter outputs as evidence metadata. A Horizon score must not become a BSC factual truth score.
-- [ ] Make the client injectable for offline tests; importing it must make no network call.
+- [x] Define `HORIZON_API_BASE_URL`, optional `HORIZON_API_KEY`, timeout, enabled flag, and per-project allowed source configuration.
+- [x] Implement a client for Horizon public staged/full-pipeline interfaces. Validate response shape and map run IDs, URLs, timestamps, summaries, scores, source names, and raw payload hash into `horizon_signal` records.
+- [x] Reuse BSC-safe HTTP principles: reject non-HTTP(S), private/loopback targets, malformed/oversized payload references, and redact credentials from errors.
+- [x] Preserve Horizon run/stage references and score/filter outputs as evidence metadata. A Horizon score must not become a BSC factual truth score.
+- [x] Make the client injectable for offline tests; importing it must make no network call.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests\knowledge\test_horizon_client.py -q
@@ -62,10 +62,10 @@ Tests use temporary vaults and cover nested imports, repeated scans, deletion/su
 
 ## Task 4: Trust And Eligibility Policy
 
-- [ ] Implement a pure policy evaluator using source allowlist, source type, freshness, explicit user curation, extraction quality, duplicate result, and project relevance.
-- [ ] Return structured reasons/evidence, not only a Boolean.
-- [ ] Default unknown external feeds to `validated`, not `eligible`; known trusted sources may become eligible automatically under project policy.
-- [ ] Add service-level manual reprocess/reject transitions for P6. Do not add routes or scheduling here.
+- [x] Implement a pure policy evaluator using source allowlist, source type, freshness, explicit user curation, extraction quality, duplicate result, and project relevance.
+- [x] Return structured reasons/evidence, not only a Boolean.
+- [x] Default unknown external feeds to `validated`, not `eligible`; known trusted sources may become eligible automatically under project policy.
+- [x] Add service-level manual reprocess/reject transitions for P6. Do not add routes or scheduling here.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests\knowledge\test_source_policy.py -q
@@ -73,8 +73,8 @@ Tests use temporary vaults and cover nested imports, repeated scans, deletion/su
 
 ## Task 5: Verification And Handoff
 
-- [ ] Run P1 and P2 focused tests plus existing knowledge-ingest tests.
-- [ ] Record extraction limitations and Horizon contract assumptions in the worklog.
+- [x] Run P1 and P2 focused tests plus existing knowledge-ingest tests.
+- [x] Record extraction limitations and Horizon contract assumptions in the worklog.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests\knowledge\test_wiki_contracts.py tests\knowledge\test_vault_service.py tests\knowledge\test_source_registry.py tests\knowledge\test_obsidian_sync.py tests\knowledge\test_horizon_client.py tests\knowledge\test_source_policy.py -q

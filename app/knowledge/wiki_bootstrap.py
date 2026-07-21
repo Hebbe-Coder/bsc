@@ -8,6 +8,7 @@ from app.core.config import settings
 from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_rules import build_default_agents_rules
+from app.knowledge.wiki_index import WikiSearchIndex
 
 
 class WikiBootstrapError(ValueError):
@@ -17,8 +18,9 @@ class WikiBootstrapError(ValueError):
 class WikiBootstrapService:
     """Create only missing managed Wiki files; existing user content remains authoritative."""
 
-    def __init__(self, repository: WikiRepository) -> None:
+    def __init__(self, repository: WikiRepository, *, search_index=None) -> None:
         self.repository = repository
+        self.search_index = search_index or WikiSearchIndex(repository)
 
     def initialize(self, *, project_id: str, actor_id: str = "") -> dict:
         mapping = self.repository.get_vault(project_id)
@@ -39,7 +41,13 @@ class WikiBootstrapService:
         # User-owned rule edits are authoritative, but still need a revision ledger.
         # The complete snapshot prevents unrelated Wiki pages from being archived.
         self.repository.record_publication(project_id=project_id, contents=snapshot, source_ids=[])
-        return {"project_id": project_id, "created": created, "status": "initialized" if created else "already_initialized"}
+        indexing = self.search_index.sync_wiki_snapshot(project_id=project_id, contents=snapshot)
+        return {
+            "project_id": project_id,
+            "created": created,
+            "status": "initialized" if created else "already_initialized",
+            "indexing": indexing,
+        }
 
     @staticmethod
     def _defaults(project_id: str) -> dict[str, str]:

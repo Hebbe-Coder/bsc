@@ -142,6 +142,7 @@ class Settings(BaseSettings):
     DB_URL: str = ""
 
     KNOWLEDGE_WIKI_ENABLED: bool = False
+    KNOWLEDGE_WIKI_AUTO_PUBLISH_ENABLED: bool = False
     OBSIDIAN_VAULT_ROOT: str = ""
     HORIZON_ENABLED: bool = False
     HORIZON_API_BASE_URL: str = ""

@@ -84,6 +84,7 @@ class KnowledgeWikiConfig:
     """Configuration values for the optional project-scoped LLM Wiki."""
 
     enabled: bool = False
+    auto_publish_enabled: bool = False
     obsidian_vault_root: str = ""
     horizon_enabled: bool = False
     horizon_api_base_url: str = ""

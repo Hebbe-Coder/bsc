@@ -43,7 +43,8 @@ def test_vite_proxies_agent_os_routes_to_backend():
     source = (ROOT / "vite.config.ts").read_text(encoding="utf-8")
 
     assert "'/agent':" in source
-    assert "target: 'http://localhost:8000'" in source
+    assert "process.env.VITE_API_PROXY_TARGET || 'http://localhost:8000'" in source
+    assert "target: apiProxyTarget" in source
 
 
 def test_agent_os_ui_uses_backend_status_and_trusted_audit():

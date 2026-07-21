@@ -173,13 +173,13 @@ class KnowledgeService:
         where_sql = " AND ".join(where_clauses)
         
         rows = self.repo._execute(
-            f"SELECT c.id AS cid, c.content AS content, c.section AS section, "
+            f"SELECT c.id AS cid, c.content AS content, c.section AS section, "  # nosec B608
             f"c.idx AS idx, c.access_level AS chunk_access, "
-            f"d.title AS doc_title, d.doc_format AS doc_format, "
+            f"d.id AS doc_id, d.title AS doc_title, d.source AS source, d.doc_format AS doc_format, "
             f"d.domain AS domain, d.access_level AS doc_access "
             f"FROM knowledge_chunks c LEFT JOIN knowledge_docs d ON c.doc_id=d.id "
             f"WHERE {where_sql}",
-            tuple(params)).fetchall()  # nosec B608 - where_clauses are hardcoded
+            tuple(params)).fetchall()
         
         by_id = {r["cid"]: r for r in rows}
         results = []
@@ -192,6 +192,8 @@ class KnowledgeService:
                     "section": row["section"] or "",
                     "idx": row["idx"] or 0,
                     "score": score,
+                    "doc_id": row["doc_id"] or "",
+                    "source": row["source"] or "",
                     "doc_title": row["doc_title"] or "未知来源",
                     "doc_format": row["doc_format"] or "",
                     "domain": row["domain"] or "general",
@@ -286,14 +288,14 @@ class KnowledgeService:
             where = "WHERE d.project_id=? "
             params.append(project_id)
         rows = self.repo._execute(
-            f"SELECT d.id, d.title, d.source, d.project_id, d.created_at, "
+            f"SELECT d.id, d.title, d.source, d.project_id, d.created_at, "  # nosec B608
             f"COUNT(c.id) AS chunk_count "
             f"FROM knowledge_docs d LEFT JOIN knowledge_chunks c ON c.doc_id=d.id "
             f"{where}GROUP BY d.id ORDER BY d.created_at DESC LIMIT ? OFFSET ?",
-            tuple(params + [limit, offset])).fetchall()  # nosec B608 - where is hardcoded
+            tuple(params + [limit, offset])).fetchall()
         docs = [dict(r) for r in rows]
         total_row = self.repo._execute(
-            f"SELECT COUNT(*) AS cnt FROM knowledge_docs d {where}", tuple(params)  # nosec B608 - where is hardcoded
+            f"SELECT COUNT(*) AS cnt FROM knowledge_docs d {where}", tuple(params)  # nosec B608
         ).fetchone()
         total = total_row["cnt"] if total_row else 0
         return {"documents": docs, "total": total}

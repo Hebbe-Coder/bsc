@@ -10,6 +10,7 @@ from app.knowledge.wiki_evaluator import WikiEvaluator
 from app.knowledge.wiki_lint import WikiLint
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_rules import parse_project_rules
+from app.knowledge.wiki_index import WikiSearchIndex
 
 
 class ProposalGateError(ValueError):
@@ -25,6 +26,10 @@ class InMemoryWikiVault:
     def stage(self, proposal: WikiProposal) -> dict[str, str]:
         staged = deepcopy(self.contents)
         for operation in proposal.operations:
+            if not operation.path.startswith("wiki/"):
+                raise ProposalGateError("proposal writes are restricted to the generated wiki/ boundary")
+            if operation.destination_path and not operation.destination_path.startswith("wiki/"):
+                raise ProposalGateError("proposal destinations are restricted to the generated wiki/ boundary")
             current = staged.get(operation.path, "")
             if operation.expected_content_hash and self._hash(current) != operation.expected_content_hash:
                 raise ProposalGateError(f"revision conflict at {operation.path}")
@@ -57,60 +62,177 @@ class InMemoryWikiVault:
 class ProposalGate:
     """Validate first, stage all pages, then publish source/proposal state together."""
 
-    def __init__(self, repository: WikiRepository, vault: InMemoryWikiVault) -> None:
+    def __init__(self, repository: WikiRepository, vault: InMemoryWikiVault, *, search_index=None) -> None:
         self.repository = repository
         self.vault = vault
         self.lint = WikiLint()
         self.evaluator = WikiEvaluator(repository)
+        self.search_index = search_index or WikiSearchIndex(repository)
 
-    def publish(self, *, proposal: WikiProposal, rules_text: str) -> dict:
+    def publish(
+        self,
+        *,
+        proposal: WikiProposal,
+        rules_text: str,
+        publication_mode: str = "manual",
+        actor_id: str = "",
+        actor_role: str = "",
+        override_reason: str = "",
+        audit_run_id: str = "",
+    ) -> dict:
+        if publication_mode not in {"manual", "automatic"}:
+            raise ProposalGateError("publication mode must be manual or automatic")
+        override_reason = override_reason.strip()
+        override = bool(override_reason)
+        if override:
+            if publication_mode != "manual" or actor_role != "admin":
+                raise ProposalGateError("administrator permission is required for a publication override")
+            if len(override_reason) < 8:
+                raise ProposalGateError("administrator override requires a meaningful reason")
+            if not audit_run_id:
+                raise ProposalGateError("administrator override requires an auditable publication run")
         persisted = self.repository.get_proposal(proposal.project_id, proposal.id)
-        if not persisted or persisted["status"] != ProposalStatus.DRAFT.value:
-            raise ProposalGateError("proposal must exist in draft status")
+        if not persisted or persisted["status"] not in {ProposalStatus.DRAFT.value, ProposalStatus.FAILED.value}:
+            raise ProposalGateError("proposal must exist in draft or retryable failed status")
         if proposal.base_revision.startswith("vault:") and proposal.base_revision != self.project_revision(self.vault.contents):
             raise ProposalGateError("revision conflict: the project Wiki changed after this proposal was compiled")
         sources = [self.repository.get_source(proposal.project_id, source_id) for source_id in proposal.source_ids]
         publishable_source_states = {SourceStatus.ELIGIBLE.value, SourceStatus.PROCESSED.value}
         if any(source is None or source["status"] not in publishable_source_states for source in sources):
             raise ProposalGateError("all proposal sources must remain eligible or previously published")
-        rules = parse_project_rules(rules_text)
+        if publication_mode == "automatic":
+            mapping = self.repository.get_vault(proposal.project_id) or {}
+            policy = mapping.get("metadata") or {}
+            if policy.get("auto_publish_enabled") is not True:
+                raise ProposalGateError("project source policy does not permit automatic publication")
+            if not sources or any(source.get("trust_level") != "trusted" for source in sources):
+                raise ProposalGateError("automatic publication requires only trusted source evidence")
+        self.repository.update_proposal_status(proposal.project_id, proposal.id, ProposalStatus.VALIDATING)
+        try:
+            rules = parse_project_rules(rules_text)
+        except Exception:
+            self.repository.update_proposal_review(
+                proposal.project_id,
+                proposal.id,
+                ProposalStatus.FAILED,
+                {**proposal.eval_summary, "validation_error": "invalid_project_rules"},
+            )
+            raise
         lint_report = self.lint.lint_proposal(
             proposal,
             rules=rules,
             source_ids=set(proposal.source_ids),
             existing_paths=self.vault.contents,
         )
-        if not lint_report.valid:
+        lint_findings = [finding.model_dump() for finding in lint_report.findings]
+        if not lint_report.valid and not override:
+            self.repository.update_proposal_review(
+                proposal.project_id,
+                proposal.id,
+                ProposalStatus.FAILED,
+                {**proposal.eval_summary, "lint_findings": lint_findings},
+            )
             raise ProposalGateError("lint failed: " + ", ".join(finding.code for finding in lint_report.findings))
-        evaluation = self.evaluator.evaluate(
-            project_id=proposal.project_id,
-            proposal_id=proposal.id,
-            wiki_revision=proposal.base_revision,
-            candidate={
-                "source_ids": proposal.source_ids,
-                "content": "\n".join(operation.content for operation in proposal.operations),
-            },
-        )
-        if evaluation.status != "passed":
-            raise ProposalGateError("evaluation baseline did not pass: " + (evaluation.skipped_reason or evaluation.status))
-        staged = self.vault.stage(proposal)
-        before = self.vault.contents
         try:
+            evaluation = self.evaluator.evaluate(
+                project_id=proposal.project_id,
+                proposal_id=proposal.id,
+                wiki_revision=proposal.base_revision,
+                candidate={
+                    "source_ids": proposal.source_ids,
+                    "content": "\n".join(operation.content for operation in proposal.operations),
+                },
+            )
+        except Exception:
+            self.repository.update_proposal_review(
+                proposal.project_id,
+                proposal.id,
+                ProposalStatus.FAILED,
+                {**proposal.eval_summary, "validation_error": "evaluation_execution_failed"},
+            )
+            raise
+        if evaluation.status != "passed" and not override:
+            self.repository.update_proposal_review(
+                proposal.project_id,
+                proposal.id,
+                ProposalStatus.FAILED,
+                {**proposal.eval_summary, "evaluation": evaluation.model_dump()},
+            )
+            raise ProposalGateError("evaluation baseline did not pass: " + (evaluation.skipped_reason or evaluation.status))
+        review_summary = {
+            **proposal.eval_summary,
+            "lint_findings": lint_findings,
+            "evaluation": evaluation.model_dump(),
+            "publication_policy": {
+                "mode": publication_mode,
+                "actor_id": actor_id,
+                "actor_role": actor_role,
+                "override_applied": override,
+            },
+        }
+        if override:
+            review_summary["publication_policy"]["override_reason"] = override_reason
+        self.repository.update_proposal_review(
+            proposal.project_id,
+            proposal.id,
+            ProposalStatus.APPROVED,
+            review_summary,
+        )
+        if audit_run_id:
+            self.repository.append_run_event(
+                project_id=proposal.project_id,
+                run_id=audit_run_id,
+                event_type=(
+                    "knowledge.proposal.override.applied"
+                    if override
+                    else "knowledge.proposal.publication.policy.accepted"
+                ),
+                payload={
+                    "proposal_id": proposal.id,
+                    "mode": publication_mode,
+                    "actor_id": actor_id,
+                    "actor_role": actor_role,
+                    "override_reason": override_reason if override else "",
+                    "lint_findings": lint_findings,
+                    "evaluation_status": evaluation.status,
+                },
+            )
+        before = self.vault.contents
+        expected_content_hashes = {
+            page["path"]: page["content_hash"]
+            for page in self.repository.list_pages(proposal.project_id)
+            if page["path"] in before
+        }
+        try:
+            staged = self.vault.stage(proposal)
             self.vault.commit(staged)
             self.repository.record_publication(
                 project_id=proposal.project_id,
                 proposal_id=proposal.id,
                 contents=staged,
                 source_ids=proposal.source_ids,
+                expected_content_hashes=expected_content_hashes,
             )
         except Exception:
             self.vault.commit(before)
+            self.repository.update_proposal_review(
+                proposal.project_id,
+                proposal.id,
+                ProposalStatus.FAILED,
+                {**review_summary, "publication_error": "atomic_commit_failed"},
+            )
             raise
+        try:
+            indexing = self.search_index.sync_wiki_snapshot(project_id=proposal.project_id, contents=staged)
+        except Exception:
+            indexing = {"indexed": 0, "removed": 0, "failures": [{"path": "*", "code": "index_backend_exception"}]}
         return {
             "status": ProposalStatus.PUBLISHED.value,
             "proposal_id": proposal.id,
             "paths": sorted(staged),
             "evaluation_score": evaluation.score,
+            "publication_policy": review_summary["publication_policy"],
+            "indexing": indexing,
         }
 
     @staticmethod

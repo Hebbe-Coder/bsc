@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from app.core.celery_app import is_celery_real
+from app.core.celery_app import is_celery_broker_available, is_celery_real
 from app.core.config import settings
 from app.knowledge.proposal_gate import ProposalGate, ProposalGateError
 from app.knowledge.scheduler import KnowledgeScheduler, ScheduleValidationError
@@ -35,14 +35,48 @@ class WikiCommandService:
         project_id = str(payload.get("project_id") or "").strip()
         if not project_id:
             raise WikiCommandError("project_id is required")
+        vault = self._vault(project_id)
+        payload = self._with_overview_operation(payload, vault.contents)
         if not payload.get("base_revision"):
-            vault = self._vault(project_id)
             payload = {**payload, "base_revision": ProposalGate.project_revision(vault.contents)}
         try:
             proposal = WikiProposal.model_validate({**payload, "manual": True, "status": ProposalStatus.DRAFT})
         except Exception as exc:
             raise WikiCommandError(f"invalid Wiki proposal: {exc}") from exc
         return self.repository.create_proposal(proposal, actor_id=actor_id)
+
+    @staticmethod
+    def _with_overview_operation(payload: dict[str, Any], existing: dict[str, str]) -> dict[str, Any]:
+        operations = list(payload.get("operations") or [])
+        substantive = [
+            operation for operation in operations
+            if isinstance(operation, dict) and operation.get("path") not in {"wiki/index.md", "wiki/log.md", "wiki/overview.md"}
+        ]
+        if not substantive or any(
+            isinstance(operation, dict) and operation.get("path") == "wiki/overview.md" for operation in operations
+        ):
+            return payload
+        source_ids = list(dict.fromkeys(str(value) for value in payload.get("source_ids") or [] if str(value)))
+        citations = " ".join(f"[source:{source_id}]" for source_id in source_ids)
+        links = ", ".join(f"[[{operation['path']}]]" for operation in substantive if operation.get("path"))
+        if "wiki/overview.md" in existing:
+            overview = {
+                "operation": "append",
+                "path": "wiki/overview.md",
+                "content": f"\n- Governed update: {links}. {citations}\n",
+                "source_ids": source_ids,
+            }
+        else:
+            overview = {
+                "operation": "create",
+                "path": "wiki/overview.md",
+                "content": (
+                    "---\ntitle: Project Overview\nkind: brief\nstatus: draft\n---\n"
+                    f"# Project Overview\n\n- Governed update: {links}. {citations}\n"
+                ),
+                "source_ids": source_ids,
+            }
+        return {**payload, "operations": [*operations, overview]}
 
     def capture_source(self, payload: dict[str, Any], *, actor_id: str = "") -> dict:
         try:
@@ -97,15 +131,86 @@ class WikiCommandService:
         )
         return {"proposal_id": proposal_id, "valid": report.valid, "findings": [item.model_dump() for item in report.findings]}
 
-    def publish_proposal(self, *, project_id: str, proposal_id: str) -> dict:
+    def publish_proposal(
+        self,
+        *,
+        project_id: str,
+        proposal_id: str,
+        publication_mode: str = "manual",
+        actor_id: str = "",
+        actor_role: str = "",
+        override_reason: str = "",
+    ) -> dict:
         proposal = self._proposal(project_id, proposal_id)
         vault = self._vault(project_id)
+        run = KnowledgeRun(
+            project_id=project_id,
+            run_type="wiki_publish",
+            trigger="command",
+            actor_id=actor_id,
+            status=RunStatus.QUEUED,
+            input_refs={
+                "proposal_id": proposal_id,
+                "base_revision": proposal.base_revision,
+                "affected_paths": [operation.path for operation in proposal.operations],
+                "expected_hashes": {
+                    operation.path: operation.expected_content_hash
+                    for operation in proposal.operations
+                    if operation.expected_content_hash
+                },
+                "publication_mode": publication_mode,
+                "override_requested": bool(override_reason.strip()),
+            },
+        )
+        self.repository.create_run(run)
+        self.repository.update_run_status(project_id, run.id, RunStatus.RUNNING)
+        self.repository.append_run_event(
+            project_id=project_id,
+            run_id=run.id,
+            event_type="knowledge.proposal.validation.started",
+            payload={"proposal_id": proposal_id},
+        )
         try:
-            return ProposalGate(self.repository, vault).publish(
+            result = ProposalGate(self.repository, vault).publish(
                 proposal=proposal,
                 rules_text=self._rules_text(project_id, vault),
+                publication_mode=publication_mode,
+                actor_id=actor_id,
+                actor_role=actor_role,
+                override_reason=override_reason,
+                audit_run_id=run.id,
             )
-        except ProposalGateError as exc:
+            self.repository.append_run_event(
+                project_id=project_id,
+                run_id=run.id,
+                event_type="knowledge.proposal.published",
+                payload={
+                    "proposal_id": proposal_id,
+                    "paths": result["paths"],
+                    "evaluation_score": result["evaluation_score"],
+                },
+            )
+            self.repository.update_run_status(
+                project_id,
+                run.id,
+                RunStatus.COMPLETED,
+                output_refs={"proposal_id": proposal_id, "publication": result},
+            )
+            return {**result, "run_id": run.id}
+        except Exception as exc:
+            self.repository.append_run_event(
+                project_id=project_id,
+                run_id=run.id,
+                event_type="knowledge.proposal.validation.failed",
+                payload={"proposal_id": proposal_id, "error_type": type(exc).__name__},
+            )
+            self.repository.update_run_status(
+                project_id,
+                run.id,
+                RunStatus.FAILED,
+                error=str(exc),
+                output_refs={"proposal_id": proposal_id, "failure": {"code": "publication_gate_failed"}},
+            )
             raise WikiCommandError(str(exc)) from exc
 
     def save_eval_case(self, *, project_id: str, case_id: str, case_type: str, expected: dict[str, Any]) -> dict:
@@ -116,7 +221,7 @@ class WikiCommandService:
     def configure_schedule(
         self, *, project_id: str, job_type: str, cron: str, timezone_name: str = "Asia/Shanghai"
     ) -> dict:
-        return KnowledgeScheduler(self.repository, scheduler_available=is_celery_real()).configure(
+        return KnowledgeScheduler(self.repository, scheduler_available=self._scheduler_available()).configure(
             project_id=project_id, job_type=job_type, cron=cron, timezone_name=timezone_name
         )
 
@@ -124,12 +229,16 @@ class WikiCommandService:
         schedule = self.repository.get_schedule(project_id, schedule_id)
         if not schedule:
             raise WikiCommandError("knowledge schedule not found")
-        if enabled and not is_celery_real():
+        if enabled and not self._scheduler_available():
             raise WikiCommandError("durable scheduler unavailable; use a manual run instead")
         next_run_at = ""
         if enabled:
             try:
-                next_run_at = KnowledgeScheduler.next_run(str(schedule["cron"]), datetime.now(timezone.utc)).isoformat()
+                next_run_at = KnowledgeScheduler.next_run(
+                    str(schedule["cron"]),
+                    datetime.now(timezone.utc),
+                    timezone_name=str(schedule.get("timezone") or "UTC"),
+                ).isoformat()
             except ScheduleValidationError as exc:
                 raise WikiCommandError(str(exc)) from exc
         return self.repository.set_schedule_enabled(
@@ -195,6 +304,16 @@ class WikiCommandService:
                     source_ids=source_ids,
                 ),
             )
+        if page["path"] != "wiki/overview.md":
+            operations.insert(
+                -1,
+                WikiOperation(
+                    operation=WikiOperationType.APPEND,
+                    path="wiki/overview.md",
+                    content=f"\n- Restored [[{page['path']}]] from revision {revision['version']}.{evidence}\n",
+                    source_ids=source_ids,
+                ),
+            )
         proposal = WikiProposal(
             project_id=project_id,
             base_revision=ProposalGate.project_revision(vault.contents),
@@ -234,6 +353,8 @@ class WikiCommandService:
 
             result = execute_knowledge_run(project_id, run.id, repository=self.repository)
             return {**result, "execution": "synchronous"}
+        if not is_celery_broker_available():
+            return self._record_broker_unavailable(run)
         self.repository.create_run(run)
         try:
             from app.tasks.knowledge_tasks import knowledge_execute
@@ -256,6 +377,20 @@ class WikiCommandService:
             trigger="retry",
             input_refs=run.get("input_refs") or {},
             retry_of=run_id,
+        )
+
+    def cancel_run(self, *, project_id: str, run_id: str) -> dict:
+        run = self.repository.get_run(project_id, run_id)
+        if not run:
+            raise WikiCommandError("knowledge run not found")
+        if run["status"] not in {RunStatus.QUEUED.value, RunStatus.RUNNING.value}:
+            raise WikiCommandError("only queued or running knowledge runs can be cancelled")
+        return self.repository.update_run_status(
+            project_id,
+            run_id,
+            RunStatus.CANCELLED,
+            error="cancelled by an authorized user",
+            output_refs={"cancelled": True},
         )
 
     def read_distillation(self, *, project_id: str, distillation_id: str) -> dict:
@@ -287,6 +422,8 @@ class WikiCommandService:
             from app.tasks.knowledge_tasks import execute_knowledge_run
 
             return {**execute_knowledge_run(project_id, run.id, repository=self.repository), "execution": "synchronous"}
+        if not is_celery_broker_available():
+            return self._record_broker_unavailable(run)
         try:
             from app.tasks.knowledge_tasks import knowledge_execute
 
@@ -295,6 +432,23 @@ class WikiCommandService:
         except Exception as exc:
             self.repository.update_run_status(project_id, run.id, RunStatus.FAILED, error=f"queue submission failed: {exc}")
             raise WikiCommandError(f"queue submission failed: {exc}") from exc
+
+    def _record_broker_unavailable(self, run: KnowledgeRun) -> dict:
+        if not self.repository.get_run(run.project_id, run.id):
+            self.repository.create_run(run)
+        failure = {
+            "category": "transient_dependency",
+            "code": "celery_broker_unavailable",
+            "retryable": True,
+        }
+        self.repository.update_run_status(
+            run.project_id,
+            run.id,
+            RunStatus.UNAVAILABLE,
+            error="durable scheduler unavailable because the Celery broker is unreachable",
+            output_refs={"failure": failure},
+        )
+        return {"status": "unavailable", "run_id": run.id, "failure": failure}
 
     def _proposal(self, project_id: str, proposal_id: str) -> WikiProposal:
         record = self.repository.get_proposal(project_id, proposal_id)
@@ -307,6 +461,10 @@ class WikiCommandService:
             return WikiProposal.model_validate(payload)
         except Exception as exc:
             raise WikiCommandError(f"stored Wiki proposal is invalid: {exc}") from exc
+
+    @staticmethod
+    def _scheduler_available() -> bool:
+        return is_celery_real() and is_celery_broker_available()
 
     def _vault(self, project_id: str) -> FilesystemWikiVault:
         configured = self.repository.get_vault(project_id)

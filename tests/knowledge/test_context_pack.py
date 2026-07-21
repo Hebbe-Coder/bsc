@@ -36,3 +36,63 @@ def test_context_pack_rejects_cross_project_records():
             rules=rules,
             sources=[{"id": "source-b", "project_id": "project-b", "raw_content": "leak"}],
         )
+
+
+class CandidateRetriever:
+    def __init__(self):
+        self.calls = []
+
+    def retrieve(self, query, *, project_id, top_k, rerank):
+        self.calls.append((query, project_id, top_k, rerank))
+        return [
+            {"source": "evidence://project-a/source-relevant", "doc_format": "evidence/manual_upload"},
+            {"source": "wiki://project-a/wiki/decisions/relevant.md", "doc_format": "wiki_markdown"},
+        ]
+
+
+def test_context_provider_uses_hybrid_retrieval_to_bound_candidate_records(tmp_path):
+    from app.knowledge.context_pack import WikiContextProvider
+    from app.knowledge.vault import FilesystemWikiVault
+    from app.knowledge.wiki_repository import WikiRepository
+    from app.knowledge.wiki_source_capture import CapturedSourceInput, SourceCaptureService
+
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = WikiRepository(db_path=str(tmp_path / "context-retrieval.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    vault = FilesystemWikiVault(root, "project-a")
+    vault.commit({"AGENTS.md": build_default_agents_rules("project-a")})
+    source_index = type("Index", (), {"project_source": lambda self, source: {"status": "ingested"}})()
+    relevant = SourceCaptureService(repo, search_index=source_index).capture(
+        CapturedSourceInput(project_id="project-a", source_type="manual_upload", raw_content="Relevant evidence", trust_level="trusted")
+    ).source
+    irrelevant = SourceCaptureService(repo, search_index=source_index).capture(
+        CapturedSourceInput(project_id="project-a", source_type="manual_upload", raw_content="Irrelevant evidence", trust_level="trusted")
+    ).source
+    repo._execute("UPDATE knowledge_sources SET id=? WHERE project_id=? AND id=?", ("source-relevant", "project-a", relevant["id"]))
+    repo._execute("UPDATE knowledge_sources SET id=? WHERE project_id=? AND id=?", ("source-irrelevant", "project-a", irrelevant["id"]))
+    repo._commit()
+    repo.record_publication(
+        project_id="project-a",
+        contents={
+            "wiki/decisions/relevant.md": "---\ntitle: Relevant\nkind: decision\n---\nRelevant decision.",
+            "wiki/decisions/irrelevant.md": "---\ntitle: Irrelevant\nkind: decision\n---\nIrrelevant decision.",
+        },
+        source_ids=[],
+    )
+    retriever = CandidateRetriever()
+    try:
+        pack = WikiContextProvider(repo, vault_root=root, retrieval_service=retriever).build_context(
+            project_id="project-a", task_constraints=["approval policy"]
+        )
+
+        assert retriever.calls == [("approval policy", "project-a", 24, True)]
+        assert pack is not None
+        assert "Relevant evidence" in pack.rendered
+        assert "Irrelevant evidence" not in pack.rendered
+        assert "Relevant decision" in pack.rendered
+        assert "Irrelevant decision" not in pack.rendered
+        assert set(pack.retrieval_refs) == {"source-relevant", "wiki/decisions/relevant.md"}
+        assert pack.token_budget == pack.character_budget // 4
+    finally:
+        repo.close()

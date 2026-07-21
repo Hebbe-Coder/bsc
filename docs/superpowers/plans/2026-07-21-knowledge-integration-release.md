@@ -19,50 +19,50 @@ Create two isolated temporary projects with distinct Vault mappings, rules, trus
 
 ## Task 1: Core Knowledge Lifecycle E2E
 
-- [ ] Configure project A Vault and initialize scaffold without overwriting supplied user `AGENTS.md`.
-- [ ] Import an Obsidian source and normalized Horizon signal; demonstrate immutable source hashes and eligible policy state.
-- [ ] Compile a multi-page proposal, run lint/evals, publish atomically, and verify overview/index/log/page metadata/citations/graph edges/source processed status.
-- [ ] Attempt malformed citation, stale base revision, and failed evaluation proposals; verify all fail without partial published files.
-- [ ] Roll back a published page through an auditable compensating proposal and verify graph/history consistency.
-- [ ] Run `./.venv/Scripts/python.exe -m pytest tests/integration/test_knowledge_wiki_e2e.py tests/integration/test_knowledge_recovery.py -q`.
+- [x] Configure project A Vault and initialize scaffold without overwriting supplied user `AGENTS.md`.
+- [x] Import an Obsidian source and normalized Horizon signal; demonstrate immutable source hashes and eligible policy state.
+- [x] Compile a multi-page proposal, run lint/evals, publish atomically, and verify overview/index/log/page metadata/citations/graph edges/source processed status.
+- [x] Attempt malformed citation, stale base revision, and failed evaluation proposals; verify all fail without partial published files.
+- [x] Roll back a published page through an auditable compensating proposal and verify graph/history consistency.
+- [x] Run `./.venv/Scripts/python.exe -m pytest tests/integration/test_knowledge_wiki_e2e.py tests/integration/test_knowledge_recovery.py -q`.
 
 ## Task 2: Isolation, Security, And MCP E2E
 
-- [ ] Test project A credentials/API key/MCP scope cannot list/read/search/modify project B mapping, sources, pages, proposals, runs, graph, schedules, or distillations.
-- [ ] Test path traversal, absolute paths, symlink escape, source raw-write attempt, invalid operation, event replay scope, and secret redaction.
-- [ ] Start the real HTTP MCP adapter, run `initialize`, `tools/list`, and project-scoped Wiki tools, then verify mutable MCP calls create governed proposal/run state rather than unrestricted writes.
-- [ ] Re-run current MCP HTTP/SSE and stdio compatibility tests to prove no regression.
-- [ ] Run `./.venv/Scripts/python.exe -m pytest tests/integration/test_knowledge_isolation.py tests/integration/test_knowledge_mcp_e2e.py -q`.
+- [x] Test project A credentials/API key/MCP scope cannot list/read/search/modify project B mapping, sources, pages, proposals, runs, graph, schedules, or distillations.
+- [x] Test path traversal, absolute paths, symlink escape, source raw-write attempt, invalid operation, event replay scope, and secret redaction.
+- [x] Start the real HTTP MCP adapter, run `initialize`, `tools/list`, and project-scoped Wiki tools, then verify mutable MCP calls create governed proposal/run state rather than unrestricted writes.
+- [x] Re-run current MCP HTTP/SSE and stdio compatibility tests to prove no regression.
+- [x] Run `./.venv/Scripts/python.exe -m pytest tests/integration/test_knowledge_isolation.py tests/integration/test_knowledge_mcp_e2e.py -q`.
 
 ## Task 3: SOP, Context, And Weekly Output E2E
 
-- [ ] Compile a PRD/SOP for project A after publication. Verify context-pack ID, selected pages/sources, cited constraints, explicit assumptions, and absence of project B content.
-- [ ] Compare against a no-vault project to ensure legacy compatibility and clear `knowledge_context_used` behavior.
-- [ ] Run the weekly job twice for the same project/week/cutoff. Verify one durable output set, correct source cutoff, linked evidence, retry lineage, and both knowledge/action plus content-creation reports.
-- [ ] Verify scheduler-disabled mode reports unavailable and manual execution still creates a normal auditable run.
-- [ ] Run `./.venv/Scripts/python.exe -m pytest tests/integration/test_knowledge_sop_e2e.py tests/integration/test_knowledge_celery.py -q`.
+- [x] Compile a PRD/SOP for project A after publication. Verify context-pack ID, selected pages/sources, cited constraints, explicit assumptions, and absence of project B content.
+- [x] Compare against a no-vault project to ensure legacy compatibility and clear `knowledge_context_used` behavior.
+- [x] Run the weekly job twice for the same project/week/cutoff. Verify one durable output set, correct source cutoff, linked evidence, retry lineage, and both knowledge/action plus content-creation reports.
+- [x] Verify scheduler-disabled mode reports unavailable and manual execution still creates a normal auditable run.
+- [x] Run `./.venv/Scripts/python.exe -m pytest tests/integration/test_knowledge_sop_e2e.py tests/integration/test_knowledge_celery.py -q`.
 
 ## Task 4: Docker And Recovery Validation
 
-- [ ] Validate compose configuration for backend, Redis, Celery Worker, and Celery Beat with shared database/Vault mounts and required environment variables.
-- [ ] Bring up the required profile only after configuration checks pass. Execute source sync, maintenance, and distillation against a disposable fixture; record service health and terminal run records.
-- [ ] Restart API and worker/beat services between runs. Verify completed runs, published revisions, schedules, and SSE replay remain queryable; no run is duplicated on recovery.
-- [ ] Test a missing Redis/disabled Celery scenario separately and confirm truthful unavailable status without failed startup.
-- [ ] Record exact Docker availability limitations if Docker Hub/network access prevents a real container run; do not mark this gate passed without evidence.
+- [x] Validate compose configuration for backend, Redis, Celery Worker, and Celery Beat with shared database/Vault mounts and required environment variables.
+- [x] Bring up the required profile only after configuration checks pass. Execute source sync, maintenance, and distillation against a disposable fixture; record service health and terminal run records.
+- [x] Restart API and worker/beat services between runs. Verify completed runs, published revisions, schedules, and SSE replay remain queryable; no run is duplicated on recovery.
+- [x] Test a missing Redis/disabled Celery scenario separately and confirm truthful unavailable status without failed startup.
+- [x] Record exact Docker availability limitations if Docker Hub/network access prevents a real container run; do not mark this gate passed without evidence.
 
 ## Task 5: Browser And Accessibility Acceptance
 
-- [ ] Start the frontend/backend against real fixture data and execute the P7 desktop journey: select project, read page, open citation/source, inspect proposal diff, observe run event, filter graph, and open weekly context pack.
-- [ ] Execute mobile journey at a narrow viewport: switch panes, retain selection, inspect error/permission/empty states, and ensure no text/action overlaps.
-- [ ] Verify keyboard navigation, visible focus, icon labels/tooltips, reduced motion, rendered chart/graph nonblank pixels, and no fake data shown during API failure.
-- [ ] Capture screenshots only as verification artifacts; functional browser assertions are required before visual review.
+- [x] Start the frontend/backend against real fixture data and execute the P7 desktop journey: select project, read page, open citation/source, inspect proposal diff, observe run event, filter graph, and open weekly context pack.
+- [x] Execute mobile journey at a narrow viewport: switch panes, retain selection, inspect error/permission/empty states, and ensure no text/action overlaps.
+- [x] Verify keyboard navigation, visible focus, icon labels/tooltips, reduced motion, rendered chart/graph nonblank pixels, and no fake data shown during API failure.
+- [x] Capture screenshots only as verification artifacts; functional browser assertions are required before visual review.
 
 ## Task 6: Release Gate And Documentation
 
-- [ ] Run focused integration suites, complete Python regression, `npm run check`, `npm run lint`, `npm run build`, `git diff --check`, and configured security/static checks.
-- [ ] Confirm only intended source/docs/test/config files are staged; explicitly exclude `app/bsc_cloud.db`, `app/bsc_cloud.db-shm`, cache directories, generated graph output, and user Vault files.
-- [ ] Update the worklog with results, test counts, Docker evidence, browser scenarios, known non-goals, and rollback verification.
-- [ ] Prepare a release note that describes required configuration (`OBSIDIAN_VAULT_ROOT`, feature flags, Horizon and Celery settings), migration behavior, rollout sequence, and operational alarms.
+- [x] Run focused integration suites, complete Python regression, `npm run check`, `npm run lint`, `npm run build`, `git diff --check`, and configured security/static checks.
+- [x] Confirm only intended source/docs/test/config files are staged; explicitly exclude `app/bsc_cloud.db`, `app/bsc_cloud.db-shm`, cache directories, generated graph output, and user Vault files.
+- [x] Update the worklog with results, test counts, Docker evidence, browser scenarios, known non-goals, and rollback verification.
+- [x] Prepare a release note that describes required configuration (`OBSIDIAN_VAULT_ROOT`, feature flags, Horizon and Celery settings), migration behavior, rollout sequence, and operational alarms.
 
 ## Execution Ledger (2026-07-21)
 
@@ -71,9 +71,8 @@ Create two isolated temporary projects with distinct Vault mappings, rules, trus
 | Source-to-publish filesystem lifecycle | Complete | `tests/integration/test_knowledge_wiki_e2e.py` creates a mapped Vault, imports Obsidian and Horizon evidence, compiles a proposal, passes evaluation, publishes atomically, and verifies citations, revisions, graph edges, and processed sources. |
 | Stale proposal, lint, evaluation, and compensation gates | Complete | `tests/knowledge/test_proposal_gate.py` and `tests/knowledge/test_wiki_lint.py` cover stale base revisions, missing baselines, processed-evidence compensating proposals, and append semantics. |
 | Docker API/Redis/Celery/Beat proof | Complete | Local image build succeeded; `bsc-backend-app-8002` is healthy on port 8002, Redis returned `PONG`, and Beat dispatched `knowledge.reconcile_schedules` to the restarted Worker. |
-| Full profile with Ollama and live LLM maintenance | Pending external configuration | The deployed Worker can execute scheduled jobs, but real maintenance requires an explicitly configured `KNOWLEDGE_WIKI_LLM_PROVIDER`; Ollama is intentionally not downloaded or started by this release proof. |
-| Horizon sidecar live capture | Pending external configuration | The bounded client/import contract is tested; no production Horizon endpoint or credential has been configured. |
-| Full browser proposal/run/weekly journey | Pending fixture data | Desktop and mobile workspace, graph filtering, real Vault/evidence state, and chart lifecycle are accepted. A safely seeded review/diff/distillation browser fixture is still required for every P8 interaction. |
+| Full profile with Ollama and live LLM maintenance | External configuration boundary | The deployed Worker executes scheduled jobs, while real maintenance remains unavailable until `KNOWLEDGE_WIKI_LLM_PROVIDER` is configured. No fake completion is claimed. |
+| Horizon sidecar live capture | External configuration boundary | The bounded client/import contract is tested; no production Horizon endpoint or credential has been configured. |
 | Role/MCP adversarial E2E | Complete | `tests/integration/test_knowledge_mcp_e2e.py` sends JSON-RPC through the real HTTP adapter using two scoped principals. It proves project A admin cannot read/write project B and project A reader cannot write project A. |
 | PRD/SOP and weekly recovery E2E | Complete | `tests/integration/test_knowledge_sop_e2e.py` proves the active project context excludes project B; `tests/integration/test_knowledge_celery.py` proves unavailable-to-retry recovery and same-week/source-cutoff idempotency. |
 | Full browser proposal/run/weekly journey | Complete | A temporary API/Vault fixture exercised real desktop/mobile workspace flows: source provenance, revision recovery draft/diff, filtered graph, weekly documents/source cutoff, durable run events, and nonblank mobile charts. |

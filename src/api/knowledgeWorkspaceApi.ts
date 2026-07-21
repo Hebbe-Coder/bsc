@@ -20,6 +20,8 @@ export type KnowledgeWorkspaceData = {
   sources: number;
   runs: number;
   schedules: number;
+  access: { role: string; can_write: boolean };
+  scheduler: { available: boolean; mode: 'celery' | 'manual' };
 };
 
 export type KnowledgeProposal = {
@@ -35,14 +37,14 @@ export type KnowledgeProposal = {
 
 export type KnowledgePage = { id: string; path: string; title: string; page_kind: string; version: number; status: string; metadata: Record<string, unknown> };
 export type KnowledgePageRevision = { id: string; version: number; content_hash: string; proposal_id: string; created_at: string };
-export type KnowledgePageDetail = { page: KnowledgePage; content: string; citations: Array<{ source_id: string; claim_text: string; anchor: string }>; revisions: KnowledgePageRevision[] };
+export type KnowledgePageDetail = { page: KnowledgePage; content: string; citations: Array<{ source_id: string; claim_text: string; anchor: string }>; revisions: KnowledgePageRevision[]; backlinks: KnowledgeGraphEdge[] };
 export type WeeklyDistillation = { id: string; week: string; knowledge_path: string; content_path: string; context_path: string; source_cutoff: string; status: string; created_at: string };
 export type WeeklyDistillationDetail = { distillation: WeeklyDistillation; documents: Record<string, string> };
 export type KnowledgeRun = { id: string; run_type: string; trigger: string; status: string; error: string; retry_of: string | null; input_refs: Record<string, unknown>; output_refs: Record<string, unknown>; created_at: string; updated_at: string };
-export type KnowledgeSchedule = { id: string; job_type: string; cron: string; enabled: number | boolean; timezone: string; last_run_at: string; next_run_at: string };
+export type KnowledgeSchedule = { id: string; job_type: string; cron: string; enabled: number | boolean; timezone: string; last_run_at: string; next_run_at: string; scheduler_available: boolean; last_result: KnowledgeRun | null };
 export type KnowledgeGraphNode = { id: string; node_type: 'source' | 'page' | 'proposal'; label: string; status: string; created_at: string };
 export type KnowledgeGraphEdge = { id: string; from_id: string; to_id: string; edge_type: string; created_at: string };
-export type KnowledgeGraph = { nodes: KnowledgeGraphNode[]; edges: KnowledgeGraphEdge[]; count: number };
+export type KnowledgeGraph = { nodes: KnowledgeGraphNode[]; edges: KnowledgeGraphEdge[]; count: number; total: number; limit: number; offset: number; truncated: boolean };
 export type KnowledgeHealth = {
   status: string;
   citation_coverage: number | null;
@@ -59,15 +61,37 @@ export type KnowledgeHealth = {
 export type KnowledgeHealthTrend = {
   source_throughput: Array<{ date: string; count: number }>;
   proposal_outcomes: Array<{ date: string; statuses: Record<string, number> }>;
-  evaluations: Array<{ at: string; score: number | null; status: string }>;
+  evaluations: Array<{ at: string; score: number | null; baseline_score: number | null; score_delta: number | null; latency_ms: number | null; status: string }>;
   current: KnowledgeHealth;
 };
-export type KnowledgeRunEvent = { id: string; run_id: string; sequence: number; event_type: string; payload: Record<string, unknown>; created_at: string };
+export type KnowledgeRunEvent = { id: string; project_id: string; run_id: string; sequence: number; event_type: string; payload: Record<string, unknown>; created_at: string };
+
+export class KnowledgeRequestError extends Error {
+  readonly code: string;
+  readonly status: number;
+
+  constructor(message: string, code: string, status: number) {
+    super(message);
+    this.name = 'KnowledgeRequestError';
+    this.code = code;
+    this.status = status;
+  }
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await apiFetch(path, init);
-  const payload = await response.json() as { success?: boolean; data?: T; message?: string; detail?: string };
-  if (!response.ok || !payload.success || payload.data === undefined) throw new Error(payload.message || payload.detail || `Knowledge request failed (${response.status})`);
+  const payload = await response.json() as {
+    success?: boolean;
+    data?: T;
+    message?: string | { code?: string; message?: string };
+    detail?: string | { code?: string; message?: string };
+    error_code?: string;
+  };
+  if (!response.ok || !payload.success || payload.data === undefined) {
+    const detail = typeof payload.detail === 'object' ? payload.detail : typeof payload.message === 'object' ? payload.message : null;
+    const message = detail?.message || (typeof payload.message === 'string' ? payload.message : '') || (typeof payload.detail === 'string' ? payload.detail : '') || `Knowledge request failed (${response.status})`;
+    throw new KnowledgeRequestError(message, detail?.code || payload.error_code || 'knowledge_request_failed', response.status);
+  }
   return payload.data;
 }
 

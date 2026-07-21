@@ -3,39 +3,108 @@
 from __future__ import annotations
 
 import hashlib
+import time
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
 
 from app.core.celery_app import get_celery_app
 from app.core.config import settings
 from app.knowledge.distillation import DistillationError, WeeklyDistillationService
+from app.knowledge.context_pack import ContextPackBuilder
 from app.knowledge.horizon_client import HorizonClient, HorizonClientError
 from app.knowledge.horizon_import import HorizonImportService
 from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.scheduler import KnowledgeScheduler
 from app.knowledge.wiki_sync import ObsidianSyncService
 from app.knowledge.wiki_compiler import WikiCompilationError, WikiCompiler
+from app.knowledge.proposal_gate import ProposalGateError
 from app.knowledge.wiki_llm_provider import SOPWikiCompilerProvider
 from app.knowledge.wiki_contracts import RunStatus
 from app.knowledge.wiki_repository import WikiRepository
+from app.knowledge.wiki_rules import parse_project_rules, RuleValidationError
+from app.knowledge.wiki_lint import WikiLint
+from app.knowledge.wiki_evaluator import WikiEvaluator
+from app.knowledge import metrics as knowledge_metrics
+
+
+@dataclass(frozen=True)
+class KnowledgeFailure:
+    category: str
+    code: str
+    retryable: bool
+
+
+def classify_knowledge_failure(exc: Exception) -> KnowledgeFailure:
+    message = str(exc).lower()
+    if "not configured" in message or "required" in message:
+        return KnowledgeFailure("configuration", "configuration_missing", False)
+    if isinstance(exc, HorizonClientError):
+        return KnowledgeFailure("transient_dependency", "horizon_unavailable", True)
+    if isinstance(exc, WikiCompilationError):
+        return KnowledgeFailure("compiler", "compiler_failed", False)
+    if isinstance(exc, ProposalGateError) or "publication gate" in message:
+        return KnowledgeFailure("gate", "publication_gate_failed", False)
+    if isinstance(exc, DistillationError) and "conflict" in message:
+        return KnowledgeFailure("write_conflict", "distillation_conflict", False)
+    if isinstance(exc, UnicodeError):
+        return KnowledgeFailure("extraction", "extraction_failed", False)
+    if isinstance(exc, PermissionError):
+        return KnowledgeFailure("policy", "permission_denied", False)
+    return KnowledgeFailure("transient_dependency", "unexpected_dependency_failure", True)
+
+
+def _record_terminal_failure(
+    repo: WikiRepository,
+    *,
+    project_id: str,
+    run_id: str,
+    status: RunStatus,
+    message: str,
+    failure: KnowledgeFailure,
+    output_refs: dict | None = None,
+) -> dict:
+    refs = {**(output_refs or {}), "failure": failure.__dict__}
+    repo.update_run_status(project_id, run_id, status, error=message, output_refs=refs)
+    return {
+        "status": status.value,
+        "run_id": run_id,
+        "error": message,
+        "failure": failure.__dict__,
+    }
 
 
 def execute_knowledge_run(
     project_id: str, run_id: str, schedule_id: str = "", week: str = "", repository: WikiRepository | None = None
 ) -> dict:
     """Execute one persisted job; unsupported or ungrounded work remains explicitly unavailable."""
+    started_perf = time.perf_counter()
     repo = repository or WikiRepository()
     owns_repository = repository is None
+    run = None
     try:
         run = repo.get_run(project_id, run_id)
         if not run:
             raise ValueError("knowledge run not found")
+        if run["status"] in {"completed", "failed", "cancelled", "unavailable"}:
+            return {
+                "status": run["status"],
+                "run_id": run_id,
+                "duplicate": True,
+                "output_refs": run.get("output_refs") or {},
+            }
         repo.update_run_status(project_id, run_id, RunStatus.RUNNING)
         if run["run_type"] == "source_sync":
             mapping = repo.get_vault(project_id)
             if not settings.OBSIDIAN_VAULT_ROOT or not mapping:
-                repo.update_run_status(project_id, run_id, RunStatus.UNAVAILABLE, error="Obsidian Vault is not configured")
-                return {"status": "unavailable", "run_id": run_id}
+                return _record_terminal_failure(
+                    repo,
+                    project_id=project_id,
+                    run_id=run_id,
+                    status=RunStatus.UNAVAILABLE,
+                    message="Obsidian Vault is not configured",
+                    failure=KnowledgeFailure("configuration", "vault_not_configured", False),
+                )
             report = ObsidianSyncService(repo, Path(settings.OBSIDIAN_VAULT_ROOT)).sync(project_id=project_id)
             managed_vault = FilesystemWikiVault(Path(settings.OBSIDIAN_VAULT_ROOT), project_id, mapping["vault_path"])
             if managed_vault.project_root.is_dir():
@@ -57,13 +126,25 @@ def execute_knowledge_run(
             return {"status": "completed", "run_id": run_id, "sync": report}
         if run["run_type"] == "horizon_capture":
             if not settings.HORIZON_ENABLED or not settings.HORIZON_API_BASE_URL:
-                repo.update_run_status(project_id, run_id, RunStatus.UNAVAILABLE, error="Horizon sidecar is not configured")
-                return {"status": "unavailable", "run_id": run_id}
+                return _record_terminal_failure(
+                    repo,
+                    project_id=project_id,
+                    run_id=run_id,
+                    status=RunStatus.UNAVAILABLE,
+                    message="Horizon sidecar is not configured",
+                    failure=KnowledgeFailure("configuration", "horizon_not_configured", False),
+                )
             horizon_run_id = str(run["input_refs"].get("horizon_run_id") or "").strip()
             stage = str(run["input_refs"].get("stage") or "filtered")
             if not horizon_run_id:
-                repo.update_run_status(project_id, run_id, RunStatus.FAILED, error="Horizon run ID is required")
-                return {"status": "failed", "run_id": run_id, "error": "Horizon run ID is required"}
+                return _record_terminal_failure(
+                    repo,
+                    project_id=project_id,
+                    run_id=run_id,
+                    status=RunStatus.FAILED,
+                    message="Horizon run ID is required",
+                    failure=KnowledgeFailure("configuration", "horizon_run_id_missing", False),
+                )
             try:
                 response = HorizonClient(
                     base_url=settings.HORIZON_API_BASE_URL,
@@ -77,8 +158,14 @@ def execute_knowledge_run(
                     project_id=project_id, run_id=response.run_id, stage=response.stage, items=response.items
                 )
             except HorizonClientError as exc:
-                repo.update_run_status(project_id, run_id, RunStatus.FAILED, error=str(exc))
-                return {"status": "failed", "run_id": run_id, "error": str(exc)}
+                return _record_terminal_failure(
+                    repo,
+                    project_id=project_id,
+                    run_id=run_id,
+                    status=RunStatus.FAILED,
+                    message=str(exc),
+                    failure=classify_knowledge_failure(exc),
+                )
             repo.append_run_event(
                 project_id=project_id, run_id=run_id, event_type="knowledge.horizon.capture.completed",
                 payload={"horizon_run_id": horizon_run_id, "stage": stage, **report},
@@ -87,17 +174,35 @@ def execute_knowledge_run(
             return {"status": "completed", "run_id": run_id, "horizon": report}
         if run["run_type"] == "wiki_maintenance":
             if not settings.OBSIDIAN_VAULT_ROOT:
-                repo.update_run_status(project_id, run_id, RunStatus.UNAVAILABLE, error="Obsidian Vault is not configured")
-                return {"status": "unavailable", "run_id": run_id}
+                return _record_terminal_failure(
+                    repo,
+                    project_id=project_id,
+                    run_id=run_id,
+                    status=RunStatus.UNAVAILABLE,
+                    message="Obsidian Vault is not configured",
+                    failure=KnowledgeFailure("configuration", "vault_not_configured", False),
+                )
             mapping = repo.get_vault(project_id)
             if not mapping:
-                repo.update_run_status(project_id, run_id, RunStatus.UNAVAILABLE, error="project Vault mapping is not configured")
-                return {"status": "unavailable", "run_id": run_id}
+                return _record_terminal_failure(
+                    repo,
+                    project_id=project_id,
+                    run_id=run_id,
+                    status=RunStatus.UNAVAILABLE,
+                    message="project Vault mapping is not configured",
+                    failure=KnowledgeFailure("configuration", "vault_mapping_missing", False),
+                )
             vault = FilesystemWikiVault(Path(settings.OBSIDIAN_VAULT_ROOT), project_id, mapping["vault_path"])
             rules_path = vault.project_root / "AGENTS.md"
             if not rules_path.is_file():
-                repo.update_run_status(project_id, run_id, RunStatus.UNAVAILABLE, error="project AGENTS.md is required")
-                return {"status": "unavailable", "run_id": run_id}
+                return _record_terminal_failure(
+                    repo,
+                    project_id=project_id,
+                    run_id=run_id,
+                    status=RunStatus.UNAVAILABLE,
+                    message="project AGENTS.md is required",
+                    failure=KnowledgeFailure("configuration", "project_rules_missing", False),
+                )
             page_snapshots = []
             for page in repo.list_pages(project_id):
                 content = repo.get_page_content(project_id, page["id"])
@@ -117,32 +222,205 @@ def execute_knowledge_run(
             except WikiCompilationError as exc:
                 reason = str(exc)
                 status = RunStatus.UNAVAILABLE if "real KNOWLEDGE_WIKI_LLM_PROVIDER" in reason else RunStatus.FAILED
-                repo.update_run_status(project_id, run_id, status, error=reason)
-                return {"status": status.value, "run_id": run_id, "error": reason}
+                failure = (
+                    KnowledgeFailure("configuration", "wiki_llm_provider_not_configured", False)
+                    if status is RunStatus.UNAVAILABLE
+                    else classify_knowledge_failure(exc)
+                )
+                return _record_terminal_failure(
+                    repo,
+                    project_id=project_id,
+                    run_id=run_id,
+                    status=status,
+                    message=reason,
+                    failure=failure,
+                )
             repo.append_run_event(
                 project_id=project_id, run_id=run_id, event_type="knowledge.proposal.created",
                 payload={"proposal_id": result.proposal["id"], "compiler_run_id": result.run["id"]},
             )
-            repo.update_run_status(project_id, run_id, RunStatus.COMPLETED, output_refs={"proposal_id": result.proposal["id"], "compiler_run_id": result.run["id"]})
-            return {"status": "completed", "run_id": run_id, "proposal_id": result.proposal["id"]}
+            publication = {"status": "review_required"}
+            mapping_policy = mapping.get("metadata") or {}
+            if settings.KNOWLEDGE_WIKI_AUTO_PUBLISH_ENABLED and mapping_policy.get("auto_publish_enabled") is True:
+                from app.knowledge.wiki_commands import WikiCommandError, WikiCommandService
+
+                try:
+                    publication = WikiCommandService(repo).publish_proposal(
+                        project_id=project_id,
+                        proposal_id=result.proposal["id"],
+                        publication_mode="automatic",
+                        actor_id="knowledge-task",
+                        actor_role="system",
+                    )
+                except WikiCommandError as exc:
+                    failure = KnowledgeFailure("gate", "publication_gate_failed", False)
+                    output_refs = {
+                        "proposal_id": result.proposal["id"],
+                        "compiler_run_id": result.run["id"],
+                        "failure": failure.__dict__,
+                    }
+                    repo.update_run_status(
+                        project_id,
+                        run_id,
+                        RunStatus.FAILED,
+                        error=str(exc),
+                        output_refs=output_refs,
+                    )
+                    return {
+                        "status": "failed",
+                        "run_id": run_id,
+                        "proposal_id": result.proposal["id"],
+                        "failure": failure.__dict__,
+                    }
+            output_refs = {
+                "proposal_id": result.proposal["id"],
+                "compiler_run_id": result.run["id"],
+                "publication": publication,
+            }
+            repo.update_run_status(project_id, run_id, RunStatus.COMPLETED, output_refs=output_refs)
+            return {
+                "status": "completed",
+                "run_id": run_id,
+                "proposal_id": result.proposal["id"],
+                "publication": publication,
+            }
+        if run["run_type"] == "knowledge_lint_eval":
+            mapping = repo.get_vault(project_id)
+            if not settings.OBSIDIAN_VAULT_ROOT or not mapping:
+                return _record_terminal_failure(
+                    repo,
+                    project_id=project_id,
+                    run_id=run_id,
+                    status=RunStatus.UNAVAILABLE,
+                    message="Obsidian Vault is not configured",
+                    failure=KnowledgeFailure("configuration", "vault_not_configured", False),
+                )
+            vault = FilesystemWikiVault(Path(settings.OBSIDIAN_VAULT_ROOT), project_id, mapping["vault_path"])
+            rules_path = vault.project_root / "AGENTS.md"
+            if not rules_path.is_file():
+                return _record_terminal_failure(
+                    repo,
+                    project_id=project_id,
+                    run_id=run_id,
+                    status=RunStatus.UNAVAILABLE,
+                    message="project AGENTS.md is required",
+                    failure=KnowledgeFailure("configuration", "project_rules_missing", False),
+                )
+            rules = parse_project_rules(rules_path.read_text(encoding="utf-8"))
+            pages = []
+            for page in repo.list_pages(project_id):
+                content = repo.get_page_content(project_id, page["id"])
+                pages.append({**page, "content": content["content"] if content else ""})
+            sources = repo.list_sources(project_id)
+            lint = WikiLint().lint_project(project_id=project_id, rules=rules, pages=pages, sources=sources)
+            candidate_sources = sorted({
+                citation["source_id"] for citation in repo.list_citations(project_id, include_stale=False)
+            })
+            evaluation = WikiEvaluator(repo).evaluate(
+                project_id=project_id,
+                wiki_revision=hashlib.sha256(
+                    "|".join(f"{page['id']}:{page['content_hash']}" for page in pages).encode("utf-8")
+                ).hexdigest(),
+                candidate={
+                    "source_ids": candidate_sources,
+                    "retrieved_source_ids": candidate_sources,
+                    "content": "\n".join(page["content"] for page in pages),
+                },
+            )
+            output = {
+                "lint": {"valid": lint.valid, "findings": [finding.model_dump() for finding in lint.findings]},
+                "evaluation": evaluation.model_dump(),
+            }
+            terminal = (
+                RunStatus.UNAVAILABLE if evaluation.status == "unavailable"
+                else RunStatus.COMPLETED if lint.valid and evaluation.status == "passed"
+                else RunStatus.FAILED
+            )
+            if terminal is not RunStatus.COMPLETED:
+                output["failure"] = KnowledgeFailure(
+                    "gate",
+                    "evaluation_baseline_missing" if terminal is RunStatus.UNAVAILABLE else "knowledge_quality_regression",
+                    False,
+                ).__dict__
+            repo.append_run_event(
+                project_id=project_id,
+                run_id=run_id,
+                event_type="knowledge.quality.completed",
+                payload={"lint_valid": lint.valid, "evaluation_status": evaluation.status},
+            )
+            repo.update_run_status(
+                project_id,
+                run_id,
+                terminal,
+                error="" if terminal is RunStatus.COMPLETED else "knowledge quality gate did not pass",
+                output_refs=output,
+            )
+            return {"status": terminal.value, "run_id": run_id, **output}
         if run["run_type"] != "weekly_distillation":
-            repo.update_run_status(project_id, run_id, RunStatus.UNAVAILABLE, error="knowledge executor not configured")
-            return {"status": "unavailable", "run_id": run_id}
+            return _record_terminal_failure(
+                repo,
+                project_id=project_id,
+                run_id=run_id,
+                status=RunStatus.UNAVAILABLE,
+                message="knowledge executor not configured",
+                failure=KnowledgeFailure("configuration", "executor_not_configured", False),
+            )
         sources = repo.list_sources(project_id, status="eligible")
         if not sources:
-            repo.update_run_status(project_id, run_id, RunStatus.UNAVAILABLE, error="no eligible source evidence")
-            return {"status": "unavailable", "run_id": run_id}
+            return _record_terminal_failure(
+                repo,
+                project_id=project_id,
+                run_id=run_id,
+                status=RunStatus.UNAVAILABLE,
+                message="no eligible source evidence",
+                failure=KnowledgeFailure("policy", "no_eligible_evidence", False),
+            )
         mapping = repo.get_vault(project_id)
         if not settings.OBSIDIAN_VAULT_ROOT or not mapping:
-            repo.update_run_status(project_id, run_id, RunStatus.UNAVAILABLE, error="Obsidian Vault is not configured")
-            return {"status": "unavailable", "run_id": run_id}
+            return _record_terminal_failure(
+                repo,
+                project_id=project_id,
+                run_id=run_id,
+                status=RunStatus.UNAVAILABLE,
+                message="Obsidian Vault is not configured",
+                failure=KnowledgeFailure("configuration", "vault_not_configured", False),
+            )
         vault = FilesystemWikiVault(Path(settings.OBSIDIAN_VAULT_ROOT), project_id, mapping["vault_path"])
         rules_path = vault.project_root / "AGENTS.md"
         rule_revision = hashlib.sha256(
             rules_path.read_bytes() if rules_path.exists() else b""
         ).hexdigest()
         selected_week = week or _iso_week()
-        pages = repo.list_pages(project_id)
+        pages = []
+        for page in repo.list_pages(project_id):
+            content = repo.get_page_content(project_id, page["id"])
+            pages.append({**page, "content": content["content"] if content else ""})
+        evaluations = repo.list_eval_runs(project_id, limit=20)
+        contradictions = [
+            {"source_id": source["id"], "contradicts_source_id": target}
+            for source in sources
+            for target in source.get("metadata", {}).get("contradicts_source_ids", [])
+            if isinstance(target, str)
+        ]
+        context_pack = None
+        try:
+            rules = parse_project_rules(rules_path.read_text(encoding="utf-8"))
+            context_pack = ContextPackBuilder(max_characters=8_000).build(
+                project_id=project_id,
+                rules=rules,
+                pages=pages,
+                sources=sources,
+                evaluations=[
+                    {
+                        "id": evaluation["id"],
+                        "project_id": project_id,
+                        "content": f"Status: {evaluation['status']}; findings: {evaluation.get('summary', {}).get('findings', [])}",
+                    }
+                    for evaluation in evaluations
+                ],
+            )
+        except RuleValidationError:
+            context_pack = None
         source_cutoff = WeeklyDistillationService.source_cutoff(sources)
         bundle = WeeklyDistillationService(vault).distill(
             project_id=project_id,
@@ -151,6 +429,9 @@ def execute_knowledge_run(
             pages=pages,
             rule_revision=rule_revision,
             source_cutoff=source_cutoff,
+            evaluations=evaluations,
+            contradictions=contradictions,
+            context_pack=context_pack,
         )
         distillation = repo.record_distillation(
             project_id=project_id,
@@ -184,9 +465,44 @@ def execute_knowledge_run(
             "distillation_id": distillation["id"],
         }
     except DistillationError as exc:
-        repo.update_run_status(project_id, run_id, RunStatus.FAILED, error=str(exc))
-        return {"status": "failed", "run_id": run_id, "error": str(exc)}
+        failure = classify_knowledge_failure(exc)
+        repo.update_run_status(
+            project_id,
+            run_id,
+            RunStatus.FAILED,
+            error=str(exc),
+            output_refs={"failure": failure.__dict__},
+        )
+        return {"status": "failed", "run_id": run_id, "error": str(exc), "failure": failure.__dict__}
+    except Exception as exc:
+        failure = classify_knowledge_failure(exc)
+        if run is not None:
+            repo.update_run_status(
+                project_id,
+                run_id,
+                RunStatus.FAILED,
+                error=str(exc),
+                output_refs={"failure": failure.__dict__},
+            )
+        return {"status": "failed", "run_id": run_id, "error": str(exc), "failure": failure.__dict__}
     finally:
+        if run is not None:
+            persisted = repo.get_run(project_id, run_id)
+            if persisted and persisted["status"] in {"completed", "failed", "cancelled", "unavailable"}:
+                try:
+                    created = datetime.fromisoformat(str(persisted["created_at"]).replace("Z", "+00:00"))
+                    if created.tzinfo is None:
+                        created = created.replace(tzinfo=timezone.utc)
+                    queue_delay_ms = max(0.0, (datetime.now(timezone.utc) - created.astimezone(timezone.utc)).total_seconds() * 1000.0)
+                except (TypeError, ValueError):
+                    queue_delay_ms = 0.0
+                knowledge_metrics.metrics.record_knowledge_run(
+                    status=persisted["status"],
+                    queue_delay_ms=queue_delay_ms,
+                    runtime_ms=(time.perf_counter() - started_perf) * 1000.0,
+                    retry_count=1 if persisted.get("retry_of") else 0,
+                    distillation_freshness_seconds=0.0 if persisted["run_type"] == "weekly_distillation" and persisted["status"] == "completed" else None,
+                )
         if owns_repository:
             repo.close()
 
@@ -205,6 +521,7 @@ def reconcile_knowledge_schedules(now: datetime | None = None) -> dict:
     failures = 0
     try:
         scheduler = KnowledgeScheduler(repo, scheduler_available=True)
+        recovered = scheduler.recover_abandoned_runs(now=current, timeout_seconds=max(60, settings.CELERY_TASK_TIMEOUT))
         for schedule in repo.list_due_schedules(current.isoformat()):
             due_at = str(schedule["next_run_at"])
             idempotency_key = f"{schedule['id']}:{due_at}"
@@ -219,7 +536,9 @@ def reconcile_knowledge_schedules(now: datetime | None = None) -> dict:
                 continue
             try:
                 knowledge_execute.apply_async(args=[schedule["project_id"], claim["run_id"], schedule["id"]])
-                next_run = scheduler.next_run(schedule["cron"], current).isoformat()
+                next_run = scheduler.next_run(
+                    schedule["cron"], current, timezone_name=str(schedule.get("timezone") or "UTC")
+                ).isoformat()
                 advanced = repo.advance_schedule(
                     schedule_id=schedule["id"],
                     expected_next_run_at=due_at,
@@ -236,7 +555,7 @@ def reconcile_knowledge_schedules(now: datetime | None = None) -> dict:
                 repo.release_schedule_claim(
                     project_id=schedule["project_id"], job_type=schedule["job_type"], idempotency_key=idempotency_key
                 )
-        return {"queued": queued, "duplicates": duplicates, "failures": failures}
+        return {"queued": queued, "duplicates": duplicates, "failures": failures, "recovered": len(recovered)}
     finally:
         repo.close()
 

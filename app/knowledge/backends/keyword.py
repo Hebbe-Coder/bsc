@@ -40,9 +40,9 @@ class KeywordBackend:
         params.append(limit)
         try:
             rows = self.repo._execute(
-                "SELECT chunk_id, bm25(knowledge_fts) AS s FROM knowledge_fts "
+                "SELECT chunk_id, bm25(knowledge_fts) AS s FROM knowledge_fts "  # nosec B608
                 f"WHERE knowledge_fts MATCH ?{pid_filter} ORDER BY s LIMIT ?",
-                tuple(params)).fetchall()  # nosec B608 - pid_filter is hardcoded
+                tuple(params)).fetchall()
             return [r["chunk_id"] for r in rows]
         except Exception:
             try:

@@ -88,7 +88,7 @@ class VectorBackend:
         if not query or not query.strip():
             return []
         
-        cache_key = hashlib.md5(f"{query}|{project_id}|{limit}".encode()).hexdigest()
+        cache_key = hashlib.sha256(f"{query}|{project_id}|{limit}".encode()).hexdigest()
         cached = self._cache_get(cache_key)
         if cached is not None:
             return cached

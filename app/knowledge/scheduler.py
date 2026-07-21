@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus
 from app.knowledge.wiki_repository import WikiRepository
@@ -34,6 +35,9 @@ class KnowledgeScheduler:
         now: datetime | None = None,
     ) -> dict:
         self._validate(job_type, cron)
+        self._validate_timezone(timezone_name)
+        if not self.repository.get_vault(project_id):
+            raise ScheduleValidationError("project Vault mapping is required before scheduling knowledge jobs")
         current = now or datetime.now(timezone.utc)
         enabled = self.scheduler_available
         return self.repository.upsert_schedule(
@@ -42,7 +46,7 @@ class KnowledgeScheduler:
             cron=cron,
             timezone_name=timezone_name,
             enabled=enabled,
-            next_run_at=self.next_run(cron, current).isoformat() if enabled else "",
+            next_run_at=self.next_run(cron, current, timezone_name=timezone_name).isoformat() if enabled else "",
         )
 
     def list_schedules(self, project_id: str) -> list[dict]:
@@ -82,23 +86,28 @@ class KnowledgeScheduler:
         return self.repository.claim_schedule_run(run, idempotency_key)
 
     @staticmethod
-    def next_run(cron: str, now: datetime) -> datetime:
+    def next_run(cron: str, now: datetime, *, timezone_name: str = "UTC") -> datetime:
+        KnowledgeScheduler._validate_timezone(timezone_name)
+        zone = ZoneInfo(timezone_name)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        local_now = now.astimezone(zone)
         match = _INTERVAL_CRON.fullmatch(cron)
         if match:
             minutes = int(match.group(1))
-            candidate = now.replace(second=0, microsecond=0) + timedelta(minutes=1)
+            candidate = local_now.replace(second=0, microsecond=0) + timedelta(minutes=1)
             while candidate.minute % minutes:
                 candidate += timedelta(minutes=1)
-            return candidate
+            return candidate.astimezone(timezone.utc)
         match = _CALENDAR_CRON.fullmatch(cron)
         if not match:
             raise ScheduleValidationError("cron is not in the supported safe subset")
         minute, hour, weekday = int(match.group(1)), int(match.group(2)), match.group(3)
-        candidate = now.replace(second=0, microsecond=0) + timedelta(minutes=1)
+        candidate = local_now.replace(second=0, microsecond=0) + timedelta(minutes=1)
         for _ in range(8 * 24 * 60):
             cron_weekday = (candidate.weekday() + 1) % 7
             if candidate.minute == minute and candidate.hour == hour and (weekday == "*" or cron_weekday == int(weekday)):
-                return candidate
+                return candidate.astimezone(timezone.utc)
             candidate += timedelta(minutes=1)
         raise ScheduleValidationError("cron has no next run within eight days")
 
@@ -115,3 +124,46 @@ class KnowledgeScheduler:
     def _validate_job_type(job_type: str) -> None:
         if job_type not in _JOB_TYPES:
             raise ScheduleValidationError("job_type is not allowed")
+
+    @staticmethod
+    def _validate_timezone(timezone_name: str) -> None:
+        try:
+            ZoneInfo(timezone_name)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ScheduleValidationError("timezone must be a valid IANA timezone") from exc
+
+    def recover_abandoned_runs(
+        self,
+        *,
+        now: datetime | None = None,
+        timeout_seconds: int = 3600,
+    ) -> list[str]:
+        if timeout_seconds < 60:
+            raise ScheduleValidationError("abandoned run timeout must be at least 60 seconds")
+        current = now or datetime.now(timezone.utc)
+        recovered: list[str] = []
+        for run in self.repository.list_running_runs():
+            value = str(run.get("updated_at") or run.get("started_at") or run.get("created_at") or "")
+            try:
+                updated = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                if updated.tzinfo is None:
+                    updated = updated.replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+            if updated > current - timedelta(seconds=timeout_seconds):
+                continue
+            self.repository.update_run_status(
+                run["project_id"],
+                run["id"],
+                RunStatus.FAILED,
+                error="abandoned running job recovered",
+                output_refs={
+                    "failure": {
+                        "category": "transient_dependency",
+                        "code": "abandoned_run",
+                        "retryable": True,
+                    }
+                },
+            )
+            recovered.append(run["id"])
+        return recovered

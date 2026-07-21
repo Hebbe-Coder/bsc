@@ -84,6 +84,24 @@ def test_command_service_runs_manual_source_sync_without_a_celery_scheduler(tmp_
         repo.close()
 
 
+def test_command_service_reports_unavailable_when_the_real_celery_broker_is_down(tmp_path, monkeypatch):
+    repo = WikiRepository(db_path=str(tmp_path / "commands-broker-down.db"))
+    monkeypatch.setattr("app.knowledge.wiki_commands.is_celery_real", lambda: True)
+    monkeypatch.setattr("app.knowledge.wiki_commands.is_celery_broker_available", lambda: False)
+    try:
+        result = WikiCommandService(repo).start_run(
+            project_id="project-a", job_type="source_sync", trigger="manual"
+        )
+
+        assert result["status"] == "unavailable"
+        assert result["failure"]["code"] == "celery_broker_unavailable"
+        persisted = repo.get_run("project-a", result["run_id"])
+        assert persisted["status"] == "unavailable"
+        assert persisted["output_refs"]["failure"]["retryable"] is True
+    finally:
+        repo.close()
+
+
 def test_command_service_restores_a_prior_revision_through_a_new_gated_proposal(tmp_path, monkeypatch):
     vault_root = tmp_path / "vault"
     vault_root.mkdir()

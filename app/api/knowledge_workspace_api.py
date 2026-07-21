@@ -17,11 +17,13 @@ from app.core.config import settings
 from app.knowledge.wiki_commands import WikiCommandError, WikiCommandService
 from app.knowledge.knowledge_graph import KnowledgeGraphService
 from app.knowledge.knowledge_health import KnowledgeHealthService
-from app.knowledge.wiki_bootstrap import WikiBootstrapError, WikiBootstrapService
+from app.knowledge.wiki_bootstrap import WikiBootstrapError
 from app.knowledge.wiki_contracts import SourceStatus
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_source_capture import InvalidSourceTransition, SourceCaptureService
 from app.knowledge.vault import FilesystemWikiVault
+from app.knowledge.wiki_service import WikiService
+from app.core.celery_app import is_celery_broker_available, is_celery_real
 
 router = APIRouter(prefix="/knowledge", tags=["Knowledge Workspace"])
 
@@ -62,6 +64,10 @@ class ProposalRequest(BaseModel):
     base_revision: str = ""
 
 
+class PublishProposalRequest(BaseModel):
+    override_reason: str = Field(default="", max_length=500)
+
+
 class EvalCaseRequest(BaseModel):
     project_id: str = Field(min_length=1)
     case_id: str = Field(min_length=1)
@@ -88,13 +94,47 @@ class HorizonCaptureRequest(BaseModel):
 
 
 def _command_error(exc: Exception) -> HTTPException:
-    return HTTPException(status_code=400, detail=str(exc))
+    message = str(exc)
+    normalized = message.lower()
+    if "conflict" in normalized or "revision" in normalized:
+        status, code = 409, "knowledge_conflict"
+    elif "not found" in normalized:
+        status, code = 404, "knowledge_not_found"
+    elif "unavailable" in normalized or "not configured" in normalized:
+        status, code = 503, "knowledge_dependency_unavailable"
+    elif "permission" in normalized or "forbidden" in normalized:
+        status, code = 403, "knowledge_permission_denied"
+    else:
+        status, code = 400, "knowledge_invalid_request"
+    return HTTPException(status_code=status, detail={"code": code, "message": _safe_error_message(message)})
+
+
+def _safe_error_message(message: str) -> str:
+    root = str(settings.OBSIDIAN_VAULT_ROOT or "")
+    redacted = message.replace(root, "<vault>") if root else message
+    return redacted[:500]
+
+
+def _validate_event_cursor(repo: WikiRepository, project_id: str, run_id: str, after_sequence: int) -> None:
+    if after_sequence < 0:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "invalid_event_sequence", "message": "after_sequence must be non-negative"},
+        )
+    latest = repo.latest_run_event_sequence(project_id=project_id, run_id=run_id)
+    if after_sequence > latest:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "event_sequence_ahead", "message": "after_sequence is ahead of persisted run history"},
+        )
 
 
 @router.get("/workspaces/{project_id}")
 def workspace_status(request: Request, project_id: str, repo: WikiRepository = Depends(get_wiki_repository)):
     project_id = _enforce_project_access(request, project_id)
     vault = repo.get_vault(project_id)
+    role = str(getattr(request.state, "knowledge_role", ""))
+    scheduler_available = is_celery_real() and is_celery_broker_available()
     return ApiResponse.ok(
         {
             "project_id": project_id,
@@ -102,6 +142,11 @@ def workspace_status(request: Request, project_id: str, repo: WikiRepository = D
             "sources": len(repo.list_sources(project_id)),
             "runs": len(repo.list_runs(project_id)),
             "schedules": len(repo.list_schedules(project_id)),
+            "access": {"role": role, "can_write": role in {"admin", "project_admin"}},
+            "scheduler": {
+                "available": scheduler_available,
+                "mode": "celery" if scheduler_available else "manual",
+            },
         }
     )
 
@@ -110,7 +155,7 @@ def workspace_status(request: Request, project_id: str, repo: WikiRepository = D
 def initialize_workspace(request: Request, project_id: str, repo: WikiRepository = Depends(get_wiki_repository)):
     project_id = _enforce_project_access(request, project_id, write=True)
     try:
-        return ApiResponse.ok(WikiBootstrapService(repo).initialize(project_id=project_id, actor_id="http"))
+        return ApiResponse.ok(WikiService(repo).initialize_project(project_id, actor="http"))
     except WikiBootstrapError as exc:
         raise _command_error(exc) from exc
 
@@ -185,10 +230,9 @@ def list_workspace_run_events(
     run_id: str, request: Request, project_id: str, after_sequence: int = 0, repo: WikiRepository = Depends(get_wiki_repository)
 ):
     project_id = _enforce_project_access(request, project_id)
-    if after_sequence < 0:
-        raise HTTPException(status_code=400, detail="after_sequence must be non-negative")
     if not repo.get_run(project_id, run_id):
         raise HTTPException(status_code=404, detail="knowledge run not found")
+    _validate_event_cursor(repo, project_id, run_id, after_sequence)
     events = repo.list_run_events(project_id=project_id, run_id=run_id, after_sequence=after_sequence)
     return ApiResponse.ok({"events": events, "count": len(events)})
 
@@ -198,10 +242,9 @@ async def stream_workspace_run_events(
     run_id: str, request: Request, project_id: str, after_sequence: int = 0, repo: WikiRepository = Depends(get_wiki_repository)
 ):
     project_id = _enforce_project_access(request, project_id)
-    if after_sequence < 0:
-        raise HTTPException(status_code=400, detail="after_sequence must be non-negative")
     if not repo.get_run(project_id, run_id):
         raise HTTPException(status_code=404, detail="knowledge run not found")
+    _validate_event_cursor(repo, project_id, run_id, after_sequence)
 
     async def event_stream():
         sequence = after_sequence
@@ -247,6 +290,7 @@ def read_workspace_page(page_id: str, request: Request, project_id: str, repo: W
         "content": content["content"],
         "revisions": repo.list_page_revisions(project_id, page_id),
         "citations": repo.list_citations(project_id, page_id),
+        "backlinks": repo.list_backlinks(project_id, page_id),
     })
 
 
@@ -291,11 +335,24 @@ def lint_workspace_proposal(
 
 @router.post("/proposals/{proposal_id}/publish")
 def publish_workspace_proposal(
-    proposal_id: str, request: Request, project_id: str, repo: WikiRepository = Depends(get_wiki_repository)
+    proposal_id: str,
+    request: Request,
+    project_id: str,
+    payload: PublishProposalRequest | None = None,
+    repo: WikiRepository = Depends(get_wiki_repository),
 ):
     project_id = _enforce_project_access(request, project_id, write=True)
     try:
-        return ApiResponse.ok(WikiCommandService(repo).publish_proposal(project_id=project_id, proposal_id=proposal_id))
+        role = str(getattr(request.state, "knowledge_role", ""))
+        return ApiResponse.ok(
+            WikiCommandService(repo).publish_proposal(
+                project_id=project_id,
+                proposal_id=proposal_id,
+                actor_id=role or "http",
+                actor_role=role,
+                override_reason=payload.override_reason if payload else "",
+            )
+        )
     except WikiCommandError as exc:
         raise _command_error(exc) from exc
 
@@ -327,9 +384,21 @@ def save_workspace_eval_case(
 
 
 @router.get("/wiki/graph")
-def workspace_graph(request: Request, project_id: str, edge_type: str = "", repo: WikiRepository = Depends(get_wiki_repository)):
+def workspace_graph(
+    request: Request,
+    project_id: str,
+    edge_type: str = "",
+    limit: int = 500,
+    offset: int = 0,
+    repo: WikiRepository = Depends(get_wiki_repository),
+):
     project_id = _enforce_project_access(request, project_id)
-    payload = KnowledgeGraphService(repo).visualization(project_id=project_id, edge_type=edge_type or None)
+    payload = KnowledgeGraphService(repo).visualization(
+        project_id=project_id,
+        edge_type=edge_type or None,
+        limit=limit,
+        offset=offset,
+    )
     return ApiResponse.ok({**payload, "count": len(payload["edges"])})
 
 
@@ -348,8 +417,16 @@ def workspace_health_trend(request: Request, project_id: str, repo: WikiReposito
 @router.get("/schedules")
 def workspace_schedules(request: Request, project_id: str, repo: WikiRepository = Depends(get_wiki_repository)):
     project_id = _enforce_project_access(request, project_id)
-    schedules = repo.list_schedules(project_id)
-    return ApiResponse.ok({"schedules": schedules, "count": len(schedules)})
+    available = is_celery_real() and is_celery_broker_available()
+    schedules = [
+        {
+            **schedule,
+            "scheduler_available": available,
+            "last_result": repo.latest_run_for_type(project_id, schedule["job_type"]),
+        }
+        for schedule in repo.list_schedules(project_id)
+    ]
+    return ApiResponse.ok({"schedules": schedules, "count": len(schedules), "scheduler_available": available})
 
 
 @router.get("/distillations")
@@ -404,6 +481,15 @@ def retry_workspace_run(run_id: str, request: Request, project_id: str, repo: Wi
     project_id = _enforce_project_access(request, project_id, write=True)
     try:
         return ApiResponse.ok(WikiCommandService(repo).retry_run(project_id=project_id, run_id=run_id))
+    except WikiCommandError as exc:
+        raise _command_error(exc) from exc
+
+
+@router.post("/runs/{run_id}/cancel")
+def cancel_workspace_run(run_id: str, request: Request, project_id: str, repo: WikiRepository = Depends(get_wiki_repository)):
+    project_id = _enforce_project_access(request, project_id, write=True)
+    try:
+        return ApiResponse.ok({"run": WikiCommandService(repo).cancel_run(project_id=project_id, run_id=run_id)})
     except WikiCommandError as exc:
         raise _command_error(exc) from exc
 

@@ -25,9 +25,9 @@
 
 ## Task 1: Contracts First
 
-- [ ] Add failing tests for enum values, required project IDs, ISO timestamps, non-empty IDs, relative-path normalization, duplicate operation IDs, terminal status behavior, and proposal source requirements.
-- [ ] Implement immutable Pydantic contracts in `wiki_contracts.py`; serialize through `model_dump` and preserve internal-only fields separately from public responses.
-- [ ] Reject empty paths, `..` traversal, absolute paths, NUL bytes, unsupported page operations, and proposals without source references unless explicitly marked user-authored/manual.
+- [x] Add failing tests for enum values, required project IDs, ISO timestamps, non-empty IDs, relative-path normalization, duplicate operation IDs, terminal status behavior, and proposal source requirements.
+- [x] Implement immutable Pydantic contracts in `wiki_contracts.py`; serialize through `model_dump` and preserve internal-only fields separately from public responses.
+- [x] Reject empty paths, `..` traversal, absolute paths, NUL bytes, unsupported page operations, and proposals without source references unless explicitly marked user-authored/manual.
 
 Run:
 
@@ -37,11 +37,11 @@ Run:
 
 ## Task 2: Vault Boundary
 
-- [ ] Add optional `OBSIDIAN_VAULT_ROOT` configuration. A mapping cannot be created without it; existing BSC knowledge operations still work while it is unset.
-- [ ] Implement canonical resolver behavior using `Path.resolve(strict=False)`, root containment validation, and symlink escape rejection.
-- [ ] Implement idempotent bootstrap of only `AGENTS.md`, `wiki/overview.md`, `wiki/index.md`, `wiki/log.md`, and required directories. Never overwrite a user-created file.
-- [ ] Implement UTF-8 read/list operations and atomic temp-file-plus-replace writes for generated Wiki pages. Automated writes to `raw/` and `inbox/` must fail.
-- [ ] Return typed errors for unconfigured/missing roots, missing mapping, path traversal, version conflict, and encoding failures; never hide them as empty state.
+- [x] Add optional `OBSIDIAN_VAULT_ROOT` configuration. A mapping cannot be created without it; existing BSC knowledge operations still work while it is unset.
+- [x] Implement canonical resolver behavior using `Path.resolve(strict=False)`, root containment validation, and symlink escape rejection.
+- [x] Implement idempotent bootstrap of only `AGENTS.md`, `wiki/overview.md`, `wiki/index.md`, `wiki/log.md`, and required directories. Never overwrite a user-created file.
+- [x] Implement UTF-8 read/list operations and atomic temp-file-plus-replace writes for generated Wiki pages. Automated writes to `raw/` and `inbox/` must fail.
+- [x] Return typed errors for unconfigured/missing roots, missing mapping, path traversal, version conflict, and encoding failures; never hide them as empty state.
 
 Tests cover nested mapping, traversal, absolute path, escaping symlink, project isolation, failed write recovery, repeat bootstrap, and rejection of raw-source writes.
 
@@ -53,10 +53,10 @@ Run:
 
 ## Task 3: Additive Schema And Repository
 
-- [ ] Add portable idempotent DDL and indexes for `knowledge_vaults`, `knowledge_sources`, `knowledge_wiki_pages`, `knowledge_proposals`, `knowledge_proposal_operations`, `knowledge_citations`, `knowledge_runs`, `knowledge_schedules`, `knowledge_distillations`, `knowledge_graph_edges`, and `knowledge_eval_runs`.
-- [ ] Persist JSON with existing repository helpers and preserve hash/version columns across SQLite and PostgreSQL.
-- [ ] Implement parameterized, project-scoped repository methods for mappings, source/page records, proposal/runs, schedules, graph edges, and history reads.
-- [ ] Enforce expected hash/version inside a transaction; return a conflict result rather than overwriting a newer user edit.
+- [x] Add portable idempotent DDL and indexes for `knowledge_vaults`, `knowledge_sources`, `knowledge_wiki_pages`, `knowledge_proposals`, `knowledge_proposal_operations`, `knowledge_citations`, `knowledge_runs`, `knowledge_schedules`, `knowledge_distillations`, `knowledge_graph_edges`, and `knowledge_eval_runs`.
+- [x] Persist JSON with existing repository helpers and preserve hash/version columns across SQLite and PostgreSQL.
+- [x] Implement parameterized, project-scoped repository methods for mappings, source/page records, proposal/runs, schedules, graph edges, and history reads.
+- [x] Enforce expected hash/version inside a transaction; return a conflict result rather than overwriting a newer user edit.
 
 Tests prove idempotent initialization, required SQLite objects, project isolation, revision conflict, and immutable source rows.
 
@@ -68,16 +68,16 @@ Run:
 
 ## Task 4: Narrow Bootstrap Facade
 
-- [ ] Implement `WikiService.initialize_project(project_id, actor)` to validate mapping, create only missing starter files, register page metadata, and record an auditable run.
-- [ ] Expose read-only `get_workspace_status`, `list_pages`, `read_page`, and `list_runs` for later API/MCP/UI plans.
-- [ ] Index generated Wiki Markdown through the existing `KnowledgeService.ingest_text` with explicit Wiki `doc_format`; content remains authoritative on disk and the index stays rebuildable.
-- [ ] Do not add routes, MCP tools, filesystem watcher, LLM invocation, or scheduler behavior in P1.
+- [x] Implement `WikiService.initialize_project(project_id, actor)` to validate mapping, create only missing starter files, register page metadata, and record an auditable run.
+- [x] Expose read-only `get_workspace_status`, `list_pages`, `read_page`, and `list_runs` for later API/MCP/UI plans.
+- [x] Index generated Wiki Markdown through the existing `KnowledgeService.ingest_text` with explicit Wiki `doc_format`; content remains authoritative on disk and the index stays rebuildable.
+- [x] Do not add routes, MCP tools, filesystem watcher, LLM invocation, or scheduler behavior in P1.
 
 ## Task 5: Verify And Handoff
 
-- [ ] Run focused tests, existing knowledge tests, and `git diff --check`.
-- [ ] Record configuration names, exported contracts, table/index names, and any dialect limitation in the worklog.
-- [ ] Commit only P1-owned files.
+- [x] Run focused tests, existing knowledge tests, and `git diff --check`.
+- [x] Record configuration names, exported contracts, table/index names, and any dialect limitation in the worklog.
+- [x] Preserve P1 file ownership through implementation; the final release commit is an explicitly reviewed integrated P1-P8 batch after all predecessor gates pass.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests\knowledge -q

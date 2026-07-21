@@ -75,3 +75,32 @@ def test_repository_keeps_wiki_records_project_scoped(tmp_path):
         assert repo.list_runs("project-b") == []
     finally:
         repo.close()
+import hashlib
+
+import pytest
+
+from app.knowledge.wiki_repository import PublicationConflictError
+
+def test_publication_expected_hash_conflict_rolls_back_database_snapshot(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "publication-conflict.db"))
+    try:
+        repo.record_publication(
+            project_id="project-a",
+            contents={"wiki/overview.md": "# Version one\n"},
+            source_ids=[],
+        )
+        page = repo.list_pages("project-a")[0]
+
+        with pytest.raises(PublicationConflictError, match="wiki/overview.md"):
+            repo.record_publication(
+                project_id="project-a",
+                contents={"wiki/overview.md": "# Version two\n"},
+                source_ids=[],
+                expected_content_hashes={"wiki/overview.md": hashlib.sha256(b"wrong").hexdigest()},
+            )
+
+        current = repo.get_page_content("project-a", page["id"])
+        assert current["content"] == "# Version one\n"
+        assert len(repo.list_page_revisions("project-a", page["id"])) == 1
+    finally:
+        repo.close()

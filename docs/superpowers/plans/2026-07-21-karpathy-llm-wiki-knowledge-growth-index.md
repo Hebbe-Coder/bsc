@@ -1,7 +1,7 @@
 # Karpathy LLM Wiki Knowledge Growth - Implementation Index
 
 **Design authority:** `docs/superpowers/specs/2026-07-21-karpathy-llm-wiki-knowledge-growth-prd.md`
-**Execution status:** P1-P7 implementation is present and regression-tested. P8 now has a filesystem lifecycle E2E test plus verified local Docker API/Redis/Worker/Beat operation; broader release scenarios remain explicitly tracked in P8.
+**Execution status:** P1-P8 local implementation and release gates are complete and regression-tested. The only remaining boundaries are optional live Horizon and real Wiki-maintenance provider configuration; neither is represented as executed without external settings.
 **Working log:** `docs/superpowers/worklogs/2026-07-21-karpathy-llm-wiki-knowledge-growth.md`
 
 ## Delivery Order
@@ -73,7 +73,7 @@ The following boundaries are cross-plan contracts. A sub-agent must not change t
 
 ## Rollback Rules
 
-- Each plan is independently revertible. Do not combine plans in a single commit.
+- Each plan remains independently identifiable by owned files and worklog evidence. The final release commit may combine the integrated P1-P8 batch after all gates pass; rollback remains additive-safe and feature-flagged.
 - Schema additions must be additive and idempotent; no existing knowledge or Artifact Graph table is dropped or repurposed.
 - A failed Wiki proposal rolls back by not changing published files. A published revision rolls back through a new, auditable proposal.
 - Disabling feature flags must restore existing BSC behavior without deleting a user's Obsidian files or BSC audit records.
@@ -85,4 +85,4 @@ The following boundaries are cross-plan contracts. A sub-agent must not change t
 - P3/P4: `AGENTS.md` parsing, bounded context packs, proposal-only compilation, deterministic lint/evaluation, stale-snapshot protection, atomic filesystem publication, citations, graph edges, and compensating proposals using already-published evidence are implemented and tested.
 - P5/P6: persisted schedules, Celery reconciliation, weekly distillation, project-scoped REST/SSE, and MCP Wiki tools are implemented. Redis, Worker, and Beat are now verified in a local Docker deployment.
 - P7: the three-pane Knowledge workspace reads real Vault/evidence/proposal/run/graph/health data, has responsive mobile panes, ECharts trends, React Flow filters, and authenticated browser acceptance against the local API.
-- P8: `tests/integration/test_knowledge_wiki_e2e.py` proves a mapped filesystem Vault lifecycle from Obsidian/Horizon evidence through compiler, gates, atomic publish, revisions, citations, graph, and source processing. The remaining P8 release scenarios are tracked in its execution ledger.
+- P8: named isolation/recovery/MCP/SOP suites, PostgreSQL contracts, Linux container tests, Docker API/Redis/Worker/Beat/restart proof, disabled/missing-Redis truthfulness, and desktop/mobile browser acceptance are complete. Live Horizon and real maintenance-model execution remain external configuration boundaries.

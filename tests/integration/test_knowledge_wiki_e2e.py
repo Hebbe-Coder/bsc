@@ -97,7 +97,7 @@ def test_filesystem_wiki_lifecycle_is_source_backed_and_atomic(tmp_path, monkeyp
         vault = FilesystemWikiVault(root, project_id, "clients/acme")
         published = ProposalGate(repository, vault).publish(proposal=compiler_result_to_proposal(compiled.proposal), rules_text=user_rules)
 
-        assert sync_report == {"scanned": 1, "created": 1, "duplicates": 0, "skipped": 0}
+        assert sync_report == {"scanned": 1, "created": 1, "duplicates": 0, "rejected": 0, "deleted": 0, "skipped": 0}
         assert published["status"] == "published"
         assert (project_root / "wiki" / "decisions" / "human-approval.md").is_file()
         assert {page["path"] for page in repository.list_pages(project_id)} >= {

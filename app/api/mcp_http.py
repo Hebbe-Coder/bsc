@@ -231,9 +231,21 @@ async def _call_tool(request_id: Any, params: Any, *, api_key: str) -> dict[str,
         result = await asyncio.to_thread(_TOOL_HANDLERS[name], **arguments)
         return _success(request_id, _wire_result(normalize_mcp_result(result)))
     except PermissionError as exc:
-        return _error(request_id, -32001, str(exc))
+        return _error(request_id, -32001, str(exc), data={"code": "permission_denied"})
+    except KeyError as exc:
+        return _error(request_id, -32004, str(exc), data={"code": "resource_not_found"})
+    except ValueError as exc:
+        message = str(exc)
+        normalized = message.lower()
+        if "conflict" in normalized or "revision" in normalized:
+            return _error(request_id, -32009, message, data={"code": "knowledge_conflict"})
+        if "not found" in normalized:
+            return _error(request_id, -32004, message, data={"code": "resource_not_found"})
+        if "unavailable" in normalized or "not configured" in normalized:
+            return _error(request_id, -32003, message, data={"code": "dependency_unavailable"})
+        return _error(request_id, -32602, message, data={"code": "invalid_arguments"})
     except Exception as exc:
-        return _error(request_id, -32000, str(exc))
+        return _error(request_id, -32000, "MCP tool execution failed", data={"code": "internal_tool_error"})
 
 
 def _tool_list() -> list[dict[str, Any]]:
@@ -334,9 +346,12 @@ def _success(request_id: Any, result: Any) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": request_id, "result": result}
 
 
-def _error(request_id: Any, code: int, message: str) -> dict[str, Any]:
-    return {
+def _error(request_id: Any, code: int, message: str, *, data: dict[str, Any] | None = None) -> dict[str, Any]:
+    payload = {
         "jsonrpc": "2.0",
         "id": request_id,
         "error": {"code": code, "message": message},
     }
+    if data is not None:
+        payload["error"]["data"] = data
+    return payload

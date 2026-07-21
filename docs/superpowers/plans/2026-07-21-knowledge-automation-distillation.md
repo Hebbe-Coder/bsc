@@ -26,42 +26,42 @@ Every task records `KnowledgeRun` state and retry lineage. A schedule can be ena
 
 ## Task 1: Scheduler Policy And Persistence
 
-- [ ] Write failing tests for schedule/cron/timezone validation, project isolation, next-run calculation, pause/resume, duplicate claim, and disabled scheduler result.
-- [ ] Implement `KnowledgeScheduler` to persist schedule intent, calculate next run, and claim a run transactionally before enqueueing.
-- [ ] Permit only allowlisted job types and bounded frequency. Require project vault/source policy for source-dependent jobs.
-- [ ] Route manual `run_now` through the same claim/run path so it cannot bypass audit, idempotency, or P4 gates.
-- [ ] Run `./.venv/Scripts/python.exe -m pytest tests/knowledge/test_scheduler.py -q`.
+- [x] Write failing tests for schedule/cron/timezone validation, project isolation, next-run calculation, pause/resume, duplicate claim, and disabled scheduler result.
+- [x] Implement `KnowledgeScheduler` to persist schedule intent, calculate next run, and claim a run transactionally before enqueueing.
+- [x] Permit only allowlisted job types and bounded frequency. Require project vault/source policy for source-dependent jobs.
+- [x] Route manual `run_now` through the same claim/run path so it cannot bypass audit, idempotency, or P4 gates.
+- [x] Run `./.venv/Scripts/python.exe -m pytest tests/knowledge/test_scheduler.py -q`.
 
 ## Task 2: Celery Task Registration And Beat
 
-- [ ] Extend Celery autodiscovery for `app.tasks.knowledge_tasks` with JSON-safe arguments: project ID, run ID, and schedule ID.
-- [ ] Implement task functions that load persisted runs, invoke P2/P3/P4 services, set terminal status, and distinguish retryable from permanent failures.
-- [ ] Add `celery-beat` to `docker-compose.yml` with the worker's data mounts and environment; do not make the API process the scheduler.
-- [ ] Dispatch persisted schedules through documented reconciliation/Beat work, not source-coded user schedules.
-- [ ] Keep `SyncCelery` truthfully unavailable for recurring scheduling and prevent false `last_run_at` updates.
-- [ ] Run `./.venv/Scripts/python.exe -m pytest tests/knowledge/test_knowledge_tasks.py -q` and `docker compose --profile full config`.
+- [x] Extend Celery autodiscovery for `app.tasks.knowledge_tasks` with JSON-safe arguments: project ID, run ID, and schedule ID.
+- [x] Implement task functions that load persisted runs, invoke P2/P3/P4 services, set terminal status, and distinguish retryable from permanent failures.
+- [x] Add `celery-beat` to `docker-compose.yml` with the worker's data mounts and environment; do not make the API process the scheduler.
+- [x] Dispatch persisted schedules through documented reconciliation/Beat work, not source-coded user schedules.
+- [x] Keep `SyncCelery` truthfully unavailable for recurring scheduling and prevent false `last_run_at` updates.
+- [x] Run `./.venv/Scripts/python.exe -m pytest tests/knowledge/test_knowledge_tasks.py -q` and `docker compose --profile full config`.
 
 ## Task 3: Weekly Distillation
 
-- [ ] Write failing tests for deterministic week path, source cutoff, duplicate retry, no eligible source, evidence links, no content candidates, and write conflict.
-- [ ] Build distillation context from published pages, source changes, decisions, gate/eval findings, and project rules with a bounded P3 context pack.
-- [ ] Write `knowledge-action.md` with changed beliefs, contradictions, unresolved questions, source-backed actions, and source cutoff.
-- [ ] Write `content-creation.md` with substantiated themes, audience/angle, claim/citation pairs, reusable excerpts, and open research gaps; suggestions must not be presented as verified facts.
-- [ ] Write `context-pack.md` with compact reusable context, revision/source references, and omissions. Publish all three under `distillations/YYYY-Www/` with atomic write guards.
-- [ ] Run `./.venv/Scripts/python.exe -m pytest tests/knowledge/test_distillation.py -q`.
+- [x] Write failing tests for deterministic week path, source cutoff, duplicate retry, no eligible source, evidence links, no content candidates, and write conflict.
+- [x] Build distillation context from published pages, source changes, decisions, gate/eval findings, and project rules with a bounded P3 context pack.
+- [x] Write `knowledge-action.md` with changed beliefs, contradictions, unresolved questions, source-backed actions, and source cutoff.
+- [x] Write `content-creation.md` with substantiated themes, audience/angle, claim/citation pairs, reusable excerpts, and open research gaps; suggestions must not be presented as verified facts.
+- [x] Write `context-pack.md` with compact reusable context, revision/source references, and omissions. Publish all three under `distillations/YYYY-Www/` with atomic write guards.
+- [x] Run `./.venv/Scripts/python.exe -m pytest tests/knowledge/test_distillation.py -q`.
 
 ## Task 4: Failure, Recovery, And Operations
 
-- [ ] Classify configuration, policy, transient dependency, extraction, compiler, gate, and write-conflict failures with actionable status and retryability.
-- [ ] Recover only abandoned running jobs; never duplicate a published period.
-- [ ] Emit metrics for queue delay, runtime, retry count, success/skipped/unavailable state, and distillation freshness.
-- [ ] Add Redis/Celery integration proof that one scheduled project/week/cutoff produces exactly one auditable run/output set.
-- [ ] Run `./.venv/Scripts/python.exe -m pytest tests/integration/test_knowledge_celery.py -q`.
+- [x] Classify configuration, policy, transient dependency, extraction, compiler, gate, and write-conflict failures with actionable status and retryability.
+- [x] Recover only abandoned running jobs; never duplicate a published period.
+- [x] Emit metrics for queue delay, runtime, retry count, success/skipped/unavailable state, and distillation freshness.
+- [x] Add Redis/Celery integration proof that one scheduled project/week/cutoff produces exactly one auditable run/output set.
+- [x] Run `./.venv/Scripts/python.exe -m pytest tests/integration/test_knowledge_celery.py -q`.
 
 ## Task 5: Verification And Handoff
 
-- [ ] Run `./.venv/Scripts/python.exe -m pytest tests/knowledge -q`, `docker compose --profile full config`, and `git diff --check`.
-- [ ] Record deployment requirements, disabled-mode behavior, and real integration results in the worklog.
+- [x] Run `./.venv/Scripts/python.exe -m pytest tests/knowledge -q`, `docker compose --profile full config`, and `git diff --check`.
+- [x] Record deployment requirements, disabled-mode behavior, and real integration results in the worklog.
 
 ## Acceptance, Rollback, Handoff
 

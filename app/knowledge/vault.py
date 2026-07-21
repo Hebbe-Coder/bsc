@@ -81,11 +81,19 @@ class FilesystemWikiVault(InMemoryWikiVault):
         return candidate
 
     def _resolve_project_root(self, vault_path: str) -> Path:
-        normalized = str(vault_path).replace("\\", "/").strip("/")
-        relative = PurePosixPath(normalized)
-        if not normalized or relative.is_absolute() or any(part in {"", ".", ".."} for part in relative.parts):
+        raw_path = str(vault_path).replace("\\", "/")
+        normalized = raw_path.strip("/")
+        relative = PurePosixPath(raw_path)
+        if (
+            not normalized
+            or raw_path.startswith("/")
+            or relative.is_absolute()
+            or any(part in {"", ".", ".."} for part in relative.parts)
+            or (relative.parts and ":" in relative.parts[0])
+        ):
             raise ProposalGateError("project Vault mapping must be a non-empty relative path")
-        candidate = (self.root.joinpath(*relative.parts)).resolve()
+        safe_relative = PurePosixPath(normalized)
+        candidate = (self.root.joinpath(*safe_relative.parts)).resolve()
         if candidate == self.root or self.root not in candidate.parents:
             raise ProposalGateError("project Vault mapping escaped OBSIDIAN_VAULT_ROOT")
         return candidate

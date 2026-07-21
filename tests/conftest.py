@@ -22,7 +22,9 @@ os.environ["DB_PATH"] = os.environ.get(
 )
 
 from app.repositories import ProjectRepository, KnowledgeRepository, GraphRepository
+from app.core.config import settings
 from app.services.llm_service import LLMService
+import app.services.llm_service as llm_service_module
 from app.services.cache_service import MemoryCache, get_cache_service
 
 
@@ -167,9 +169,24 @@ def temp_project(test_project_repository):
 @pytest.fixture(autouse=True)
 def reset_cache():
     """每个测试后重置缓存"""
+    configured_api_key = settings.API_KEY
+    configured_llm_provider = settings.LLM_PROVIDER
+    # Local .env credentials must not alter legacy test contracts. Auth tests
+    # configure an explicit key after this root-level isolation fixture runs.
+    settings.API_KEY = ""
+    settings.LLM_PROVIDER = "mock"
+    if hasattr(llm_service_module._thread_local, "llm_service"):
+        del llm_service_module._thread_local.llm_service
     cache = get_cache_service()
     cache.clear()
-    yield
+    try:
+        yield
+    finally:
+        settings.API_KEY = configured_api_key
+        settings.LLM_PROVIDER = configured_llm_provider
+        if hasattr(llm_service_module._thread_local, "llm_service"):
+            del llm_service_module._thread_local.llm_service
+        cache.clear()
 
 
 def pytest_sessionfinish(session, exitstatus):

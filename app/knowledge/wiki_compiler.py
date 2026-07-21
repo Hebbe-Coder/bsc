@@ -38,10 +38,16 @@ class WikiCompiler:
         repository: WikiRepository,
         provider: WikiCompilerProvider,
         context_builder: ContextPackBuilder | None = None,
+        retrieval_service=None,
     ) -> None:
         self.repository = repository
         self.provider = provider
         self.context_builder = context_builder or ContextPackBuilder()
+        if retrieval_service is None:
+            from app.knowledge.service import KnowledgeService
+
+            retrieval_service = KnowledgeService(repo=repository)
+        self.retrieval_service = retrieval_service
 
     def compile_maintenance(
         self,
@@ -55,11 +61,13 @@ class WikiCompiler:
         page_snapshots: list[dict[str, Any]] | None = None,
     ) -> WikiCompilationResult:
         rules = parse_project_rules(rules_text)
-        sources = self._select_sources(project_id, source_ids)
+        constraints = task_constraints or []
+        sources = self._select_sources(project_id, source_ids, query="\n".join(constraints))
+        contradictions = self._contradictions(sources)
         context_pack = self.context_builder.build(
             project_id=project_id,
             rules=rules,
-            task_constraints=task_constraints or [],
+            task_constraints=constraints,
             pages=page_snapshots or [],
             sources=sources,
         )
@@ -74,21 +82,33 @@ class WikiCompiler:
                 "source_hashes": {source["id"]: source["content_hash"] for source in sources},
                 "rule_revision": rules.revision,
                 "context_pack_revision": context_pack.revision,
+                "page_hashes": {
+                    str(page.get("id") or page.get("path")): hashlib.sha256(
+                        str(page.get("content") or "").encode("utf-8")
+                    ).hexdigest()
+                    for page in (page_snapshots or [])
+                    if page.get("id") or page.get("path")
+                },
+                "contradictions": contradictions,
             },
             started_at=datetime.now(timezone.utc),
         )
         persisted_run = self.repository.create_run(run)
         try:
-            response = self.provider.compile_wiki(self._build_prompt(rules, context_pack))
+            response = self.provider.compile_wiki(self._build_prompt(rules, context_pack, contradictions))
             proposal = self._validate_response(
-                project_id, sources, response, context_pack, self._snapshot_revision(page_snapshots or [])
+                project_id, sources, response, context_pack, self._snapshot_revision(page_snapshots or []), contradictions
             )
             persisted_proposal = self.repository.create_proposal(proposal, actor_id=actor_id)
             completed_run = self.repository.update_run_status(
                 project_id,
                 run.id,
                 RunStatus.COMPLETED,
-                output_refs={"proposal_id": proposal.id, "context_pack_revision": context_pack.revision},
+                output_refs={
+                    "proposal_id": proposal.id,
+                    "context_pack_revision": context_pack.revision,
+                    "contradictions": contradictions,
+                },
             )
             return WikiCompilationResult(persisted_proposal, completed_run, context_pack)
         except Exception as exc:
@@ -97,10 +117,20 @@ class WikiCompiler:
                 raise
             raise WikiCompilationError(str(exc)) from exc
 
-    def _select_sources(self, project_id: str, source_ids: list[str] | None) -> list[dict[str, Any]]:
+    def _select_sources(self, project_id: str, source_ids: list[str] | None, *, query: str = "") -> list[dict[str, Any]]:
         eligible = self.repository.list_sources(project_id, status=SourceStatus.ELIGIBLE.value)
         if source_ids is None:
             selected = eligible
+            if query.strip():
+                hits = self.retrieval_service.retrieve(query, project_id=project_id, top_k=32, rerank=True)
+                prefix = f"evidence://{project_id}/"
+                candidate_ids = {
+                    str(hit.get("source"))[len(prefix):]
+                    for hit in hits or []
+                    if str(hit.get("source") or "").startswith(prefix)
+                }
+                if candidate_ids:
+                    selected = [source for source in eligible if source["id"] in candidate_ids]
         else:
             selected_ids = set(source_ids)
             selected = [source for source in eligible if source["id"] in selected_ids]
@@ -111,12 +141,16 @@ class WikiCompiler:
         return selected
 
     @staticmethod
-    def _build_prompt(rules: ProjectRules, context_pack: ContextPack) -> str:
+    def _build_prompt(rules: ProjectRules, context_pack: ContextPack, contradictions: list[dict[str, str]]) -> str:
+        contradiction_block = "\n".join(
+            f"- {item['source_id']} contradicts {item['contradicts_source_id']} ({item['basis']})"
+            for item in contradictions
+        ) or "- None detected; do not invent a contradiction."
         return (
             "Compile the supplied project evidence into a JSON Wiki proposal. "
             "Return an object with rationale and operations only. Every operation must use wiki/ paths "
             "and cite only supplied source IDs. Do not claim any file has been published.\n\n"
-            f"Rule revision: {rules.revision}\n\n{context_pack.rendered}"
+            f"Rule revision: {rules.revision}\n\nContradiction candidates:\n{contradiction_block}\n\n{context_pack.rendered}"
         )
 
     @staticmethod
@@ -126,6 +160,7 @@ class WikiCompiler:
         response: Any,
         context_pack: ContextPack,
         base_revision: str,
+        contradictions: list[dict[str, str]],
     ) -> WikiProposal:
         if not isinstance(response, dict):
             raise WikiCompilationError("provider response must be an object")
@@ -182,8 +217,77 @@ class WikiCompiler:
             source_ids=sorted(selected_ids),
             operations=operations,
             rationale=str(response.get("rationale") or ""),
-            eval_summary={"context_pack_revision": context_pack.revision},
+            eval_summary={
+                "context_pack_revision": context_pack.revision,
+                "input_page_ids": list(context_pack.page_ids),
+                "input_source_ids": list(context_pack.source_ids),
+                "contradictions": contradictions,
+            },
         )
+
+    @staticmethod
+    def _contradictions(sources: list[dict[str, Any]]) -> list[dict[str, str]]:
+        selected = {source["id"] for source in sources}
+        findings: list[dict[str, str]] = []
+        recorded_pairs: set[frozenset[str]] = set()
+        for source in sources:
+            targets = source.get("metadata", {}).get("contradicts_source_ids", [])
+            if not isinstance(targets, list):
+                continue
+            for target in targets:
+                if isinstance(target, str) and target in selected and target != source["id"]:
+                    recorded_pairs.add(frozenset((source["id"], target)))
+                    findings.append({
+                        "source_id": source["id"],
+                        "contradicts_source_id": target,
+                        "basis": "explicit_source_metadata",
+                    })
+        for position, left in enumerate(sources):
+            left_metadata = left.get("metadata") or {}
+            left_claims = left_metadata.get("claims") or {}
+            if not isinstance(left_claims, dict):
+                continue
+            left_concepts = WikiCompiler._source_concepts(left_metadata)
+            for right in sources[position + 1:]:
+                pair = frozenset((left["id"], right["id"]))
+                if pair in recorded_pairs:
+                    continue
+                right_metadata = right.get("metadata") or {}
+                right_claims = right_metadata.get("claims") or {}
+                if not isinstance(right_claims, dict):
+                    continue
+                shared_concepts = left_concepts & WikiCompiler._source_concepts(right_metadata)
+                conflicting_claims = {
+                    key
+                    for key in left_claims.keys() & right_claims.keys()
+                    if left_claims[key] != right_claims[key]
+                }
+                if not shared_concepts or not conflicting_claims:
+                    continue
+                newer, older = sorted(
+                    (left, right),
+                    key=lambda item: (str(item.get("captured_at") or ""), item["id"]),
+                    reverse=True,
+                )
+                findings.append({
+                    "source_id": newer["id"],
+                    "contradicts_source_id": older["id"],
+                    "basis": "conflicting_structured_claim_recency",
+                    "shared_concepts": ",".join(sorted(shared_concepts)),
+                    "conflicting_claims": ",".join(sorted(conflicting_claims)),
+                })
+        return sorted(findings, key=lambda item: (item["source_id"], item["contradicts_source_id"]))
+
+    @staticmethod
+    def _source_concepts(metadata: dict[str, Any]) -> set[str]:
+        values: set[str] = set()
+        for field in ("concepts", "entities", "tags", "ai_tags"):
+            raw = metadata.get(field) or []
+            if isinstance(raw, str):
+                raw = [raw]
+            if isinstance(raw, list):
+                values.update(str(value).strip().lower() for value in raw if str(value).strip())
+        return values
 
     @staticmethod
     def _snapshot_revision(pages: list[dict[str, Any]]) -> str:

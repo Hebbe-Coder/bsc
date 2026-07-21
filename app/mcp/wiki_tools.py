@@ -6,6 +6,7 @@ from typing import Any
 
 from app.knowledge.wiki_commands import WikiCommandService
 from app.knowledge.wiki_repository import WikiRepository
+from app.knowledge.knowledge_graph import KnowledgeGraphService
 
 
 def wiki_guide(project_id: str) -> dict:
@@ -23,7 +24,20 @@ def wiki_search(project_id: str, query: str = "") -> dict:
     try:
         sources = repo.list_sources(project_id)
         needle = query.strip().lower()
-        matched = [source for source in sources if not needle or needle in source["origin"].lower() or needle in str(source["metadata"]).lower()]
+        matched = []
+        for source in sources:
+            metadata = source.get("metadata") or {}
+            searchable = " ".join(
+                [
+                    str(source.get("origin") or ""),
+                    str(source.get("source_type") or ""),
+                    str(metadata.get("title") or ""),
+                    str(metadata.get("ai_summary") or ""),
+                    " ".join(str(tag) for tag in metadata.get("ai_tags") or metadata.get("tags") or []),
+                ]
+            ).lower()
+            if not needle or needle in searchable:
+                matched.append(source)
         return {"project_id": project_id, "sources": [_source_view(source) for source in matched], "count": len(matched)}
     finally:
         repo.close()
@@ -33,8 +47,8 @@ def wiki_graph(project_id: str) -> dict:
     _require_project(project_id)
     repo = WikiRepository()
     try:
-        edges = repo.list_graph_edges(project_id)
-        return {"project_id": project_id, "edges": edges, "count": len(edges)}
+        payload = KnowledgeGraphService(repo).visualization(project_id=project_id)
+        return {"project_id": project_id, **payload, "count": len(payload["edges"])}
     finally:
         repo.close()
 
@@ -56,6 +70,7 @@ def wiki_read(project_id: str, page_id: str) -> dict:
             "content": content["content"],
             "citations": repo.list_citations(project_id, page_id),
             "revisions": repo.list_page_revisions(project_id, page_id),
+            "backlinks": repo.list_backlinks(project_id, page_id),
         }
     finally:
         repo.close()
@@ -95,7 +110,12 @@ def wiki_apply_update(project_id: str, proposal_id: str) -> dict:
     _require_project(project_id)
     repo = WikiRepository()
     try:
-        return WikiCommandService(repo).publish_proposal(project_id=project_id, proposal_id=proposal_id)
+        return WikiCommandService(repo).publish_proposal(
+            project_id=project_id,
+            proposal_id=proposal_id,
+            actor_id="mcp",
+            actor_role="project_admin",
+        )
     finally:
         repo.close()
 

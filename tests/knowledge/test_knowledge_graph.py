@@ -56,3 +56,26 @@ def test_graph_visualization_returns_only_persisted_entity_nodes(tmp_path):
         assert payload["edges"][0]["edge_type"] == "wiki_cites_source"
     finally:
         repo.close()
+
+
+def test_graph_queries_are_bounded_and_expose_project_scoped_backlinks(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "graph-bounded.db"))
+    try:
+        repo.record_publication(
+            project_id="project-a",
+            contents={
+                "wiki/index.md": "# Index\n- [[wiki/concepts/a.md]]\n",
+                "wiki/concepts/a.md": "---\ntitle: A\nkind: concept\n---\n# A\n",
+            },
+            source_ids=[],
+        )
+        pages = {page["path"]: page for page in repo.list_pages("project-a")}
+        graph = KnowledgeGraphService(repo)
+
+        assert graph.backlinks(project_id="project-a", page_id=pages["wiki/concepts/a.md"]["id"])[0]["from_id"] == pages["wiki/index.md"]["id"]
+        bounded = graph.visualization(project_id="project-a", limit=1)
+        assert len(bounded["edges"]) == 1
+        assert bounded["truncated"] is False
+        assert graph.backlinks(project_id="project-b", page_id=pages["wiki/concepts/a.md"]["id"]) == []
+    finally:
+        repo.close()

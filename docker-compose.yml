@@ -17,6 +17,7 @@ services:
       - DB_PATH=/data/bsc_cloud.db
       - CELERY_ENABLED=${CELERY_ENABLED:-false}
       - KNOWLEDGE_WIKI_ENABLED=${KNOWLEDGE_WIKI_ENABLED:-false}
+      - KNOWLEDGE_WIKI_AUTO_PUBLISH_ENABLED=${KNOWLEDGE_WIKI_AUTO_PUBLISH_ENABLED:-false}
       - OBSIDIAN_VAULT_ROOT=/vault
       
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
@@ -91,6 +92,7 @@ services:
       - DB_PATH=/data/bsc_cloud.db
       - OBSIDIAN_VAULT_ROOT=/vault
       - KNOWLEDGE_WIKI_ENABLED=true
+      - KNOWLEDGE_WIKI_AUTO_PUBLISH_ENABLED=${KNOWLEDGE_WIKI_AUTO_PUBLISH_ENABLED:-false}
       - LLM_PROVIDER=${LLM_PROVIDER:-mock}
       - OLLAMA_BASE_URL=http://ollama:11434/v1
     volumes:
@@ -122,6 +124,7 @@ services:
       - DB_PATH=/data/bsc_cloud.db
       - OBSIDIAN_VAULT_ROOT=/vault
       - KNOWLEDGE_WIKI_ENABLED=true
+      - KNOWLEDGE_WIKI_AUTO_PUBLISH_ENABLED=${KNOWLEDGE_WIKI_AUTO_PUBLISH_ENABLED:-false}
     volumes:
       - bsc-data:/data
       - bsc-output:/app/output

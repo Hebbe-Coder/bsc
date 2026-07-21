@@ -20,10 +20,10 @@ A proposal can become `published` only after project/actor/source/status/path/ba
 
 ## Task 1: Deterministic Wiki Lint
 
-- [ ] Add failing tests for frontmatter, source footnotes, missing source, dangling page link, missed overview/index/log update, forbidden path/page kind, orphan, stale page, and valid no-finding state.
-- [ ] Parse Markdown only; do not execute embedded content. Extract normalized frontmatter, links, footnotes, source/page references, and issue codes.
-- [ ] Implement `lint_project` and `lint_proposal` with severity, code, path, artifact reference, and remediation text.
-- [ ] Treat `wiki/log.md` as append-only ledger with specialized checks rather than ordinary frontmatter requirements.
+- [x] Add failing tests for frontmatter, source footnotes, missing source, dangling page link, missed overview/index/log update, forbidden path/page kind, orphan, stale page, and valid no-finding state.
+- [x] Parse Markdown only; do not execute embedded content. Extract normalized frontmatter, links, footnotes, source/page references, and issue codes.
+- [x] Implement `lint_project` and `lint_proposal` with severity, code, path, artifact reference, and remediation text.
+- [x] Treat `wiki/log.md` as append-only ledger with specialized checks rather than ordinary frontmatter requirements.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests\knowledge\test_wiki_lint.py -q
@@ -31,10 +31,10 @@ A proposal can become `published` only after project/actor/source/status/path/ba
 
 ## Task 2: Separate Knowledge Graph
 
-- [ ] Add tests for page links, citations, source supersession, proposal/page edges, stale detection, isolated traversal, and idempotent rebuild.
-- [ ] Persist only PRD edge types: `wiki_links_to`, `wiki_cites_source`, `proposal_changes_page`, `source_supersedes_source`, and `decision_uses_evidence`.
-- [ ] Rebuild affected edges from successfully published Markdown, not from untrusted model declarations.
-- [ ] Provide bounded project-scoped queries for nodes/edges, backlinks, uncited sources, stale/orphan pages, and health counts.
+- [x] Add tests for page links, citations, source supersession, proposal/page edges, stale detection, isolated traversal, and idempotent rebuild.
+- [x] Persist only PRD edge types: `wiki_links_to`, `wiki_cites_source`, `proposal_changes_page`, `source_supersedes_source`, and `decision_uses_evidence`.
+- [x] Rebuild affected edges from successfully published Markdown, not from untrusted model declarations.
+- [x] Provide bounded project-scoped queries for nodes/edges, backlinks, uncited sources, stale/orphan pages, and health counts.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests\knowledge\test_knowledge_graph.py -q
@@ -42,10 +42,10 @@ A proposal can become `published` only after project/actor/source/status/path/ba
 
 ## Task 3: Persisted Evaluation Baselines
 
-- [ ] Define project evaluation cases for retrieval expected sources, SOP required evidence/constraints, and content required citations/unsupported-claim policy.
-- [ ] Reuse existing retrieval and compiler-evaluator primitives only where their meanings match; add adapters rather than changing legacy score semantics.
-- [ ] Implement baseline/candidate comparison with score deltas, coverage, latency, skipped reason, and per-case findings.
-- [ ] Keep LLM deep review optional and mockable. Deterministic checks are the default publication gate.
+- [x] Define project evaluation cases for retrieval expected sources, SOP required evidence/constraints, and content required citations/unsupported-claim policy.
+- [x] Reuse existing retrieval and compiler-evaluator primitives only where their meanings match; add adapters rather than changing legacy score semantics.
+- [x] Implement baseline/candidate comparison with score deltas, coverage, latency, skipped reason, and per-case findings.
+- [x] Keep LLM deep review optional and mockable. Deterministic checks are the default publication gate.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests\knowledge\test_wiki_evaluator.py -q
@@ -53,11 +53,11 @@ A proposal can become `published` only after project/actor/source/status/path/ba
 
 ## Task 4: Atomic Gate And Recovery
 
-- [ ] Add failing tests for successful multi-page publish, first/last operation failure, revision conflict, lint failure, evaluation regression, trusted auto-publication, audited manual override, and retry after transient write failure.
-- [ ] Implement a persisted state machine with `KnowledgeRun` and a snapshot of affected page hashes.
-- [ ] Use vault staging/recovery so failure leaves no partial Markdown, false graph revision, or processed-source transition.
-- [ ] On success persist page versions, citations, graph edges, proposal/run status, source processed status, and ledger update together; on failure keep sources eligible and findings inspectable.
-- [ ] Support rollback only as a compensating proposal using a prior page version, never as destructive filesystem restore.
+- [x] Add failing tests for successful multi-page publish, first/last operation failure, revision conflict, lint failure, evaluation regression, trusted auto-publication, audited manual override, and retry after transient write failure.
+- [x] Implement a persisted state machine with `KnowledgeRun` and a snapshot of affected page hashes.
+- [x] Use vault staging/recovery so failure leaves no partial Markdown, false graph revision, or processed-source transition.
+- [x] On success persist page versions, citations, graph edges, proposal/run status, source processed status, and ledger update together; on failure keep sources eligible and findings inspectable.
+- [x] Support rollback only as a compensating proposal using a prior page version, never as destructive filesystem restore.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests\knowledge\test_proposal_gate.py -q
@@ -65,8 +65,8 @@ A proposal can become `published` only after project/actor/source/status/path/ba
 
 ## Task 5: Verification And Handoff
 
-- [ ] Run P1-P4 focused suites, existing knowledge/evaluation tests, Artifact Graph regression tests, and `git diff --check`.
-- [ ] Record gate thresholds, baseline policy, graph query limits, and override behavior in the worklog.
+- [x] Run P1-P4 focused suites, existing knowledge/evaluation tests, Artifact Graph regression tests, and `git diff --check`.
+- [x] Record gate thresholds, baseline policy, graph query limits, and override behavior in the worklog.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests\knowledge -q

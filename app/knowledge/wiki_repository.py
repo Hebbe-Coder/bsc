@@ -29,6 +29,10 @@ def _iso(value: datetime | None) -> str:
     return value.astimezone(timezone.utc).isoformat()
 
 
+class PublicationConflictError(ValueError):
+    """Raised when the persisted Wiki changed after a proposal snapshot was built."""
+
+
 class WikiRepository(BaseRepository):
     """Repository that keeps every query explicitly project scoped."""
 
@@ -276,6 +280,20 @@ class WikiRepository(BaseRepository):
         self._commit()
         return self.get_proposal(project_id, proposal_id) or {}
 
+    def update_proposal_review(
+        self,
+        project_id: str,
+        proposal_id: str,
+        status: ProposalStatus,
+        eval_summary: dict[str, Any],
+    ) -> dict:
+        self._execute(
+            "UPDATE knowledge_proposals SET status=?,eval_summary_json=?,updated_at=? WHERE project_id=? AND id=?",
+            (status.value, self._json_dumps(eval_summary), self._now(), project_id, proposal_id),
+        )
+        self._commit()
+        return self.get_proposal(project_id, proposal_id) or {}
+
     def list_pages(self, project_id: str) -> list[dict]:
         rows = self._execute(
             "SELECT * FROM knowledge_wiki_pages WHERE project_id=? AND status='published' ORDER BY path", (project_id,)
@@ -318,16 +336,27 @@ class WikiRepository(BaseRepository):
         return self._decode(row)
 
     def list_citations(self, project_id: str, page_id: str = "", include_stale: bool = False) -> list[dict]:
-        status_clause = "" if include_stale else " AND status='active'"
         if page_id:
-            rows = self._execute(
-                "SELECT * FROM knowledge_citations WHERE project_id=? AND wiki_page_id=?" + status_clause + " ORDER BY id",
-                (project_id, page_id),
-            ).fetchall()
+            if include_stale:
+                rows = self._execute(
+                    "SELECT * FROM knowledge_citations WHERE project_id=? AND wiki_page_id=? ORDER BY id",
+                    (project_id, page_id),
+                ).fetchall()
+            else:
+                rows = self._execute(
+                    "SELECT * FROM knowledge_citations WHERE project_id=? AND wiki_page_id=? AND status='active' ORDER BY id",
+                    (project_id, page_id),
+                ).fetchall()
         else:
-            rows = self._execute(
-                "SELECT * FROM knowledge_citations WHERE project_id=?" + status_clause + " ORDER BY wiki_page_id,id", (project_id,)
-            ).fetchall()
+            if include_stale:
+                rows = self._execute(
+                    "SELECT * FROM knowledge_citations WHERE project_id=? ORDER BY wiki_page_id,id", (project_id,)
+                ).fetchall()
+            else:
+                rows = self._execute(
+                    "SELECT * FROM knowledge_citations WHERE project_id=? AND status='active' ORDER BY wiki_page_id,id",
+                    (project_id,),
+                ).fetchall()
         return [self._decode(row) or {} for row in rows]
 
     def record_distillation(
@@ -379,31 +408,54 @@ class WikiRepository(BaseRepository):
         ).fetchone()
         return self._decode(row)
 
-    def record_publication(self, *, project_id: str, proposal_id: str = "", contents: dict[str, str], source_ids: list[str]) -> None:
+    def record_publication(
+        self,
+        *,
+        project_id: str,
+        proposal_id: str = "",
+        contents: dict[str, str],
+        source_ids: list[str],
+        expected_content_hashes: dict[str, str] | None = None,
+    ) -> None:
         """Persist a published Vault snapshot, citations, and its derived graph atomically."""
         pages = {path: content for path, content in contents.items() if path.startswith("wiki/") or path == "AGENTS.md"}
-        existing = {
-            page["path"]: page
-            for page in [self._decode(row, ("metadata_json",)) or {} for row in self._execute(
-                "SELECT * FROM knowledge_wiki_pages WHERE project_id=?", (project_id,)
-            ).fetchall()]
-        }
-        now = self._now()
-        indexed_pages: list[dict[str, Any]] = []
-        changed_revisions: list[tuple[str, int, str, str]] = []
-        for path, content in sorted(pages.items()):
-            content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
-            prior = existing.get(path)
-            page_id = prior["id"] if prior else hashlib.sha256(f"{project_id}|{path}".encode("utf-8")).hexdigest()[:24]
-            changed = not prior or prior["content_hash"] != content_hash or prior["status"] != "published"
-            version = (int(prior["version"]) + 1) if prior and changed else (int(prior["version"]) if prior else 1)
-            metadata = self._page_metadata(path, content)
-            indexed_pages.append({"id": page_id, "path": path, "content": content, "content_hash": content_hash, "version": version, **metadata})
-            if changed:
-                changed_revisions.append((page_id, version, content_hash, content))
-
         backend = self._get_connection()
         try:
+            dialect = getattr(backend, "dialect", "sqlite")
+            if dialect == "sqlite":
+                self._execute("BEGIN IMMEDIATE")
+            page_query = (
+                "SELECT * FROM knowledge_wiki_pages WHERE project_id=? FOR UPDATE"
+                if dialect == "postgresql"
+                else "SELECT * FROM knowledge_wiki_pages WHERE project_id=?"
+            )
+            rows = self._execute(
+                page_query,
+                (project_id,),
+            ).fetchall()
+            existing = {
+                page["path"]: page
+                for page in [self._decode(row, ("metadata_json",)) or {} for row in rows]
+            }
+            for path, expected_hash in (expected_content_hashes or {}).items():
+                persisted = existing.get(path)
+                if not persisted or persisted["content_hash"] != expected_hash or persisted["status"] != "published":
+                    raise PublicationConflictError(f"persisted Wiki revision conflict at {path}")
+
+            now = self._now()
+            indexed_pages: list[dict[str, Any]] = []
+            changed_revisions: list[tuple[str, int, str, str]] = []
+            for path, content in sorted(pages.items()):
+                content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+                prior = existing.get(path)
+                page_id = prior["id"] if prior else hashlib.sha256(f"{project_id}|{path}".encode("utf-8")).hexdigest()[:24]
+                changed = not prior or prior["content_hash"] != content_hash or prior["status"] != "published"
+                version = (int(prior["version"]) + 1) if prior and changed else (int(prior["version"]) if prior else 1)
+                metadata = self._page_metadata(path, content)
+                indexed_pages.append({"id": page_id, "path": path, "content": content, "content_hash": content_hash, "version": version, **metadata})
+                if changed:
+                    changed_revisions.append((page_id, version, content_hash, content))
+
             for page in indexed_pages:
                 self._execute(
                     "INSERT INTO knowledge_wiki_pages "
@@ -543,6 +595,27 @@ class WikiRepository(BaseRepository):
         ).fetchall()
         return [self._decode(row, ("input_refs_json", "output_refs_json")) or {} for row in rows]
 
+    def list_running_runs(self, project_id: str | None = None, *, limit: int = 500) -> list[dict]:
+        limit = max(1, min(int(limit), 500))
+        if project_id:
+            rows = self._execute(
+                "SELECT * FROM knowledge_runs WHERE project_id=? AND status=? ORDER BY updated_at LIMIT ?",
+                (project_id, RunStatus.RUNNING.value, limit),
+            ).fetchall()
+        else:
+            rows = self._execute(
+                "SELECT * FROM knowledge_runs WHERE status=? ORDER BY updated_at LIMIT ?",
+                (RunStatus.RUNNING.value, limit),
+            ).fetchall()
+        return [self._decode(row, ("input_refs_json", "output_refs_json")) or {} for row in rows]
+
+    def latest_run_for_type(self, project_id: str, run_type: str) -> dict | None:
+        row = self._execute(
+            "SELECT * FROM knowledge_runs WHERE project_id=? AND run_type=? ORDER BY created_at DESC,id DESC LIMIT 1",
+            (project_id, run_type),
+        ).fetchone()
+        return self._decode(row, ("input_refs_json", "output_refs_json"))
+
     def update_run_status(
         self,
         project_id: str,
@@ -604,16 +677,54 @@ class WikiRepository(BaseRepository):
         ).fetchall()
         return [self._decode(row, ("payload_json",)) or {} for row in rows]
 
-    def list_graph_edges(self, project_id: str, edge_type: str | None = None) -> list[dict]:
+    def latest_run_event_sequence(self, *, project_id: str, run_id: str) -> int:
+        row = self._execute(
+            "SELECT COALESCE(MAX(sequence),0) AS sequence FROM knowledge_run_events WHERE project_id=? AND run_id=?",
+            (project_id, run_id),
+        ).fetchone()
+        return int(row["sequence"] if row else 0)
+
+    def list_graph_edges(
+        self,
+        project_id: str,
+        edge_type: str | None = None,
+        *,
+        limit: int = 1000,
+        offset: int = 0,
+    ) -> list[dict]:
+        limit = max(1, min(int(limit), 1000))
+        offset = max(0, int(offset))
         if edge_type:
             rows = self._execute(
-                "SELECT * FROM knowledge_graph_edges WHERE project_id=? AND edge_type=? ORDER BY id",
-                (project_id, edge_type),
+                "SELECT * FROM knowledge_graph_edges WHERE project_id=? AND edge_type=? ORDER BY id LIMIT ? OFFSET ?",
+                (project_id, edge_type, limit, offset),
             ).fetchall()
         else:
             rows = self._execute(
-                "SELECT * FROM knowledge_graph_edges WHERE project_id=? ORDER BY id", (project_id,)
+                "SELECT * FROM knowledge_graph_edges WHERE project_id=? ORDER BY id LIMIT ? OFFSET ?",
+                (project_id, limit, offset),
             ).fetchall()
+        return [self._decode(row, ("metadata_json",)) or {} for row in rows]
+
+    def count_graph_edges(self, project_id: str, edge_type: str | None = None) -> int:
+        if edge_type:
+            row = self._execute(
+                "SELECT COUNT(*) AS count FROM knowledge_graph_edges WHERE project_id=? AND edge_type=?",
+                (project_id, edge_type),
+            ).fetchone()
+        else:
+            row = self._execute(
+                "SELECT COUNT(*) AS count FROM knowledge_graph_edges WHERE project_id=?",
+                (project_id,),
+            ).fetchone()
+        return int(row["count"] if row else 0)
+
+    def list_backlinks(self, project_id: str, page_id: str, *, limit: int = 200) -> list[dict]:
+        rows = self._execute(
+            "SELECT * FROM knowledge_graph_edges WHERE project_id=? AND to_id=? AND edge_type='wiki_links_to' "
+            "ORDER BY from_id LIMIT ?",
+            (project_id, page_id, max(1, min(int(limit), 200))),
+        ).fetchall()
         return [self._decode(row, ("metadata_json",)) or {} for row in rows]
 
     def replace_graph_edges(self, project_id: str, edges: list[KnowledgeGraphEdge]) -> list[dict]:
