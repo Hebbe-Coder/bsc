@@ -193,3 +193,5 @@ Do not include runtime data:
 - Final verification: `35 passed` across focused runtime/API tests,
   TypeScript check, quiet lint, and production build. No BSC browser-console
   error occurred; the only ignored message was Codex-host Statsig telemetry.
+- `f7a06e6 feat: rebuild decision intelligence dashboard` contains this UI
+  rebuild. No remote push was attempted.
