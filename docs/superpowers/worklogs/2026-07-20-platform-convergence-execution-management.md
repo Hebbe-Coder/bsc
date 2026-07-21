@@ -195,3 +195,15 @@ Do not include runtime data:
   error occurred; the only ignored message was Codex-host Statsig telemetry.
 - `f7a06e6 feat: rebuild decision intelligence dashboard` contains this UI
   rebuild. No remote push was attempted.
+
+## 2026-07-21 Code Review Knowledge Graph
+
+- Performed a full local `code-review-graph` build on `master`: 464 parsed
+  files, 4,750 nodes, 34,774 edges, and full-text indexing across Python,
+  TypeScript/TSX, JavaScript, and Bash.
+- Completed graph post-processing for communities and execution flows, then
+  generated the interactive graph at `.code-review-graph/graph.html` and an
+  11-page local architecture Wiki at `.code-review-graph/wiki/`.
+- The graph cache is intentionally ignored by Git. Future graph refreshes use
+  `code-review-graph update`; a post-build impact check found only the local
+  SQLite runtime files changed, with zero affected flows and zero test gaps.
