@@ -88,3 +88,9 @@
 - Python knowledge/integration regression: `254 passed, 3 skipped, 1 warning in 28.25s` across `tests/knowledge`, Workspace API, Wiki HTTP, MCP E2E, and orchestrator isolation.
 - Compose and source gates: `docker compose config --quiet` passed and `git diff --check` passed. No unchecked task items remain in the eight 2026-07-21 knowledge sub-plans.
 - A fresh unconstrained `pytest -q` attempt exceeded the command runner's 180-second output limit and ended with pytest terminal `OSError: [Errno 22]` while flushing output; it did not report a test assertion failure. The focused regression above completed normally. The prior post-remediation full suite evidence remains `775 passed, 8 skipped, 3 warnings`.
+
+## Published Commit (2026-07-22)
+
+- Docker image used for the runtime recheck: `bsc-backend-bsc-backend:latest`, digest `sha256:7fb0226514eeaabd15a6d609b98ad365c2b7bc577a675647c54948f4eee00b15`.
+- Local commit: `d694bb443477d4dcd127f646cba960169176a42b` (`fix(knowledge): enforce growth feature boundaries`).
+- Remote verification: `origin/master` resolves to the same commit. Runtime database files and `output/resume/` remain intentionally outside the commit.
