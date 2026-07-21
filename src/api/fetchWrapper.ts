@@ -4,6 +4,7 @@ export interface FetchOptions extends RequestInit {
   skipRetry?: boolean;
   maxRetries?: number;
   retryDelay?: number;
+  timeout?: number;
 }
 
 export interface InterceptorConfig {
@@ -48,7 +49,13 @@ export class FetchWrapper {
     url: string,
     options: FetchOptions = {}
   ): Promise<T> {
-    const { skipRetry = false, maxRetries = DEFAULT_MAX_RETRIES, retryDelay = DEFAULT_RETRY_DELAY, ...requestInit } = options;
+    const {
+      skipRetry = false,
+      maxRetries = DEFAULT_MAX_RETRIES,
+      retryDelay = DEFAULT_RETRY_DELAY,
+      timeout,
+      ...requestInit
+    } = options;
     
     const fullUrl = url.startsWith('http') ? url : `${this.baseUrl}${url}`;
     
@@ -63,7 +70,7 @@ export class FetchWrapper {
 
     while (attempt < (skipRetry ? 1 : maxRetries)) {
       try {
-        const response = await this.executeRequest<T>(fullUrl, requestWithAuth);
+        const response = await this.executeRequest<T>(fullUrl, requestWithAuth, timeout);
         
         if (this.interceptorConfig.logResponses) {
           this.logResponse(response);
@@ -106,12 +113,13 @@ export class FetchWrapper {
   }
 
   async request(url: string, options: FetchOptions = {}): Promise<Response> {
+    const { timeout, ...requestInit } = options;
     const fullUrl = url.startsWith('http') ? url : `${this.baseUrl}${url}`;
-    const requestWithAuth = this.applyAuthHeaders(options);
+    const requestWithAuth = this.applyAuthHeaders(requestInit);
     if (this.interceptorConfig.logRequests) {
       this.logRequest(fullUrl, requestWithAuth);
     }
-    const response = await this.executeRequest(fullUrl, requestWithAuth);
+    const response = await this.executeRequest(fullUrl, requestWithAuth, timeout);
     if (this.interceptorConfig.logResponses) {
       this.logResponse(response);
     }
@@ -119,7 +127,7 @@ export class FetchWrapper {
   }
 
   async fetchStream(url: string, options: FetchOptions = {}): Promise<ReadableStream> {
-    const { ...requestInit } = options;
+    const { timeout, ...requestInit } = options;
     
     const fullUrl = url.startsWith('http') ? url : `${this.baseUrl}${url}`;
     
@@ -130,7 +138,7 @@ export class FetchWrapper {
     }
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+    const timeoutId = setTimeout(() => controller.abort(), timeout ?? this.timeout);
 
     try {
       const response = await fetch(fullUrl, {
@@ -176,9 +184,13 @@ export class FetchWrapper {
     };
   }
 
-  private async executeRequest<T>(url: string, options: RequestInit): Promise<Response> {
+  private async executeRequest<T>(
+    url: string,
+    options: RequestInit,
+    timeout: number = this.timeout,
+  ): Promise<Response> {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
 
     try {
       const response = await fetch(url, {

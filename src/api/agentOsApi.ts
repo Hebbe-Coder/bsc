@@ -1,4 +1,5 @@
 import { fetchWrapper } from './fetchWrapper';
+import { AGENT_OS_TIMEOUT } from '../config';
 import type { AgentAnalysisResponse, AgentOSRequest } from './generated/agentOsContracts';
 
 export type { AgentAnalysisResponse, AgentOSRequest } from './generated/agentOsContracts';
@@ -19,6 +20,7 @@ export async function getHealth(): Promise<AgentHealth> {
 export async function runAnalysis(req: AgentOSRequest): Promise<AgentAnalysisResponse> {
   return fetchWrapper.fetch<AgentAnalysisResponse>('/agent/analyze', {
     method: 'POST',
+    timeout: AGENT_OS_TIMEOUT,
     body: JSON.stringify({
       input: req.input,
       mode: req.mode || 'llm',

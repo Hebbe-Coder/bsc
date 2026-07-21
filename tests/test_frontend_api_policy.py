@@ -58,11 +58,32 @@ def test_agent_os_ui_uses_backend_status_and_trusted_audit():
     assert "agent-os-chain-" not in adapter
 
 
+def test_agent_os_uses_an_extended_request_budget():
+    wrapper = (SRC / "api" / "fetchWrapper.ts").read_text(encoding="utf-8")
+    agent_api = (SRC / "api" / "agentOsApi.ts").read_text(encoding="utf-8")
+    config = (SRC / "config.ts").read_text(encoding="utf-8")
+
+    assert "timeout?: number;" in wrapper
+    assert "timeout ?? this.timeout" in wrapper
+    assert "AGENT_OS_TIMEOUT" in agent_api
+    assert "timeout: AGENT_OS_TIMEOUT" in agent_api
+    assert "export const AGENT_OS_TIMEOUT = 180000;" in config
+
+
 def test_evaluation_dimensions_have_unique_react_keys():
     source = (SRC / "components" / "CompilerEvalPanel.tsx").read_text(encoding="utf-8")
 
     assert ".map((d, index) =>" in source
     assert "key={`${d.name}-${index}`}" in source
+
+
+def test_agent_os_results_render_the_generated_business_brief():
+    workspace = (SRC / "components" / "UnifiedWorkspace.tsx").read_text(encoding="utf-8")
+    brief = (SRC / "components" / "AgentBriefPanel.tsx").read_text(encoding="utf-8")
+
+    assert "<AgentBriefPanel businessModel={dashData.business_model} />" in workspace
+    assert "Critical Assumptions" in brief
+    assert "Operating Constraints" in brief
 
 
 def test_workspace_waits_for_terminal_event_before_loading_dashboard():

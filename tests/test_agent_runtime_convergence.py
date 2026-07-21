@@ -473,6 +473,30 @@ def test_business_runtime_rejects_an_empty_mission_plan(tmp_path):
     assert result.errors == ["Mission plan has no executable capability steps"]
 
 
+def test_runtime_does_not_duplicate_model_reported_evidence_gaps(tmp_path):
+    from app.artifacts import ArtifactGraphStore
+    from app.artifacts.types import ArtifactType, AssumptionArtifact, GapArtifact, GapCategory
+    from app.capabilities.registry import CapabilityRegistry
+    from app.capabilities.runtime import BusinessRuntime, RuntimeState
+
+    store = ArtifactGraphStore(str(tmp_path))
+    assumption = AssumptionArtifact(
+        artifact_type=ArtifactType.ASSUMPTION,
+        statement="Merchants will adopt the recommendation",
+    )
+    store.add(assumption)
+    store.add(GapArtifact(
+        artifact_type=ArtifactType.GAP,
+        gap_statement="Merchant adoption has no evidence",
+        category=GapCategory.EVIDENCE_MISSING,
+    ))
+    runtime = BusinessRuntime(store, CapabilityRegistry(), planner=object())
+
+    gaps = runtime._reflect(RuntimeState())
+
+    assert gaps == []
+
+
 def test_default_registry_registers_legacy_compatibility_and_mock_coverage():
     from app.artifacts.types import ArtifactType
     from app.capabilities.executor import assert_mock_coverage

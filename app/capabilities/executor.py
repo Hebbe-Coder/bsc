@@ -660,7 +660,7 @@ class NanobotAgentBackend:
                     project_id=project_id,
                     label=g.get("gap", "")[:80],
                     gap_statement=g.get("gap", ""),
-                    category=GapCategory(g.get("category", "evidence_missing")),
+                    category=_parse_gap_category(g.get("category")),
                     severity=_parse_sev(g.get("severity", "medium")),
                     resolution=g.get("recommendation", ""),
                 ))
@@ -1002,6 +1002,24 @@ def _parse_sev(value: str) -> Severity:
         "low": Severity.LOW, "l": Severity.LOW,
     }
     return mapping.get(str(value).lower().strip(), Severity.MEDIUM)
+
+
+def _parse_gap_category(value: Any) -> GapCategory:
+    normalized = str(value or "").lower().strip().replace("-", "_").replace(" ", "_")
+    mapping = {
+        "evidence_missing": GapCategory.EVIDENCE_MISSING,
+        "missing_evidence": GapCategory.EVIDENCE_MISSING,
+        "evidence_gap": GapCategory.EVIDENCE_MISSING,
+        "data_missing": GapCategory.EVIDENCE_MISSING,
+        "analysis_insufficient": GapCategory.ANALYSIS_INSUFFICIENT,
+        "logical_flaw": GapCategory.ANALYSIS_INSUFFICIENT,
+        "logic_flaw": GapCategory.ANALYSIS_INSUFFICIENT,
+        "incomplete_analysis": GapCategory.ANALYSIS_INSUFFICIENT,
+        "model_failed": GapCategory.MODEL_FAILED,
+        "model_failure": GapCategory.MODEL_FAILED,
+        "invalid_model": GapCategory.MODEL_FAILED,
+    }
+    return mapping.get(normalized, GapCategory.ANALYSIS_INSUFFICIENT)
 
 
 def _uses_mock_capability_response(llm: Any) -> bool:

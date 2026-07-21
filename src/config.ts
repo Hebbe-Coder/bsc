@@ -4,6 +4,9 @@ export const API_BASE = import.meta.env.VITE_API_BASE || '';
 
 export const API_TIMEOUT = 60000;
 
+// A capability runtime can make several model calls in one user-visible run.
+export const AGENT_OS_TIMEOUT = 180000;
+
 export const STREAM_TIMEOUT = 120000;
 
 export const DEFAULT_MODEL_PROVIDER = 'deepseek';

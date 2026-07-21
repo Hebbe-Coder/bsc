@@ -461,18 +461,21 @@ def _coverage_projection(graph: dict[str, Any]) -> dict[str, Any]:
     coverages = _list(graph.get("coverages"))
     if not coverages:
         return {
-            "total": graph.get("total_artifacts", 0),
-            "covered": graph.get("total_artifacts", 0),
-            "coverage_pct": 100,
+            "total": 0,
+            "covered": 0,
+            "coverage_pct": 0,
             "uncovered_ids": [],
         }
     coverage = coverages[0]
     missed = _list(coverage.get("dimensions_missed"))
     scores = _dict(coverage.get("dimension_scores"))
+    dimensions = {str(name) for name in scores} | {str(name) for name in missed}
+    coverage_pct = round(float(coverage.get("overall_coverage", 0)) * 100, 1)
+    total = len(dimensions)
     return {
-        "total": len(scores) or len(missed),
-        "covered": max((len(scores) or 0) - len(missed), 0),
-        "coverage_pct": round(float(coverage.get("overall_coverage", 0)) * 100, 1),
+        "total": total,
+        "covered": round(total * coverage_pct / 100) if total else 0,
+        "coverage_pct": coverage_pct,
         "uncovered_ids": missed,
     }
 

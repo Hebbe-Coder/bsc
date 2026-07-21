@@ -17,12 +17,14 @@ const SEVERITY_TEXT: Record<string, string> = {
 
 const GATE_STYLE: Record<string, string> = {
   pass: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  review: "bg-amber-50 text-amber-700 border-amber-200",
   warn: "bg-amber-50 text-amber-700 border-amber-200",
   block: "bg-red-50 text-red-700 border-red-200",
 };
 
 const GATE_LABEL: Record<string, string> = {
   pass: "通过",
+  review: "复核",
   warn: "警告",
   block: "阻断",
 };

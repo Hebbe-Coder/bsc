@@ -16,6 +16,7 @@ import { CitationPanel } from './CitationPanel';
 import { TrustedAuditPanel } from './TrustedAuditPanel';
 import { CompilerEvalPanel } from './CompilerEvalPanel';
 import { EvolutionPanel } from './EvolutionPanel';
+import { AgentBriefPanel } from './AgentBriefPanel';
 import { BusinessGraph } from './BusinessGraph';
 import { SopPanel } from './SopPanel';
 import { AgentTerminal } from './AgentTerminal';
@@ -391,6 +392,7 @@ export function UnifiedWorkspace() {
           {dashData && (
             <div className="result-stack animate-fade-in-up">
               <div className="result-summary"><div><span>RISK GATE</span><strong>{dashData.risk.gate.decision}</strong></div><div><span>COVERAGE</span><strong>{dashData.risk.coverage.coverage_pct}%</strong></div><div><span>RISKS</span><strong>{dashData.risk.risks.length}</strong></div></div>
+              <section className="result-block"><AgentBriefPanel businessModel={dashData.business_model} /></section>
               <section className="result-block"><RiskPanel risk={dashData.risk} /></section>
               <section className="result-block"><ConstraintCoveragePanel coverage={dashData.risk.coverage} /></section>
               <section className="result-block"><CitationPanel sop={dashData.sop} /></section>

@@ -11,6 +11,15 @@ function isTrustedAudit(value: unknown): value is TrustedAudit {
     && Boolean(audit.coverage && typeof audit.coverage === 'object');
 }
 
+function highestRiskSeverity(risks: RiskItem[]): string | null {
+  const rank: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
+  return risks.reduce<string | null>((highest, risk) => (
+    !highest || (rank[risk.severity] ?? 0) > (rank[highest] ?? 0)
+      ? risk.severity
+      : highest
+  ), null);
+}
+
 export function adaptAgentOsToDashboard(resp: AgentAnalysisResponse): DashboardData {
   // Artifact exports are intentionally extensible; normalize them at the UI boundary.
   const report = (resp.report || {}) as Record<string, any>;
@@ -26,21 +35,38 @@ export function adaptAgentOsToDashboard(resp: AgentAnalysisResponse): DashboardD
   const totalArtifacts = artifactGraph.total_artifacts || resp.artifacts || 0;
   const gaps = report.gaps || artifactGraph.gaps || [];
   const coveredCount = totalArtifacts - (Array.isArray(gaps) ? gaps.length : (resp.gaps || 0));
-
-  const riskPayload: RiskPayload = {
-    overall_score: resp.board_verdict || null,
-    gate: {
-      decision: resp.board_verdict === 'PASS' ? 'APPROVED' : 'REVIEW',
-      reason: resp.board_consensus || (risks.length === 0 ? 'No risks identified' : risks.length + ' risks require review'),
-    },
-    coverage: {
+  const trustedAudit = isTrustedAudit(resp.trusted_audit)
+    ? resp.trusted_audit
+    : undefined;
+  const auditedCoverage = trustedAudit?.coverage;
+  const hasAuditedCoverage = typeof auditedCoverage?.coverage_pct === 'number'
+    && typeof auditedCoverage.total === 'number'
+    && typeof auditedCoverage.covered === 'number';
+  const coverage = hasAuditedCoverage
+    ? {
+      total: auditedCoverage.total,
+      covered: auditedCoverage.covered,
+      coverage_pct: auditedCoverage.coverage_pct,
+      uncovered_ids: auditedCoverage.uncovered_ids,
+    }
+    : {
       total: totalArtifacts,
       covered: Math.max(0, coveredCount),
       coverage_pct: totalArtifacts > 0 ? Math.round((coveredCount / totalArtifacts) * 100) : 0,
       uncovered_ids: Array.isArray(gaps)
         ? gaps.map((g: any) => g.id || g.description || JSON.stringify(g).slice(0, 32))
         : (resp.gap_details || []).map((g) => g.description),
+    };
+
+  const riskPayload: RiskPayload = {
+    overall_score: resp.board_verdict || highestRiskSeverity(risks),
+    gate: {
+      decision: resp.board_verdict === 'PASS'
+        ? 'APPROVED'
+        : auditedCoverage?.gate_decision || 'REVIEW',
+      reason: resp.board_consensus || (risks.length === 0 ? 'No risks identified' : risks.length + ' risks require review'),
     },
+    coverage,
     risks,
   };
 
@@ -65,10 +91,6 @@ export function adaptAgentOsToDashboard(resp: AgentAnalysisResponse): DashboardD
     is_passed: resp.board_verdict !== 'FAIL',
     improvement_points: resp.gaps || 0,
   };
-
-  const trustedAudit = isTrustedAudit(resp.trusted_audit)
-    ? resp.trusted_audit
-    : undefined;
 
   const citationCoverage: CitationCoverage = {
     coverage: riskPayload.coverage.coverage_pct,

@@ -121,3 +121,42 @@ Do not include runtime data:
 - Final focused regression: `39 passed`; TypeScript check, quiet lint and the
   production bundle passed. A duplicate evaluation-dimension React key found
   during the first browser pass was fixed and did not recur.
+
+## 2026-07-21 Real Provider Revalidation
+
+- Restarted the local FastAPI runtime so the latest capability runtime and
+  coverage projection changes are active. `/live` returned `200`.
+- Re-ran the cross-border e-commerce inventory-and-cashflow SaaS mission in
+  the browser against the funded DeepSeek provider. Every provider request
+  returned `200`; the mission produced a 12-step LLM plan, 41 persisted
+  artifacts, and 10 evidence/analysis gaps in 61.7 seconds.
+- The completed UI shows the real business brief (model, objectives, first
+  decision, assumptions, and constraints), a `review` gate, `61%` coverage,
+  `5/8` covered constraints, 10 risks, and a two-node SHA-256 trusted audit
+  chain. The dashboard coverage and trusted-audit coverage now agree.
+- The prior rule-reflection duplication is absent: the three
+  `evidence_missing` findings originate in the model's gap-detection result
+  and are not repeated for every assumption. The remaining findings cover
+  CAC/LTV, sparse data, operating support, cloud cost, dependency cycles, the
+  business model, and cross-border compliance.
+- The browser reported only a Codex-host `Statsig` registration timeout. No
+  BSC application console error, API proxy failure, response-body reuse error,
+  or Agent OS timeout occurred.
+
+## Current Release Gate
+
+- [x] Run the focused regression, TypeScript check, lint, and production build
+  again after real-provider verification.
+- [ ] Stage only the Agent OS code, tests, and this worklog; exclude
+  `app/bsc_cloud.db` and `app/bsc_cloud.db-shm` runtime data.
+- [ ] Create a local commit on `master` without pushing it.
+
+## Final Verification
+
+- Focused runtime/API regression: `32 passed`.
+- `npm run check`: passed.
+- `npm run lint -- --quiet`: passed.
+- `npm run build`: passed. Vite reports the existing 525 kB post-minification
+  main-chunk advisory only.
+- Browser console: no BSC application warning or error. The only ignored
+  message was the Codex-host `Statsig` telemetry registration timeout.

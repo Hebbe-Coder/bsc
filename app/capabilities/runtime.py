@@ -519,15 +519,15 @@ class BusinessRuntime:
 
         # Check 1: Assumptions without evidence
         assumptions = self.store.get_by_type(ArtifactType.ASSUMPTION)
-        for a in assumptions:
-            if isinstance(a, AssumptionArtifact) and not a.validated:
-                existing_gaps = self.store.get_by_type(ArtifactType.GAP)
-                already_reported = any(
-                    isinstance(g, GapArtifact)
-                    and a.artifact_id in g.affected_artifact_ids
-                    for g in existing_gaps
-                )
-                if not already_reported:
+        existing_gaps = self.store.get_by_type(ArtifactType.GAP)
+        has_model_evidence_gaps = any(
+            isinstance(gap, GapArtifact)
+            and gap.category == GapCategory.EVIDENCE_MISSING
+            for gap in existing_gaps
+        )
+        if not has_model_evidence_gaps:
+            for a in assumptions:
+                if isinstance(a, AssumptionArtifact) and not a.validated:
                     gap = GapArtifact(
                         gap_statement=f"Assumption '{a.statement}' lacks evidence",
                         category=GapCategory.EVIDENCE_MISSING,

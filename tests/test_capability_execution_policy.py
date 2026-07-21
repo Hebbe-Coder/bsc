@@ -179,3 +179,32 @@ def test_runtime_applies_policy_to_direct_capability_and_projects_attempts(tmp_p
         "failed",
         "success",
     ]
+
+
+def test_gap_detection_normalizes_realistic_model_category_aliases(tmp_path):
+    class LogicalFlawLLM:
+        last_mode = "real"
+        last_usage = None
+
+        async def generate(self, prompt):
+            return (
+                '{"gaps":[{"gap":"Demand forecast conflicts with the stated cash budget",'
+                '"category":"logical_flaw","severity":"high",'
+                '"recommendation":"Reconcile the forecast with cash constraints"}]}'
+            )
+
+    from app.capabilities.executor import NanobotAgentBackend
+
+    store = ArtifactGraphStore(str(tmp_path))
+    backend = NanobotAgentBackend(store, llm_service=LogicalFlawLLM())
+    capability = Capability(
+        name="gap_detection",
+        output_artifact_types=[ArtifactType.GAP],
+    )
+
+    result = asyncio.run(backend.execute(capability, "Ecommerce inventory PRD", "ecommerce"))
+
+    assert result.status == "success"
+    gap = store.get(result.artifacts_produced[0])
+    assert gap is not None
+    assert gap.category.value == "analysis_insufficient"
