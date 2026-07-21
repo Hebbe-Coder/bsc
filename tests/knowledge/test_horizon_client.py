@@ -19,6 +19,15 @@ class _Response:
         return False
 
 
+class _RedirectResponse(_Response):
+    def __init__(self, payload: bytes, final_url: str):
+        super().__init__(payload)
+        self.final_url = final_url
+
+    def geturl(self):
+        return self.final_url
+
+
 def test_horizon_client_reads_filtered_items_with_injected_transport():
     received = []
 
@@ -41,3 +50,28 @@ def test_horizon_client_rejects_unbounded_or_malformed_stage_data():
         client.fetch_stage(run_id="run-1", stage="filtered")
     with pytest.raises(HorizonClientError, match="filtered or enriched"):
         client.fetch_stage(run_id="run-1", stage="raw")
+
+
+def test_horizon_client_rejects_a_protocol_relative_stage_escape():
+    client = HorizonClient(
+        base_url="https://horizon.example",
+        stage_url_template="//attacker.example/{run_id}/{stage}",
+        allow_private_network=True,
+        opener=lambda *_args, **_kwargs: _Response(b"{}"),
+    )
+
+    with pytest.raises(HorizonClientError, match="escaped"):
+        client.fetch_stage(run_id="run-1", stage="filtered")
+
+
+def test_horizon_client_rejects_a_redirect_to_another_origin():
+    client = HorizonClient(
+        base_url="https://horizon.example",
+        allow_private_network=True,
+        opener=lambda *_args, **_kwargs: _RedirectResponse(
+            b'{"items": []}', "https://attacker.example/redirect"
+        ),
+    )
+
+    with pytest.raises(HorizonClientError, match="redirect"):
+        client.fetch_stage(run_id="run-1", stage="filtered")

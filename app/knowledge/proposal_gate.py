@@ -96,7 +96,8 @@ class ProposalGate:
             raise ProposalGateError("proposal must exist in draft or retryable failed status")
         if proposal.base_revision.startswith("vault:") and proposal.base_revision != self.project_revision(self.vault.contents):
             raise ProposalGateError("revision conflict: the project Wiki changed after this proposal was compiled")
-        sources = [self.repository.get_source(proposal.project_id, source_id) for source_id in proposal.source_ids]
+        proposal_source_ids = self._proposal_source_ids(proposal)
+        sources = [self.repository.get_source(proposal.project_id, source_id) for source_id in proposal_source_ids]
         publishable_source_states = {SourceStatus.ELIGIBLE.value, SourceStatus.PROCESSED.value}
         if any(source is None or source["status"] not in publishable_source_states for source in sources):
             raise ProposalGateError("all proposal sources must remain eligible or previously published")
@@ -121,7 +122,7 @@ class ProposalGate:
         lint_report = self.lint.lint_proposal(
             proposal,
             rules=rules,
-            source_ids=set(proposal.source_ids),
+            source_ids=proposal_source_ids,
             existing_paths=self.vault.contents,
         )
         lint_findings = [finding.model_dump() for finding in lint_report.findings]
@@ -139,7 +140,7 @@ class ProposalGate:
                 proposal_id=proposal.id,
                 wiki_revision=proposal.base_revision,
                 candidate={
-                    "source_ids": proposal.source_ids,
+                    "source_ids": sorted(proposal_source_ids),
                     "content": "\n".join(operation.content for operation in proposal.operations),
                 },
             )
@@ -210,7 +211,7 @@ class ProposalGate:
                 project_id=proposal.project_id,
                 proposal_id=proposal.id,
                 contents=staged,
-                source_ids=proposal.source_ids,
+                source_ids=sorted(proposal_source_ids),
                 expected_content_hashes=expected_content_hashes,
             )
         except Exception:
@@ -244,3 +245,11 @@ class ProposalGate:
             if path == "AGENTS.md" or path.startswith("wiki/")
         ]
         return "vault:" + hashlib.sha256("\n".join(records).encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _proposal_source_ids(proposal: WikiProposal) -> set[str]:
+        return set(proposal.source_ids) | {
+            source_id
+            for operation in proposal.operations
+            for source_id in operation.source_ids
+        }

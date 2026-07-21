@@ -58,6 +58,31 @@ def test_gate_publishes_all_pages_only_after_lint_and_baseline_pass(tmp_path):
         repo.close()
 
 
+def test_gate_uses_operation_level_sources_for_lint_evaluation_and_processing(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "gate-operation-sources.db"))
+    vault = InMemoryWikiVault()
+    source = _source(repo)
+    proposal = _proposal(source["id"]).model_copy(update={"source_ids": []})
+    repo.create_proposal(proposal)
+    WikiEvaluator(repo).save_case(
+        project_id="project-a",
+        case_id="operation-source",
+        case_type="citation",
+        expected={"source_ids": [source["id"]]},
+    )
+    try:
+        result = ProposalGate(repo, vault).publish(
+            proposal=proposal,
+            rules_text=build_default_agents_rules("project-a"),
+        )
+
+        assert result["status"] == "published"
+        assert repo.get_source("project-a", source["id"])["status"] == "processed"
+        assert repo.get_proposal("project-a", proposal.id)["eval_summary"]["evaluation"]["status"] == "passed"
+    finally:
+        repo.close()
+
+
 def test_gate_failure_leaves_vault_proposal_and_sources_unchanged(tmp_path):
     repo = WikiRepository(db_path=str(tmp_path / "gate-failure.db"))
     vault = InMemoryWikiVault()

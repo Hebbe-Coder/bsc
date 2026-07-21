@@ -36,6 +36,23 @@ def test_workspace_api_requires_scope_and_redacts_raw_evidence(tmp_path):
         repo.close()
 
 
+def test_workspace_api_reports_a_disabled_wiki_feature(monkeypatch):
+    previous_key = settings.API_KEY
+    settings.API_KEY = "workspace-admin"
+    monkeypatch.setattr(settings, "KNOWLEDGE_WIKI_ENABLED", False)
+    client = TestClient(app)
+    try:
+        response = client.get(
+            "/knowledge/workspaces/project-a",
+            headers={"Authorization": "Bearer workspace-admin"},
+        )
+
+        assert response.status_code == 503
+        assert response.json()["message"]["code"] == "knowledge_wiki_disabled"
+    finally:
+        settings.API_KEY = previous_key
+
+
 def test_workspace_run_event_replay_is_scoped_and_streams_terminal_events(tmp_path):
     repo = WikiRepository(db_path=str(tmp_path / "workspace-events.db"))
     run = KnowledgeRun(id="run-events", project_id="project-a", run_type="weekly_distillation", trigger="manual")

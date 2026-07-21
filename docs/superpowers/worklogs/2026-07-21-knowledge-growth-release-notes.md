@@ -12,6 +12,9 @@
 ## Required Configuration
 
 - Set `KNOWLEDGE_WIKI_ENABLED=true` and `OBSIDIAN_VAULT_ROOT` to the Obsidian Vault root. Store each project mapping as a relative path inside that root.
+- Enable `KNOWLEDGE_OBSIDIAN_SYNC_ENABLED=true` only for projects whose Obsidian import policy is ready; source synchronization reports unavailable when disabled.
+- Enable `KNOWLEDGE_SCHEDULES_ENABLED=true` separately from `CELERY_ENABLED` to allow persistent Beat schedules.
+- Enable `KNOWLEDGE_MCP_WRITE_ENABLED=true` separately from read-only Wiki MCP tools; the HTTP tool list hides disabled Wiki write tools.
 - Set `API_KEY` for protected local or production API access. Do not commit `.env` or any provider key.
 - Set `CELERY_ENABLED=true`, `CELERY_BROKER_URL`, and `CELERY_RESULT_BACKEND` for durable schedules; run Redis, Worker, and Beat together.
 - Keep `KNOWLEDGE_WIKI_AUTO_PUBLISH_ENABLED=false` by default. Automatic publication additionally requires project mapping metadata `auto_publish_enabled=true`, trusted-only evidence, passing lint/evaluation, and a durable audit run.

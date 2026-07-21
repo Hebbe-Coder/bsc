@@ -32,6 +32,9 @@ class ObsidianSyncService:
         project_root = mappings.get(project_id, ())
         managed_roots = {("projects",)} | set(mappings.values())
         for path in self.vault_root.rglob("*"):
+            if path.is_symlink():
+                report["skipped"] += 1
+                continue
             if not path.is_file():
                 continue
             relative = path.relative_to(self.vault_root)

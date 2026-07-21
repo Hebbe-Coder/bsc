@@ -21,6 +21,15 @@ export type KnowledgeWorkspaceData = {
   runs: number;
   schedules: number;
   access: { role: string; can_write: boolean };
+  features: {
+    wiki: boolean;
+    obsidian_sync: boolean;
+    schedules: boolean;
+    mcp_write: boolean;
+    horizon: boolean;
+    automatic_publication: boolean;
+  };
+  sync: { status: string; last_run: KnowledgeRun | null };
   scheduler: { available: boolean; mode: 'celery' | 'manual' };
 };
 

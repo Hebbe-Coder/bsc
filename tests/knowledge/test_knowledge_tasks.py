@@ -59,9 +59,29 @@ def test_source_sync_task_imports_only_non_managed_obsidian_notes(tmp_path, monk
         result = execute_knowledge_run("project-a", run.id)
 
         assert result["status"] == "completed"
-        assert result["sync"] == {"scanned": 1, "created": 1, "duplicates": 0, "rejected": 0, "deleted": 0, "skipped": 0, "wiki_pages": 1}
+        assert result["sync"]["scanned"] == 1
+        assert result["sync"]["wiki_pages"] == 1
+        assert result["sync"]["wiki_index"]["indexed"] == 1
         assert repo.get_run("project-a", run.id)["status"] == "completed"
         assert repo.list_sources("project-a")[0]["origin"] == "research.md"
+    finally:
+        repo.close()
+
+
+def test_source_sync_task_is_unavailable_when_its_feature_flag_is_disabled(tmp_path, monkeypatch):
+    repo = WikiRepository(db_path=str(tmp_path / "tasks-sync-disabled.db"))
+    run = KnowledgeRun(project_id="project-a", run_type="source_sync", trigger="manual")
+    repo.create_run(run)
+    monkeypatch.setattr("app.tasks.knowledge_tasks.WikiRepository", lambda: repo)
+    monkeypatch.setattr("app.tasks.knowledge_tasks.settings.KNOWLEDGE_OBSIDIAN_SYNC_ENABLED", False)
+    try:
+        result = execute_knowledge_run("project-a", run.id)
+
+        assert result["status"] == "unavailable"
+        assert result["failure"] == {
+            "category": "configuration", "code": "obsidian_sync_disabled", "retryable": False
+        }
+        assert repo.get_run("project-a", run.id)["status"] == "unavailable"
     finally:
         repo.close()
 
@@ -85,6 +105,7 @@ def test_source_sync_task_reconciles_user_edited_managed_wiki_pages(tmp_path, mo
 
         assert result["status"] == "completed"
         assert result["sync"]["wiki_pages"] == 2
+        assert result["sync"]["wiki_index"]["indexed"] == 2
         page = next(page for page in repo.list_pages("project-a") if page["path"] == "wiki/concepts/approval.md")
         assert repo.get_page_content("project-a", page["id"])["content"].endswith("User-maintained page.\n")
         events = repo.list_run_events(project_id="project-a", run_id=run.id)

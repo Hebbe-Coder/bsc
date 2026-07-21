@@ -25,7 +25,23 @@ from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.wiki_service import WikiService
 from app.core.celery_app import is_celery_broker_available, is_celery_real
 
-router = APIRouter(prefix="/knowledge", tags=["Knowledge Workspace"])
+
+def require_knowledge_wiki_enabled() -> None:
+    if not settings.KNOWLEDGE_WIKI_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "knowledge_wiki_disabled",
+                "message": "Project Wiki workspace is disabled by configuration",
+            },
+        )
+
+
+router = APIRouter(
+    prefix="/knowledge",
+    tags=["Knowledge Workspace"],
+    dependencies=[Depends(require_knowledge_wiki_enabled)],
+)
 
 
 def get_wiki_repository() -> WikiRepository:
@@ -100,7 +116,7 @@ def _command_error(exc: Exception) -> HTTPException:
         status, code = 409, "knowledge_conflict"
     elif "not found" in normalized:
         status, code = 404, "knowledge_not_found"
-    elif "unavailable" in normalized or "not configured" in normalized:
+    elif "unavailable" in normalized or "not configured" in normalized or "disabled" in normalized:
         status, code = 503, "knowledge_dependency_unavailable"
     elif "permission" in normalized or "forbidden" in normalized:
         status, code = 403, "knowledge_permission_denied"
@@ -134,7 +150,12 @@ def workspace_status(request: Request, project_id: str, repo: WikiRepository = D
     project_id = _enforce_project_access(request, project_id)
     vault = repo.get_vault(project_id)
     role = str(getattr(request.state, "knowledge_role", ""))
-    scheduler_available = is_celery_real() and is_celery_broker_available()
+    sync_run = repo.latest_run_for_type(project_id, "source_sync")
+    scheduler_available = (
+        settings.KNOWLEDGE_SCHEDULES_ENABLED
+        and is_celery_real()
+        and is_celery_broker_available()
+    )
     return ApiResponse.ok(
         {
             "project_id": project_id,
@@ -143,6 +164,18 @@ def workspace_status(request: Request, project_id: str, repo: WikiRepository = D
             "runs": len(repo.list_runs(project_id)),
             "schedules": len(repo.list_schedules(project_id)),
             "access": {"role": role, "can_write": role in {"admin", "project_admin"}},
+            "features": {
+                "wiki": settings.KNOWLEDGE_WIKI_ENABLED,
+                "obsidian_sync": settings.KNOWLEDGE_OBSIDIAN_SYNC_ENABLED,
+                "schedules": settings.KNOWLEDGE_SCHEDULES_ENABLED,
+                "mcp_write": settings.KNOWLEDGE_MCP_WRITE_ENABLED,
+                "horizon": settings.HORIZON_ENABLED,
+                "automatic_publication": settings.KNOWLEDGE_WIKI_AUTO_PUBLISH_ENABLED,
+            },
+            "sync": {
+                "status": sync_run["status"] if sync_run else "not_run",
+                "last_run": sync_run,
+            },
             "scheduler": {
                 "available": scheduler_available,
                 "mode": "celery" if scheduler_available else "manual",
@@ -417,7 +450,11 @@ def workspace_health_trend(request: Request, project_id: str, repo: WikiReposito
 @router.get("/schedules")
 def workspace_schedules(request: Request, project_id: str, repo: WikiRepository = Depends(get_wiki_repository)):
     project_id = _enforce_project_access(request, project_id)
-    available = is_celery_real() and is_celery_broker_available()
+    available = (
+        settings.KNOWLEDGE_SCHEDULES_ENABLED
+        and is_celery_real()
+        and is_celery_broker_available()
+    )
     schedules = [
         {
             **schedule,

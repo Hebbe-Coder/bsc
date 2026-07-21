@@ -260,3 +260,12 @@ Live Horizon endpoint/API credentials and a real Wiki-maintenance LLM provider r
 - Runtime proof: `GET http://127.0.0.1:8002/live` returned `{"status":"ok"}`, Redis returned `PONG`, all three containers are running on the new digest, and the authenticated workspace status reported `scheduler.available=true, mode=celery`.
 - Beat dispatched `knowledge.reconcile_schedules`; Worker consumed it and returned `queued=0, duplicates=0, failures=0, recovered=0`.
 - The mounted runtime database currently contains no project, schedule, or run rows. No synthetic records were created to make persistence appear complete; persistence/recovery remains covered by the disposable integration and restart tests recorded above.
+
+## Requirement Audit Remediation (2026-07-22)
+
+- Enforced the previously documentary-only feature flags: `KNOWLEDGE_WIKI_ENABLED` gates the new workspace/API and Wiki task execution; `KNOWLEDGE_OBSIDIAN_SYNC_ENABLED`, `KNOWLEDGE_SCHEDULES_ENABLED`, and `KNOWLEDGE_MCP_WRITE_ENABLED` independently gate sync, persistent scheduling, and MCP writes. Workspace responses now expose the active feature policy and the latest source-sync status.
+- Closed a derived-index gap: source synchronization now projects the current authoritative Obsidian Wiki snapshot through `WikiSearchIndex`, so user-edited pages are searchable after sync rather than only being persisted in the Wiki metadata tables.
+- Hardened filesystem isolation: Vault reads and Obsidian scans skip symlinks, and atomic publication refuses to replace a project containing symlinks. Tests cover outside-root symlinks where the Windows principal permits creation.
+- Hardened Horizon URL isolation: protocol-relative stage escapes and cross-origin redirects are rejected before payload consumption; HTTP error statuses become non-sensitive adapter failures.
+- Unified proposal provenance: source IDs declared on operations are merged into the proposal source set before lint, evaluation, automatic-publication trust checks, and processed-source transitions.
+- New focused tests pass for feature-disabled API/MCP/task states, Wiki index synchronization, symlink isolation, Horizon URL safety, and operation-level provenance. Full Python regression after these remediations: `775 passed, 8 skipped, 3 warnings`.

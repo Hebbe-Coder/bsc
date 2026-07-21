@@ -1,3 +1,7 @@
+import os
+
+import pytest
+
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_sync import ObsidianSyncService
 
@@ -19,6 +23,28 @@ def test_obsidian_sync_imports_user_markdown_without_reading_managed_or_hidden_f
         source = repo.list_sources("project-a")[0]
         assert source["vault_path"] == "welcome.md"
         assert source["status"] == "validated"
+    finally:
+        repo.close()
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlinks are unavailable")
+def test_obsidian_sync_skips_symlinked_files_outside_the_vault(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    outside = tmp_path / "outside.md"
+    outside.write_text("outside secret", encoding="utf-8")
+    (root / "inside.md").write_text("inside evidence", encoding="utf-8")
+    try:
+        (root / "escape.md").symlink_to(outside)
+    except OSError:
+        pytest.skip("current Windows principal cannot create symlinks")
+    repo = WikiRepository(db_path=str(tmp_path / "sync-symlink.db"))
+    try:
+        report = ObsidianSyncService(repo, root).sync(project_id="project-a")
+
+        assert report["scanned"] == 1
+        assert report["skipped"] == 1
+        assert [source["origin"] for source in repo.list_sources("project-a")] == ["inside.md"]
     finally:
         repo.close()
 

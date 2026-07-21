@@ -49,14 +49,29 @@ class HorizonClient:
         if not run_id.strip():
             raise HorizonClientError("Horizon run_id is required")
         suffix = self.stage_url_template.format(run_id=run_id, stage=stage)
-        if not suffix.startswith("/") or ".." in suffix.split("/"):
+        if not suffix.startswith("/") or suffix.startswith("//") or ".." in suffix.split("/"):
             raise HorizonClientError("Horizon stage URL template escaped the API root")
-        request = Request(urljoin(self.base_url + "/", suffix.lstrip("/")), headers=self._headers())
+        target_url = urljoin(self.base_url + "/", suffix.lstrip("/"))
+        base = urlparse(self.base_url)
+        target = urlparse(target_url)
+        if target.scheme != base.scheme or target.netloc != base.netloc or target.username or target.password:
+            raise HorizonClientError("Horizon stage URL template escaped the API root")
+        request = Request(target_url, headers=self._headers())
         try:
             with self.opener(request, timeout=self.timeout_seconds) as response:
+                status = int(getattr(response, "status", 200) or 200)
+                get_url = getattr(response, "geturl", None)
+                final_url = get_url() if callable(get_url) else target_url
+                final = urlparse(final_url)
+                if final.scheme != base.scheme or final.netloc != base.netloc:
+                    raise HorizonClientError("Horizon sidecar redirect escaped the API root")
                 payload = response.read(self.max_response_bytes + 1)
+        except HorizonClientError:
+            raise
         except Exception as exc:
             raise HorizonClientError("Horizon sidecar request failed") from exc
+        if status >= 400:
+            raise HorizonClientError("Horizon sidecar request failed")
         if len(payload) > self.max_response_bytes:
             raise HorizonClientError("Horizon sidecar response exceeded the configured limit")
         try:

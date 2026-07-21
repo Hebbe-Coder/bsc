@@ -152,6 +152,12 @@ def _require_mcp_auth(api_key: str = "") -> tuple[str, str | None]:
 def _authorize_wiki_project(project_id: str, api_key: str = "", *, write: bool = False) -> None:
     """Authorize one governed Wiki action against its explicit project scope."""
     role, scoped_project_id = _require_mcp_auth(api_key)
+    from app.core.config import settings
+
+    if not settings.KNOWLEDGE_WIKI_ENABLED:
+        raise PermissionError("Project Wiki MCP tools are disabled by configuration")
+    if write and not settings.KNOWLEDGE_MCP_WRITE_ENABLED:
+        raise PermissionError("Project Wiki MCP writes are disabled by configuration")
     if role == "admin":
         return
     if role == "reader":

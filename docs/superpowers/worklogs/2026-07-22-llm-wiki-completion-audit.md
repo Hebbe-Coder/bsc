@@ -67,3 +67,24 @@
 - Browser: disposable API/Vault fixture on `8003` plus Vite `5178` passed desktop citation/source inspector, revision restore draft/Diff, Lint, durable run event replay sequences 1-4, graph edge filter/node navigation, weekly three-document/source-cutoff view, mobile 390x844 pane switching/selection retention, no horizontal overflow, 5 charts at 340x180 with visibly rendered series, and keyboard focus outline. A frontend terminal-event identity bug found during this acceptance was fixed and covered by a new Vitest assertion.
 - Security/quality: automatic publication now requires global and project policy plus trusted-only sources; administrator override requires role `admin`, non-empty reason, and a durable audit run/event while retaining lint/evaluation findings. Structured conflicting claims now produce recency review candidates.
 - External boundaries: no live Horizon endpoint or real Wiki-maintenance model was configured or claimed. Their unavailable behavior is tested and documented.
+
+## Post-Audit Remediation (2026-07-22)
+
+- Added runtime enforcement for Wiki, Obsidian sync, persistent schedules, and MCP write feature flags, including truthful workspace feature/sync state and disabled-tool behavior.
+- Added derived Wiki index refresh during source sync, operation-level proposal provenance normalization, symlink replacement protection, and Horizon same-origin/redirect validation.
+- Full Python regression after remediation: `775 passed, 8 skipped, 3 warnings`; focused feature/provenance/security suites and TypeScript check also passed.
+
+## Browser And Docker Recheck (2026-07-22)
+
+- Rebuilt runtime was verified without touching the user-owned `8000` process or `D:\bsc\bsc`. `bsc-backend-app-8002` returned `/live` OK; authenticated `GET /knowledge/workspaces/bsc` returned `200` with `role=admin`, Wiki/Obsidian/schedules/MCP-write flags enabled, and Celery scheduler mode.
+- The existing Vite previews on `5173`, `5174`, `5178`, and `5179` still proxy to the user-owned `8000`. A disposable preview on `5180` was started with `VITE_API_PROXY_TARGET=http://127.0.0.1:8002` for this audit; the proxy was verified with the same authenticated workspace request.
+- Authenticated desktop browser smoke on `5180` passed: Knowledge mode mounts inside `UnifiedWorkspace`; Sync and Maintain are enabled for an admin; the unconfigured Vault is explicit; Wiki, Graph, Runs, and Weekly views all render truthful empty states; health shows available persisted metrics without synthetic values; schedule controls are visible and project-scoped.
+- Existing fixture acceptance remains the source for populated visual behavior: desktop citation/source inspector, revision Diff, durable run event replay, graph filtering/navigation, weekly three-document view, mobile `390x844` pane switching, no horizontal overflow, rendered charts, and keyboard focus outline were already verified in the preceding audit. The current remediation changes only feature gating, backend state reporting, index refresh, provenance/security enforcement, and not the populated layout contract.
+- No user Vault content, database volume, port `8000`, or port `5174` was modified by this recheck. The disposable preview port is not part of the release scope.
+
+## Final Delivery Gates (2026-07-22)
+
+- Frontend gates: `npm run test:frontend` -> `9 passed`; `npm run check` passed; `npm run lint` -> `0 errors, 193 existing warnings`; `npm run build` passed with the existing large-chunk advisory.
+- Python knowledge/integration regression: `254 passed, 3 skipped, 1 warning in 28.25s` across `tests/knowledge`, Workspace API, Wiki HTTP, MCP E2E, and orchestrator isolation.
+- Compose and source gates: `docker compose config --quiet` passed and `git diff --check` passed. No unchecked task items remain in the eight 2026-07-21 knowledge sub-plans.
+- A fresh unconstrained `pytest -q` attempt exceeded the command runner's 180-second output limit and ended with pytest terminal `OSError: [Errno 22]` while flushing output; it did not report a test assertion failure. The focused regression above completed normally. The prior post-remediation full suite evidence remains `775 passed, 8 skipped, 3 warnings`.

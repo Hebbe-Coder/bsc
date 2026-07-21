@@ -142,6 +142,9 @@ class Settings(BaseSettings):
     DB_URL: str = ""
 
     KNOWLEDGE_WIKI_ENABLED: bool = False
+    KNOWLEDGE_OBSIDIAN_SYNC_ENABLED: bool = False
+    KNOWLEDGE_SCHEDULES_ENABLED: bool = False
+    KNOWLEDGE_MCP_WRITE_ENABLED: bool = False
     KNOWLEDGE_WIKI_AUTO_PUBLISH_ENABLED: bool = False
     OBSIDIAN_VAULT_ROOT: str = ""
     HORIZON_ENABLED: bool = False

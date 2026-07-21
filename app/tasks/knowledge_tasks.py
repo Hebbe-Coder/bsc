@@ -19,6 +19,7 @@ from app.knowledge.scheduler import KnowledgeScheduler
 from app.knowledge.wiki_sync import ObsidianSyncService
 from app.knowledge.wiki_compiler import WikiCompilationError, WikiCompiler
 from app.knowledge.proposal_gate import ProposalGateError
+from app.knowledge.wiki_index import WikiSearchIndex
 from app.knowledge.wiki_llm_provider import SOPWikiCompilerProvider
 from app.knowledge.wiki_contracts import RunStatus
 from app.knowledge.wiki_repository import WikiRepository
@@ -93,8 +94,26 @@ def execute_knowledge_run(
                 "duplicate": True,
                 "output_refs": run.get("output_refs") or {},
             }
+        if not settings.KNOWLEDGE_WIKI_ENABLED:
+            return _record_terminal_failure(
+                repo,
+                project_id=project_id,
+                run_id=run_id,
+                status=RunStatus.UNAVAILABLE,
+                message="Project Wiki feature is disabled",
+                failure=KnowledgeFailure("configuration", "knowledge_wiki_disabled", False),
+            )
         repo.update_run_status(project_id, run_id, RunStatus.RUNNING)
         if run["run_type"] == "source_sync":
+            if not settings.KNOWLEDGE_OBSIDIAN_SYNC_ENABLED:
+                return _record_terminal_failure(
+                    repo,
+                    project_id=project_id,
+                    run_id=run_id,
+                    status=RunStatus.UNAVAILABLE,
+                    message="Obsidian synchronization feature is disabled",
+                    failure=KnowledgeFailure("configuration", "obsidian_sync_disabled", False),
+                )
             mapping = repo.get_vault(project_id)
             if not settings.OBSIDIAN_VAULT_ROOT or not mapping:
                 return _record_terminal_failure(
@@ -110,6 +129,10 @@ def execute_knowledge_run(
             if managed_vault.project_root.is_dir():
                 snapshot = managed_vault.contents
                 repo.record_publication(project_id=project_id, contents=snapshot, source_ids=[])
+                report["wiki_index"] = WikiSearchIndex(repo).sync_wiki_snapshot(
+                    project_id=project_id,
+                    contents=snapshot,
+                )
                 report["wiki_pages"] = len([path for path in snapshot if path == "AGENTS.md" or path.startswith("wiki/")])
                 repo.append_run_event(
                     project_id=project_id,
@@ -119,6 +142,7 @@ def execute_knowledge_run(
                 )
             else:
                 report["wiki_pages"] = 0
+                report["wiki_index"] = {"indexed": 0, "removed": 0, "failures": []}
             repo.append_run_event(
                 project_id=project_id, run_id=run_id, event_type="knowledge.source.sync.completed", payload=report
             )
@@ -514,6 +538,8 @@ def _iso_week() -> str:
 
 def reconcile_knowledge_schedules(now: datetime | None = None) -> dict:
     """Claim due persistent schedules and enqueue runs exactly once per due instant."""
+    if not settings.KNOWLEDGE_SCHEDULES_ENABLED:
+        return {"queued": 0, "duplicates": 0, "failures": 0, "recovered": 0, "unavailable": True}
     repo = WikiRepository()
     current = now or datetime.now(timezone.utc)
     queued = 0

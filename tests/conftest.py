@@ -171,10 +171,23 @@ def reset_cache():
     """每个测试后重置缓存"""
     configured_api_key = settings.API_KEY
     configured_llm_provider = settings.LLM_PROVIDER
+    configured_wiki_flags = {
+        name: getattr(settings, name)
+        for name in (
+            "KNOWLEDGE_WIKI_ENABLED",
+            "KNOWLEDGE_OBSIDIAN_SYNC_ENABLED",
+            "KNOWLEDGE_SCHEDULES_ENABLED",
+            "KNOWLEDGE_MCP_WRITE_ENABLED",
+        )
+    }
     # Local .env credentials must not alter legacy test contracts. Auth tests
     # configure an explicit key after this root-level isolation fixture runs.
     settings.API_KEY = ""
     settings.LLM_PROVIDER = "mock"
+    settings.KNOWLEDGE_WIKI_ENABLED = True
+    settings.KNOWLEDGE_OBSIDIAN_SYNC_ENABLED = True
+    settings.KNOWLEDGE_SCHEDULES_ENABLED = True
+    settings.KNOWLEDGE_MCP_WRITE_ENABLED = True
     if hasattr(llm_service_module._thread_local, "llm_service"):
         del llm_service_module._thread_local.llm_service
     cache = get_cache_service()
@@ -184,6 +197,8 @@ def reset_cache():
     finally:
         settings.API_KEY = configured_api_key
         settings.LLM_PROVIDER = configured_llm_provider
+        for name, value in configured_wiki_flags.items():
+            setattr(settings, name, value)
         if hasattr(llm_service_module._thread_local, "llm_service"):
             del llm_service_module._thread_local.llm_service
         cache.clear()

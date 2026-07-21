@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -43,6 +44,38 @@ def test_filesystem_vault_reloads_published_snapshot(tmp_path):
     vault.commit(vault.stage(proposal))
 
     assert FilesystemWikiVault(root, "project-a").contents == {"wiki/log.md": "first\n"}
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlinks are unavailable")
+def test_filesystem_vault_does_not_read_symlinked_files(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    outside = tmp_path / "outside.md"
+    outside.write_text("outside secret", encoding="utf-8")
+    try:
+        (root / "projects" / "project-a").mkdir(parents=True)
+        (root / "projects" / "project-a" / "escape.md").symlink_to(outside)
+    except OSError:
+        pytest.skip("current Windows principal cannot create symlinks")
+
+    assert FilesystemWikiVault(root, "project-a").contents == {}
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlinks are unavailable")
+def test_filesystem_vault_refuses_to_replace_a_project_containing_a_symlink(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    outside = tmp_path / "outside.md"
+    outside.write_text("outside secret", encoding="utf-8")
+    project_root = root / "projects" / "project-a"
+    project_root.mkdir(parents=True)
+    try:
+        (project_root / "escape.md").symlink_to(outside)
+    except OSError:
+        pytest.skip("current Windows principal cannot create symlinks")
+
+    with pytest.raises(ProposalGateError, match="symlink"):
+        FilesystemWikiVault(root, "project-a").commit({"wiki/index.md": "# Index\n"})
 
 
 def test_filesystem_vault_honors_a_safe_configured_project_mapping(tmp_path):

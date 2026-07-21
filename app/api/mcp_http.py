@@ -33,6 +33,9 @@ _TOOL_HANDLERS = {
     "analyze_domain": server.analyze_domain,
 }
 
+_WIKI_READ_TOOLS = {"wiki_guide", "wiki_search", "wiki_graph", "wiki_read"}
+_WIKI_WRITE_TOOLS = {"wiki_propose_update", "wiki_lint", "wiki_apply_update", "wiki_distill", "wiki_schedule"}
+
 _TOOL_SPECS = {
     "bsc_mcp_compatibility_profile": {
         "description": "Return supported BSC MCP transports, auth and isolation capabilities.",
@@ -249,6 +252,13 @@ async def _call_tool(request_id: Any, params: Any, *, api_key: str) -> dict[str,
 
 
 def _tool_list() -> list[dict[str, Any]]:
+    from app.core.config import settings
+
+    enabled_names = set(_TOOL_SPECS)
+    if not settings.KNOWLEDGE_WIKI_ENABLED:
+        enabled_names -= _WIKI_READ_TOOLS | _WIKI_WRITE_TOOLS
+    elif not settings.KNOWLEDGE_MCP_WRITE_ENABLED:
+        enabled_names -= _WIKI_WRITE_TOOLS
     return [
         {
             "name": name,
@@ -260,6 +270,7 @@ def _tool_list() -> list[dict[str, Any]]:
             },
         }
         for name, spec in _TOOL_SPECS.items()
+        if name in enabled_names
     ]
 
 

@@ -38,7 +38,7 @@ class FilesystemWikiVault(InMemoryWikiVault):
         return {
             path.relative_to(target).as_posix(): path.read_text(encoding="utf-8")
             for path in target.rglob("*")
-            if path.is_file()
+            if path.is_file() and not path.is_symlink()
         }
 
     @contents.setter
@@ -53,11 +53,13 @@ class FilesystemWikiVault(InMemoryWikiVault):
         staged_root = staging_parent / f"{self.project_id}-{transaction_id}"
         backup_root = staging_parent / f"{self.project_id}-{transaction_id}.backup"
         try:
+            target = self.project_root
+            if target.exists() and any(path.is_symlink() for path in target.rglob("*")):
+                raise ProposalGateError("Vault project contains a symlink; refusing an atomic replacement")
             for relative_path, content in staged.items():
                 destination = self._safe_child(staged_root, relative_path)
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_text(content, encoding="utf-8", newline="\n")
-            target = self.project_root
             target.parent.mkdir(parents=True, exist_ok=True)
             if target.exists():
                 os.replace(target, backup_root)

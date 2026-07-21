@@ -36,6 +36,20 @@ class WikiCommandService:
         if not project_id:
             raise WikiCommandError("project_id is required")
         vault = self._vault(project_id)
+        operation_source_ids = [
+            str(source_id)
+            for operation in payload.get("operations") or []
+            if isinstance(operation, dict)
+            for source_id in operation.get("source_ids") or []
+            if str(source_id)
+        ]
+        payload = {
+            **payload,
+            "source_ids": list(dict.fromkeys(
+                [str(source_id) for source_id in payload.get("source_ids") or [] if str(source_id)]
+                + operation_source_ids
+            )),
+        }
         payload = self._with_overview_operation(payload, vault.contents)
         if not payload.get("base_revision"):
             payload = {**payload, "base_revision": ProposalGate.project_revision(vault.contents)}
@@ -126,7 +140,7 @@ class WikiCommandService:
         report = WikiLint().lint_proposal(
             proposal,
             rules=self._rules(project_id, vault),
-            source_ids=set(proposal.source_ids),
+            source_ids=self._proposal_source_ids(proposal),
             existing_paths=vault.contents,
         )
         return {"proposal_id": proposal_id, "valid": report.valid, "findings": [item.model_dump() for item in report.findings]}
@@ -221,6 +235,8 @@ class WikiCommandService:
     def configure_schedule(
         self, *, project_id: str, job_type: str, cron: str, timezone_name: str = "Asia/Shanghai"
     ) -> dict:
+        if not settings.KNOWLEDGE_SCHEDULES_ENABLED:
+            raise WikiCommandError("knowledge schedules feature disabled")
         return KnowledgeScheduler(self.repository, scheduler_available=self._scheduler_available()).configure(
             project_id=project_id, job_type=job_type, cron=cron, timezone_name=timezone_name
         )
@@ -463,8 +479,20 @@ class WikiCommandService:
             raise WikiCommandError(f"stored Wiki proposal is invalid: {exc}") from exc
 
     @staticmethod
+    def _proposal_source_ids(proposal: WikiProposal) -> set[str]:
+        return set(proposal.source_ids) | {
+            source_id
+            for operation in proposal.operations
+            for source_id in operation.source_ids
+        }
+
+    @staticmethod
     def _scheduler_available() -> bool:
-        return is_celery_real() and is_celery_broker_available()
+        return (
+            settings.KNOWLEDGE_SCHEDULES_ENABLED
+            and is_celery_real()
+            and is_celery_broker_available()
+        )
 
     def _vault(self, project_id: str) -> FilesystemWikiVault:
         configured = self.repository.get_vault(project_id)
