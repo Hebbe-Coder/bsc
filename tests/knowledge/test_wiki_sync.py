@@ -46,6 +46,10 @@ def test_obsidian_sync_excludes_all_configured_managed_project_roots(tmp_path):
     (root / "research.md").write_text("External research", encoding="utf-8")
     (root / "clients" / "acme" / "wiki").mkdir(parents=True)
     (root / "clients" / "acme" / "wiki" / "overview.md").write_text("Managed Acme Wiki", encoding="utf-8")
+    (root / "clients" / "acme" / "raw").mkdir(parents=True)
+    (root / "clients" / "acme" / "raw" / "brief.md").write_text("Project A raw evidence", encoding="utf-8")
+    (root / "clients" / "acme" / "inbox").mkdir(parents=True)
+    (root / "clients" / "acme" / "inbox" / "signal.json").write_text('{"title":"Signal"}', encoding="utf-8")
     (root / "clients" / "beta").mkdir(parents=True)
     (root / "clients" / "beta" / "AGENTS.md").write_text("Managed Beta rules", encoding="utf-8")
     (root / "projects" / "legacy" / "wiki").mkdir(parents=True)
@@ -56,7 +60,9 @@ def test_obsidian_sync_excludes_all_configured_managed_project_roots(tmp_path):
     try:
         report = ObsidianSyncService(repo, root).sync(project_id="project-a")
 
-        assert report == {"scanned": 1, "created": 1, "duplicates": 0, "skipped": 0}
-        assert [source["origin"] for source in repo.list_sources("project-a")] == ["research.md"]
+        assert report == {"scanned": 3, "created": 3, "duplicates": 0, "skipped": 0}
+        assert {source["origin"] for source in repo.list_sources("project-a")} == {
+            "research.md", "clients/acme/raw/brief.md", "clients/acme/inbox/signal.json"
+        }
     finally:
         repo.close()

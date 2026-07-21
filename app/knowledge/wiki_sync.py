@@ -21,16 +21,18 @@ class ObsidianSyncService:
 
     def sync(self, *, project_id: str) -> dict[str, int]:
         report = {"scanned": 0, "created": 0, "duplicates": 0, "skipped": 0}
-        managed_roots = {("projects",)} | {
-            PurePosixPath(str(mapping["vault_path"]).replace("\\", "/")).parts
+        mappings = {
+            str(mapping["project_id"]): PurePosixPath(str(mapping["vault_path"]).replace("\\", "/")).parts
             for mapping in self.repository.list_vaults()
             if mapping.get("vault_path")
         }
+        project_root = mappings.get(project_id, ())
+        managed_roots = {("projects",)} | set(mappings.values())
         for path in self.vault_root.rglob("*"):
             if not path.is_file() or path.suffix.lower() not in {".md", ".txt", ".json", ".canvas"}:
                 continue
             relative = path.relative_to(self.vault_root)
-            if self._excluded(relative, managed_roots):
+            if self._excluded(relative, project_root, managed_roots):
                 continue
             try:
                 content = path.read_text(encoding="utf-8").strip()
@@ -60,8 +62,15 @@ class ObsidianSyncService:
         return report
 
     @staticmethod
-    def _excluded(relative: Path, managed_roots: set[tuple[str, ...]] | None = None) -> bool:
-        if relative.parts[0].startswith("."):
-            return True
+    def _excluded(
+        relative: Path,
+        project_root: tuple[str, ...] = (),
+        managed_roots: set[tuple[str, ...]] | None = None,
+    ) -> bool:
         parts = relative.parts
+        if any(part.startswith(".") for part in parts):
+            return True
+        if project_root and parts[:len(project_root)] == project_root:
+            project_relative = parts[len(project_root):]
+            return not project_relative or project_relative[0] not in {"raw", "inbox"}
         return any(parts[:len(root)] == root for root in managed_roots or {("projects",)})

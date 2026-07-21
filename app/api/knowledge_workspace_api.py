@@ -250,6 +250,20 @@ def read_workspace_page(page_id: str, request: Request, project_id: str, repo: W
     })
 
 
+@router.post("/wiki/pages/{page_id}/revisions/{revision_id}/restore")
+def restore_workspace_page_revision(
+    page_id: str, revision_id: str, request: Request, project_id: str, repo: WikiRepository = Depends(get_wiki_repository)
+):
+    project_id = _enforce_project_access(request, project_id, write=True)
+    try:
+        proposal = WikiCommandService(repo).create_rollback_proposal(
+            project_id=project_id, page_id=page_id, revision_id=revision_id, actor_id="http"
+        )
+        return ApiResponse.ok({"proposal": proposal})
+    except WikiCommandError as exc:
+        raise _command_error(exc) from exc
+
+
 @router.post("/proposals")
 def create_workspace_proposal(
     payload: ProposalRequest, request: Request, repo: WikiRepository = Depends(get_wiki_repository)

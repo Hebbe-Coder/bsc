@@ -34,7 +34,8 @@ export type KnowledgeProposal = {
 };
 
 export type KnowledgePage = { id: string; path: string; title: string; page_kind: string; version: number; status: string; metadata: Record<string, unknown> };
-export type KnowledgePageDetail = { page: KnowledgePage; content: string; citations: Array<{ source_id: string; claim_text: string; anchor: string }>; revisions: Array<Record<string, unknown>> };
+export type KnowledgePageRevision = { id: string; version: number; content_hash: string; proposal_id: string; created_at: string };
+export type KnowledgePageDetail = { page: KnowledgePage; content: string; citations: Array<{ source_id: string; claim_text: string; anchor: string }>; revisions: KnowledgePageRevision[] };
 export type WeeklyDistillation = { id: string; week: string; knowledge_path: string; content_path: string; context_path: string; source_cutoff: string; status: string; created_at: string };
 export type WeeklyDistillationDetail = { distillation: WeeklyDistillation; documents: Record<string, string> };
 export type KnowledgeRun = { id: string; run_type: string; trigger: string; status: string; error: string; retry_of: string | null; input_refs: Record<string, unknown>; output_refs: Record<string, unknown>; created_at: string; updated_at: string };
@@ -90,6 +91,7 @@ export const fetchKnowledgeHealthTrend = (projectId: string) => request<Knowledg
 export const fetchKnowledgeProposals = (projectId: string) => request<{ proposals: KnowledgeProposal[]; count: number }>(`/knowledge/proposals?project_id=${encodeURIComponent(projectId)}`);
 export const fetchKnowledgePages = (projectId: string) => request<{ pages: KnowledgePage[]; count: number }>(`/knowledge/wiki/pages?project_id=${encodeURIComponent(projectId)}`);
 export const fetchKnowledgePage = (projectId: string, pageId: string) => request<KnowledgePageDetail>(`/knowledge/wiki/pages/${encodeURIComponent(pageId)}?project_id=${encodeURIComponent(projectId)}`);
+export const restoreKnowledgePageRevision = (projectId: string, pageId: string, revisionId: string) => post<{ proposal: KnowledgeProposal }>(`/knowledge/wiki/pages/${encodeURIComponent(pageId)}/revisions/${encodeURIComponent(revisionId)}/restore?project_id=${encodeURIComponent(projectId)}`, {});
 export const fetchWeeklyDistillations = (projectId: string) => request<{ distillations: WeeklyDistillation[]; count: number }>(`/knowledge/distillations?project_id=${encodeURIComponent(projectId)}`);
 export const fetchWeeklyDistillation = (projectId: string, distillationId: string) => request<WeeklyDistillationDetail>(`/knowledge/distillations/${encodeURIComponent(distillationId)}?project_id=${encodeURIComponent(projectId)}`);
 export const configureKnowledgeSchedule = (projectId: string, jobType: string, cron: string, timezone = 'Asia/Shanghai') => post<{ schedule: KnowledgeSchedule }>('/knowledge/schedules', { project_id: projectId, job_type: jobType, cron, timezone });

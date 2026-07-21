@@ -143,17 +143,16 @@ def execute_knowledge_run(
         ).hexdigest()
         selected_week = week or _iso_week()
         pages = repo.list_pages(project_id)
+        source_cutoff = WeeklyDistillationService.source_cutoff(sources)
         bundle = WeeklyDistillationService(vault).distill(
             project_id=project_id,
             week=selected_week,
             sources=sources,
             pages=pages,
             rule_revision=rule_revision,
+            source_cutoff=source_cutoff,
         )
-        source_cutoff = hashlib.sha256(
-            "|".join(f"{source['id']}:{source['content_hash']}" for source in sorted(sources, key=lambda item: item["id"])).encode("utf-8")
-        ).hexdigest()
-        repo.record_distillation(
+        distillation = repo.record_distillation(
             project_id=project_id,
             week=selected_week,
             paths=list(bundle.paths),
@@ -169,9 +168,21 @@ def execute_knowledge_run(
             project_id,
             run_id,
             RunStatus.COMPLETED,
-            output_refs={"week": selected_week, "paths": list(bundle.paths), "schedule_id": schedule_id},
+            output_refs={
+                "week": selected_week,
+                "paths": list(bundle.paths),
+                "schedule_id": schedule_id,
+                "source_cutoff": source_cutoff,
+                "distillation_id": distillation["id"],
+            },
         )
-        return {"status": "completed", "run_id": run_id, "paths": list(bundle.paths)}
+        return {
+            "status": "completed",
+            "run_id": run_id,
+            "paths": list(bundle.paths),
+            "source_cutoff": source_cutoff,
+            "distillation_id": distillation["id"],
+        }
     except DistillationError as exc:
         repo.update_run_status(project_id, run_id, RunStatus.FAILED, error=str(exc))
         return {"status": "failed", "run_id": run_id, "error": str(exc)}

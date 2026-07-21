@@ -37,6 +37,7 @@ import hmac
 import hashlib
 
 from mcp.server.fastmcp import FastMCP
+from app.middleware.auth import resolve_knowledge_auth
 from app.mcp.compatibility import build_compatibility_profile
 from app.mcp import wiki_tools
 
@@ -117,6 +118,57 @@ def _require_auth(api_key: str = "") -> None:
         api_key_hash = hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:16]
         logger.warning(f"MCP无效API_KEY尝试，密钥哈希: {api_key_hash}")
         raise PermissionError("无效的API_KEY")
+
+
+def _require_mcp_auth(api_key: str = "") -> tuple[str, str | None]:
+    """Resolve an MCP principal, including project-scoped Wiki keys.
+
+    ``MCP_API_KEY`` remains an explicit global-admin override.  Other keys use
+    the shared knowledge-auth resolver so MCP and REST enforce the same
+    project boundaries without passing a principal through tool arguments.
+    """
+    if _MCP_API_KEY and api_key and hmac.compare_digest(api_key, _MCP_API_KEY):
+        return "admin", None
+
+    principal = resolve_knowledge_auth(api_key)
+    if principal is not None:
+        role, project_id = principal
+        # Preserve the existing MCP_API_KEY override: when it is configured,
+        # only project-bound keys may supplement it for Wiki operations.
+        if _MCP_API_KEY and role in {"admin", "reader"}:
+            raise PermissionError("无效的API_KEY")
+        return role, project_id
+
+    if not _MCP_API_KEY and not _get_settings_api_key():
+        logger.debug("MCP API_KEY未配置，按开发模式授予本地管理权限")
+        return "admin", None
+    if not api_key:
+        raise PermissionError("MCP调用需要认证：请提供api_key参数")
+    api_key_hash = hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:16]
+    logger.warning("MCP无效API_KEY尝试，密钥哈希 %s", api_key_hash)
+    raise PermissionError("无效的API_KEY")
+
+
+def _authorize_wiki_project(project_id: str, api_key: str = "", *, write: bool = False) -> None:
+    """Authorize one governed Wiki action against its explicit project scope."""
+    role, scoped_project_id = _require_mcp_auth(api_key)
+    if role == "admin":
+        return
+    if role == "reader":
+        if write:
+            raise PermissionError("只读密钥无Wiki写入权限")
+        return
+    if role == "project_admin":
+        if scoped_project_id == project_id:
+            return
+        raise PermissionError("无该项目访问权限")
+    if role == "project_reader":
+        if scoped_project_id != project_id:
+            raise PermissionError("无该项目访问权限")
+        if write:
+            raise PermissionError("project_reader只读，无Wiki写入权限")
+        return
+    raise PermissionError("无效的Wiki访问角色")
 
 
 def _build_env() -> dict:
@@ -397,28 +449,28 @@ def knowledge_ask(question: str, project_id: str = "", top_k: int = 5, api_key: 
 @mcp.tool()
 def wiki_guide(project_id: str, api_key: str = "") -> dict:
     """Explain the governed, project-scoped Wiki workflow."""
-    _require_auth(api_key)
+    _authorize_wiki_project(project_id, api_key)
     return wiki_tools.wiki_guide(project_id)
 
 
 @mcp.tool()
 def wiki_search(project_id: str, query: str = "", api_key: str = "") -> dict:
     """List matching Wiki evidence metadata without exposing raw evidence bodies."""
-    _require_auth(api_key)
+    _authorize_wiki_project(project_id, api_key)
     return wiki_tools.wiki_search(project_id, query)
 
 
 @mcp.tool()
 def wiki_graph(project_id: str, api_key: str = "") -> dict:
     """Read the isolated derived Knowledge Graph for one project."""
-    _require_auth(api_key)
+    _authorize_wiki_project(project_id, api_key)
     return wiki_tools.wiki_graph(project_id)
 
 
 @mcp.tool()
 def wiki_read(project_id: str, page_id: str, api_key: str = "") -> dict:
     """Read a published, project-scoped Wiki page and its traceable citations."""
-    _require_auth(api_key)
+    _authorize_wiki_project(project_id, api_key)
     return wiki_tools.wiki_read(project_id, page_id)
 
 
@@ -431,35 +483,35 @@ def wiki_propose_update(
     api_key: str = "",
 ) -> dict:
     """Create a reviewable Wiki proposal. This never writes to the Obsidian Vault."""
-    _require_auth(api_key)
+    _authorize_wiki_project(project_id, api_key, write=True)
     return wiki_tools.wiki_propose_update(project_id, operations, source_ids, rationale)
 
 
 @mcp.tool()
 def wiki_lint(project_id: str, proposal_id: str, api_key: str = "") -> dict:
     """Run deterministic citation, frontmatter, and link checks on a Wiki proposal."""
-    _require_auth(api_key)
+    _authorize_wiki_project(project_id, api_key, write=True)
     return wiki_tools.wiki_lint(project_id, proposal_id)
 
 
 @mcp.tool()
 def wiki_apply_update(project_id: str, proposal_id: str, api_key: str = "") -> dict:
     """Publish a proposal only after lint, source eligibility, and evaluation gates pass."""
-    _require_auth(api_key)
+    _authorize_wiki_project(project_id, api_key, write=True)
     return wiki_tools.wiki_apply_update(project_id, proposal_id)
 
 
 @mcp.tool()
 def wiki_distill(project_id: str, api_key: str = "") -> dict:
     """Queue an evidence-backed weekly distillation when durable Celery is available."""
-    _require_auth(api_key)
+    _authorize_wiki_project(project_id, api_key, write=True)
     return wiki_tools.wiki_distill(project_id)
 
 
 @mcp.tool()
 def wiki_schedule(project_id: str, job_type: str, cron: str, timezone: str = "Asia/Shanghai", api_key: str = "") -> dict:
     """Persist a bounded Wiki maintenance schedule; it does not claim execution without Celery."""
-    _require_auth(api_key)
+    _authorize_wiki_project(project_id, api_key, write=True)
     return wiki_tools.wiki_schedule(project_id, job_type, cron, timezone)
 
 

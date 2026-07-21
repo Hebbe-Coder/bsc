@@ -7,6 +7,7 @@ from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus
 from app.knowledge.wiki_source_capture import CapturedSourceInput, SourceCaptureService
 from app.knowledge.vault import FilesystemWikiVault
+from app.knowledge.wiki_rules import build_default_agents_rules
 
 
 def test_workspace_api_requires_scope_and_redacts_raw_evidence(tmp_path):
@@ -193,6 +194,54 @@ def test_workspace_admin_operations_are_scoped_and_read_distillation_files(tmp_p
         assert retried.status_code == 200
         retry_id = retried.json()["data"]["run_id"]
         assert repo.get_run("project-a", retry_id)["retry_of"] == failed.id
+    finally:
+        settings.API_KEY = previous_key
+        settings.OBSIDIAN_VAULT_ROOT = previous_root
+        app.dependency_overrides.clear()
+        repo.close()
+
+
+def test_workspace_restore_revision_creates_a_scoped_draft_proposal(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "workspace-restore.db"))
+    vault_root = tmp_path / "vault"
+    vault_root.mkdir()
+    previous_key = settings.API_KEY
+    previous_root = settings.OBSIDIAN_VAULT_ROOT
+    settings.API_KEY = "workspace-admin"
+    settings.OBSIDIAN_VAULT_ROOT = str(vault_root)
+    repo.configure_vault("project-a", "clients/acme")
+    source = SourceCaptureService(repo).capture(
+        CapturedSourceInput(project_id="project-a", source_type="manual_upload", origin="brief.md", raw_content="Evidence", trust_level="trusted")
+    ).source
+    version_one = "---\ntitle: Approval\nkind: concept\n---\nVersion one [source:%s]" % source["id"]
+    version_two = "---\ntitle: Approval\nkind: concept\n---\nVersion two [source:%s]" % source["id"]
+    contents = {
+        "AGENTS.md": build_default_agents_rules("project-a"),
+        "wiki/index.md": "# Index\n",
+        "wiki/log.md": "# Log\n",
+        "wiki/concepts/approval.md": version_one,
+    }
+    vault = FilesystemWikiVault(vault_root, "project-a", "clients/acme")
+    vault.commit(contents)
+    repo.record_publication(project_id="project-a", contents=contents, source_ids=[])
+    contents["wiki/concepts/approval.md"] = version_two
+    vault.commit(contents)
+    repo.record_publication(project_id="project-a", contents=contents, source_ids=[])
+    page = next(item for item in repo.list_pages("project-a") if item["path"] == "wiki/concepts/approval.md")
+    original = next(item for item in repo.list_page_revisions("project-a", page["id"]) if item["version"] == 1)
+    app.dependency_overrides[get_wiki_repository] = lambda: repo
+    client = TestClient(app)
+    try:
+        response = client.post(
+            f"/knowledge/wiki/pages/{page['id']}/revisions/{original['id']}/restore?project_id=project-a",
+            headers={"Authorization": "Bearer workspace-admin"},
+        )
+
+        assert response.status_code == 200
+        proposal = response.json()["data"]["proposal"]
+        assert proposal["status"] == "draft"
+        assert proposal["operations"][0]["content"] == version_one
+        assert proposal["source_ids"] == [source["id"]]
     finally:
         settings.API_KEY = previous_key
         settings.OBSIDIAN_VAULT_ROOT = previous_root

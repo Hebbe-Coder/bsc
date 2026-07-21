@@ -193,3 +193,39 @@ Deliver a Karpathy-style, Obsidian-compatible, self-maintaining knowledge Wiki f
 - `HorizonSignal.to_source_input` maps Horizon radar items into immutable `horizon_signal` evidence records without performing network calls.
 - `SourceCaptureService.transition_source` enforces `SourceStatus` lifecycle rules and rejects illegal regressions.
 - `WikiRepository` now exposes `find_source_by_content_hash` and `update_source_status`; all queries remain project-scoped.
+
+## Overnight Execution Management (2026-07-22)
+
+| Workstream | Status | Current evidence / next action |
+|---|---|---|
+| PRD/P1-P8 evidence audit | Complete | Audited against the active PRD and P8 ledger. Identified project `raw/`/`inbox/` capture and first-class revision restoration as concrete gaps. |
+| Project source capture | In progress | Sync now permits the active project's `raw/` and `inbox/` directories while excluding generated Wiki/rules/distillation content and every other configured project root. Focused tests pass; full regression is pending this batch. |
+| Revision recovery | In progress | Command, REST contract, typed client, and workspace proposal entry point are being added. The restore operation creates a draft and must still pass lint/evaluation/publication. |
+| Multi-project API/MCP E2E | Pending | Add two-principal fixtures after the recovery batch passes. |
+| PRD-to-SOP and weekly idempotency E2E | Pending | Add cross-project context and retry/cutoff fixtures after API/MCP isolation coverage. |
+| Browser acceptance | Pending | Seed a safe review/diff/run/distillation fixture and verify desktop/mobile navigation after all API changes. |
+| External configuration | Deferred until all local work is complete | A real Horizon endpoint/API key and an approved real Wiki LLM provider are the only expected external dependencies. No credential is requested or logged. |
+
+## Overnight Execution Management (2026-07-22, Completion Batch)
+
+| Workstream | Status | Evidence |
+|---|---|---|
+| Project raw/inbox source capture | Complete | `ObsidianSyncService` now imports only the mapped project's `raw/` and `inbox/` material while excluding managed Wiki/rules/distillation output and all other mapped project roots. `tests/knowledge/test_wiki_sync.py tests/integration/test_knowledge_wiki_e2e.py` passed (4 tests). |
+| Governed revision recovery | Complete | Historical page content is recovered only by a normal draft proposal, with current-evidence eligibility checks and append-only log protection. Command/API/workspace tests pass; browser acceptance created and rendered a real three-operation restore draft without publishing it. |
+| MCP project isolation | Complete | Wiki MCP tools now resolve global/project principals and enforce project/read-write scope. HTTP JSON-RPC E2E proves project A admin cannot read/write B and project A reader cannot write A; `tests/integration/test_knowledge_mcp_e2e.py` passed. |
+| PRD-to-SOP grounding | Complete | `WikiContextProvider` now supplies project rules, published pages/decisions, eligible/processed evidence, recent evaluation summaries, and latest weekly context. The default methodology bridge enables it only for a configured active project. Two-project E2E proves A's prompt has no B material; no-vault retains legacy behavior. |
+| Weekly recovery and cutoff | Complete | Weekly outputs and run references now carry a stable source cutoff. E2E proves unavailable-without-evidence, retry lineage after evidence arrival, deterministic same-week reuse, and one durable distillation record. |
+| CORS preflight | Complete | `AuthMiddleware` now passes `OPTIONS` to CORS middleware; otherwise authenticated cross-origin development clients fail before reaching the API. Added regression coverage. |
+| Browser acceptance | Complete | Isolated fixture API/Vault plus built frontend verified desktop/mobile source provenance, page/revision view, restore-to-diff, graph node filtering, weekly documents/source cutoff, durable run events, and nonblank mobile ECharts. Fixture uses a temporary DB/Vault and `browser-verification` test key only. |
+| External configuration | Still deferred | Live Horizon and real Wiki-maintenance LLM remain intentionally unconfigured; no source claims either integration executed. |
+
+### Completion-Batch Verification
+
+- `./.venv/Scripts/python.exe -m pytest tests/integration/test_knowledge_mcp_e2e.py tests/api/test_wiki_http_contract.py tests/test_mcp_http.py tests/test_auth_middleware.py -q` -> 8 passed.
+- `./.venv/Scripts/python.exe -m pytest tests/knowledge/test_context_pack.py tests/orchestrator/test_wiki_methodology_bridge.py tests/orchestrator/test_sop_methodology.py tests/integration/test_knowledge_sop_e2e.py -q` -> 8 passed.
+- `./.venv/Scripts/python.exe -m pytest tests/knowledge/test_distillation.py tests/knowledge/test_knowledge_tasks.py tests/knowledge/test_scheduler.py tests/integration/test_knowledge_celery.py -q` -> 12 passed.
+- Browser fixture: `scripts/seed_knowledge_browser_fixture.py` populated an isolated mapped Vault/SQLite store; the 8003 API and 5178 fixture page used no user Vault or production key.
+- Final regression: `./.venv/Scripts/python.exe -m pytest tests/knowledge tests/integration tests/api/test_knowledge_workspace_api.py tests/api/test_wiki_http_contract.py tests/test_celery_app.py tests/test_docker_compose_contract.py -q` -> **231 passed**, 1 existing Starlette/httpx deprecation warning.
+- Frontend release checks: `npm run check`, `npm run lint`, and `npm run build` passed. Lint reports 197 pre-existing warnings and no errors; the production build retains the known >500 kB chunk advisory.
+- Latest Docker deployment: `docker compose build bsc-backend` rebuilt image `bsc-backend-bsc-backend:latest`; `bsc-backend-app-8002` returned `200 /live`, Redis returned `PONG`, and new Worker consumed `knowledge.reconcile_schedules` with `queued=0`, `duplicates=0`, and `failures=0`. Worker/Beat intentionally run with Docker healthchecks disabled because the image HTTP probe is not valid for Celery processes.
+- Release scope: local Docker API/Redis/Worker/Beat and all automated local contracts are current. Live Horizon import and real Wiki maintenance remain external configuration gates; they are not represented as completed.

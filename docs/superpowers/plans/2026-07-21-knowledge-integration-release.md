@@ -74,7 +74,9 @@ Create two isolated temporary projects with distinct Vault mappings, rules, trus
 | Full profile with Ollama and live LLM maintenance | Pending external configuration | The deployed Worker can execute scheduled jobs, but real maintenance requires an explicitly configured `KNOWLEDGE_WIKI_LLM_PROVIDER`; Ollama is intentionally not downloaded or started by this release proof. |
 | Horizon sidecar live capture | Pending external configuration | The bounded client/import contract is tested; no production Horizon endpoint or credential has been configured. |
 | Full browser proposal/run/weekly journey | Pending fixture data | Desktop and mobile workspace, graph filtering, real Vault/evidence state, and chart lifecycle are accepted. A safely seeded review/diff/distillation browser fixture is still required for every P8 interaction. |
-| Role/MCP adversarial E2E | Pending dedicated fixtures | Existing API and HTTP contract regression passes. Dedicated two-principal MCP transport E2E remains required before a multi-user release claim. |
+| Role/MCP adversarial E2E | Complete | `tests/integration/test_knowledge_mcp_e2e.py` sends JSON-RPC through the real HTTP adapter using two scoped principals. It proves project A admin cannot read/write project B and project A reader cannot write project A. |
+| PRD/SOP and weekly recovery E2E | Complete | `tests/integration/test_knowledge_sop_e2e.py` proves the active project context excludes project B; `tests/integration/test_knowledge_celery.py` proves unavailable-to-retry recovery and same-week/source-cutoff idempotency. |
+| Full browser proposal/run/weekly journey | Complete | A temporary API/Vault fixture exercised real desktop/mobile workspace flows: source provenance, revision recovery draft/diff, filtered graph, weekly documents/source cutoff, durable run events, and nonblank mobile charts. |
 
 ## Acceptance, Rollback, Handoff
 

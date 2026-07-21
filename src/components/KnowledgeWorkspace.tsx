@@ -11,7 +11,7 @@ import {
   fetchKnowledgePage, fetchKnowledgePages, fetchKnowledgeProposals, fetchKnowledgeRunEvents,
   fetchKnowledgeRuns, fetchKnowledgeSchedules, fetchKnowledgeSources, fetchKnowledgeWorkspace,
   fetchWeeklyDistillation, fetchWeeklyDistillations, lintKnowledgeProposal, publishKnowledgeProposal,
-  rejectKnowledgeProposal, retryKnowledgeRun, runKnowledgeJob, setKnowledgeScheduleState,
+  rejectKnowledgeProposal, restoreKnowledgePageRevision, retryKnowledgeRun, runKnowledgeJob, setKnowledgeScheduleState,
   setKnowledgeWorkspaceAccessKey, streamKnowledgeRunEvents, transitionKnowledgeSource,
   type KnowledgeGraph, type KnowledgeGraphNode, type KnowledgeHealth, type KnowledgeHealthTrend,
   type KnowledgePage, type KnowledgePageDetail, type KnowledgeProposal, type KnowledgeRun,
@@ -209,6 +209,14 @@ export function KnowledgeWorkspace({ onClose }: Props) {
     showMessage('Proposal rejected without changing published Wiki content.');
     await load();
   });
+  const restoreRevision = (revisionId: string) => withAction(async () => {
+    if (!selectedPage) return;
+    const result = await restoreKnowledgePageRevision(projectId, selectedPage.page.id, revisionId);
+    setSelectedProposal(result.proposal);
+    setCenterView('proposal');
+    showMessage(`Restore proposal created from revision ${revisionId}. Review and publish it through the normal gate.`);
+    await load();
+  });
   const retryRun = (run: KnowledgeRun) => withAction(async () => {
     const result = await retryKnowledgeRun(projectId, run.id);
     showMessage(`Retry ${result.status}: ${result.run_id}`);
@@ -307,7 +315,7 @@ export function KnowledgeWorkspace({ onClose }: Props) {
             <ViewTab active={centerView === 'graph'} onClick={() => setCenterView('graph')} icon={<Network size={14} />} label="Graph" />
             <ViewTab active={centerView === 'distillation'} onClick={() => setCenterView('distillation')} icon={<Sparkles size={14} />} label="Weekly" />
           </nav>
-          {centerView === 'page' && <WikiReader page={selectedPage} pages={pages} onCitation={inspectSource} onWikiLink={followWikiLink} />}
+          {centerView === 'page' && <WikiReader page={selectedPage} pages={pages} busy={actionBusy} onCitation={inspectSource} onWikiLink={followWikiLink} onRestore={restoreRevision} />}
           {centerView === 'proposal' && <ProposalReview proposal={selectedProposal} baselines={proposalBaselines} busy={actionBusy} onLint={lintProposal} onPublish={publishProposal} onReject={rejectProposal} />}
           {centerView === 'run' && <RunTimeline runs={runs} selectedRun={selectedRun} events={runEvents} busy={actionBusy} onSelect={inspectRun} onRetry={retryRun} />}
           {centerView === 'graph' && <section className="knowledge-graph-view"><header className="knowledge-content-header"><div><span className="eyebrow">RELATIONSHIP GRAPH</span><h3>Traceable knowledge relations</h3></div><div className="knowledge-graph-filters"><label className="knowledge-select-label">Edge filter<select value={graphEdgeType} onChange={(event) => setGraphEdgeType(event.target.value)}><option value="">All edges</option>{graphTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label><label className="knowledge-select-label">Node type<select value={graphNodeType} onChange={(event) => setGraphNodeType(event.target.value)}><option value="">All types</option>{graphNodeTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label><label className="knowledge-select-label">Node status<select value={graphNodeStatus} onChange={(event) => setGraphNodeStatus(event.target.value)}><option value="">All states</option>{graphNodeStatuses.map((status) => <option key={status} value={status}>{status}</option>)}</select></label></div></header><div className="knowledge-graph-canvas">{flowNodes.length ? <ReactFlow nodes={flowNodes} edges={flowEdges} fitView nodesDraggable={false} nodesConnectable={false} onNodeClick={(_, node) => { const record = node.data.record; if (record.node_type === 'source') inspectSource(record.id); if (record.node_type === 'page') { const page = pages.find((item) => item.id === record.id); if (page) void inspectPage(page); } if (record.node_type === 'proposal') { const proposal = proposals.find((item) => item.id === record.id); if (proposal) inspectProposal(proposal); } }}><Background gap={22} size={1} /><Controls showInteractive={false} /></ReactFlow> : <Empty text="No persisted relationships match the selected graph filters." />}</div>{filteredGraphNodes.length > maxNodes && <p className="knowledge-limit-note">Showing {maxNodes} of {filteredGraphNodes.length} persisted nodes. Narrow the graph filters to inspect a smaller relationship slice.</p>}</section>}
@@ -342,9 +350,9 @@ function VaultTree({ pages, selectedPageId, onSelect }: { pages: KnowledgePage[]
   return <nav className="knowledge-vault-tree">{[...grouped.entries()].map(([folder, children]) => <section key={folder}><p><ChevronRight size={12} />{folder}</p>{children.map((page) => <button key={page.id} className={selectedPageId === page.id ? 'is-selected' : ''} onClick={() => onSelect(page)}><FileText size={13} />{page.title}</button>)}</section>)}</nav>;
 }
 
-function WikiReader({ page, pages, onCitation, onWikiLink }: { page: KnowledgePageDetail | null; pages: KnowledgePage[]; onCitation: (id: string) => void; onWikiLink: (path: string) => void }) {
+function WikiReader({ page, pages, busy, onCitation, onWikiLink, onRestore }: { page: KnowledgePageDetail | null; pages: KnowledgePage[]; busy: boolean; onCitation: (id: string) => void; onWikiLink: (path: string) => void; onRestore: (revisionId: string) => void }) {
   if (!page) return <section className="knowledge-reader-empty"><BookOpen size={26} /><h3>Choose a published page</h3><p>The reader displays stored Markdown, revision metadata, citations, and safe internal page links.</p></section>;
-  return <section className="knowledge-reader-view"><header className="knowledge-content-header"><div><span className="eyebrow">PUBLISHED WIKI</span><h3>{page.page.title}</h3><p>{page.page.path} / revision {page.page.version}</p></div><span className="record-kind">{page.page.page_kind}</span></header><SafeMarkdown content={page.content} pages={pages} onCitation={onCitation} onWikiLink={onWikiLink} /><section className="knowledge-citations"><h4><Link2 size={14} /> Citations</h4>{page.citations.length ? page.citations.map((citation) => <button key={`${citation.source_id}-${citation.claim_text}`} onClick={() => onCitation(citation.source_id)}><span>[source:{citation.source_id}]</span>{citation.claim_text || citation.anchor || 'Open source provenance'}</button>) : <Empty text="This page has no active source citations." />}</section></section>;
+  return <section className="knowledge-reader-view"><header className="knowledge-content-header"><div><span className="eyebrow">PUBLISHED WIKI</span><h3>{page.page.title}</h3><p>{page.page.path} / revision {page.page.version}</p></div><span className="record-kind">{page.page.page_kind}</span></header><SafeMarkdown content={page.content} pages={pages} onCitation={onCitation} onWikiLink={onWikiLink} /><section className="knowledge-citations"><h4><Link2 size={14} /> Citations</h4>{page.citations.length ? page.citations.map((citation) => <button key={`${citation.source_id}-${citation.claim_text}`} onClick={() => onCitation(citation.source_id)}><span>[source:{citation.source_id}]</span>{citation.claim_text || citation.anchor || 'Open source provenance'}</button>) : <Empty text="This page has no active source citations." />}</section><section className="knowledge-revisions"><h4><RotateCcw size={14} /> Revision history</h4>{page.revisions.map((revision) => <div key={revision.id}><span>v{revision.version} / {formatTimestamp(revision.created_at)}</span><button disabled={busy || revision.version === page.page.version || page.page.path === 'wiki/log.md'} onClick={() => onRestore(revision.id)}>Restore as proposal</button></div>)}</section></section>;
 }
 
 function SafeMarkdown({ content, pages, onCitation, onWikiLink }: { content: string; pages: KnowledgePage[]; onCitation: (id: string) => void; onWikiLink: (path: string) => void }) {

@@ -9,6 +9,7 @@ from app.mcp import server
 
 def _client(monkeypatch):
     monkeypatch.setattr(server, "_require_auth", lambda api_key="": None)
+    monkeypatch.setattr(server, "_require_mcp_auth", lambda api_key="": ("admin", None))
     app = FastAPI()
     app.include_router(router)
     return TestClient(app)
@@ -90,6 +91,7 @@ def test_mcp_http_rejects_invalid_tool_arguments_before_execution(monkeypatch):
 
 def test_mcp_sse_message_routes_response_to_live_session(monkeypatch):
     monkeypatch.setattr(server, "_require_auth", lambda api_key="": None)
+    monkeypatch.setattr(server, "_require_mcp_auth", lambda api_key="": ("admin", None))
 
     async def scenario():
         session_id = "sse-session"

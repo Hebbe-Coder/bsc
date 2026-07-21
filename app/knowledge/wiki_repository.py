@@ -307,6 +307,16 @@ class WikiRepository(BaseRepository):
         ).fetchone()
         return self._decode(row)
 
+    def get_page_revision_content(self, project_id: str, page_id: str, revision_id: str) -> dict | None:
+        row = self._execute(
+            "SELECT revision.id,revision.wiki_page_id,revision.version,revision.content_hash,revision.content,revision.proposal_id,revision.created_at "
+            "FROM knowledge_wiki_page_revisions AS revision "
+            "JOIN knowledge_wiki_pages AS page ON page.id=revision.wiki_page_id AND page.project_id=revision.project_id "
+            "WHERE revision.project_id=? AND revision.wiki_page_id=? AND revision.id=? AND page.status='published'",
+            (project_id, page_id, revision_id),
+        ).fetchone()
+        return self._decode(row)
+
     def list_citations(self, project_id: str, page_id: str = "", include_stale: bool = False) -> list[dict]:
         status_clause = "" if include_stale else " AND status='active'"
         if page_id:

@@ -325,7 +325,7 @@ def _request_api_key(request: Request) -> str:
 
 def _require_http_auth(api_key: str) -> None:
     try:
-        server._require_auth(api_key)
+        server._require_mcp_auth(api_key)
     except PermissionError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 

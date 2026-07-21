@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 from typing import Any, Iterable
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.core.config import settings
+from app.knowledge.vault import FilesystemWikiVault
+from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_rules import ProjectRules
+from app.knowledge.wiki_rules import parse_project_rules
 
 
 class ContextPack(BaseModel):
@@ -41,6 +46,7 @@ class ContextPackBuilder:
         decisions: Iterable[dict[str, Any]] = (),
         pages: Iterable[dict[str, Any]] = (),
         sources: Iterable[dict[str, Any]] = (),
+        evaluations: Iterable[dict[str, Any]] = (),
         weekly_distillation: dict[str, Any] | None = None,
     ) -> ContextPack:
         if rules.project_id != project_id:
@@ -54,6 +60,7 @@ class ContextPackBuilder:
         sections.extend(self._records("decision", "Decision", project_id, decisions, "content"))
         sections.extend(self._records("page", "Wiki Page", project_id, pages, "content"))
         sections.extend(self._records("source", "Evidence", project_id, sources, "raw_content"))
+        sections.extend(self._records("evaluation", "Quality Evaluation", project_id, evaluations, "content"))
         if weekly_distillation:
             sections.extend(self._records("distillation", "Weekly Distillation", project_id, [weekly_distillation], "content"))
 
@@ -107,3 +114,82 @@ class ContextPackBuilder:
                 continue
             output.append((kind, ref_id, label, content))
         return output
+
+
+class WikiContextProvider:
+    """Build a bounded, traceable SOP/content context from one project Wiki."""
+
+    def __init__(
+        self,
+        repository: WikiRepository | None = None,
+        *,
+        vault_root: Path | str | None = None,
+        max_characters: int = 12_000,
+    ) -> None:
+        self.repository = repository or WikiRepository()
+        self.vault_root = Path(vault_root) if vault_root else Path(settings.OBSIDIAN_VAULT_ROOT) if settings.OBSIDIAN_VAULT_ROOT else None
+        self.builder = ContextPackBuilder(max_characters=max_characters)
+
+    def build_context(self, *, project_id: str, task_constraints: Iterable[str] = ()) -> ContextPack | None:
+        """Return ``None`` when the project has no configured Wiki authority."""
+        mapping = self.repository.get_vault(project_id)
+        if not mapping or self.vault_root is None:
+            return None
+        vault = FilesystemWikiVault(self.vault_root, project_id, mapping["vault_path"])
+        rules_path = vault.project_root / "AGENTS.md"
+        if not rules_path.is_file():
+            return None
+        rules = parse_project_rules(rules_path.read_text(encoding="utf-8"))
+        if rules.project_id != project_id:
+            raise ValueError("AGENTS.md project_id does not match the requested project")
+
+        decisions: list[dict[str, Any]] = []
+        pages: list[dict[str, Any]] = []
+        for page in self.repository.list_pages(project_id):
+            content = self.repository.get_page_content(project_id, page["id"])
+            if not content:
+                continue
+            item = {**page, "content": content["content"]}
+            (decisions if page.get("page_kind") == "decision" else pages).append(item)
+
+        sources = [
+            source
+            for status in ("eligible", "processed")
+            for source in self.repository.list_sources(project_id, status=status)
+        ]
+        evaluations = [
+            {
+                "id": evaluation["id"],
+                "project_id": project_id,
+                "content": self._render_evaluation(evaluation),
+            }
+            for evaluation in self.repository.list_eval_runs(project_id, limit=5)
+        ]
+        weekly = self._latest_distillation(project_id, vault)
+        return self.builder.build(
+            project_id=project_id,
+            rules=rules,
+            task_constraints=task_constraints,
+            decisions=decisions,
+            pages=pages,
+            sources=sources,
+            evaluations=evaluations,
+            weekly_distillation=weekly,
+        )
+
+    def _latest_distillation(self, project_id: str, vault: FilesystemWikiVault) -> dict[str, Any] | None:
+        records = self.repository.list_distillations(project_id)
+        if not records:
+            return None
+        record = records[0]
+        content = vault.contents.get(record["context_path"], "")
+        if not content:
+            return None
+        return {"id": record["id"], "project_id": project_id, "content": content}
+
+    @staticmethod
+    def _render_evaluation(evaluation: dict[str, Any]) -> str:
+        summary = evaluation.get("summary") or {}
+        score = summary.get("score", "")
+        findings = summary.get("findings") or []
+        return f"Status: {evaluation.get('status', '')}; score: {score}; findings: {findings}"

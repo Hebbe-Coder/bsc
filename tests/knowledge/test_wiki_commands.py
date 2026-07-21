@@ -82,3 +82,65 @@ def test_command_service_runs_manual_source_sync_without_a_celery_scheduler(tmp_
         assert repo.list_sources("project-a")[0]["origin"] == "note.md"
     finally:
         repo.close()
+
+
+def test_command_service_restores_a_prior_revision_through_a_new_gated_proposal(tmp_path, monkeypatch):
+    vault_root = tmp_path / "vault"
+    vault_root.mkdir()
+    project_root = vault_root / "clients" / "acme"
+    project_root.mkdir(parents=True)
+    (project_root / "AGENTS.md").write_text(build_default_agents_rules("project-a"), encoding="utf-8")
+    monkeypatch.setattr("app.knowledge.wiki_commands.settings.OBSIDIAN_VAULT_ROOT", str(vault_root))
+    repo = WikiRepository(db_path=str(tmp_path / "commands-rollback.db"))
+    repo.configure_vault("project-a", "clients/acme")
+    source = SourceCaptureService(repo).capture(
+        CapturedSourceInput(
+            project_id="project-a", source_type="manual_upload", origin="brief.md",
+            raw_content="Human approval is mandatory.", trust_level="trusted",
+        )
+    ).source
+    service = WikiCommandService(repo)
+    version_one = "---\ntitle: Approval\nkind: concept\n---\nHuman approval is mandatory. [source:%s]" % source["id"]
+    version_two = "---\ntitle: Approval\nkind: concept\n---\nHuman approval is mandatory and reviewed weekly. [source:%s]" % source["id"]
+    try:
+        repo_case = service.save_eval_case(
+            project_id="project-a", case_id="citation", case_type="citation", expected={"source_ids": [source["id"]]}
+        )
+        assert repo_case["case_id"] == "citation"
+        first = service.create_proposal(
+            {
+                "project_id": "project-a", "source_ids": [source["id"]], "rationale": "Initial approval rule.",
+                "operations": [
+                    {"operation": "create", "path": "wiki/concepts/approval.md", "content": version_one, "source_ids": [source["id"]]},
+                    {"operation": "append", "path": "wiki/index.md", "content": "\n- [[wiki/concepts/approval.md]]\n", "source_ids": [source["id"]]},
+                    {"operation": "append", "path": "wiki/log.md", "content": "\n- Approval added. [source:%s]\n" % source["id"], "source_ids": [source["id"]]},
+                ],
+            }
+        )
+        service.publish_proposal(project_id="project-a", proposal_id=first["id"])
+        page = next(item for item in repo.list_pages("project-a") if item["path"] == "wiki/concepts/approval.md")
+
+        second = service.create_proposal(
+            {
+                "project_id": "project-a", "source_ids": [source["id"]], "rationale": "Add review cadence.",
+                "operations": [
+                    {"operation": "replace", "path": "wiki/concepts/approval.md", "content": version_two, "source_ids": [source["id"]]},
+                    {"operation": "append", "path": "wiki/index.md", "content": "\n- Approval reviewed\n", "source_ids": [source["id"]]},
+                    {"operation": "append", "path": "wiki/log.md", "content": "\n- Approval reviewed. [source:%s]\n" % source["id"], "source_ids": [source["id"]]},
+                ],
+            }
+        )
+        service.publish_proposal(project_id="project-a", proposal_id=second["id"])
+        original = next(item for item in repo.list_page_revisions("project-a", page["id"]) if item["version"] == 1)
+
+        rollback = service.create_rollback_proposal(project_id="project-a", page_id=page["id"], revision_id=original["id"])
+
+        assert rollback["status"] == "draft"
+        assert rollback["operations"][0]["operation"] == "replace"
+        assert rollback["operations"][0]["content"] == version_one
+        assert service.lint_proposal(project_id="project-a", proposal_id=rollback["id"])["valid"] is True
+        service.publish_proposal(project_id="project-a", proposal_id=rollback["id"])
+        assert repo.get_page_content("project-a", page["id"])["content"] == version_one
+        assert len(repo.list_page_revisions("project-a", page["id"])) == 3
+    finally:
+        repo.close()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -31,6 +32,7 @@ class WeeklyDistillationService:
         sources: list[dict[str, Any]],
         pages: list[dict[str, Any]],
         rule_revision: str,
+        source_cutoff: str = "",
     ) -> WeeklyDistillationBundle:
         if not re.fullmatch(r"\d{4}-W\d{2}", week):
             raise DistillationError("week must use ISO YYYY-Www format")
@@ -38,11 +40,12 @@ class WeeklyDistillationService:
         self._assert_project(project_id, pages, "pages")
         if not sources:
             raise DistillationError("weekly distillation requires at least one eligible source")
+        source_cutoff = source_cutoff or self.source_cutoff(sources)
         prefix = f"distillations/{week}"
         rendered = {
-            f"{prefix}/knowledge-action.md": self._knowledge_action(week, sources, pages),
-            f"{prefix}/content-creation.md": self._content_creation(week, sources),
-            f"{prefix}/context-pack.md": self._context_pack(project_id, week, sources, pages, rule_revision),
+            f"{prefix}/knowledge-action.md": self._knowledge_action(week, sources, pages, source_cutoff),
+            f"{prefix}/content-creation.md": self._content_creation(week, sources, source_cutoff),
+            f"{prefix}/context-pack.md": self._context_pack(project_id, week, sources, pages, rule_revision, source_cutoff),
         }
         snapshot = dict(self.vault.contents)
         for path, content in rendered.items():
@@ -59,12 +62,22 @@ class WeeklyDistillationService:
             raise DistillationError(f"{label} must be project scoped")
 
     @staticmethod
+    def source_cutoff(sources: list[dict[str, Any]]) -> str:
+        """Return the stable immutable-evidence cutoff for one weekly bundle."""
+        return hashlib.sha256(
+            "|".join(
+                f"{source['id']}:{source.get('content_hash') or hashlib.sha256(str(source.get('raw_content') or '').encode('utf-8')).hexdigest()}"
+                for source in sorted(sources, key=lambda item: item["id"])
+            ).encode("utf-8")
+        ).hexdigest()
+
+    @staticmethod
     def _title(source: dict[str, Any]) -> str:
         first = str(source.get("raw_content") or "").splitlines()[0].lstrip("# ").strip()
         return first or source["id"]
 
-    def _knowledge_action(self, week: str, sources: list[dict[str, Any]], pages: list[dict[str, Any]]) -> str:
-        lines = [f"# Knowledge Action - {week}", "", "## Source-backed changes"]
+    def _knowledge_action(self, week: str, sources: list[dict[str, Any]], pages: list[dict[str, Any]], source_cutoff: str) -> str:
+        lines = [f"# Knowledge Action - {week}", "", f"Source cutoff: `{source_cutoff}`", "", "## Source-backed changes"]
         for source in sources:
             excerpt = " ".join(str(source["raw_content"]).splitlines()[1:]).strip()[:360]
             lines.append(f"- **{self._title(source)}**: {excerpt or 'Review the source directly.'} [source:{source['id']}]")
@@ -76,8 +89,8 @@ class WeeklyDistillationService:
         lines.extend(["", "## Open questions", "- Confirm whether each new source changes an existing project decision before publishing a Wiki proposal."])
         return "\n".join(lines) + "\n"
 
-    def _content_creation(self, week: str, sources: list[dict[str, Any]]) -> str:
-        lines = [f"# Content Creation - {week}", "", "## Evidence-backed themes"]
+    def _content_creation(self, week: str, sources: list[dict[str, Any]], source_cutoff: str) -> str:
+        lines = [f"# Content Creation - {week}", "", f"Source cutoff: `{source_cutoff}`", "", "## Evidence-backed themes"]
         for source in sources:
             excerpt = " ".join(str(source["raw_content"]).splitlines()[1:]).strip()[:360]
             lines.extend([
@@ -89,8 +102,8 @@ class WeeklyDistillationService:
         return "\n".join(lines) + "\n"
 
     @staticmethod
-    def _context_pack(project_id: str, week: str, sources: list[dict[str, Any]], pages: list[dict[str, Any]], rule_revision: str) -> str:
-        lines = [f"# Context Pack - {week}", "", f"Project: {project_id}", f"Rule revision: {rule_revision}", "", "## Sources"]
+    def _context_pack(project_id: str, week: str, sources: list[dict[str, Any]], pages: list[dict[str, Any]], rule_revision: str, source_cutoff: str) -> str:
+        lines = [f"# Context Pack - {week}", "", f"Project: {project_id}", f"Rule revision: {rule_revision}", f"Source cutoff: `{source_cutoff}`", "", "## Sources"]
         lines.extend(f"- {source['id']}: {source.get('origin', '')}" for source in sources)
         lines.extend(["", "## Wiki pages"])
         lines.extend(f"- {page['id']}: {page.get('path', '')}" for page in pages)

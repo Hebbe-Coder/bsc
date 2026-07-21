@@ -41,6 +41,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
     """Authenticate APIs and bind each request to a scoped principal."""
 
     async def dispatch(self, request: Request, call_next):
+        # CORS preflight has no bearer token and never reaches an application
+        # handler. Let CORSMiddleware attach its policy response first.
+        if request.method == "OPTIONS":
+            return await call_next(request)
         if self._is_whitelisted(request):
             return await call_next(request)
 
@@ -76,6 +80,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if principal.role.startswith("project_") and not (
             request.url.path.startswith("/knowledge/")
             or request.url.path.startswith("/api/orchestrate")
+            or request.url.path.startswith("/api/mcp")
         ):
             return _auth_error(403, "project key is not valid for this endpoint")
 

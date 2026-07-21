@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -11,7 +13,7 @@ from app.core.config import settings
 from app.knowledge.proposal_gate import ProposalGate, ProposalGateError
 from app.knowledge.scheduler import KnowledgeScheduler, ScheduleValidationError
 from app.knowledge.vault import FilesystemWikiVault
-from app.knowledge.wiki_contracts import KnowledgeRun, ProposalStatus, RunStatus, WikiProposal
+from app.knowledge.wiki_contracts import KnowledgeRun, ProposalStatus, RunStatus, WikiOperation, WikiOperationType, WikiProposal
 from app.knowledge.wiki_evaluator import WikiEvaluator
 from app.knowledge.wiki_lint import WikiLint
 from app.knowledge.wiki_repository import WikiRepository
@@ -141,6 +143,67 @@ class WikiCommandService:
         if proposal["status"] not in {ProposalStatus.DRAFT.value, ProposalStatus.VALIDATING.value, ProposalStatus.APPROVED.value}:
             raise WikiCommandError("only un-published proposals can be rejected")
         return self.repository.update_proposal_status(project_id, proposal_id, ProposalStatus.REJECTED)
+
+    def create_rollback_proposal(
+        self, *, project_id: str, page_id: str, revision_id: str, actor_id: str = ""
+    ) -> dict:
+        """Create a draft that restores a prior page body through the normal publication gates."""
+        page = self.repository.get_page(project_id, page_id)
+        current = self.repository.get_page_content(project_id, page_id) if page else None
+        revision = self.repository.get_page_revision_content(project_id, page_id, revision_id) if page else None
+        if not page or not current or not revision:
+            raise WikiCommandError("published Wiki page revision not found")
+        if page["path"] == "wiki/log.md":
+            raise WikiCommandError("wiki/log.md is append-only and cannot be restored by replacement")
+        if revision["content_hash"] == current["content_hash"]:
+            raise WikiCommandError("selected revision is already the published page")
+
+        source_ids = list(dict.fromkeys(re.findall(r"\[source:([^\]\s]+)\]", revision["content"])))
+        publishable_statuses = {"eligible", "processed"}
+        unavailable = [
+            source_id for source_id in source_ids
+            if not (source := self.repository.get_source(project_id, source_id)) or source["status"] not in publishable_statuses
+        ]
+        if unavailable:
+            raise WikiCommandError("selected revision relies on non-publishable evidence: " + ", ".join(unavailable))
+
+        vault = self._vault(project_id)
+        current_hash = hashlib.sha256(current["content"].encode("utf-8")).hexdigest()
+        evidence = " " + " ".join(f"[source:{source_id}]" for source_id in source_ids) if source_ids else ""
+        operations = [
+            WikiOperation(
+                operation=WikiOperationType.REPLACE,
+                path=page["path"],
+                content=revision["content"],
+                expected_content_hash=current_hash,
+                source_ids=source_ids,
+            ),
+            WikiOperation(
+                operation=WikiOperationType.APPEND,
+                path="wiki/log.md",
+                content=f"\n- Restored [[{page['path']}]] from revision {revision['version']}.{evidence}\n",
+                source_ids=source_ids,
+            ),
+        ]
+        if page["path"] != "wiki/index.md":
+            operations.insert(
+                1,
+                WikiOperation(
+                    operation=WikiOperationType.APPEND,
+                    path="wiki/index.md",
+                    content=f"\n- Restored [[{page['path']}]] from revision {revision['version']}.{evidence}\n",
+                    source_ids=source_ids,
+                ),
+            )
+        proposal = WikiProposal(
+            project_id=project_id,
+            base_revision=ProposalGate.project_revision(vault.contents),
+            source_ids=source_ids,
+            operations=operations,
+            rationale=f"Restore {page['path']} from published revision {revision['version']}.",
+            manual=True,
+        )
+        return self.repository.create_proposal(proposal, actor_id=actor_id)
 
     def start_run(
         self,

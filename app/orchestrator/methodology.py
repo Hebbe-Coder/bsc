@@ -108,12 +108,17 @@ class MethodologyBridge:
             "source_ids": [],
             "assumptions": [],
         }
-        if not project_id or not self._wiki_enabled or self._wiki_context_provider is None:
+        if not project_id or not self._wiki_enabled:
             return empty
+        if self._wiki_context_provider is None:
+            from app.knowledge.context_pack import WikiContextProvider
+            self._wiki_context_provider = WikiContextProvider()
         pack = self._wiki_context_provider.build_context(
             project_id=project_id,
             task_constraints=[query] if query else [],
         )
+        if pack is None:
+            return empty
         if pack.project_id != project_id:
             raise ValueError("Wiki context provider returned a cross-project context pack")
         return {
