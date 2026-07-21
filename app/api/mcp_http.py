@@ -21,6 +21,15 @@ _TOOL_HANDLERS = {
     "bsc_compile": server.bsc_compile,
     "bsc_generate_sop": server.bsc_generate_sop,
     "knowledge_ask": server.knowledge_ask,
+    "wiki_guide": server.wiki_guide,
+    "wiki_search": server.wiki_search,
+    "wiki_graph": server.wiki_graph,
+    "wiki_read": server.wiki_read,
+    "wiki_propose_update": server.wiki_propose_update,
+    "wiki_lint": server.wiki_lint,
+    "wiki_apply_update": server.wiki_apply_update,
+    "wiki_distill": server.wiki_distill,
+    "wiki_schedule": server.wiki_schedule,
     "analyze_domain": server.analyze_domain,
 }
 
@@ -50,6 +59,61 @@ _TOOL_SPECS = {
             "top_k": {"type": "integer", "minimum": 1, "maximum": 50},
         },
         "required": ["question"],
+    },
+    "wiki_guide": {
+        "description": "Explain the governed project Wiki workflow.",
+        "properties": {"project_id": {"type": "string"}},
+        "required": ["project_id"],
+    },
+    "wiki_search": {
+        "description": "Search project-scoped Wiki evidence metadata.",
+        "properties": {"project_id": {"type": "string"}, "query": {"type": "string"}},
+        "required": ["project_id"],
+    },
+    "wiki_graph": {
+        "description": "Read the project-scoped derived Knowledge Graph.",
+        "properties": {"project_id": {"type": "string"}},
+        "required": ["project_id"],
+    },
+    "wiki_read": {
+        "description": "Read a published project Wiki page and its citation metadata.",
+        "properties": {"project_id": {"type": "string"}, "page_id": {"type": "string"}},
+        "required": ["project_id", "page_id"],
+    },
+    "wiki_propose_update": {
+        "description": "Create a reviewable Wiki proposal without writing to the Vault.",
+        "properties": {
+            "project_id": {"type": "string"},
+            "operations": {"type": "array"},
+            "source_ids": {"type": "array"},
+            "rationale": {"type": "string"},
+        },
+        "required": ["project_id", "operations"],
+    },
+    "wiki_lint": {
+        "description": "Lint a project Wiki proposal before publication.",
+        "properties": {"project_id": {"type": "string"}, "proposal_id": {"type": "string"}},
+        "required": ["project_id", "proposal_id"],
+    },
+    "wiki_apply_update": {
+        "description": "Publish a proposal through the Wiki gates.",
+        "properties": {"project_id": {"type": "string"}, "proposal_id": {"type": "string"}},
+        "required": ["project_id", "proposal_id"],
+    },
+    "wiki_distill": {
+        "description": "Queue a governed weekly evidence distillation.",
+        "properties": {"project_id": {"type": "string"}},
+        "required": ["project_id"],
+    },
+    "wiki_schedule": {
+        "description": "Configure a bounded persistent Wiki schedule.",
+        "properties": {
+            "project_id": {"type": "string"},
+            "job_type": {"type": "string"},
+            "cron": {"type": "string"},
+            "timezone": {"type": "string"},
+        },
+        "required": ["project_id", "job_type", "cron"],
     },
     "analyze_domain": {
         "description": "Classify a business text into a domain.",
@@ -204,6 +268,8 @@ def _validate_tool_arguments(name: str, arguments: dict[str, Any]) -> str | None
         expected_type = schema.get("type")
         if expected_type == "string" and not isinstance(value, str):
             return f"Argument {key} for {name} must be a string"
+        if expected_type == "array" and not isinstance(value, list):
+            return f"Argument {key} for {name} must be an array"
         if expected_type == "integer":
             if isinstance(value, bool) or not isinstance(value, int):
                 return f"Argument {key} for {name} must be an integer"

@@ -1,0 +1,321 @@
+"""Project-scoped read API for the LLM Wiki workspace."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+
+from app.api.knowledge_api import _enforce_project_access
+from app.api.response import ApiResponse
+from app.knowledge.wiki_commands import WikiCommandError, WikiCommandService
+from app.knowledge.knowledge_health import KnowledgeHealthService
+from app.knowledge.wiki_bootstrap import WikiBootstrapError, WikiBootstrapService
+from app.knowledge.wiki_contracts import SourceStatus
+from app.knowledge.wiki_repository import WikiRepository
+from app.knowledge.wiki_source_capture import InvalidSourceTransition, SourceCaptureService
+
+router = APIRouter(prefix="/knowledge", tags=["Knowledge Workspace"])
+
+
+def get_wiki_repository() -> WikiRepository:
+    return WikiRepository()
+
+
+class SourceStatusRequest(BaseModel):
+    project_id: str = Field(min_length=1)
+    status: SourceStatus
+
+
+class ProposalRequest(BaseModel):
+    project_id: str = Field(min_length=1)
+    source_ids: list[str] = Field(default_factory=list)
+    operations: list[dict[str, Any]] = Field(min_length=1)
+    rationale: str = ""
+    base_revision: str = ""
+
+
+class EvalCaseRequest(BaseModel):
+    project_id: str = Field(min_length=1)
+    case_id: str = Field(min_length=1)
+    case_type: str = Field(min_length=1)
+    expected: dict[str, Any] = Field(default_factory=dict)
+
+
+class ScheduleRequest(BaseModel):
+    project_id: str = Field(min_length=1)
+    job_type: str = Field(min_length=1)
+    cron: str = Field(min_length=1)
+    timezone: str = "Asia/Shanghai"
+
+
+class RunNowRequest(BaseModel):
+    project_id: str = Field(min_length=1)
+    job_type: str = Field(min_length=1)
+
+
+class HorizonCaptureRequest(BaseModel):
+    project_id: str = Field(min_length=1)
+    horizon_run_id: str = Field(min_length=1)
+    stage: str = "filtered"
+
+
+def _command_error(exc: Exception) -> HTTPException:
+    return HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/workspaces/{project_id}")
+def workspace_status(request: Request, project_id: str, repo: WikiRepository = Depends(get_wiki_repository)):
+    project_id = _enforce_project_access(request, project_id)
+    vault = repo.get_vault(project_id)
+    return ApiResponse.ok(
+        {
+            "project_id": project_id,
+            "vault": {"configured": bool(vault), "status": vault.get("status") if vault else "unconfigured"},
+            "sources": len(repo.list_sources(project_id)),
+            "runs": len(repo.list_runs(project_id)),
+            "schedules": len(repo.list_schedules(project_id)),
+        }
+    )
+
+
+@router.post("/workspaces/{project_id}/initialize")
+def initialize_workspace(request: Request, project_id: str, repo: WikiRepository = Depends(get_wiki_repository)):
+    project_id = _enforce_project_access(request, project_id, write=True)
+    try:
+        return ApiResponse.ok(WikiBootstrapService(repo).initialize(project_id=project_id, actor_id="http"))
+    except WikiBootstrapError as exc:
+        raise _command_error(exc) from exc
+
+
+@router.get("/sources")
+def list_workspace_sources(request: Request, project_id: str, status: str = "", repo: WikiRepository = Depends(get_wiki_repository)):
+    project_id = _enforce_project_access(request, project_id)
+    records = repo.list_sources(project_id, status=status or None)
+    return ApiResponse.ok({"sources": [_source_view(record) for record in records], "count": len(records)})
+
+
+@router.post("/sources/{source_id}/status")
+def transition_workspace_source(
+    source_id: str, payload: SourceStatusRequest, request: Request, repo: WikiRepository = Depends(get_wiki_repository)
+):
+    project_id = _enforce_project_access(request, payload.project_id, write=True)
+    try:
+        source = SourceCaptureService(repo).transition_source(project_id, source_id, payload.status)
+        return ApiResponse.ok({"source": _source_view(source)})
+    except (KeyError, InvalidSourceTransition) as exc:
+        raise _command_error(exc) from exc
+
+
+@router.get("/runs")
+def list_workspace_runs(request: Request, project_id: str, repo: WikiRepository = Depends(get_wiki_repository)):
+    project_id = _enforce_project_access(request, project_id)
+    runs = repo.list_runs(project_id)
+    return ApiResponse.ok({"runs": runs, "count": len(runs)})
+
+
+@router.get("/runs/{run_id}/events")
+def list_workspace_run_events(
+    run_id: str, request: Request, project_id: str, after_sequence: int = 0, repo: WikiRepository = Depends(get_wiki_repository)
+):
+    project_id = _enforce_project_access(request, project_id)
+    if after_sequence < 0:
+        raise HTTPException(status_code=400, detail="after_sequence must be non-negative")
+    if not repo.get_run(project_id, run_id):
+        raise HTTPException(status_code=404, detail="knowledge run not found")
+    events = repo.list_run_events(project_id=project_id, run_id=run_id, after_sequence=after_sequence)
+    return ApiResponse.ok({"events": events, "count": len(events)})
+
+
+@router.get("/runs/{run_id}/events/stream")
+async def stream_workspace_run_events(
+    run_id: str, request: Request, project_id: str, after_sequence: int = 0, repo: WikiRepository = Depends(get_wiki_repository)
+):
+    project_id = _enforce_project_access(request, project_id)
+    if after_sequence < 0:
+        raise HTTPException(status_code=400, detail="after_sequence must be non-negative")
+    if not repo.get_run(project_id, run_id):
+        raise HTTPException(status_code=404, detail="knowledge run not found")
+
+    async def event_stream():
+        sequence = after_sequence
+        for _ in range(60):
+            events = repo.list_run_events(project_id=project_id, run_id=run_id, after_sequence=sequence)
+            for event in events:
+                sequence = event["sequence"]
+                yield f"id: {sequence}\nevent: {event['event_type']}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
+            current = repo.get_run(project_id, run_id)
+            if current and current["status"] in {"completed", "failed", "cancelled", "unavailable"}:
+                return
+            if await request.is_disconnected():
+                return
+            yield ": keep-alive\n\n"
+            await asyncio.sleep(1)
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@router.get("/proposals")
+def list_workspace_proposals(request: Request, project_id: str, repo: WikiRepository = Depends(get_wiki_repository)):
+    project_id = _enforce_project_access(request, project_id)
+    proposals = repo.list_proposals(project_id)
+    return ApiResponse.ok({"proposals": proposals, "count": len(proposals)})
+
+
+@router.get("/wiki/pages")
+def list_workspace_pages(request: Request, project_id: str, repo: WikiRepository = Depends(get_wiki_repository)):
+    project_id = _enforce_project_access(request, project_id)
+    pages = repo.list_pages(project_id)
+    return ApiResponse.ok({"pages": pages, "count": len(pages)})
+
+
+@router.get("/wiki/pages/{page_id}")
+def read_workspace_page(page_id: str, request: Request, project_id: str, repo: WikiRepository = Depends(get_wiki_repository)):
+    project_id = _enforce_project_access(request, project_id)
+    page = repo.get_page(project_id, page_id)
+    content = repo.get_page_content(project_id, page_id) if page else None
+    if not page or not content:
+        raise HTTPException(status_code=404, detail="published Wiki page not found")
+    return ApiResponse.ok({
+        "page": page,
+        "content": content["content"],
+        "revisions": repo.list_page_revisions(project_id, page_id),
+        "citations": repo.list_citations(project_id, page_id),
+    })
+
+
+@router.post("/proposals")
+def create_workspace_proposal(
+    payload: ProposalRequest, request: Request, repo: WikiRepository = Depends(get_wiki_repository)
+):
+    project_id = _enforce_project_access(request, payload.project_id, write=True)
+    try:
+        proposal = WikiCommandService(repo).create_proposal(
+            {**payload.model_dump(), "project_id": project_id}, actor_id="http"
+        )
+        return ApiResponse.ok({"proposal": proposal})
+    except WikiCommandError as exc:
+        raise _command_error(exc) from exc
+
+
+@router.post("/proposals/{proposal_id}/lint")
+def lint_workspace_proposal(
+    proposal_id: str, request: Request, project_id: str, repo: WikiRepository = Depends(get_wiki_repository)
+):
+    project_id = _enforce_project_access(request, project_id, write=True)
+    try:
+        return ApiResponse.ok(WikiCommandService(repo).lint_proposal(project_id=project_id, proposal_id=proposal_id))
+    except WikiCommandError as exc:
+        raise _command_error(exc) from exc
+
+
+@router.post("/proposals/{proposal_id}/publish")
+def publish_workspace_proposal(
+    proposal_id: str, request: Request, project_id: str, repo: WikiRepository = Depends(get_wiki_repository)
+):
+    project_id = _enforce_project_access(request, project_id, write=True)
+    try:
+        return ApiResponse.ok(WikiCommandService(repo).publish_proposal(project_id=project_id, proposal_id=proposal_id))
+    except WikiCommandError as exc:
+        raise _command_error(exc) from exc
+
+
+@router.post("/eval-cases")
+def save_workspace_eval_case(
+    payload: EvalCaseRequest, request: Request, repo: WikiRepository = Depends(get_wiki_repository)
+):
+    project_id = _enforce_project_access(request, payload.project_id, write=True)
+    try:
+        result = WikiCommandService(repo).save_eval_case(
+            project_id=project_id, case_id=payload.case_id, case_type=payload.case_type, expected=payload.expected
+        )
+        return ApiResponse.ok({"eval_case": result})
+    except (ValueError, WikiCommandError) as exc:
+        raise _command_error(exc) from exc
+
+
+@router.get("/wiki/graph")
+def workspace_graph(request: Request, project_id: str, repo: WikiRepository = Depends(get_wiki_repository)):
+    project_id = _enforce_project_access(request, project_id)
+    edges = repo.list_graph_edges(project_id)
+    return ApiResponse.ok({"edges": edges, "count": len(edges)})
+
+
+@router.get("/health")
+def workspace_health(request: Request, project_id: str, repo: WikiRepository = Depends(get_wiki_repository)):
+    project_id = _enforce_project_access(request, project_id)
+    return ApiResponse.ok(KnowledgeHealthService(repo).snapshot(project_id=project_id))
+
+
+@router.get("/schedules")
+def workspace_schedules(request: Request, project_id: str, repo: WikiRepository = Depends(get_wiki_repository)):
+    project_id = _enforce_project_access(request, project_id)
+    schedules = repo.list_schedules(project_id)
+    return ApiResponse.ok({"schedules": schedules, "count": len(schedules)})
+
+
+@router.get("/distillations")
+def list_workspace_distillations(request: Request, project_id: str, repo: WikiRepository = Depends(get_wiki_repository)):
+    project_id = _enforce_project_access(request, project_id)
+    records = repo.list_distillations(project_id)
+    return ApiResponse.ok({"distillations": records, "count": len(records)})
+
+
+@router.post("/schedules")
+def configure_workspace_schedule(
+    payload: ScheduleRequest, request: Request, repo: WikiRepository = Depends(get_wiki_repository)
+):
+    project_id = _enforce_project_access(request, payload.project_id, write=True)
+    try:
+        schedule = WikiCommandService(repo).configure_schedule(
+            project_id=project_id, job_type=payload.job_type, cron=payload.cron, timezone_name=payload.timezone
+        )
+        return ApiResponse.ok({"schedule": schedule})
+    except (ValueError, WikiCommandError) as exc:
+        raise _command_error(exc) from exc
+
+
+@router.post("/runs")
+def run_workspace_job(
+    payload: RunNowRequest, request: Request, repo: WikiRepository = Depends(get_wiki_repository)
+):
+    project_id = _enforce_project_access(request, payload.project_id, write=True)
+    try:
+        run = WikiCommandService(repo).start_run(project_id=project_id, job_type=payload.job_type, trigger="http")
+        return ApiResponse.ok(run)
+    except (ValueError, WikiCommandError) as exc:
+        raise _command_error(exc) from exc
+
+
+@router.post("/horizon/capture")
+def capture_horizon_workspace(
+    payload: HorizonCaptureRequest, request: Request, repo: WikiRepository = Depends(get_wiki_repository)
+):
+    project_id = _enforce_project_access(request, payload.project_id, write=True)
+    try:
+        result = WikiCommandService(repo).start_horizon_capture(
+            project_id=project_id, horizon_run_id=payload.horizon_run_id, stage=payload.stage, trigger="http"
+        )
+        return ApiResponse.ok(result)
+    except (ValueError, WikiCommandError) as exc:
+        raise _command_error(exc) from exc
+
+
+def _source_view(record: dict) -> dict:
+    """Expose provenance and lifecycle state without returning raw evidence bodies."""
+    return {
+        "id": record["id"],
+        "project_id": record["project_id"],
+        "source_type": record["source_type"],
+        "origin": record["origin"],
+        "vault_path": record["vault_path"],
+        "content_hash": record["content_hash"],
+        "trust_level": record["trust_level"],
+        "status": record["status"],
+        "metadata": record["metadata"],
+        "captured_at": record["captured_at"],
+    }

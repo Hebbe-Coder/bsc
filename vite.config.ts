@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react'
 import tsconfigPaths from "vite-tsconfig-paths";
 import { traeBadgePlugin } from 'vite-plugin-trae-solo-badge';
 
+const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || 'http://localhost:8000';
+
 // https://vite.dev/config/
 export default defineConfig({
   build: {
@@ -17,14 +19,18 @@ export default defineConfig({
       // 规避跨域，同时让 SSE（EventSource）走同源、稳定流式转发。
       // 生产构建由后端同域托管，相对路径同样生效。
       '/api': {
-        target: 'http://localhost:8000',
+        target: apiProxyTarget,
         changeOrigin: true,
       },
       // Agent OS uses root-level routes in FastAPI rather than the /api router.
       // Keep development requests same-origin so they reach the backend instead
       // of falling through to Vite's SPA HTML response.
       '/agent': {
-        target: 'http://localhost:8000',
+        target: apiProxyTarget,
+        changeOrigin: true,
+      },
+      '/knowledge': {
+        target: apiProxyTarget,
         changeOrigin: true,
       },
     },

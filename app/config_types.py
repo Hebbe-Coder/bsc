@@ -80,6 +80,17 @@ class PipelineConfig:
 
 
 @dataclass
+class KnowledgeWikiConfig:
+    """Configuration values for the optional project-scoped LLM Wiki."""
+
+    enabled: bool = False
+    obsidian_vault_root: str = ""
+    horizon_enabled: bool = False
+    horizon_api_base_url: str = ""
+    horizon_timeout_seconds: int = 20
+
+
+@dataclass
 class AppConfig:
     """应用基础配置"""
     app_name: str = "BSC · Business System Compiler"

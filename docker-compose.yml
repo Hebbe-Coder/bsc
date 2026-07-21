@@ -16,6 +16,8 @@ services:
       - DB_TYPE=sqlite
       - DB_PATH=/data/bsc_cloud.db
       - CELERY_ENABLED=${CELERY_ENABLED:-false}
+      - KNOWLEDGE_WIKI_ENABLED=${KNOWLEDGE_WIKI_ENABLED:-false}
+      - OBSIDIAN_VAULT_ROOT=/vault
       
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
       - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
@@ -41,6 +43,7 @@ services:
     volumes:
       - bsc-data:/data
       - bsc-output:/app/output
+      - ${OBSIDIAN_VAULT_HOST_PATH:?OBSIDIAN_VAULT_HOST_PATH must be set}:/vault
     networks:
       - bsc-network
     restart: unless-stopped
@@ -84,14 +87,45 @@ services:
       - CELERY_ENABLED=true
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - DB_TYPE=sqlite
+      - DB_PATH=/data/bsc_cloud.db
+      - OBSIDIAN_VAULT_ROOT=/vault
+      - KNOWLEDGE_WIKI_ENABLED=true
       - LLM_PROVIDER=${LLM_PROVIDER:-mock}
       - OLLAMA_BASE_URL=http://ollama:11434/v1
     volumes:
       - bsc-data:/data
       - bsc-output:/app/output
+      - ${OBSIDIAN_VAULT_HOST_PATH:?OBSIDIAN_VAULT_HOST_PATH must be set}:/vault
     depends_on:
       - redis
       - ollama
+    networks:
+      - bsc-network
+    restart: unless-stopped
+    profiles:
+      - celery
+      - full
+
+  celery-beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: celery -A app.core.celery_app beat --loglevel=info
+    environment:
+      - CELERY_ENABLED=true
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - DB_TYPE=sqlite
+      - DB_PATH=/data/bsc_cloud.db
+      - OBSIDIAN_VAULT_ROOT=/vault
+      - KNOWLEDGE_WIKI_ENABLED=true
+    volumes:
+      - bsc-data:/data
+      - bsc-output:/app/output
+      - ${OBSIDIAN_VAULT_HOST_PATH:?OBSIDIAN_VAULT_HOST_PATH must be set}:/vault
+    depends_on:
+      - redis
     networks:
       - bsc-network
     restart: unless-stopped

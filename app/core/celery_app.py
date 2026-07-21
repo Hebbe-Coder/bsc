@@ -177,12 +177,19 @@ def _init_celery():
             task_soft_time_limit=getattr(settings, "CELERY_TASK_SOFT_TIMEOUT", 3000),
             worker_prefetch_multiplier=1,
             worker_max_tasks_per_child=1000,
+            beat_schedule={
+                "knowledge-schedule-reconciliation": {
+                    "task": "knowledge.reconcile_schedules",
+                    "schedule": 60.0,
+                },
+            },
         )
 
         celery_app.autodiscover_tasks([
             "app.tasks.bsc_tasks",
             "app.tasks.document_tasks",
             "app.tasks.export_tasks",
+            "app.tasks.knowledge_tasks",
         ])
 
         logger.info("Celery initialized successfully")

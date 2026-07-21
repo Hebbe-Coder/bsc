@@ -19,6 +19,7 @@ from __future__ import annotations
 import sqlite3
 import os
 import threading
+import uuid
 from typing import List, Dict, Any, Protocol
 
 from app.core.config import settings
@@ -80,7 +81,9 @@ class SQLiteBackend:
     
     def __init__(self, db_path: str = None):
         self._db_path = resolve_sqlite_path(db_path)
-        self._instance_id = id(self)
+        # ``id(self)`` can be reused after a backend is collected. A stale
+        # destructor would then close a newer backend's thread-local connection.
+        self._instance_id = uuid.uuid4().hex
         self._connections: Dict[int, sqlite3.Connection] = {}
         self._connections_lock = threading.RLock()
     

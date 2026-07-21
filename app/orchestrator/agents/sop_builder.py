@@ -62,11 +62,28 @@ class SopBuilderAgent(BaseAgent):
 
         # 若提供 project_id，则检索方法论依据并前置到 user_prompt
         citations = []
+        wiki_context = {
+            "knowledge_context_used": False,
+            "context_block": "",
+            "context_pack_id": "",
+            "page_ids": [],
+            "source_ids": [],
+            "assumptions": [],
+        }
         if project_id:
             out = self._get_bridge().retrieve(
                 project_id, derive_methodology_query(business_model)
             )
             citations = out.get("citations") or []
+            wiki_context = self._get_bridge().retrieve_wiki_context(
+                project_id, derive_methodology_query(business_model)
+            )
+            if wiki_context["context_block"]:
+                parts.insert(
+                    0,
+                    "\n## Project Wiki Context (project evidence; retain source IDs and assumptions)\n"
+                    + wiki_context["context_block"] + "\n",
+                )
             if out.get("context_block"):
                 parts.insert(
                     0,
@@ -82,4 +99,8 @@ class SopBuilderAgent(BaseAgent):
             cov = validate_source_refs(items, citations)
             # 内联进 sop 子段：引擎 state["sop"] = out.get("sop") 入库时指标才得以保留
             result.setdefault("sop", {})["_citation_coverage"] = cov
+        if project_id:
+            result.setdefault("sop", {})["_knowledge_context"] = {
+                key: value for key, value in wiki_context.items() if key != "context_block"
+            }
         return result

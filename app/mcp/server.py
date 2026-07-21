@@ -38,6 +38,7 @@ import hashlib
 
 from mcp.server.fastmcp import FastMCP
 from app.mcp.compatibility import build_compatibility_profile
+from app.mcp import wiki_tools
 
 logger = logging.getLogger(__name__)
 
@@ -391,6 +392,75 @@ def knowledge_ask(question: str, project_id: str = "", top_k: int = 5, api_key: 
     return _run_engine_subprocess(
         "ask", {"question": question, "project_id": project_id, "top_k": top_k}
     )
+
+
+@mcp.tool()
+def wiki_guide(project_id: str, api_key: str = "") -> dict:
+    """Explain the governed, project-scoped Wiki workflow."""
+    _require_auth(api_key)
+    return wiki_tools.wiki_guide(project_id)
+
+
+@mcp.tool()
+def wiki_search(project_id: str, query: str = "", api_key: str = "") -> dict:
+    """List matching Wiki evidence metadata without exposing raw evidence bodies."""
+    _require_auth(api_key)
+    return wiki_tools.wiki_search(project_id, query)
+
+
+@mcp.tool()
+def wiki_graph(project_id: str, api_key: str = "") -> dict:
+    """Read the isolated derived Knowledge Graph for one project."""
+    _require_auth(api_key)
+    return wiki_tools.wiki_graph(project_id)
+
+
+@mcp.tool()
+def wiki_read(project_id: str, page_id: str, api_key: str = "") -> dict:
+    """Read a published, project-scoped Wiki page and its traceable citations."""
+    _require_auth(api_key)
+    return wiki_tools.wiki_read(project_id, page_id)
+
+
+@mcp.tool()
+def wiki_propose_update(
+    project_id: str,
+    operations: list[dict],
+    source_ids: list[str] | None = None,
+    rationale: str = "",
+    api_key: str = "",
+) -> dict:
+    """Create a reviewable Wiki proposal. This never writes to the Obsidian Vault."""
+    _require_auth(api_key)
+    return wiki_tools.wiki_propose_update(project_id, operations, source_ids, rationale)
+
+
+@mcp.tool()
+def wiki_lint(project_id: str, proposal_id: str, api_key: str = "") -> dict:
+    """Run deterministic citation, frontmatter, and link checks on a Wiki proposal."""
+    _require_auth(api_key)
+    return wiki_tools.wiki_lint(project_id, proposal_id)
+
+
+@mcp.tool()
+def wiki_apply_update(project_id: str, proposal_id: str, api_key: str = "") -> dict:
+    """Publish a proposal only after lint, source eligibility, and evaluation gates pass."""
+    _require_auth(api_key)
+    return wiki_tools.wiki_apply_update(project_id, proposal_id)
+
+
+@mcp.tool()
+def wiki_distill(project_id: str, api_key: str = "") -> dict:
+    """Queue an evidence-backed weekly distillation when durable Celery is available."""
+    _require_auth(api_key)
+    return wiki_tools.wiki_distill(project_id)
+
+
+@mcp.tool()
+def wiki_schedule(project_id: str, job_type: str, cron: str, timezone: str = "Asia/Shanghai", api_key: str = "") -> dict:
+    """Persist a bounded Wiki maintenance schedule; it does not claim execution without Celery."""
+    _require_auth(api_key)
+    return wiki_tools.wiki_schedule(project_id, job_type, cron, timezone)
 
 
 @mcp.tool()

@@ -22,11 +22,13 @@ import { SopPanel } from './SopPanel';
 import { AgentTerminal } from './AgentTerminal';
 import { ContextPolicyControl } from './ContextPolicyControl';
 import SkillMarket from './SkillMarket';
+import { KnowledgeWorkspace } from './KnowledgeWorkspace';
 import {
   Blocks,
   Command,
   FileCode2,
   Network,
+  BookOpen,
   Play,
   Sparkles,
   Workflow,
@@ -121,6 +123,7 @@ export function UnifiedWorkspace() {
   const [contextPolicy, setContextPolicy] = useState<ContextPolicy>('fresh');
   const [parentSessionId, setParentSessionId] = useState('');
   const [skillsOpen, setSkillsOpen] = useState(false);
+  const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -291,6 +294,9 @@ export function UnifiedWorkspace() {
           <button type="button" className="skill-trigger" onClick={() => setSkillsOpen(true)}>
             <Blocks size={15} aria-hidden="true" /> Skills
           </button>
+          <button type="button" className="skill-trigger" onClick={() => setKnowledgeOpen(true)}>
+            <BookOpen size={15} aria-hidden="true" /> Knowledge
+          </button>
           <span className={'studio-status ' + statusColor}><i aria-hidden="true" />{statusLabel}</span>
           <code>{sessionDisplay}</code>
         </div>
@@ -417,6 +423,7 @@ export function UnifiedWorkspace() {
 
       <footer className="studio-footer"><span>{mode === 'auto' && detectedMode ? `Auto -> ${MODE_LABELS[detectedMode]}` : MODE_LABELS[effectiveMode]}</span><span>Session: {sessionDisplay}</span>{compiling && <span className="is-live">pipeline active</span>}{dashData && <span>coverage: {dashData.risk.coverage.coverage_pct}%</span>}<span className="studio-footer__right">BSC Studio 5.0</span></footer>
       {skillsOpen && <SkillMarket onClose={() => setSkillsOpen(false)} context={input || workspaceIdea} />}
+      {knowledgeOpen && <KnowledgeWorkspace onClose={() => setKnowledgeOpen(false)} />}
     </div>
   );
 }

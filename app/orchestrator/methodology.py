@@ -42,9 +42,14 @@ def derive_methodology_query(business_model: dict) -> str:
 class MethodologyBridge:
     """桥接方法论知识库与编译器 Agent。"""
 
-    def __init__(self, service=None):
+    def __init__(self, service=None, wiki_context_provider=None, wiki_enabled: Optional[bool] = None):
         # 可注入的检索服务；None 时惰性构建默认 KnowledgeService()
         self._service = service
+        self._wiki_context_provider = wiki_context_provider
+        if wiki_enabled is None:
+            from app.core.config import settings
+            wiki_enabled = settings.KNOWLEDGE_WIKI_ENABLED
+        self._wiki_enabled = wiki_enabled
 
     def _get_service(self):
         if self._service is None:
@@ -92,6 +97,33 @@ class MethodologyBridge:
 
         context_block = "\n".join(lines)
         return {"context_block": context_block, "citations": citations}
+
+    def retrieve_wiki_context(self, project_id: Optional[str], query: str) -> dict:
+        """Return opt-in, traceable Wiki context without changing legacy retrieval."""
+        empty = {
+            "knowledge_context_used": False,
+            "context_block": "",
+            "context_pack_id": "",
+            "page_ids": [],
+            "source_ids": [],
+            "assumptions": [],
+        }
+        if not project_id or not self._wiki_enabled or self._wiki_context_provider is None:
+            return empty
+        pack = self._wiki_context_provider.build_context(
+            project_id=project_id,
+            task_constraints=[query] if query else [],
+        )
+        if pack.project_id != project_id:
+            raise ValueError("Wiki context provider returned a cross-project context pack")
+        return {
+            "knowledge_context_used": True,
+            "context_block": pack.rendered,
+            "context_pack_id": pack.revision,
+            "page_ids": list(pack.page_ids),
+            "source_ids": list(pack.source_ids),
+            "assumptions": ["Context omissions are recorded in the context pack."] if pack.omitted_refs else [],
+        }
 
 
 def validate_source_refs(generated_items: list, citations: list) -> dict:

@@ -141,6 +141,17 @@ class Settings(BaseSettings):
     DB_PATH: str = "bsc_cloud.db"
     DB_URL: str = ""
 
+    KNOWLEDGE_WIKI_ENABLED: bool = False
+    OBSIDIAN_VAULT_ROOT: str = ""
+    HORIZON_ENABLED: bool = False
+    HORIZON_API_BASE_URL: str = ""
+    HORIZON_API_KEY: str = ""
+    HORIZON_STAGE_URL_TEMPLATE: str = "/api/runs/{run_id}/stages/{stage}"
+    HORIZON_TIMEOUT_SECONDS: int = 20
+    HORIZON_MAX_RESPONSE_BYTES: int = 2_000_000
+    HORIZON_ALLOW_PRIVATE_NETWORK: bool = False
+    KNOWLEDGE_WIKI_LLM_PROVIDER: str = ""
+
     CELERY_ENABLED: bool = False
     CELERY_BROKER_URL: str = "redis://localhost:6379/0"
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/1"
