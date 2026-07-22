@@ -281,4 +281,6 @@ Live Horizon endpoint/API credentials and a real Wiki-maintenance LLM provider r
 - Replaced the duplicate legacy API/Worker/Beat containers without deleting named volumes, Redis data, the runtime database, or `D:\bsc\bsc`. The Compose deployment is healthy at `http://127.0.0.1:8002/live`; Redis returns `PONG`; the sole Worker registers `knowledge.execute` and `knowledge.reconcile_schedules`.
 - Focused adapter/task/Compose regression: `21 passed`, with one existing Starlette/httpx deprecation warning. `docker compose config --quiet` and `git diff --check` pass.
 - Expanded knowledge/integration/API/Celery regression: `267 passed, 5 skipped`, with one existing Starlette/httpx deprecation warning. Python compileall also passes.
-- No synthetic Horizon news run was created and no live source import is claimed. The producer is configured and ready; the first real `hz_run_pipeline` invocation will create the run artifact consumed by BSC.
+- Horizon live smoke exposed a Windows GBK console defect in upstream Rich output; rerunning with `PYTHONUTF8=1` resolved it without changing pipeline semantics.
+- Executed a cost-bounded live Hacker News flow with five-story fetch cap and no enrichment/summary. Horizon fetched, scored, and retained 2 items in native run `run-20260722T081820Z-8618b8ef`.
+- BSC runtime run `799e0e2467fd` consumed that run's `filtered_items.json` through the read-only mount and completed with `source_mode=run_store`, `accepted=2`, `created=2`. Project `horizon-radar` now contains two immutable live evidence records.
