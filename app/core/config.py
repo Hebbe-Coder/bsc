@@ -150,6 +150,7 @@ class Settings(BaseSettings):
     HORIZON_ENABLED: bool = False
     HORIZON_API_BASE_URL: str = ""
     HORIZON_API_KEY: str = ""
+    HORIZON_RUNS_ROOT: str = ""
     HORIZON_STAGE_URL_TEMPLATE: str = "/api/runs/{run_id}/stages/{stage}"
     HORIZON_TIMEOUT_SECONDS: int = 20
     HORIZON_MAX_RESPONSE_BYTES: int = 2_000_000

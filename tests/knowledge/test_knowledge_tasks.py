@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import json
 
 from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus
 from app.knowledge.wiki_repository import WikiRepository
@@ -211,6 +212,52 @@ def test_wiki_maintenance_auto_publishes_only_for_enabled_trusted_project_policy
         assert repo.get_source("project-a", source["id"])["status"] == "processed"
         assert "wiki/concepts/approval.md" in vault.contents
         assert repo.get_run("project-a", run.id)["output_refs"]["publication"]["publication_policy"]["mode"] == "automatic"
+    finally:
+        repo.close()
+
+
+def test_horizon_capture_task_imports_native_run_store_artifact(tmp_path, monkeypatch):
+    repo = WikiRepository(db_path=str(tmp_path / "tasks-horizon-run-store.db"))
+    runs_root = tmp_path / "mcp-runs"
+    run_dir = runs_root / "run-horizon-1"
+    run_dir.mkdir(parents=True)
+    (run_dir / "filtered_items.json").write_text(
+        json.dumps([
+            {
+                "id": "rss:ai:1",
+                "source_type": "rss",
+                "title": "Agent systems",
+                "url": "https://example.com/agents",
+                "content": "Primary article content.",
+                "published_at": "2026-07-22T00:00:00Z",
+                "ai_score": 8.2,
+                "ai_reason": "Useful architecture",
+                "ai_summary": "Grounded signal.",
+                "ai_tags": ["agents"],
+            }
+        ]),
+        encoding="utf-8",
+    )
+    run = KnowledgeRun(
+        project_id="project-a",
+        run_type="horizon_capture",
+        trigger="manual",
+        input_refs={"horizon_run_id": "run-horizon-1", "stage": "filtered"},
+    )
+    repo.create_run(run)
+    monkeypatch.setattr("app.tasks.knowledge_tasks.settings.HORIZON_ENABLED", True)
+    monkeypatch.setattr("app.tasks.knowledge_tasks.settings.HORIZON_RUNS_ROOT", str(runs_root))
+    monkeypatch.setattr("app.tasks.knowledge_tasks.settings.HORIZON_API_BASE_URL", "")
+    try:
+        result = execute_knowledge_run("project-a", run.id, repository=repo)
+
+        assert result["status"] == "completed"
+        assert result["horizon"] == {"accepted": 1, "created": 1, "duplicates": 0, "rejected": 0}
+        persisted = repo.get_run("project-a", run.id)
+        assert persisted["output_refs"]["source_mode"] == "run_store"
+        source = repo.list_sources("project-a")[0]
+        assert source["source_type"] == "horizon_signal"
+        assert source["metadata"]["horizon_run_id"] == "run-horizon-1"
     finally:
         repo.close()
 

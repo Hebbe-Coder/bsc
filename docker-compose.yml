@@ -11,6 +11,10 @@ services:
       - ENVIRONMENT=${ENVIRONMENT:-production}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LLM_PROVIDER=${LLM_PROVIDER:?LLM_PROVIDER must be configured for production}
+      - ANALYSIS_PROVIDER=${ANALYSIS_PROVIDER:-deepseek}
+      - GENERATION_PROVIDER=${GENERATION_PROVIDER:-deepseek}
+      - SOP_LLM_PROVIDER=${SOP_LLM_PROVIDER:-deepseek}
+      - RAG_LLM_PROVIDER=${RAG_LLM_PROVIDER:-deepseek}
       - ALLOW_MOCK_LLM_IN_PRODUCTION=${ALLOW_MOCK_LLM_IN_PRODUCTION:-false}
       - CACHE_TYPE=${CACHE_TYPE:-memory}
       - DB_TYPE=sqlite
@@ -25,6 +29,7 @@ services:
       - HORIZON_ENABLED=${HORIZON_ENABLED:-false}
       - HORIZON_API_BASE_URL=${HORIZON_API_BASE_URL:-}
       - HORIZON_API_KEY=${HORIZON_API_KEY:-}
+      - HORIZON_RUNS_ROOT=${HORIZON_RUNS_ROOT:-/horizon-runs}
       - HORIZON_STAGE_URL_TEMPLATE=${HORIZON_STAGE_URL_TEMPLATE:-/api/runs/{run_id}/stages/{stage}}
       - HORIZON_TIMEOUT_SECONDS=${HORIZON_TIMEOUT_SECONDS:-20}
       - HORIZON_MAX_RESPONSE_BYTES=${HORIZON_MAX_RESPONSE_BYTES:-2000000}
@@ -56,6 +61,7 @@ services:
       - bsc-data:/data
       - bsc-output:/app/output
       - ${OBSIDIAN_VAULT_HOST_PATH:?OBSIDIAN_VAULT_HOST_PATH must be set}:/vault
+      - ${HORIZON_RUNS_HOST_PATH:-./data/horizon-runs}:/horizon-runs:ro
     networks:
       - bsc-network
     restart: unless-stopped
@@ -108,9 +114,17 @@ services:
       - KNOWLEDGE_MCP_WRITE_ENABLED=${KNOWLEDGE_MCP_WRITE_ENABLED:-false}
       - KNOWLEDGE_WIKI_AUTO_PUBLISH_ENABLED=${KNOWLEDGE_WIKI_AUTO_PUBLISH_ENABLED:-false}
       - KNOWLEDGE_WIKI_LLM_PROVIDER=${KNOWLEDGE_WIKI_LLM_PROVIDER:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
+      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-deepseek-chat}
+      - ANALYSIS_PROVIDER=${ANALYSIS_PROVIDER:-deepseek}
+      - GENERATION_PROVIDER=${GENERATION_PROVIDER:-deepseek}
+      - SOP_LLM_PROVIDER=${SOP_LLM_PROVIDER:-deepseek}
+      - RAG_LLM_PROVIDER=${RAG_LLM_PROVIDER:-deepseek}
       - HORIZON_ENABLED=${HORIZON_ENABLED:-false}
       - HORIZON_API_BASE_URL=${HORIZON_API_BASE_URL:-}
       - HORIZON_API_KEY=${HORIZON_API_KEY:-}
+      - HORIZON_RUNS_ROOT=${HORIZON_RUNS_ROOT:-/horizon-runs}
       - HORIZON_STAGE_URL_TEMPLATE=${HORIZON_STAGE_URL_TEMPLATE:-/api/runs/{run_id}/stages/{stage}}
       - HORIZON_TIMEOUT_SECONDS=${HORIZON_TIMEOUT_SECONDS:-20}
       - HORIZON_MAX_RESPONSE_BYTES=${HORIZON_MAX_RESPONSE_BYTES:-2000000}
@@ -121,9 +135,9 @@ services:
       - bsc-data:/data
       - bsc-output:/app/output
       - ${OBSIDIAN_VAULT_HOST_PATH:?OBSIDIAN_VAULT_HOST_PATH must be set}:/vault
+      - ${HORIZON_RUNS_HOST_PATH:-./data/horizon-runs}:/horizon-runs:ro
     depends_on:
       - redis
-      - ollama
     networks:
       - bsc-network
     restart: unless-stopped

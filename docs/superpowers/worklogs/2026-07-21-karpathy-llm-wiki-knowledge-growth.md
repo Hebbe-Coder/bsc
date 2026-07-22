@@ -269,3 +269,16 @@ Live Horizon endpoint/API credentials and a real Wiki-maintenance LLM provider r
 - Hardened Horizon URL isolation: protocol-relative stage escapes and cross-origin redirects are rejected before payload consumption; HTTP error statuses become non-sensitive adapter failures.
 - Unified proposal provenance: source IDs declared on operations are merged into the proposal source set before lint, evaluation, automatic-publication trust checks, and processed-source transitions.
 - New focused tests pass for feature-disabled API/MCP/task states, Wiki index synchronization, symlink isolation, Horizon URL safety, and operation-level provenance. Full Python regression after these remediations: `775 passed, 8 skipped, 3 warnings`.
+
+## Horizon Native Run-Store Deployment (2026-07-22)
+
+- Re-verified the supplied Horizon source and corrected the integration assumption: Horizon has no standalone API service. Its MCP `RunStore` writes reproducible stage artifacts under `data/mcp-runs/<run_id>/`.
+- Added `HorizonRunStoreClient` and wired `horizon_capture` to prefer native run artifacts, with the bounded HTTP adapter retained only as a compatibility fallback. Capture audit events and output references now record `source_mode`.
+- Added run ID traversal protection, read-only stage allow-listing (`filtered`/`enriched`), symlink rejection, response-size bounds, JSON shape validation, and missing-artifact failure handling.
+- Added Docker contracts for a read-only `${HORIZON_RUNS_HOST_PATH}:/horizon-runs:ro` mount on API and Worker only. Beat receives no Horizon path or secret.
+- Installed the supplied Horizon repository independently at `D:\bsc\horizon`, generated its documented local `data/config.json`, selected `deepseek/deepseek-chat`, and validated five enabled sources with no missing environment variables. Secrets remain in ignored local `.env` files and were not logged or committed.
+- Runtime now uses `HORIZON_ENABLED=true`, host path `D:\bsc\horizon\data\mcp-runs`, and container path `/horizon-runs`. API and Worker see the path as read-only; API reports `horizon_mode=run_store`.
+- Replaced the duplicate legacy API/Worker/Beat containers without deleting named volumes, Redis data, the runtime database, or `D:\bsc\bsc`. The Compose deployment is healthy at `http://127.0.0.1:8002/live`; Redis returns `PONG`; the sole Worker registers `knowledge.execute` and `knowledge.reconcile_schedules`.
+- Focused adapter/task/Compose regression: `21 passed`, with one existing Starlette/httpx deprecation warning. `docker compose config --quiet` and `git diff --check` pass.
+- Expanded knowledge/integration/API/Celery regression: `267 passed, 5 skipped`, with one existing Starlette/httpx deprecation warning. Python compileall also passes.
+- No synthetic Horizon news run was created and no live source import is claimed. The producer is configured and ready; the first real `hz_run_pipeline` invocation will create the run artifact consumed by BSC.

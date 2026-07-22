@@ -14,6 +14,7 @@ from app.knowledge.distillation import DistillationError, WeeklyDistillationServ
 from app.knowledge.context_pack import ContextPackBuilder
 from app.knowledge.horizon_client import HorizonClient, HorizonClientError
 from app.knowledge.horizon_import import HorizonImportService
+from app.knowledge.horizon_run_store import HorizonRunStoreClient
 from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.scheduler import KnowledgeScheduler
 from app.knowledge.wiki_sync import ObsidianSyncService
@@ -149,13 +150,13 @@ def execute_knowledge_run(
             repo.update_run_status(project_id, run_id, RunStatus.COMPLETED, output_refs={"sync": report})
             return {"status": "completed", "run_id": run_id, "sync": report}
         if run["run_type"] == "horizon_capture":
-            if not settings.HORIZON_ENABLED or not settings.HORIZON_API_BASE_URL:
+            if not settings.HORIZON_ENABLED or not (settings.HORIZON_RUNS_ROOT or settings.HORIZON_API_BASE_URL):
                 return _record_terminal_failure(
                     repo,
                     project_id=project_id,
                     run_id=run_id,
                     status=RunStatus.UNAVAILABLE,
-                    message="Horizon sidecar is not configured",
+                    message="Horizon artifact source is not configured",
                     failure=KnowledgeFailure("configuration", "horizon_not_configured", False),
                 )
             horizon_run_id = str(run["input_refs"].get("horizon_run_id") or "").strip()
@@ -170,14 +171,22 @@ def execute_knowledge_run(
                     failure=KnowledgeFailure("configuration", "horizon_run_id_missing", False),
                 )
             try:
-                response = HorizonClient(
-                    base_url=settings.HORIZON_API_BASE_URL,
-                    api_key=settings.HORIZON_API_KEY,
-                    stage_url_template=settings.HORIZON_STAGE_URL_TEMPLATE,
-                    timeout_seconds=settings.HORIZON_TIMEOUT_SECONDS,
-                    max_response_bytes=settings.HORIZON_MAX_RESPONSE_BYTES,
-                    allow_private_network=settings.HORIZON_ALLOW_PRIVATE_NETWORK,
-                ).fetch_stage(run_id=horizon_run_id, stage=stage)
+                if settings.HORIZON_RUNS_ROOT:
+                    response = HorizonRunStoreClient(
+                        runs_root=settings.HORIZON_RUNS_ROOT,
+                        max_response_bytes=settings.HORIZON_MAX_RESPONSE_BYTES,
+                    ).fetch_stage(run_id=horizon_run_id, stage=stage)
+                    source_mode = "run_store"
+                else:
+                    response = HorizonClient(
+                        base_url=settings.HORIZON_API_BASE_URL,
+                        api_key=settings.HORIZON_API_KEY,
+                        stage_url_template=settings.HORIZON_STAGE_URL_TEMPLATE,
+                        timeout_seconds=settings.HORIZON_TIMEOUT_SECONDS,
+                        max_response_bytes=settings.HORIZON_MAX_RESPONSE_BYTES,
+                        allow_private_network=settings.HORIZON_ALLOW_PRIVATE_NETWORK,
+                    ).fetch_stage(run_id=horizon_run_id, stage=stage)
+                    source_mode = "http"
                 report = HorizonImportService(repo).import_items(
                     project_id=project_id, run_id=response.run_id, stage=response.stage, items=response.items
                 )
@@ -192,9 +201,19 @@ def execute_knowledge_run(
                 )
             repo.append_run_event(
                 project_id=project_id, run_id=run_id, event_type="knowledge.horizon.capture.completed",
-                payload={"horizon_run_id": horizon_run_id, "stage": stage, **report},
+                payload={"horizon_run_id": horizon_run_id, "stage": stage, "source_mode": source_mode, **report},
             )
-            repo.update_run_status(project_id, run_id, RunStatus.COMPLETED, output_refs={"horizon": report, "horizon_run_id": horizon_run_id, "stage": stage})
+            repo.update_run_status(
+                project_id,
+                run_id,
+                RunStatus.COMPLETED,
+                output_refs={
+                    "horizon": report,
+                    "horizon_run_id": horizon_run_id,
+                    "stage": stage,
+                    "source_mode": source_mode,
+                },
+            )
             return {"status": "completed", "run_id": run_id, "horizon": report}
         if run["run_type"] == "wiki_maintenance":
             if not settings.OBSIDIAN_VAULT_ROOT:

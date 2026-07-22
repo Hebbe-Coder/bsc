@@ -20,10 +20,19 @@ Horizon output enters BSC only through `HorizonImportService` and only from `fil
 - BSC never imports Horizon's generated daily summary as a primary source when the underlying item text is available.
 - Horizon remains independently deployable, so its scraper credentials, cookies, and network failures do not enter BSC's database or MCP transport.
 
+## Native MCP Run-Store Integration
+
+Horizon does not expose a standalone HTTP API. Its built-in MCP service writes each pipeline run to `data/mcp-runs/<run_id>/`, including `raw_items.json`, `scored_items.json`, `filtered_items.json`, and `enriched_items.json`. BSC therefore consumes the native run store directly through a read-only deployment mount and retains the earlier HTTP client only as an optional compatibility adapter.
+
+- `HorizonRunStoreClient` accepts only bounded `filtered` and `enriched` JSON artifacts.
+- Run IDs are allow-listed and resolved beneath the configured root; traversal and symlink artifacts are rejected.
+- API and Worker receive the read-only run-store mount. Beat receives neither the mount nor Horizon credentials.
+- Horizon owns writes and source collection. BSC owns immutable evidence ingestion, project isolation, evaluation, publication, and audit.
+
 ## Integration Sequence
 
 ```text
-Horizon filtered/enriched stage
+Horizon MCP data/mcp-runs/<run_id>/filtered_items.json or enriched_items.json
   -> BSC HorizonImportService
   -> immutable validated SourceRecord
   -> project review / eligibility policy
