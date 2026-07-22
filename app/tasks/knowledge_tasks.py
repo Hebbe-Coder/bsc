@@ -14,7 +14,7 @@ from app.knowledge.distillation import DistillationError, WeeklyDistillationServ
 from app.knowledge.context_pack import ContextPackBuilder
 from app.knowledge.horizon_client import HorizonClient, HorizonClientError
 from app.knowledge.horizon_import import HorizonImportService
-from app.knowledge.horizon_run_store import HorizonRunStoreClient
+from app.knowledge.horizon_run_store import HorizonRunStoreClient, HorizonRunStoreEmptyError
 from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.scheduler import KnowledgeScheduler
 from app.knowledge.wiki_sync import ObsidianSyncService
@@ -74,6 +74,10 @@ def _record_terminal_failure(
         "error": message,
         "failure": failure.__dict__,
     }
+
+
+def _imported_horizon_run_ids(repository: WikiRepository, project_id: str) -> set[str]:
+    return repository.list_completed_horizon_run_ids(project_id)
 
 
 def execute_knowledge_run(
@@ -161,21 +165,30 @@ def execute_knowledge_run(
                 )
             horizon_run_id = str(run["input_refs"].get("horizon_run_id") or "").strip()
             stage = str(run["input_refs"].get("stage") or "filtered")
-            if not horizon_run_id:
+            discovery = not horizon_run_id
+            if discovery and not settings.HORIZON_RUNS_ROOT:
                 return _record_terminal_failure(
                     repo,
                     project_id=project_id,
                     run_id=run_id,
                     status=RunStatus.FAILED,
-                    message="Horizon run ID is required",
+                    message="Horizon run ID is required for the HTTP compatibility source",
                     failure=KnowledgeFailure("configuration", "horizon_run_id_missing", False),
                 )
             try:
                 if settings.HORIZON_RUNS_ROOT:
-                    response = HorizonRunStoreClient(
+                    run_store = HorizonRunStoreClient(
                         runs_root=settings.HORIZON_RUNS_ROOT,
                         max_response_bytes=settings.HORIZON_MAX_RESPONSE_BYTES,
-                    ).fetch_stage(run_id=horizon_run_id, stage=stage)
+                    )
+                    if discovery:
+                        response = run_store.fetch_latest_stage(
+                            exclude_run_ids=_imported_horizon_run_ids(repo, project_id)
+                        )
+                        horizon_run_id = response.run_id
+                        stage = response.stage
+                    else:
+                        response = run_store.fetch_stage(run_id=horizon_run_id, stage=stage)
                     source_mode = "run_store"
                 else:
                     response = HorizonClient(
@@ -190,6 +203,23 @@ def execute_knowledge_run(
                 report = HorizonImportService(repo).import_items(
                     project_id=project_id, run_id=response.run_id, stage=response.stage, items=response.items
                 )
+            except HorizonRunStoreEmptyError:
+                report = {"accepted": 0, "created": 0, "duplicates": 0, "rejected": 0, "skipped": True}
+                repo.append_run_event(
+                    project_id=project_id,
+                    run_id=run_id,
+                    event_type="knowledge.horizon.capture.skipped",
+                    payload={"reason": "no_new_artifact", "source_mode": "run_store", "discovery": True},
+                )
+                output_refs = {
+                    "horizon": report,
+                    "horizon_run_id": "",
+                    "stage": "",
+                    "source_mode": "run_store",
+                    "discovery": True,
+                }
+                repo.update_run_status(project_id, run_id, RunStatus.COMPLETED, output_refs=output_refs)
+                return {"status": "completed", "run_id": run_id, "horizon": report, "output_refs": output_refs}
             except HorizonClientError as exc:
                 return _record_terminal_failure(
                     repo,
@@ -201,7 +231,13 @@ def execute_knowledge_run(
                 )
             repo.append_run_event(
                 project_id=project_id, run_id=run_id, event_type="knowledge.horizon.capture.completed",
-                payload={"horizon_run_id": horizon_run_id, "stage": stage, "source_mode": source_mode, **report},
+                payload={
+                    "horizon_run_id": horizon_run_id,
+                    "stage": stage,
+                    "source_mode": source_mode,
+                    "discovery": discovery,
+                    **report,
+                },
             )
             repo.update_run_status(
                 project_id,
@@ -212,6 +248,7 @@ def execute_knowledge_run(
                     "horizon_run_id": horizon_run_id,
                     "stage": stage,
                     "source_mode": source_mode,
+                    "discovery": discovery,
                 },
             )
             return {"status": "completed", "run_id": run_id, "horizon": report}

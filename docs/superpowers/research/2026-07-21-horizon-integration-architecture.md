@@ -29,6 +29,16 @@ Horizon does not expose a standalone HTTP API. Its built-in MCP service writes e
 - API and Worker receive the read-only run-store mount. Beat receives neither the mount nor Horizon credentials.
 - Horizon owns writes and source collection. BSC owns immutable evidence ingestion, project isolation, evaluation, publication, and audit.
 
+## Continuous Automation
+
+The producer and consumer schedules remain deliberately separate:
+
+1. The host task `BSC-Horizon-Daily-Radar` runs the bounded producer script at 07:30 Asia/Shanghai. It uses Horizon's own virtual environment, prevents overlapping runs, writes a redacted atomic `producer-state.json`, and marks the richest completed stage in run metadata.
+2. BSC persists a project-scoped `horizon_capture` schedule. Beat reconciles due schedules and Worker discovers the newest `enriched` artifact, falling back to `filtered` only when enrichment is unavailable.
+3. Completed Horizon run IDs already recorded by the project are excluded. If no new artifact exists, the BSC run ends as `completed` with a `knowledge.horizon.capture.skipped` event instead of producing a false failure.
+
+This keeps Horizon credentials and write access outside BSC while still providing durable scheduling, retry history, project isolation, and observable no-op runs.
+
 ## Integration Sequence
 
 ```text

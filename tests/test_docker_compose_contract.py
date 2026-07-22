@@ -51,3 +51,19 @@ def test_horizon_run_store_configuration_reaches_api_and_worker_only():
     assert expected_mount in compose["services"]["bsc-backend"]["volumes"]
     assert expected_mount in compose["services"]["celery-worker"]["volumes"]
     assert expected_mount not in compose["services"]["celery-beat"]["volumes"]
+
+
+def test_api_and_worker_share_the_redis_broker_contract():
+    compose = yaml.safe_load(Path("docker-compose.yml").read_text(encoding="utf-8"))
+    api_required = {
+        "CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/0}",
+        "CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND:-redis://redis:6379/1}",
+    }
+    worker_required = {
+        "CELERY_BROKER_URL=redis://redis:6379/0",
+        "CELERY_RESULT_BACKEND=redis://redis:6379/1",
+    }
+
+    assert api_required <= set(compose["services"]["bsc-backend"]["environment"])
+    for service_name in ("celery-worker", "celery-beat"):
+        assert worker_required <= set(compose["services"][service_name]["environment"])

@@ -284,3 +284,16 @@ Live Horizon endpoint/API credentials and a real Wiki-maintenance LLM provider r
 - Horizon live smoke exposed a Windows GBK console defect in upstream Rich output; rerunning with `PYTHONUTF8=1` resolved it without changing pipeline semantics.
 - Executed a cost-bounded live Hacker News flow with five-story fetch cap and no enrichment/summary. Horizon fetched, scored, and retained 2 items in native run `run-20260722T081820Z-8618b8ef`.
 - BSC runtime run `799e0e2467fd` consumed that run's `filtered_items.json` through the read-only mount and completed with `source_mode=run_store`, `accepted=2`, `created=2`. Project `horizon-radar` now contains two immutable live evidence records.
+
+## Horizon Continuous Automation (2026-07-22)
+
+- Closed the scheduled-capture contract gap: schedule claims do not contain a Horizon run ID, so `horizon_capture` now discovers the latest unimported native artifact, prefers `enriched`, and falls back to `filtered`.
+- A second capture of the same run completes with `skipped=true` and a `knowledge.horizon.capture.skipped` event. It does not create duplicate evidence or a false dependency failure.
+- Replaced the temporary recent-run window with a project-scoped database ledger of every completed Horizon run ID, so frequent skip runs cannot cause old artifacts to re-enter discovery after long-running operation.
+- Added `scripts/run_horizon_pipeline.py` as an independently executed Horizon producer. It uses Horizon's own service and environment, enforces a single active producer, reclaims only stale lock files, redacts provider keys, atomically writes `producer-state.json`, and marks `bsc_ready_stage` in native run metadata.
+- Fixed the API deployment's missing Redis broker/result environment. API schedule availability now resolves `redis://redis:6379/0` and returns `scheduler_broker_available=true`; Worker and Beat retain the same broker contract.
+- Registered Windows task `BSC-Horizon-Daily-Radar` for 07:30 Asia/Shanghai with `StartWhenAvailable`, a two-hour execution limit, and `IgnoreNew` overlap policy. Its registered action was executed, returned Windows result `0`, and produced run `run-20260722T083443Z-91791055` with fetched=4, scored=4, kept=2, enriched=2.
+- Initialized Obsidian project `projects/horizon-radar` with `AGENTS.md` and managed Wiki files. Persistent BSC schedule `abb271e1e30d65f65579d738` runs `horizon_capture` every 30 minutes in Asia/Shanghai.
+- Celery queue proof: run `b320e0a6eb2c` automatically imported the scheduled-task artifact from `enriched_items.json` with accepted=2 and created=2. Forced due reconciliation then created schedule run `ab286a9a4fa6`, completed it as an idempotent skip, and advanced the next run to `2026-07-22T09:00:00+00:00`.
+- Focused automation, scheduler, task, producer, and Compose contracts: `28 passed`, with one existing Starlette/httpx deprecation warning. Runtime project `horizon-radar` contains five immutable evidence records after the live proofs.
+- Expanded knowledge/integration/API/Celery/producer regression: `275 passed, 5 skipped`, with one existing Starlette/httpx deprecation warning. Compileall, Compose config, and `git diff --check` pass.

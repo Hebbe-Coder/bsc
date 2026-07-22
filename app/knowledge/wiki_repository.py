@@ -616,6 +616,19 @@ class WikiRepository(BaseRepository):
         ).fetchone()
         return self._decode(row, ("input_refs_json", "output_refs_json"))
 
+    def list_completed_horizon_run_ids(self, project_id: str) -> set[str]:
+        rows = self._execute(
+            "SELECT output_refs_json FROM knowledge_runs WHERE project_id=? AND run_type=? AND status=?",
+            (project_id, "horizon_capture", RunStatus.COMPLETED.value),
+        ).fetchall()
+        run_ids: set[str] = set()
+        for row in rows:
+            decoded = self._decode(row, ("output_refs_json",)) or {}
+            run_id = str((decoded.get("output_refs") or {}).get("horizon_run_id") or "").strip()
+            if run_id:
+                run_ids.add(run_id)
+        return run_ids
+
     def update_run_status(
         self,
         project_id: str,

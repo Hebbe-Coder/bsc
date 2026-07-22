@@ -262,6 +262,49 @@ def test_horizon_capture_task_imports_native_run_store_artifact(tmp_path, monkey
         repo.close()
 
 
+def test_scheduled_horizon_capture_discovers_latest_run_and_skips_it_after_import(tmp_path, monkeypatch):
+    repo = WikiRepository(db_path=str(tmp_path / "tasks-horizon-discovery.db"))
+    runs_root = tmp_path / "mcp-runs"
+    run_dir = runs_root / "run-horizon-auto"
+    run_dir.mkdir(parents=True)
+    (run_dir / "filtered_items.json").write_text(
+        json.dumps([
+            {
+                "id": "rss:auto:1",
+                "source_type": "rss",
+                "title": "Automated signal",
+                "url": "https://example.com/automated-signal",
+                "content": "Evidence captured by an automated Horizon run.",
+                "published_at": "2026-07-22T00:00:00Z",
+                "ai_score": 8.4,
+            }
+        ]),
+        encoding="utf-8",
+    )
+    first = KnowledgeRun(project_id="project-a", run_type="horizon_capture", trigger="schedule")
+    second = KnowledgeRun(project_id="project-a", run_type="horizon_capture", trigger="schedule")
+    repo.create_run(first)
+    monkeypatch.setattr("app.tasks.knowledge_tasks.settings.HORIZON_ENABLED", True)
+    monkeypatch.setattr("app.tasks.knowledge_tasks.settings.HORIZON_RUNS_ROOT", str(runs_root))
+    monkeypatch.setattr("app.tasks.knowledge_tasks.settings.HORIZON_API_BASE_URL", "")
+    try:
+        first_result = execute_knowledge_run("project-a", first.id, repository=repo)
+        repo.create_run(second)
+        second_result = execute_knowledge_run("project-a", second.id, repository=repo)
+
+        assert first_result["status"] == "completed"
+        first_run = repo.get_run("project-a", first.id)
+        assert first_run["output_refs"]["horizon_run_id"] == "run-horizon-auto"
+        assert first_run["output_refs"]["discovery"] is True
+        assert second_result["horizon"]["skipped"] is True
+        assert repo.get_run("project-a", second.id)["status"] == "completed"
+        assert len(repo.list_sources("project-a")) == 1
+        events = repo.list_run_events(project_id="project-a", run_id=second.id)
+        assert any(event["event_type"] == "knowledge.horizon.capture.skipped" for event in events)
+    finally:
+        repo.close()
+
+
 def test_weekly_distillation_task_writes_project_bundle(tmp_path, monkeypatch):
     repo = WikiRepository(db_path=str(tmp_path / "tasks-bundle.db"))
     source = SourceCaptureService(repo).capture(

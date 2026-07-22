@@ -70,3 +70,11 @@ Every task records `KnowledgeRun` state and retry lineage. A schedule can be ena
 - Disabled Celery does not report schedules as running; manual work remains auditable.
 - Rollback pauses schedules/stops Beat and preserves user files and audit data.
 - Handoff P6/P7 with schedule/run/distillation/availability contracts and P8 with Docker proof/configuration.
+
+## Horizon Automation Remediation (2026-07-22)
+
+- [x] Scheduled `horizon_capture` runs discover the newest unimported native run-store artifact without requiring a manually supplied run ID.
+- [x] Discovery prefers `enriched`, safely falls back to `filtered`, excludes project-imported run IDs, and records no-new-artifact cycles as completed skips.
+- [x] Added a bounded independent producer with overlap lock, stale-lock recovery, UTF-8 Windows compatibility, redacted errors, atomic state, and ready-stage metadata.
+- [x] Passed the Redis broker contract to the API container so schedule creation reflects actual Celery availability.
+- [x] Deployed daily host production plus a persistent 30-minute BSC import schedule and verified real Beat -> Worker reconciliation.

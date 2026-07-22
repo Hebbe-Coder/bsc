@@ -17,6 +17,10 @@ _STAGE_FILES = {
 }
 
 
+class HorizonRunStoreEmptyError(HorizonClientError):
+    """Raised when discovery finds no unpublished stage artifact."""
+
+
 class HorizonRunStoreClient:
     """Read Horizon's native MCP artifacts without requiring a Horizon REST service."""
 
@@ -52,3 +56,33 @@ class HorizonRunStoreClient:
         if not isinstance(items, list) or not all(isinstance(item, dict) for item in items):
             raise HorizonClientError("Horizon stage response must contain an items array")
         return HorizonStageResponse(run_id=run_id, stage=stage, items=items)
+
+    def fetch_latest_stage(
+        self,
+        *,
+        stages: tuple[str, ...] = ("enriched", "filtered"),
+        exclude_run_ids: set[str] | None = None,
+    ) -> HorizonStageResponse:
+        """Discover the newest safe run, preferring the richest available stage."""
+        if not stages or any(stage not in _STAGE_FILES for stage in stages):
+            raise HorizonClientError("Horizon stages must contain filtered or enriched")
+        excluded = exclude_run_ids or set()
+        candidates: list[tuple[int, str, str]] = []
+        for run_dir in self.runs_root.iterdir():
+            run_id = run_dir.name
+            if run_id in excluded or run_dir.is_symlink() or not run_dir.is_dir():
+                continue
+            if not _RUN_ID_RE.fullmatch(run_id) or ".." in run_id:
+                continue
+            selected: tuple[int, str, str] | None = None
+            for stage in stages:
+                artifact = run_dir / _STAGE_FILES[stage]
+                if artifact.is_file() and not artifact.is_symlink():
+                    selected = (artifact.stat().st_mtime_ns, run_id, stage)
+                    break
+            if selected:
+                candidates.append(selected)
+        if not candidates:
+            raise HorizonRunStoreEmptyError("No new Horizon stage artifact was found")
+        _, run_id, stage = max(candidates, key=lambda candidate: (candidate[0], candidate[1]))
+        return self.fetch_stage(run_id=run_id, stage=stage)

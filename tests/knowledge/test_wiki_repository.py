@@ -75,6 +75,46 @@ def test_repository_keeps_wiki_records_project_scoped(tmp_path):
         assert repo.list_runs("project-b") == []
     finally:
         repo.close()
+
+
+def test_repository_lists_all_completed_horizon_run_ids_by_project(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "horizon-run-ledger.db"))
+    try:
+        imported = KnowledgeRun(
+            project_id="project-a",
+            run_type="horizon_capture",
+            trigger="schedule",
+            status=RunStatus.COMPLETED,
+            output_refs={"horizon_run_id": "run-imported"},
+        )
+        skipped = KnowledgeRun(
+            project_id="project-a",
+            run_type="horizon_capture",
+            trigger="schedule",
+            status=RunStatus.COMPLETED,
+            output_refs={"horizon_run_id": ""},
+        )
+        other_project = KnowledgeRun(
+            project_id="project-b",
+            run_type="horizon_capture",
+            trigger="schedule",
+            status=RunStatus.COMPLETED,
+            output_refs={"horizon_run_id": "run-other-project"},
+        )
+        failed = KnowledgeRun(
+            project_id="project-a",
+            run_type="horizon_capture",
+            trigger="schedule",
+            status=RunStatus.FAILED,
+            output_refs={"horizon_run_id": "run-failed"},
+        )
+        for run in (imported, skipped, other_project, failed):
+            repo.create_run(run)
+
+        assert repo.list_completed_horizon_run_ids("project-a") == {"run-imported"}
+        assert repo.list_completed_horizon_run_ids("project-b") == {"run-other-project"}
+    finally:
+        repo.close()
 import hashlib
 
 import pytest
