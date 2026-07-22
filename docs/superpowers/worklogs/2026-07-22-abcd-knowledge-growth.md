@@ -89,6 +89,17 @@
 - **Rollback:** additive schema/data is retained. Disable growth feature flags and schedules first, then remove UI/API exposure and bridges in reverse P9-to-P1 order without deleting user Vault files or audit records.
 - **Handoff:** all P1-P9 plan checkboxes and all 20 PRD acceptance rows are complete with fixture/runtime evidence. A production rollout requires only normal secret rotation and explicit provider onboarding, not further feature implementation.
 
+## 2026-07-22 23:35 - Current Commit Reverification
+
+- **State:** complete; the committed P1-P9 implementation was independently re-audited after the original closure entry.
+- **Plan-to-code audit:** all explicit P1-P9 implementation paths listed in the detailed plans exist in the repository. The only absent path is `app/bsc_cloud.db-shm`, which P9 explicitly excludes as runtime data.
+- **Full regression:** `./.venv/Scripts/python.exe -m pytest -q --durations=20` passed with `983 passed, 11 skipped, 3 warnings` in `265.16s`. The skipped cases are external/optional integration boundaries and are not used as completion evidence.
+- **P8 frontend:** `npm run test:frontend` passed `52` tests; `npm run check` passed; `npm run lint` reported `0` errors and `193` existing warnings; `npm run build` passed with only the existing Vite chunk-size advisory.
+- **P9 PostgreSQL and Docker:** the Docker PostgreSQL lifecycle parity test passed (`1 passed`) against the live `bsc-growth-e2e` database. A new `bsc-growth-e2e-bsc-backend` image was built, then API, Worker and Beat were recreated from it. API health returned `200`; Redis returned `PONG`; PostgreSQL remained healthy; Worker executed `knowledge.reconcile_schedules` successfully; Beat connected through Redis with `PersistentScheduler`.
+- **Browser failure truthfulness:** the current Docker workspace opened the Growth surface without console errors. Without an access key, it rendered the expected `authentication required` error and showed no prior project data or mock fallback. Authenticated populated-data journeys remain covered by the committed P9 browser fixture and frontend tests.
+- **Test hygiene:** two four-hour-old background growth API test processes from an earlier run were confirmed stale and stopped after the fresh full suite had passed.
+- **Scope:** no source change was needed. Runtime databases, `.agents/`, `output/resume/`, `skills-lock.json`, Vault data and credentials remain outside the commit.
+
 ## Entry Template
 
 ### `<date/time> - <plan/task>`
