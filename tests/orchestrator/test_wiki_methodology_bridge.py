@@ -1,4 +1,5 @@
 from app.knowledge.context_pack import ContextPackBuilder
+from app.knowledge.growth_context import GrowthContextBuilder
 from app.knowledge.wiki_rules import build_default_agents_rules, parse_project_rules
 from app.orchestrator.agents.sop_builder import SopBuilderAgent
 from app.orchestrator.methodology import MethodologyBridge
@@ -35,6 +36,7 @@ def test_methodology_bridge_keeps_wiki_context_opt_in_and_project_scoped():
         service=FakeKnowledgeService(),
         wiki_context_provider=provider,
         wiki_enabled=True,
+        growth_enabled=False,
     )
 
     project_a = bridge.retrieve_wiki_context("project-a", "approval workflow")
@@ -75,7 +77,8 @@ def test_sop_builder_exposes_wiki_context_metadata_and_prompt():
     agent = SopBuilderAgent(
         llm_service=llm,
         bridge=MethodologyBridge(
-            service=FakeKnowledgeService(), wiki_context_provider=provider, wiki_enabled=True
+            service=FakeKnowledgeService(), wiki_context_provider=provider, wiki_enabled=True,
+            growth_enabled=False,
         ),
     )
 
@@ -84,3 +87,89 @@ def test_sop_builder_exposes_wiki_context_metadata_and_prompt():
     assert "Project Wiki Context" in llm.prompt
     assert result["sop"]["_knowledge_context"]["knowledge_context_used"] is True
     assert result["sop"]["_knowledge_context"]["source_ids"] == ["source-project-a"]
+
+
+class FakeGrowthContextProvider:
+    def build_context(self, *, project_id, task):
+        return GrowthContextBuilder(max_characters=2_000).build(
+            project_id=project_id,
+            profile={
+                "project_id": project_id,
+                "revision": 3,
+                "audience": "operators",
+            },
+            rules=f"Rules for {project_id}",
+            rules_revision="rules-v3",
+            task=task,
+            pages=[
+                {
+                    "id": "page-a",
+                    "project_id": project_id,
+                    "revision": "page-r2",
+                    "status": "published",
+                    "content": "Published operating constraint",
+                }
+            ],
+            sources=[
+                {
+                    "id": "source-a",
+                    "project_id": project_id,
+                    "revision": "source-r1",
+                    "status": "eligible",
+                    "raw_content": "External evidence",
+                }
+            ],
+            methods=[
+                {
+                    "id": "method-a",
+                    "project_id": project_id,
+                    "revision": "method-r4",
+                    "status": "published",
+                    "body": "Approved method",
+                }
+            ],
+            outputs=[
+                {
+                    "id": "output-a",
+                    "project_id": project_id,
+                    "revision": "output-r2",
+                    "status": "accepted",
+                    "content": "Accepted example",
+                }
+            ],
+            assumptions=["Audience remains operators"],
+            research_gaps=["Confirm regional policy"],
+        )
+
+
+def test_growth_context_takes_precedence_and_preserves_exact_revisions():
+    wiki_provider = FakeWikiContextProvider()
+    llm = RecordingLLM()
+    bridge = MethodologyBridge(
+        service=FakeKnowledgeService(),
+        wiki_context_provider=wiki_provider,
+        wiki_enabled=True,
+        growth_context_provider=FakeGrowthContextProvider(),
+        growth_enabled=True,
+    )
+    agent = SopBuilderAgent(llm_service=llm, bridge=bridge)
+
+    result = agent.run(
+        {"name": "approval"}, _engine=FakeSopEngine(), project_id="project-a"
+    )
+    metadata = result["sop"]["_knowledge_context"]
+
+    assert "Project Growth Context" in llm.prompt
+    assert "Project Wiki Context" not in llm.prompt
+    assert wiki_provider.projects == []
+    assert metadata["context_type"] == "growth"
+    assert metadata["profile_revision"] == 3
+    assert metadata["page_ids"] == ["page-a"]
+    assert metadata["source_ids"] == ["source-a"]
+    assert metadata["method_revision_ids"] == ["method-r4"]
+    assert metadata["output_ids"] == ["output-a"]
+    assert metadata["assumptions"] == [
+        "assumption:unresolved_claims",
+        "Audience remains operators",
+    ]
+    assert metadata["research_gaps"] == ["Confirm regional policy"]

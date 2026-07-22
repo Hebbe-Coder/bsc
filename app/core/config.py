@@ -146,6 +146,7 @@ class Settings(BaseSettings):
     KNOWLEDGE_SCHEDULES_ENABLED: bool = False
     KNOWLEDGE_MCP_WRITE_ENABLED: bool = False
     KNOWLEDGE_WIKI_AUTO_PUBLISH_ENABLED: bool = False
+    KNOWLEDGE_GROWTH_ENABLED: bool = False
     OBSIDIAN_VAULT_ROOT: str = ""
     HORIZON_ENABLED: bool = False
     HORIZON_API_BASE_URL: str = ""

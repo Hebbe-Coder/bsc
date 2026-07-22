@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 
+import type { GrowthRequestState, GrowthStage } from '../api/growthApi';
+
 import type {
   KnowledgeGraph,
   KnowledgeHealth,
@@ -184,4 +186,72 @@ export const useKnowledgeWorkspaceStore = create<KnowledgeWorkspaceState>((set, 
   setError: (error) => set({ error }),
   setActionMessage: (actionMessage) => set({ actionMessage }),
   setActionBusy: (actionBusy) => set({ actionBusy }),
+}));
+
+export type GrowthCenterView = 'assets' | 'metrics' | 'lineage';
+export type GrowthRequestKey = 'overview' | 'stage' | 'detail' | 'metrics' | 'lineage' | 'action';
+
+type GrowthWorkspaceState = {
+  projectId: string;
+  stage: GrowthStage;
+  selectedId: string;
+  inspectorOpen: boolean;
+  query: string;
+  statusFilter: string;
+  page: number;
+  pageSize: number;
+  centerView: GrowthCenterView;
+  requestStates: Record<GrowthRequestKey, GrowthRequestState>;
+  setProjectId: (projectId: string) => void;
+  setStage: (stage: GrowthStage) => void;
+  setSelectedId: (selectedId: string) => void;
+  setInspectorOpen: (inspectorOpen: boolean) => void;
+  setQuery: (query: string) => void;
+  setStatusFilter: (statusFilter: string) => void;
+  setPage: (page: number) => void;
+  setCenterView: (centerView: GrowthCenterView) => void;
+  setRequestState: (key: GrowthRequestKey, value: GrowthRequestState) => void;
+  reset: () => void;
+};
+
+const growthRequestStates: GrowthWorkspaceState['requestStates'] = {
+  overview: 'idle',
+  stage: 'idle',
+  detail: 'idle',
+  metrics: 'idle',
+  lineage: 'idle',
+  action: 'idle',
+};
+
+const growthInitialState = {
+  projectId: 'default',
+  stage: 'A' as GrowthStage,
+  selectedId: '',
+  inspectorOpen: false,
+  query: '',
+  statusFilter: '',
+  page: 1,
+  pageSize: 20,
+  centerView: 'assets' as GrowthCenterView,
+  requestStates: growthRequestStates,
+};
+
+export const useGrowthWorkspaceStore = create<GrowthWorkspaceState>((set) => ({
+  ...growthInitialState,
+  setProjectId: (projectId) => set({
+    projectId,
+    selectedId: '',
+    inspectorOpen: false,
+    page: 1,
+    requestStates: { ...growthRequestStates },
+  }),
+  setStage: (stage) => set((state) => state.stage === stage ? state : { stage, selectedId: '', inspectorOpen: false, page: 1 }),
+  setSelectedId: (selectedId) => set({ selectedId, inspectorOpen: Boolean(selectedId) }),
+  setInspectorOpen: (inspectorOpen) => set({ inspectorOpen }),
+  setQuery: (query) => set({ query, page: 1 }),
+  setStatusFilter: (statusFilter) => set({ statusFilter, page: 1 }),
+  setPage: (page) => set({ page: Math.max(1, page) }),
+  setCenterView: (centerView) => set({ centerView }),
+  setRequestState: (key, value) => set((state) => ({ requestStates: { ...state.requestStates, [key]: value } })),
+  reset: () => set({ ...growthInitialState, requestStates: { ...growthRequestStates } }),
 }));

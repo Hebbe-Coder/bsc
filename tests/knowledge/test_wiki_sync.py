@@ -137,3 +137,21 @@ def test_obsidian_sync_retains_unsupported_file_fingerprint_as_rejected_evidence
         assert source["metadata"]["byte_size"] == len(b"%PDF-test-evidence")
     finally:
         repo.close()
+
+
+def test_obsidian_sync_ignores_growth_managed_roots_outside_project_mappings(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    (root / "research.md").write_text("User research", encoding="utf-8")
+    for managed_root in ("distillations", "methods", "outputs", "reviews"):
+        folder = root / managed_root
+        folder.mkdir()
+        (folder / "generated.md").write_text("Managed output", encoding="utf-8")
+    repo = WikiRepository(db_path=str(tmp_path / "sync-growth-roots.db"))
+    try:
+        report = ObsidianSyncService(repo, root).sync(project_id="project-a")
+
+        assert report["created"] == 1
+        assert {source["origin"] for source in repo.list_sources("project-a")} == {"research.md"}
+    finally:
+        repo.close()

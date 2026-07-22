@@ -1,3 +1,6 @@
+import pytest
+
+
 def test_legacy_and_backend_sqlite_paths_share_settings(tmp_path, monkeypatch):
     import app.db as legacy_db
     from app.core.config import settings
@@ -86,3 +89,46 @@ def test_postgresql_sql_adaptation_escapes_literal_percent_patterns():
     assert "payload BYTEA" in converted
     assert "LIKE 'edited:%%'" in converted
     assert "session_id = %s" in converted
+
+
+def test_postgresql_backend_replaces_a_closed_connection(monkeypatch):
+    import psycopg2
+
+    from app.core.database import PostgreSQLBackend
+
+    class Connection:
+        def __init__(self, closed: int) -> None:
+            self.closed = closed
+            self.autocommit = None
+
+    closed = Connection(1)
+    fresh = Connection(0)
+    backend = PostgreSQLBackend("postgresql://fixture")
+    backend._connection = closed
+    monkeypatch.setattr(psycopg2, "connect", lambda _url: fresh)
+
+    backend.connect()
+
+    assert backend._connection is fresh
+    assert fresh.autocommit is False
+
+
+def test_postgresql_backend_discards_connection_lost_during_execute():
+    import psycopg2
+
+    from app.core.database import PostgreSQLBackend
+
+    class BrokenConnection:
+        closed = 0
+
+        def cursor(self, **_kwargs):
+            self.closed = 1
+            raise psycopg2.OperationalError("connection lost")
+
+    backend = PostgreSQLBackend("postgresql://fixture")
+    backend._connection = BrokenConnection()
+
+    with pytest.raises(psycopg2.OperationalError, match="connection lost"):
+        backend.execute("SELECT 1")
+
+    assert backend._connection is None

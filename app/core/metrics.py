@@ -124,10 +124,17 @@ class MetricsStore:
                 
                 backend.execute(
                     """
-                    INSERT OR REPLACE INTO daily_stats 
+                    INSERT INTO daily_stats
                     (id, date, total_requests, total_errors, total_llm_calls,
                      avg_response_ms, p95_response_ms, p99_response_ms, created_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(date) DO UPDATE SET
+                        total_requests=excluded.total_requests,
+                        total_errors=excluded.total_errors,
+                        total_llm_calls=excluded.total_llm_calls,
+                        avg_response_ms=excluded.avg_response_ms,
+                        p95_response_ms=excluded.p95_response_ms,
+                        p99_response_ms=excluded.p99_response_ms
                     """,
                     (
                         str(uuid.uuid4()),

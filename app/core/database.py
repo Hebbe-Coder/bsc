@@ -174,7 +174,9 @@ class PostgreSQLBackend:
     def connect(self):
         try:
             import psycopg2
-            
+
+            if self._connection is not None and self._connection.closed:
+                self._connection = None
             if self._connection is None:
                 self._connection = psycopg2.connect(self._db_url)
                 self._connection.autocommit = False
@@ -198,7 +200,10 @@ class PostgreSQLBackend:
             cursor.execute(self._postgresql_sql(sql), params)
             return cursor
         except psycopg2.Error:
-            self._connection.rollback()
+            if self._connection is not None and not self._connection.closed:
+                self._connection.rollback()
+            if self._connection is not None and self._connection.closed:
+                self._connection = None
             raise
     
     def executemany(self, sql: str, params: List[tuple]) -> 'psycopg2.extensions.cursor':
@@ -209,7 +214,10 @@ class PostgreSQLBackend:
             cursor.executemany(self._postgresql_sql(sql), params)
             return cursor
         except psycopg2.Error:
-            self._connection.rollback()
+            if self._connection is not None and not self._connection.closed:
+                self._connection.rollback()
+            if self._connection is not None and self._connection.closed:
+                self._connection = None
             raise
     
     def commit(self):
@@ -217,7 +225,7 @@ class PostgreSQLBackend:
         self._connection.commit()
     
     def rollback(self):
-        if self._connection:
+        if self._connection is not None and not self._connection.closed:
             self._connection.rollback()
     
     def row_to_dict(self, row) -> Dict[str, Any]:

@@ -42,7 +42,14 @@ def derive_methodology_query(business_model: dict) -> str:
 class MethodologyBridge:
     """桥接方法论知识库与编译器 Agent。"""
 
-    def __init__(self, service=None, wiki_context_provider=None, wiki_enabled: Optional[bool] = None):
+    def __init__(
+        self,
+        service=None,
+        wiki_context_provider=None,
+        wiki_enabled: Optional[bool] = None,
+        growth_context_provider=None,
+        growth_enabled: Optional[bool] = None,
+    ):
         # 可注入的检索服务；None 时惰性构建默认 KnowledgeService()
         self._service = service
         self._wiki_context_provider = wiki_context_provider
@@ -50,6 +57,11 @@ class MethodologyBridge:
             from app.core.config import settings
             wiki_enabled = settings.KNOWLEDGE_WIKI_ENABLED
         self._wiki_enabled = wiki_enabled
+        self._growth_context_provider = growth_context_provider
+        if growth_enabled is None:
+            from app.core.config import settings
+            growth_enabled = settings.KNOWLEDGE_GROWTH_ENABLED
+        self._growth_enabled = growth_enabled
 
     def _get_service(self):
         if self._service is None:
@@ -129,6 +141,88 @@ class MethodologyBridge:
             "source_ids": list(pack.source_ids),
             "assumptions": ["Context omissions are recorded in the context pack."] if pack.omitted_refs else [],
         }
+
+    def retrieve_growth_context(self, project_id: Optional[str], query: str) -> dict:
+        empty = {
+            "knowledge_context_used": False,
+            "context_type": "growth",
+            "availability": "disabled" if not self._growth_enabled else "unavailable",
+            "context_block": "",
+            "context_pack_id": "",
+            "profile_revision": 0,
+            "rules_revision": "",
+            "page_ids": [],
+            "source_ids": [],
+            "method_revision_ids": [],
+            "output_ids": [],
+            "rejected_output_ids": [],
+            "evaluation_ids": [],
+            "feedback_ids": [],
+            "assumptions": [],
+            "research_gaps": [],
+            "omitted_refs": [],
+        }
+        if not project_id or not self._growth_enabled:
+            return empty
+        provider = self._growth_context_provider
+        repository = None
+        try:
+            if provider is None:
+                from app.core.config import settings
+                from app.knowledge.growth_context import GrowthContextService
+                from app.knowledge.growth_repository import GrowthRepository
+
+                repository = GrowthRepository()
+                provider = GrowthContextService(repository, settings.OBSIDIAN_VAULT_ROOT)
+            pack = provider.build_context(project_id=project_id, task=query)
+            if pack.project_id != project_id:
+                raise ValueError("growth context provider returned a cross-project context pack")
+            exact_ids = (
+                pack.page_ids,
+                pack.source_ids,
+                pack.method_revision_ids,
+                pack.output_ids,
+                pack.rejected_output_ids,
+                pack.evaluation_ids,
+                pack.feedback_ids,
+            )
+            has_project_rules = "project_agents_rules_unavailable" not in pack.research_gaps
+            has_distillation = any(ref.startswith("distillation:") for ref in pack.provenance)
+            if not (
+                pack.profile_revision > 0
+                or has_project_rules
+                or has_distillation
+                or any(exact_ids)
+            ):
+                return {
+                    **empty,
+                    "availability": "unavailable",
+                    "research_gaps": list(pack.research_gaps),
+                }
+            return {
+                "knowledge_context_used": True,
+                "context_type": "growth",
+                "availability": "available",
+                "context_block": pack.rendered,
+                "context_pack_id": pack.revision,
+                "profile_revision": pack.profile_revision,
+                "rules_revision": pack.rules_revision,
+                "page_ids": list(pack.page_ids),
+                "source_ids": list(pack.source_ids),
+                "method_revision_ids": list(pack.method_revision_ids),
+                "output_ids": list(pack.output_ids),
+                "rejected_output_ids": list(pack.rejected_output_ids),
+                "evaluation_ids": list(pack.evaluation_ids),
+                "feedback_ids": list(pack.feedback_ids),
+                "assumptions": list(pack.assumptions),
+                "research_gaps": list(pack.research_gaps),
+                "omitted_refs": list(pack.omitted_refs),
+            }
+        except Exception as exc:
+            return {**empty, "availability": "unavailable", "error": type(exc).__name__}
+        finally:
+            if repository is not None:
+                repository.close()
 
 
 def validate_source_refs(generated_items: list, citations: list) -> dict:

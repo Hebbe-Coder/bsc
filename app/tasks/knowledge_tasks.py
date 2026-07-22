@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from app.core.celery_app import get_celery_app
+from app.core.celery_app import get_celery_app, is_celery_real
 from app.core.config import settings
 from app.knowledge.distillation import DistillationError, WeeklyDistillationService
 from app.knowledge.context_pack import ContextPackBuilder
@@ -17,6 +17,7 @@ from app.knowledge.horizon_import import HorizonImportService
 from app.knowledge.horizon_run_store import HorizonRunStoreClient, HorizonRunStoreEmptyError
 from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.scheduler import KnowledgeScheduler
+from app.knowledge.growth_scheduler import GrowthScheduleCoordinator
 from app.knowledge.wiki_sync import ObsidianSyncService
 from app.knowledge.wiki_compiler import WikiCompilationError, WikiCompiler
 from app.knowledge.proposal_gate import ProposalGateError
@@ -28,6 +29,12 @@ from app.knowledge.wiki_rules import parse_project_rules, RuleValidationError
 from app.knowledge.wiki_lint import WikiLint
 from app.knowledge.wiki_evaluator import WikiEvaluator
 from app.knowledge import metrics as knowledge_metrics
+from app.tasks.growth_tasks import (
+    GROWTH_RUN_TYPES,
+    execute_growth_run,
+    growth_execute,
+    recover_abandoned_growth_runs,
+)
 
 
 @dataclass(frozen=True)
@@ -99,7 +106,17 @@ def execute_knowledge_run(
                 "duplicate": True,
                 "output_refs": run.get("output_refs") or {},
             }
-        if not settings.KNOWLEDGE_WIKI_ENABLED:
+        growth_run = run["run_type"] in {"growth_daily", "growth_weekly_distillation"}
+        if growth_run and not settings.KNOWLEDGE_GROWTH_ENABLED:
+            return _record_terminal_failure(
+                repo,
+                project_id=project_id,
+                run_id=run_id,
+                status=RunStatus.UNAVAILABLE,
+                message="Knowledge growth feature is disabled",
+                failure=KnowledgeFailure("configuration", "knowledge_growth_disabled", False),
+            )
+        if not growth_run and not settings.KNOWLEDGE_WIKI_ENABLED:
             return _record_terminal_failure(
                 repo,
                 project_id=project_id,
@@ -107,6 +124,14 @@ def execute_knowledge_run(
                 status=RunStatus.UNAVAILABLE,
                 message="Project Wiki feature is disabled",
                 failure=KnowledgeFailure("configuration", "knowledge_wiki_disabled", False),
+            )
+        if growth_run:
+            return execute_growth_run(
+                project_id,
+                run_id,
+                schedule_id=schedule_id,
+                week=week,
+                repository=repo,
             )
         repo.update_run_status(project_id, run_id, RunStatus.RUNNING)
         if run["run_type"] == "source_sync":
@@ -603,43 +628,114 @@ def reconcile_knowledge_schedules(now: datetime | None = None) -> dict:
     failures = 0
     try:
         scheduler = KnowledgeScheduler(repo, scheduler_available=True)
+        durable_growth_tasks = bool(settings.CELERY_ENABLED and is_celery_real())
+        growth_recovery = (
+            recover_abandoned_growth_runs(
+                repo,
+                now=current,
+                timeout_seconds=max(60, settings.CELERY_TASK_TIMEOUT),
+                dispatch=lambda project_id, run_id: _submit_task(growth_execute, [project_id, run_id]),
+            )
+            if durable_growth_tasks
+            else {"recovered": 0, "failures": 0}
+        )
+        failures += growth_recovery["failures"]
         recovered = scheduler.recover_abandoned_runs(now=current, timeout_seconds=max(60, settings.CELERY_TASK_TIMEOUT))
+        growth_scheduler = GrowthScheduleCoordinator(repo, scheduler_available=True)
         for schedule in repo.list_due_schedules(current.isoformat()):
             due_at = str(schedule["next_run_at"])
-            idempotency_key = f"{schedule['id']}:{due_at}"
-            claim = scheduler.claim_run(
-                project_id=schedule["project_id"],
-                job_type=schedule["job_type"],
-                idempotency_key=idempotency_key,
-                trigger="schedule",
-            )
+            growth_job = schedule["job_type"] in GROWTH_RUN_TYPES
+            if growth_job:
+                if not durable_growth_tasks:
+                    repo.set_schedule_enabled(
+                        project_id=schedule["project_id"],
+                        schedule_id=schedule["id"],
+                        enabled=False,
+                        next_run_at="",
+                    )
+                    failures += 1
+                    continue
+                parsed_due_at = datetime.fromisoformat(due_at.replace("Z", "+00:00"))
+                claim = growth_scheduler.claim_scheduled_run(schedule, due_at=parsed_due_at)
+                if claim.get("status") == "waiting_for_daily":
+                    continue
+                claimed_run = repo.get_run(schedule["project_id"], claim["run_id"])
+                idempotency_key = str((claimed_run or {}).get("input_refs", {}).get("idempotency_key") or "")
+            else:
+                idempotency_key = f"{schedule['id']}:{due_at}"
+                claim = scheduler.claim_run(
+                    project_id=schedule["project_id"],
+                    job_type=schedule["job_type"],
+                    idempotency_key=idempotency_key,
+                    trigger="schedule",
+                )
             if not claim["claimed"]:
                 duplicates += 1
+                if growth_job and _run_was_dispatched(repo, schedule["project_id"], claim["run_id"]):
+                    _advance_claimed_schedule(repo, scheduler, schedule, due_at, current)
                 continue
             try:
-                knowledge_execute.apply_async(args=[schedule["project_id"], claim["run_id"], schedule["id"]])
-                next_run = scheduler.next_run(
-                    schedule["cron"], current, timezone_name=str(schedule.get("timezone") or "UTC")
-                ).isoformat()
-                advanced = repo.advance_schedule(
-                    schedule_id=schedule["id"],
-                    expected_next_run_at=due_at,
-                    next_run_at=next_run,
-                    last_run_at=current.isoformat(),
-                )
+                selected_task = growth_execute if growth_job else knowledge_execute
+                _submit_task(selected_task, [schedule["project_id"], claim["run_id"], schedule["id"]])
+                if growth_job:
+                    repo.append_run_event(
+                        project_id=schedule["project_id"],
+                        run_id=claim["run_id"],
+                        event_type="knowledge.growth.dispatched",
+                        payload={"schedule_id": schedule["id"], "due_at": due_at},
+                    )
+                advanced = _advance_claimed_schedule(repo, scheduler, schedule, due_at, current)
                 if advanced:
                     queued += 1
                 else:
                     duplicates += 1
             except Exception as exc:
                 failures += 1
-                repo.update_run_status(schedule["project_id"], claim["run_id"], RunStatus.FAILED, error=f"queue submission failed: {exc}")
-                repo.release_schedule_claim(
-                    project_id=schedule["project_id"], job_type=schedule["job_type"], idempotency_key=idempotency_key
-                )
-        return {"queued": queued, "duplicates": duplicates, "failures": failures, "recovered": len(recovered)}
+                if not growth_job:
+                    repo.update_run_status(schedule["project_id"], claim["run_id"], RunStatus.FAILED, error=f"queue submission failed: {exc}")
+                    repo.release_schedule_claim(
+                        project_id=schedule["project_id"], job_type=schedule["job_type"], idempotency_key=idempotency_key
+                    )
+        return {
+            "queued": queued,
+            "duplicates": duplicates,
+            "failures": failures,
+            "recovered": len(recovered) + growth_recovery["recovered"],
+        }
     finally:
         repo.close()
+
+
+def _submit_task(task, args: list[str]):
+    submitted = task.apply_async(args=args)
+    if hasattr(submitted, "failed") and submitted.failed():
+        raise RuntimeError(str(getattr(submitted, "info", "queue submission failed")))
+    return submitted
+
+
+def _run_was_dispatched(repository: WikiRepository, project_id: str, run_id: str) -> bool:
+    return any(
+        event["event_type"] == "knowledge.growth.dispatched"
+        for event in repository.list_run_events(project_id=project_id, run_id=run_id)
+    )
+
+
+def _advance_claimed_schedule(
+    repository: WikiRepository,
+    scheduler: KnowledgeScheduler,
+    schedule: dict,
+    due_at: str,
+    current: datetime,
+) -> bool:
+    next_run = scheduler.next_run(
+        schedule["cron"], current, timezone_name=str(schedule.get("timezone") or "UTC")
+    ).isoformat()
+    return repository.advance_schedule(
+        schedule_id=schedule["id"],
+        expected_next_run_at=due_at,
+        next_run_at=next_run,
+        last_run_at=current.isoformat(),
+    )
 
 
 celery_app = get_celery_app()

@@ -114,3 +114,58 @@ def test_pipeline_runs_without_risk_agent(draft_repo):
     eng2.agents["reviewer"] = ReviewerSpy()
     asyncio.run(eng2.run_pipeline("s-norisk2", "内容审核中心"))
     assert "risk" in captured and captured["risk"] == {}
+
+
+def test_project_scope_survives_loopback_and_rerun(draft_repo):
+    eng = make_engine(draft_repo)
+    captured = {"architect": [], "sop": []}
+
+    class RecordingAgent:
+        def __init__(self, segment, payload):
+            self.segment = segment
+            self.payload = payload
+
+        def run(self, *args, **kwargs):
+            captured[self.segment].append(kwargs.get("project_id"))
+            return self.payload
+
+    class LoopReviewer:
+        def __init__(self):
+            self.calls = 0
+
+        def run(self, *args, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return {
+                    "review": {
+                        "approved": False,
+                        "gaps": [],
+                        "loopback_target": "sop",
+                        "loopback_fixes": ["add evidence"],
+                        "summary": "retry",
+                    }
+                }
+            return {
+                "review": {
+                    "approved": True,
+                    "gaps": [],
+                    "loopback_target": None,
+                    "summary": "ok",
+                }
+            }
+
+    eng.agents["architect"] = RecordingAgent(
+        "architect", {"business_model": {"flows": [], "roles": [], "rules": []}}
+    )
+    eng.agents["sop"] = RecordingAgent("sop", {"sop": {"sops": []}})
+    eng.agents["reviewer"] = LoopReviewer()
+
+    state = asyncio.run(
+        eng.run_pipeline("scope-session", "scoped idea", project_id="project-alpha")
+    )
+    asyncio.run(eng.rerun_node("scope-session", "architect"))
+
+    assert state["project_id"] == "project-alpha"
+    assert draft_repo.get("scope-session").project_id == "project-alpha"
+    assert captured["architect"] == ["project-alpha", "project-alpha"]
+    assert captured["sop"] == ["project-alpha", "project-alpha", "project-alpha"]

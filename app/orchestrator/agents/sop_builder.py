@@ -70,19 +70,42 @@ class SopBuilderAgent(BaseAgent):
             "source_ids": [],
             "assumptions": [],
         }
+        growth_context = {
+            "knowledge_context_used": False,
+            "context_type": "growth",
+            "availability": "disabled",
+            "context_block": "",
+        }
         if project_id:
-            out = self._get_bridge().retrieve(
+            bridge = self._get_bridge()
+            out = bridge.retrieve(
                 project_id, derive_methodology_query(business_model)
             )
             citations = out.get("citations") or []
-            wiki_context = self._get_bridge().retrieve_wiki_context(
-                project_id, derive_methodology_query(business_model)
-            )
-            if wiki_context["context_block"]:
+            growth_retriever = getattr(bridge, "retrieve_growth_context", None)
+            if growth_retriever is not None:
+                growth_context = growth_retriever(
+                    project_id, derive_methodology_query(business_model)
+                )
+            wiki_context = {
+                "knowledge_context_used": False,
+                "context_type": "wiki",
+                "context_block": "",
+            }
+            if not growth_context.get("context_block"):
+                wiki_context = bridge.retrieve_wiki_context(
+                    project_id, derive_methodology_query(business_model)
+                )
+            selected_context = growth_context if growth_context.get("context_block") else wiki_context
+            if selected_context.get("context_block"):
+                if selected_context.get("context_type") == "growth":
+                    context_heading = "Project Growth Context (A/B/C/D evidence, exact revisions, and assumptions)"
+                else:
+                    context_heading = "Project Wiki Context (project evidence; retain source IDs and assumptions)"
                 parts.insert(
                     0,
-                    "\n## Project Wiki Context (project evidence; retain source IDs and assumptions)\n"
-                    + wiki_context["context_block"] + "\n",
+                    f"\n## {context_heading}\n"
+                    + selected_context["context_block"] + "\n",
                 )
             if out.get("context_block"):
                 parts.insert(
@@ -100,7 +123,8 @@ class SopBuilderAgent(BaseAgent):
             # 内联进 sop 子段：引擎 state["sop"] = out.get("sop") 入库时指标才得以保留
             result.setdefault("sop", {})["_citation_coverage"] = cov
         if project_id:
+            selected_context = growth_context if growth_context.get("knowledge_context_used") else wiki_context
             result.setdefault("sop", {})["_knowledge_context"] = {
-                key: value for key, value in wiki_context.items() if key != "context_block"
+                key: value for key, value in selected_context.items() if key != "context_block"
             }
         return result

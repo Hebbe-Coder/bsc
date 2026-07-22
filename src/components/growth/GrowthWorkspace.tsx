@@ -1,0 +1,362 @@
+import {
+  AlertTriangle, BarChart3, BookOpen, FileDiff, FileText, KeyRound,
+  LayoutList, LoaderCircle, Network, RefreshCw, ShieldAlert, Sprout, X,
+} from 'lucide-react';
+import { useEffect, useState } from 'react';
+
+import {
+  classifyGrowthError,
+  addGrowthOutputFeedback,
+  fetchGrowthAccess,
+  fetchGrowthAssetDetail,
+  fetchGrowthHealth,
+  fetchGrowthLineage,
+  fetchGrowthOverview,
+  fetchGrowthStage,
+  fetchGrowthTrend,
+  fileGrowthOutput,
+  processGrowthFeedback,
+  setGrowthAccessKey,
+  triageGrowthSource,
+  type GrowthAccess,
+  type GrowthAssetDetail,
+  type GrowthAssetKind,
+  type GrowthFeedbackInput,
+  type GrowthHealth,
+  type GrowthLineage,
+  type GrowthOverview,
+  type GrowthRecord,
+  type GrowthRequestState,
+  type GrowthStage,
+  type GrowthStageResult,
+  type GrowthTrend,
+} from '../../api/growthApi';
+import { useGrowthWorkspaceStore, type GrowthCenterView } from '../../store/knowledgeWorkspaceStore';
+import { GrowthAssetList } from './GrowthAssetList';
+import { GrowthFunnel } from './GrowthFunnel';
+import { GrowthInspector } from './GrowthInspector';
+import { GrowthLineageGraph } from './GrowthLineageGraph';
+import { GrowthStageRail } from './GrowthStageRail';
+import { GrowthTrends } from './GrowthTrends';
+import { GROWTH_STAGES, growthRecordLabel, normalizeGrowthNodeType } from './growthModel';
+
+type Props = { onClose: () => void };
+type ErrorInfo = { message: string; code: string; status: number };
+type GraphSelection = { id: string; endpointType: string };
+
+function errorInfo(reason: unknown): { state: GrowthRequestState; info: ErrorInfo } {
+  const error = classifyGrowthError(reason);
+  const prefix = error.status >= 500 ? `Server error (${error.status}). ` : '';
+  return { state: error.state, info: { message: `${prefix}${error.message}`, code: error.code, status: error.status } };
+}
+
+function stageTotal(overview: GrowthOverview | null, stage: GrowthStage): number | undefined {
+  if (!overview || stage === 'review') return undefined;
+  if (stage === 'A') return overview.summary.counts.sources;
+  if (stage === 'B') return overview.summary.counts.pages;
+  if (stage === 'C') return overview.summary.counts.methods;
+  return overview.summary.counts.outputs;
+}
+
+function stageForEndpoint(type: string): GrowthStage {
+  if (type === 'method_proposal') return 'review';
+  const normalized = normalizeGrowthNodeType(type);
+  if (normalized === 'source') return 'A';
+  if (normalized === 'page') return 'B';
+  if (normalized === 'method') return 'C';
+  if (normalized === 'output') return 'D';
+  return 'review';
+}
+
+function kindForEndpoint(type: string): GrowthAssetKind {
+  const normalized = normalizeGrowthNodeType(type);
+  if (normalized === 'source') return 'source';
+  if (normalized === 'page') return 'page';
+  if (normalized === 'method') return type === 'method_proposal' ? 'proposal' : 'method';
+  if (normalized === 'output') return 'output';
+  return 'feedback';
+}
+
+function WorkspaceBoundary({ state, error, onRetry }: { state: GrowthRequestState; error: ErrorInfo | null; onRetry: () => void }) {
+  const content: Partial<Record<GrowthRequestState, { title: string; detail: string }>> = {
+    permission: { title: 'Project access denied', detail: 'Use a key scoped to this project. No prior project data is being shown.' },
+    offline: { title: 'Knowledge service offline', detail: 'The browser cannot reach the API. No mock or stale snapshot is being shown.' },
+    unavailable: { title: 'Growth workspace unavailable', detail: 'The server reports that this capability or dependency is disabled.' },
+    error: { title: error?.status === 500 ? 'Server boundary reached' : 'Growth workspace failed', detail: 'The failed response cleared previous data. Retry after the service is healthy.' },
+  };
+  if (state === 'loading') return <div className="growth-state" role="status"><LoaderCircle size={18} className="spin" /><span>Loading the project-scoped growth contract...</span></div>;
+  const current = content[state];
+  if (!current) return null;
+  return <div className={`growth-state growth-state--boundary growth-state--${state}`} role="alert">
+    {state === 'permission' ? <ShieldAlert size={21} /> : <AlertTriangle size={21} />}
+    <div><strong>{current.title}</strong><span>{error?.message || current.detail}</span><small>{current.detail}{error?.code ? ` Code: ${error.code}.` : ''}</small></div>
+    <button type="button" onClick={onRetry}>Retry</button>
+  </div>;
+}
+
+function SafeTextPreview({ content }: { content: string }) {
+  const rawLines = content.split(/\r?\n/);
+  const closingFrontmatter = rawLines[0] === '---' ? rawLines.indexOf('---', 1) : -1;
+  const lines = closingFrontmatter > 0 ? rawLines.slice(closingFrontmatter + 1) : rawLines;
+  return <div className="growth-markdown-preview" aria-label="Safe Markdown preview">{lines.map((line, index) => {
+    if (line.startsWith('### ')) return <h5 key={index}>{line.slice(4)}</h5>;
+    if (line.startsWith('## ')) return <h4 key={index}>{line.slice(3)}</h4>;
+    if (line.startsWith('# ')) return <h3 key={index}>{line.slice(2)}</h3>;
+    if (line.startsWith('- ')) return <p className="growth-markdown-preview__list" key={index}>{line.slice(2)}</p>;
+    if (!line.trim()) return <span className="growth-markdown-preview__space" key={index} aria-hidden="true" />;
+    return <p key={index}>{line}</p>;
+  })}</div>;
+}
+
+function ProposalDiff({ detail }: { detail: GrowthAssetDetail }) {
+  const operations = Array.isArray(detail.record.operations)
+    ? detail.record.operations as Array<{ id?: string; operation?: string; path?: string; destination_path?: string; content?: string }>
+    : [];
+  if (!operations.length) return <div className="growth-empty"><FileDiff size={18} /><span>No Wiki operations are present in this proposal.</span></div>;
+  return <div className="growth-diff-view">{operations.map((operation, index) => {
+    const path = String(operation.path || operation.destination_path || `operation-${index + 1}`);
+    const baseline = detail.baselines?.[path];
+    return <article key={operation.id || `${path}-${index}`}>
+      <header><span>{operation.operation || 'change'}</span><strong>{path}</strong></header>
+      <div><section><h5>Current published content</h5><pre>{baseline === undefined ? 'Baseline unavailable' : baseline || 'New file: no published baseline'}</pre></section><section><h5>Proposed content</h5><pre>{operation.content || 'No proposed text body'}</pre></section></div>
+    </article>;
+  })}</div>;
+}
+
+function AssetReader({ selected, detail, state, error }: { selected: GrowthRecord | null; detail: GrowthAssetDetail | null; state: GrowthRequestState; error?: string }) {
+  if (!selected) return <div className="growth-empty growth-empty--reader"><BookOpen size={20} /><span>Select a stage asset to open its governed reader, preview or diff.</span></div>;
+  if (state === 'loading') return <div className="growth-empty growth-empty--reader" role="status"><LoaderCircle size={18} className="spin" /><span>Loading real asset detail...</span></div>;
+  if (!detail) return <div className="growth-empty growth-empty--reader" role="alert"><AlertTriangle size={18} /><span>{error || 'This asset detail is unavailable.'}</span></div>;
+  if (detail.kind === 'page' && detail.content !== undefined) return <SafeTextPreview content={detail.content} />;
+  if (detail.kind === 'method' && detail.content !== undefined) return <SafeTextPreview content={detail.content} />;
+  if (detail.kind === 'output') return <div className="growth-output-preview">
+    {detail.content !== undefined ? <SafeTextPreview content={detail.content} /> : <div className="growth-descriptor-preview"><FileText size={20} /><h4>{growthRecordLabel(detail.record)}</h4><p>{detail.detailMessage || 'No bounded inline preview is available.'}</p><code>{String(detail.record.vault_path || '')}</code></div>}
+    <section aria-label="Output evaluations"><h4>Evaluation</h4>{detail.evaluations?.length ? detail.evaluations.map((evaluation) => <dl key={evaluation.id}><div><dt>Quality</dt><dd>{String(evaluation.quality ?? 'n/a')}</dd></div><div><dt>Groundedness</dt><dd>{String(evaluation.groundedness ?? 'n/a')}</dd></div><div><dt>Status</dt><dd>{String(evaluation.status || 'recorded')}</dd></div></dl>) : <p>No persisted evaluation is attached.</p>}</section>
+    <section aria-label="Output feedback history"><h4>Feedback</h4>{detail.feedback?.length ? detail.feedback.map((item) => <p key={item.id}><strong>{String(item.feedback_type || 'feedback')}</strong>{String(item.correction || item.comment || '')}</p>) : <p>No feedback has been recorded.</p>}</section>
+  </div>;
+  if (detail.kind === 'proposal' && Array.isArray(detail.record.operations)) return <ProposalDiff detail={detail} />;
+  if (detail.kind === 'proposal' && typeof detail.record.body === 'string') return <SafeTextPreview content={detail.record.body} />;
+  if (detail.kind === 'feedback') {
+    const correction = String(detail.record.correction || '');
+    const comment = String(detail.record.comment || '');
+    return <div className="growth-feedback-preview"><span>{String(detail.record.feedback_type || 'feedback')}</span><h4>{correction ? 'Correction' : 'Comment'}</h4><p>{correction || comment || 'No textual feedback was recorded.'}</p>{detail.record.rating !== null && detail.record.rating !== undefined && <strong>Rating {String(detail.record.rating)}</strong>}</div>;
+  }
+  return <div className="growth-descriptor-preview"><FileText size={20} /><h4>{growthRecordLabel(detail.record)}</h4><p>{detail.detailMessage || 'The persisted descriptor is available in the inspector.'}</p>{typeof detail.record.vault_path === 'string' && <code>{detail.record.vault_path}</code>}</div>;
+}
+
+export function GrowthWorkspace({ onClose }: Props) {
+  const {
+    projectId, stage, selectedId, inspectorOpen, query, statusFilter, page, pageSize, centerView, requestStates,
+    setProjectId, setStage, setSelectedId, setInspectorOpen, setQuery, setStatusFilter, setPage, setCenterView, setRequestState,
+  } = useGrowthWorkspaceStore();
+  const [projectInput, setProjectInput] = useState(projectId);
+  const [accessKey, setAccessKey] = useState('');
+  const [reloadEpoch, setReloadEpoch] = useState(0);
+  const [overview, setOverview] = useState<GrowthOverview | null>(null);
+  const [overviewError, setOverviewError] = useState<ErrorInfo | null>(null);
+  const [access, setAccess] = useState<GrowthAccess | null>(null);
+  const [accessState, setAccessState] = useState<GrowthRequestState>('idle');
+  const [accessError, setAccessError] = useState<ErrorInfo | null>(null);
+  const [stageResult, setStageResult] = useState<GrowthStageResult | null>(null);
+  const [stageError, setStageError] = useState<ErrorInfo | null>(null);
+  const [detail, setDetail] = useState<GrowthAssetDetail | null>(null);
+  const [detailError, setDetailError] = useState<ErrorInfo | null>(null);
+  const [health, setHealth] = useState<GrowthHealth | null>(null);
+  const [trend, setTrend] = useState<GrowthTrend | null>(null);
+  const [metricsError, setMetricsError] = useState<ErrorInfo | null>(null);
+  const [lineage, setLineage] = useState<GrowthLineage | null>(null);
+  const [lineageError, setLineageError] = useState<ErrorInfo | null>(null);
+  const [relation, setRelation] = useState('');
+  const [compact, setCompact] = useState(() => typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(max-width: 760px)').matches : false);
+  const [actionMessage, setActionMessage] = useState('');
+  const [graphSelection, setGraphSelection] = useState<GraphSelection | null>(null);
+
+  useEffect(() => {
+    document.documentElement.classList.add('growth-workspace-open');
+    return () => document.documentElement.classList.remove('growth-workspace-open');
+  }, []);
+  useEffect(() => {
+    if (!window.matchMedia) return undefined;
+    const media = window.matchMedia('(max-width: 760px)');
+    const update = () => setCompact(media.matches);
+    update(); media.addEventListener?.('change', update);
+    return () => media.removeEventListener?.('change', update);
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setOverview(null); setOverviewError(null); setRequestState('overview', 'loading');
+    void fetchGrowthOverview(projectId, controller.signal).then((next) => {
+      if (controller.signal.aborted) return;
+      setOverview(next); setRequestState('overview', 'success');
+    }).catch((reason: unknown) => {
+      if (controller.signal.aborted) return;
+      const failure = errorInfo(reason); setOverview(null); setOverviewError(failure.info); setRequestState('overview', failure.state);
+    });
+    setAccess(null); setAccessError(null); setAccessState('loading');
+    void fetchGrowthAccess(projectId, controller.signal).then((next) => {
+      if (controller.signal.aborted) return;
+      setAccess(next); setAccessState('success');
+    }).catch((reason: unknown) => {
+      if (controller.signal.aborted) return;
+      const failure = errorInfo(reason); setAccess(null); setAccessError(failure.info); setAccessState(failure.state);
+    });
+    return () => controller.abort();
+  }, [projectId, reloadEpoch, setRequestState]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const requestedLimit = query.trim() || statusFilter ? 500 : Math.min(500, page * pageSize);
+    setStageResult(null); setStageError(null); setRequestState('stage', 'loading');
+    void fetchGrowthStage(projectId, stage, requestedLimit, controller.signal).then((next) => {
+      if (controller.signal.aborted) return;
+      setStageResult(next); setRequestState('stage', next.records.length ? 'success' : 'empty');
+    }).catch((reason: unknown) => {
+      if (controller.signal.aborted) return;
+      const failure = errorInfo(reason); setStageResult(null); setStageError(failure.info); setRequestState('stage', failure.state);
+    });
+    return () => controller.abort();
+  }, [page, pageSize, projectId, query, reloadEpoch, setRequestState, stage, statusFilter]);
+
+  useEffect(() => {
+    if (!selectedId) { setDetail(null); setDetailError(null); setRequestState('detail', 'idle'); return undefined; }
+    const controller = new AbortController();
+    setDetail(null); setDetailError(null); setRequestState('detail', 'loading');
+    void fetchGrowthAssetDetail(projectId, stage, selectedId, controller.signal).then((next) => {
+      if (controller.signal.aborted) return;
+      setDetail(next); setRequestState('detail', 'success');
+    }).catch((reason: unknown) => {
+      if (controller.signal.aborted) return;
+      const failure = errorInfo(reason);
+      if (failure.info.status === 404 && graphSelection?.id === selectedId) {
+        const kind = kindForEndpoint(graphSelection.endpointType);
+        setDetail({
+          kind,
+          record: { id: selectedId, endpoint_type: graphSelection.endpointType, detail_source: 'persisted lineage edge' },
+          detailAvailability: 'metadata_only',
+          detailMessage: 'This endpoint exists in the bounded lineage slice but has no detail endpoint in P7.',
+        });
+        setRequestState('detail', 'success');
+        return;
+      }
+      setDetail(null); setDetailError(failure.info); setRequestState('detail', failure.state);
+    });
+    return () => controller.abort();
+  }, [graphSelection, projectId, reloadEpoch, selectedId, setRequestState, stage]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setHealth(null); setTrend(null); setMetricsError(null); setRequestState('metrics', 'loading');
+    void Promise.all([fetchGrowthHealth(projectId, controller.signal), fetchGrowthTrend(projectId, controller.signal)]).then(([nextHealth, nextTrend]) => {
+      if (controller.signal.aborted) return;
+      setHealth(nextHealth); setTrend(nextTrend); setRequestState('metrics', 'success');
+    }).catch((reason: unknown) => {
+      if (controller.signal.aborted) return;
+      const failure = errorInfo(reason); setHealth(null); setTrend(null); setMetricsError(failure.info); setRequestState('metrics', failure.state);
+    });
+    return () => controller.abort();
+  }, [projectId, reloadEpoch, setRequestState]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLineage(null); setLineageError(null); setRequestState('lineage', 'loading');
+    void fetchGrowthLineage(projectId, relation, 200, controller.signal).then((next) => {
+      if (controller.signal.aborted) return;
+      setLineage(next); setRequestState('lineage', next.edges.length ? 'success' : 'empty');
+    }).catch((reason: unknown) => {
+      if (controller.signal.aborted) return;
+      const failure = errorInfo(reason); setLineage(null); setLineageError(failure.info); setRequestState('lineage', failure.state);
+    });
+    return () => controller.abort();
+  }, [projectId, relation, reloadEpoch, setRequestState]);
+
+  const records = stageResult?.records ?? [];
+  const selected = records.find((record) => record.id === selectedId) ?? detail?.record ?? (graphSelection?.id === selectedId ? { id: selectedId, endpoint_type: graphSelection.endpointType } : null);
+  const counts = overview?.summary.counts ?? null;
+  const stageCounts: Partial<Record<GrowthStage, number>> = counts ? { A: counts.sources, B: counts.pages, C: counts.methods, D: counts.outputs } : {};
+  if (counts) stageCounts.review = counts.review_records ?? counts.feedback;
+  if (stage === 'review' && stageResult?.truncated) stageCounts.review = stageResult.records.length;
+  const stageBounds: Partial<Record<GrowthStage, boolean>> = stageResult?.truncated ? { [stage]: true } : {};
+  const relevantEdges = lineage?.edges ?? [];
+  const stageMeta = GROWTH_STAGES.find((item) => item.id === stage);
+  const refresh = () => setReloadEpoch((value) => value + 1);
+
+  const submitProject = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const nextProject = projectInput.trim() || 'default';
+    setGrowthAccessKey(accessKey);
+    setActionMessage(''); setGraphSelection(null);
+    if (nextProject === projectId) refresh(); else setProjectId(nextProject);
+  };
+  const selectAsset = (record: GrowthRecord) => { setGraphSelection(null); setActionMessage(''); setSelectedId(record.id); };
+  const followAsset = (id: string, endpointType = '') => {
+    const nextStage = stageForEndpoint(endpointType);
+    setGraphSelection({ id, endpointType }); setStage(nextStage); setSelectedId(id); setCenterView('assets');
+  };
+  const runAction = async (current: GrowthAssetDetail) => {
+    setRequestState('action', 'loading'); setActionMessage('');
+    try {
+      if (current.kind === 'source') await triageGrowthSource(projectId, current.record.id);
+      else if (current.kind === 'feedback') await processGrowthFeedback(projectId, current.record.id);
+      else if (current.kind === 'output') await fileGrowthOutput(projectId, current.record.id);
+      else throw new Error('No Growth API action exists for this asset type.');
+      setRequestState('action', 'success'); setActionMessage('The operation completed and persisted data is being reloaded.'); refresh();
+    } catch (reason) {
+      const failure = errorInfo(reason); setRequestState('action', failure.state); setActionMessage(failure.info.message);
+    }
+  };
+  const submitFeedback = async (current: GrowthAssetDetail, payload: GrowthFeedbackInput) => {
+    setRequestState('action', 'loading'); setActionMessage('');
+    try {
+      await addGrowthOutputFeedback(projectId, current.record.id, payload);
+      setRequestState('action', 'success'); setActionMessage('Feedback was persisted and the review queue is being reloaded.'); refresh();
+    } catch (reason) {
+      const failure = errorInfo(reason); setRequestState('action', failure.state); setActionMessage(failure.info.message);
+    }
+  };
+
+  const accessLabel = accessState === 'loading' ? 'Checking access' : access ? `${access.role || 'project role'} / ${access.can_write ? 'write' : 'read only'}` : `${accessState}${accessError?.status ? ` ${accessError.status}` : ''}`;
+  const viewButtons: Array<{ id: GrowthCenterView; label: string; icon: typeof LayoutList }> = [
+    { id: 'assets', label: 'Assets', icon: LayoutList }, { id: 'metrics', label: 'Metrics', icon: BarChart3 }, { id: 'lineage', label: 'Lineage', icon: Network },
+  ];
+
+  return <section className="growth-workspace" aria-label="Knowledge growth workspace">
+    <header className="growth-workspace__header">
+      <div className="growth-workspace__brand"><span className="growth-workspace__mark"><Sprout size={17} /></span><div><p>KNOWLEDGE GROWTH</p><h2>Knowledge growth workspace</h2><span>A evidence to B knowledge to C methods to D outputs</span></div></div>
+      <div className="growth-workspace__actions">
+        <form onSubmit={submitProject}>
+          <label><span>Project</span><input value={projectInput} onChange={(event) => setProjectInput(event.target.value)} aria-label="Growth project ID" /></label>
+          <label><span>Access key</span><input type="password" value={accessKey} onChange={(event) => setAccessKey(event.target.value)} aria-label="Growth access key" placeholder="session key" autoComplete="off" /></label>
+          <button type="submit" title="Load project growth state"><KeyRound size={14} /> Load</button>
+        </form>
+        <button type="button" className="growth-icon-button" onClick={refresh} title="Refresh project growth state" aria-label="Refresh growth workspace"><RefreshCw size={16} className={requestStates.overview === 'loading' ? 'spin' : ''} /></button>
+        <button type="button" className="growth-icon-button" onClick={onClose} title="Close growth workspace" aria-label="Close growth workspace"><X size={18} /></button>
+      </div>
+    </header>
+    <WorkspaceBoundary state={requestStates.overview} error={overviewError} onRetry={refresh} />
+    {overview && <>
+      <div className="growth-status-strip">
+        <div><span>PROFILE ROLE</span><strong>{overview.profile.user_role || 'not configured'}</strong><small>revision {overview.profile.revision || 0}</small></div>
+        <div><span>API ACCESS</span><strong>{accessLabel}</strong><small>{access?.can_write ? 'permission-gated actions enabled' : 'actions disabled until authorized'}</small></div>
+        <div><span>ELIGIBLE A</span><strong>{counts?.eligible_sources ?? 0}</strong><small>of {counts?.sources ?? 0} captured</small></div>
+        <div><span>ACCEPTED D</span><strong>{counts?.accepted_outputs ?? 0}</strong><small>{counts?.rejected_outputs ?? 0} rejected</small></div>
+      </div>
+      <div className="growth-layout">
+        <GrowthStageRail projectId={projectId} stage={stage} counts={stageCounts} truncated={stageBounds} onChange={(next) => { setGraphSelection(null); setStage(next); setCenterView('assets'); }} />
+        <main className="growth-main" id="growth-stage-panel" role="tabpanel" aria-labelledby={`growth-stage-${stage}`}>
+          <header className="growth-main__header"><div><p>{stage === 'review' ? 'REVIEW QUEUE' : `STAGE ${stage}`}</p><h3>{stageMeta?.detail}</h3></div><div className="growth-view-switcher" role="group" aria-label="Growth workspace view">{viewButtons.map(({ id, label, icon: Icon }) => <button type="button" key={id} className={centerView === id ? 'is-active' : ''} aria-pressed={centerView === id} onClick={() => setCenterView(id)}><Icon size={14} />{label}</button>)}</div></header>
+          {centerView === 'assets' && <>
+            <section className="growth-panel growth-panel--overview"><div className="growth-panel__heading"><div><p>FLOW HEALTH</p><h3>Persisted conversion snapshot</h3></div><BarChart3 size={18} /></div><GrowthFunnel counts={counts} state={requestStates.overview} error={overviewError?.message} /></section>
+            <div className="growth-assets-view">
+              <section className="growth-panel"><div className="growth-panel__heading"><div><p>ASSET INDEX</p><h3>{stageMeta?.label}</h3></div><span>{stageResult ? `${stageResult.records.length}${stageResult.truncated ? '+' : ''} loaded` : 'not loaded'}</span></div><GrowthAssetList stage={stage} records={records} selectedId={selectedId} query={query} statusFilter={statusFilter} page={page} pageSize={pageSize} totalHint={stageTotal(overview, stage)} truncated={Boolean(stageResult?.truncated)} serverCapped={stageResult?.limit === 500} state={requestStates.stage} error={stageError?.message} onQueryChange={setQuery} onStatusChange={setStatusFilter} onPageChange={setPage} onSelect={selectAsset} onRetry={refresh} /></section>
+              <section className="growth-panel growth-reader"><div className="growth-panel__heading"><div><p>{detail?.kind === 'proposal' ? 'DIFF' : 'READER'}</p><h3>{selected ? growthRecordLabel(selected) : 'No asset selected'}</h3></div>{detail?.kind === 'proposal' ? <FileDiff size={17} /> : <BookOpen size={17} />}</div><AssetReader selected={selected} detail={detail} state={requestStates.detail} error={detailError?.message} /></section>
+            </div>
+          </>}
+          {centerView === 'metrics' && <section className="growth-panel"><div className="growth-panel__heading"><div><p>QUALITY & TRENDS</p><h3>Persisted health observations</h3></div><BarChart3 size={18} /></div><GrowthTrends trend={trend} health={health} counts={counts} state={requestStates.metrics} error={metricsError?.message} onRetry={refresh} /></section>}
+          {centerView === 'lineage' && <section className="growth-panel"><div className="growth-panel__heading"><div><p>LINEAGE</p><h3>Bounded evidence relationships</h3></div><span>{lineage ? `${lineage.edges.length}${lineage.truncated ? '+' : ''} edges` : 'not loaded'}</span></div><GrowthLineageGraph lineage={lineage} state={requestStates.lineage} error={lineageError?.message} relation={relation} onRelationChange={setRelation} onSelect={followAsset} onRetry={refresh} /></section>}
+        </main>
+        <GrowthInspector selected={selected} detail={detail} state={requestStates.detail} error={detailError?.message} edges={relevantEdges} canWrite={access?.can_write ?? null} compact={compact} open={inspectorOpen} actionState={requestStates.action} actionMessage={actionMessage} onClose={() => setInspectorOpen(false)} onAction={(current) => void runAction(current)} onFeedback={(current, payload) => void submitFeedback(current, payload)} onFollow={followAsset} />
+      </div>
+    </>}
+  </section>;
+}

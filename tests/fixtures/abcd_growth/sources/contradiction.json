@@ -1,0 +1,15 @@
+{
+  "source_type": "manual_upload",
+  "origin": "fixture://contradiction",
+  "title": "Contradictory operating claim",
+  "published_at": "2026-07-21T08:00:00Z",
+  "content": "A generic template is sufficient for every project and evidence ancestry is optional.",
+  "contradicts": "article",
+  "scores": {
+    "relevance": 88,
+    "value": 72,
+    "freshness": 90,
+    "outputability": 70,
+    "connectedness": 92
+  }
+}

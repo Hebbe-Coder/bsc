@@ -107,6 +107,66 @@ _WIKI_SCHEMA = [
         case_type TEXT NOT NULL, expected_json TEXT NOT NULL DEFAULT '{}',
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
         UNIQUE(project_id, case_id))""",
+    """CREATE TABLE IF NOT EXISTS knowledge_project_profiles (
+        project_id TEXT PRIMARY KEY, revision INTEGER NOT NULL DEFAULT 1,
+        profile_json TEXT NOT NULL DEFAULT '{}', actor_id TEXT DEFAULT '',
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL)""",
+    """CREATE TABLE IF NOT EXISTS knowledge_project_profile_revisions (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL, revision INTEGER NOT NULL,
+        profile_json TEXT NOT NULL DEFAULT '{}', actor_id TEXT DEFAULT '',
+        created_at TEXT NOT NULL, UNIQUE(project_id, revision))""",
+    """CREATE TABLE IF NOT EXISTS knowledge_source_triage (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL, source_id TEXT NOT NULL,
+        profile_revision INTEGER NOT NULL, relevance INTEGER NOT NULL,
+        value_score INTEGER NOT NULL, freshness INTEGER NOT NULL,
+        outputability INTEGER NOT NULL, connectedness INTEGER NOT NULL,
+        priority INTEGER NOT NULL, reliability_pass INTEGER NOT NULL,
+        disposition TEXT NOT NULL, reasons_json TEXT NOT NULL DEFAULT '[]',
+        evaluator_revision TEXT NOT NULL DEFAULT '', evaluator_status TEXT NOT NULL DEFAULT 'completed',
+        created_at TEXT NOT NULL, UNIQUE(project_id, source_id, profile_revision))""",
+    """CREATE TABLE IF NOT EXISTS knowledge_methods (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL, slug TEXT NOT NULL,
+        name TEXT NOT NULL, applicability_json TEXT NOT NULL DEFAULT '[]',
+        exclusions_json TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL,
+        active_revision_id TEXT DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        UNIQUE(project_id, slug))""",
+    """CREATE TABLE IF NOT EXISTS knowledge_method_revisions (
+        id TEXT PRIMARY KEY, method_id TEXT NOT NULL, project_id TEXT NOT NULL,
+        version INTEGER NOT NULL, body TEXT NOT NULL, manifest_json TEXT NOT NULL DEFAULT '{}',
+        eval_summary_json TEXT NOT NULL DEFAULT '{}', status TEXT NOT NULL, created_at TEXT NOT NULL,
+        UNIQUE(method_id, version))""",
+    """CREATE TABLE IF NOT EXISTS knowledge_method_proposals (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL, method_id TEXT DEFAULT '',
+        operation TEXT NOT NULL, body TEXT NOT NULL, manifest_json TEXT NOT NULL DEFAULT '{}',
+        source_output_ids_json TEXT NOT NULL DEFAULT '[]', rationale TEXT DEFAULT '',
+        status TEXT NOT NULL, eval_summary_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL)""",
+    """CREATE TABLE IF NOT EXISTS knowledge_outputs (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL, kind TEXT NOT NULL, title TEXT DEFAULT '',
+        mime_type TEXT NOT NULL DEFAULT 'text/markdown', content_hash TEXT NOT NULL,
+        vault_path TEXT NOT NULL, run_id TEXT DEFAULT '', method_revision_id TEXT DEFAULT '',
+        context_revision TEXT DEFAULT '', source_refs_json TEXT NOT NULL DEFAULT '[]',
+        page_refs_json TEXT NOT NULL DEFAULT '[]', idempotency_key TEXT NOT NULL,
+        status TEXT NOT NULL, quality_json TEXT NOT NULL DEFAULT '{}', metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        UNIQUE(project_id, idempotency_key))""",
+    """CREATE TABLE IF NOT EXISTS knowledge_output_evaluations (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL, output_id TEXT NOT NULL,
+        groundedness REAL NOT NULL, task_fit REAL NOT NULL, usefulness REAL NOT NULL,
+        coherence REAL NOT NULL, format_quality REAL NOT NULL, quality INTEGER NOT NULL,
+        status TEXT NOT NULL, evaluator_revision TEXT NOT NULL, findings_json TEXT NOT NULL DEFAULT '[]',
+        latency_ms INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL,
+        UNIQUE(project_id, output_id, evaluator_revision))""",
+    """CREATE TABLE IF NOT EXISTS knowledge_output_feedback (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL, output_id TEXT NOT NULL,
+        feedback_type TEXT NOT NULL, actor_id TEXT DEFAULT '', rating INTEGER,
+        correction TEXT DEFAULT '', comment TEXT DEFAULT '', status TEXT NOT NULL,
+        processed_at TEXT, processed_ref TEXT DEFAULT '', created_at TEXT NOT NULL)""",
+    """CREATE TABLE IF NOT EXISTS knowledge_growth_distillations (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL, period TEXT NOT NULL,
+        kind TEXT NOT NULL, input_hash TEXT NOT NULL, paths_json TEXT NOT NULL DEFAULT '[]',
+        manifest_json TEXT NOT NULL DEFAULT '{}', status TEXT NOT NULL,
+        created_at TEXT NOT NULL, UNIQUE(project_id,kind,period,input_hash))""",
 ]
 
 
@@ -181,6 +241,17 @@ def ensure_schema(repo: Any) -> None:
         "CREATE INDEX IF NOT EXISTS idx_kw_schedules_project_job ON knowledge_schedules(project_id,job_type)",
         "CREATE INDEX IF NOT EXISTS idx_kw_graph_project_type ON knowledge_graph_edges(project_id,edge_type)",
         "CREATE INDEX IF NOT EXISTS idx_kw_eval_cases_project ON knowledge_eval_cases(project_id,case_type)",
+        "CREATE INDEX IF NOT EXISTS idx_kw_profiles_revision ON knowledge_project_profiles(project_id,revision)",
+        "CREATE INDEX IF NOT EXISTS idx_kw_triage_project_score ON knowledge_source_triage(project_id,priority,created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_kw_methods_project_status ON knowledge_methods(project_id,status)",
+        "CREATE INDEX IF NOT EXISTS idx_kw_method_revisions_project ON knowledge_method_revisions(project_id,method_id,version)",
+        "CREATE INDEX IF NOT EXISTS idx_kw_method_proposals_project ON knowledge_method_proposals(project_id,status,created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_kw_outputs_project_status ON knowledge_outputs(project_id,status,created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_kw_output_hash ON knowledge_outputs(project_id,content_hash)",
+        "CREATE INDEX IF NOT EXISTS idx_kw_evaluations_output ON knowledge_output_evaluations(project_id,output_id,created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_kw_feedback_output ON knowledge_output_feedback(project_id,output_id,created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_kw_growth_distillations_project ON knowledge_growth_distillations(project_id,kind,period)",
+        "CREATE INDEX IF NOT EXISTS idx_kw_lineage_edge ON knowledge_graph_edges(project_id,from_id,to_id,edge_type)",
     ):
         repo._execute(idx_sql)
     repo._commit()

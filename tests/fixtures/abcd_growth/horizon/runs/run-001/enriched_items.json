@@ -1,0 +1,17 @@
+{
+  "items": [
+    {
+      "id": "horizon-signal-1",
+      "source_type": "rss",
+      "url": "https://example.test/horizon/signal-1",
+      "title": "Knowledge operations signal",
+      "content": "A bounded context pack improves traceability for recurring knowledge work.",
+      "published_at": "2026-07-22T08:00:00Z",
+      "ai_score": 9.3,
+      "ai_summary": "Bounded context improves traceability.",
+      "ai_reason": "Relevant to the configured knowledge operations domain.",
+      "ai_tags": ["knowledge", "operations"],
+      "metadata": {"category": "ai-news"}
+    }
+  ]
+}

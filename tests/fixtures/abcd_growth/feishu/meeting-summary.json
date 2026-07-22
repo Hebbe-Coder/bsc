@@ -1,0 +1,17 @@
+{
+  "document_id": "doc-fixture-001",
+  "revision_id": "rev-2026-07-22-3",
+  "source_url": "https://example.feishu.test/doc-fixture-001",
+  "document_type": "minutes",
+  "title": "Knowledge growth review",
+  "content": "The team accepted evidence ancestry and requested a regression case for rejected output.",
+  "source_time": "2026-07-22T09:30:00Z",
+  "attachments": [
+    {
+      "name": "review-notes.pdf",
+      "mime_type": "application/pdf",
+      "byte_size": 164,
+      "access_state": "available"
+    }
+  ]
+}

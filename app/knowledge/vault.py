@@ -35,11 +35,17 @@ class FilesystemWikiVault(InMemoryWikiVault):
         target = self.project_root
         if not target.exists():
             return {}
-        return {
-            path.relative_to(target).as_posix(): path.read_text(encoding="utf-8")
-            for path in target.rglob("*")
-            if path.is_file() and not path.is_symlink()
-        }
+        contents: dict[str, str] = {}
+        for path in target.rglob("*"):
+            if not path.is_file() or path.is_symlink():
+                continue
+            try:
+                contents[path.relative_to(target).as_posix()] = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                # Binary assets are outside the Markdown proposal snapshot. The
+                # commit path copies them byte-for-byte before replacing text.
+                continue
+        return contents
 
     @contents.setter
     def contents(self, _value: dict[str, str]) -> None:
@@ -56,6 +62,18 @@ class FilesystemWikiVault(InMemoryWikiVault):
             target = self.project_root
             if target.exists() and any(path.is_symlink() for path in target.rglob("*")):
                 raise ProposalGateError("Vault project contains a symlink; refusing an atomic replacement")
+            if target.exists():
+                shutil.copytree(target, staged_root)
+                for existing in staged_root.rglob("*"):
+                    if not existing.is_file():
+                        continue
+                    relative_path = existing.relative_to(staged_root).as_posix()
+                    try:
+                        existing.read_text(encoding="utf-8")
+                    except UnicodeDecodeError:
+                        continue
+                    if relative_path not in staged:
+                        existing.unlink()
             for relative_path, content in staged.items():
                 destination = self._safe_child(staged_root, relative_path)
                 destination.parent.mkdir(parents=True, exist_ok=True)

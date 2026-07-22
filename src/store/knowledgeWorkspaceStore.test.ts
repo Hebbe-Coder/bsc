@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { KnowledgeRun, KnowledgeRunEvent } from '../api/knowledgeWorkspaceApi';
-import { useKnowledgeWorkspaceStore, type KnowledgeSnapshot } from './knowledgeWorkspaceStore';
+import { useGrowthWorkspaceStore, useKnowledgeWorkspaceStore, type KnowledgeSnapshot } from './knowledgeWorkspaceStore';
 
 const run = (overrides: Partial<KnowledgeRun> = {}): KnowledgeRun => ({
   id: 'run-a',
@@ -141,5 +141,42 @@ describe('knowledge workspace state', () => {
 
     expect(useKnowledgeWorkspaceStore.getState().mobilePane).toBe('inspector');
     expect(useKnowledgeWorkspaceStore.getState().selectedRun?.id).toBe('run-a');
+  });
+});
+
+describe('growth workspace state', () => {
+  beforeEach(() => useGrowthWorkspaceStore.getState().reset());
+
+  it('keeps global search while resetting stale selection and pagination on stage change', () => {
+    const store = useGrowthWorkspaceStore.getState();
+    store.setQuery('evidence');
+    store.setPage(3);
+    store.setSelectedId('source-a');
+    useGrowthWorkspaceStore.getState().setStage('B');
+
+    const current = useGrowthWorkspaceStore.getState();
+    expect(current.query).toBe('evidence');
+    expect(current.page).toBe(1);
+    expect(current.selectedId).toBe('');
+    expect(current.inspectorOpen).toBe(false);
+  });
+
+  it('clears project-bound state when the project changes', () => {
+    useGrowthWorkspaceStore.getState().setSelectedId('output-a');
+    useGrowthWorkspaceStore.getState().setRequestState('stage', 'success');
+    useGrowthWorkspaceStore.getState().setProjectId('project-b');
+
+    const current = useGrowthWorkspaceStore.getState();
+    expect(current.projectId).toBe('project-b');
+    expect(current.selectedId).toBe('');
+    expect(current.requestStates.stage).toBe('idle');
+  });
+
+  it('retains selection when the active stage remains available', () => {
+    useGrowthWorkspaceStore.getState().setSelectedId('source-a');
+    useGrowthWorkspaceStore.getState().setStage('A');
+
+    expect(useGrowthWorkspaceStore.getState().selectedId).toBe('source-a');
+    expect(useGrowthWorkspaceStore.getState().inspectorOpen).toBe(true);
   });
 });

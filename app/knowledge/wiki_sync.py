@@ -151,6 +151,8 @@ class ObsidianSyncService:
         parts = relative.parts
         if any(part.startswith(".") for part in parts):
             return True
+        if parts and parts[0].lower() in {"distillations", "methods", "outputs", "reviews"}:
+            return True
         name = relative.name.lower()
         if name.startswith("~") or name.endswith((".tmp", ".temp", ".swp", ".lock")):
             return True

@@ -242,7 +242,7 @@ class WikiRepository(BaseRepository):
         ).hexdigest()[:24]
         existing = self._execute("SELECT run_id FROM knowledge_schedule_claims WHERE id=?", (claim_id,)).fetchone()
         if existing:
-            return {"claimed": False, "run_id": existing[0]}
+            return {"claimed": False, "run_id": self._row_to_dict(existing)["run_id"]}
         now = self._now()
         self._execute(
             "INSERT INTO knowledge_schedule_claims (id,project_id,job_type,idempotency_key,run_id,created_at) VALUES (?,?,?,?,?,?)",

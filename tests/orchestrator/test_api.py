@@ -43,6 +43,28 @@ def test_orchestrate_runs(client, monkeypatch):
     assert "project" in got.to_dict()
 
 
+def test_legacy_orchestrator_receives_explicit_project_scope(client, monkeypatch):
+    captured = {}
+
+    async def blocked_run(self, session_id, idea, *, project_id=""):
+        captured.update(session_id=session_id, idea=idea, project_id=project_id)
+        return {}
+
+    _enable_auth(monkeypatch)
+    monkeypatch.setattr(
+        "app.orchestrator.engine.OrchestratorEngine.run_pipeline",
+        blocked_run,
+    )
+    response = client.post(
+        "/api/orchestrate",
+        json={"idea": "scoped business", "project_id": "project-alpha"},
+        headers={"Authorization": "Bearer test-key-123"},
+    )
+
+    assert response.status_code == 202
+    assert captured["project_id"] == "project-alpha"
+
+
 def test_create_returns_202_and_discovery_urls(client, monkeypatch):
     _enable_auth(monkeypatch)
 

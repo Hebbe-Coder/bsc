@@ -166,7 +166,10 @@ async def orchestrate(request: Request):
     else:
         llm = LLMService(force_mock=settings.LLM_PROVIDER == "mock")
         engine = OrchestratorEngine(agents=build_agents(llm), repo=repo, bus=_bus)
-        _retain_task(sid, engine.run_pipeline(sid, idea.strip()))
+        legacy_kwargs = {}
+        if _accepts_keyword(engine.run_pipeline, "project_id"):
+            legacy_kwargs["project_id"] = project_id
+        _retain_task(sid, engine.run_pipeline(sid, idea.strip(), **legacy_kwargs))
     return {
         "session_id": sid,
         "status": JobStatus.QUEUED.value,

@@ -47,13 +47,17 @@ class OrchestratorEngine:
             self.repo.record_event(event)
         return event
 
-    async def run_pipeline(self, session_id: str, idea: str) -> dict:
-        if self.repo.get(session_id) is None:
+    async def run_pipeline(self, session_id: str, idea: str, project_id: str = "") -> dict:
+        existing = self.repo.get(session_id)
+        if existing is None:
             self.repo.save(ProjectDraft(
                 session_id=session_id,
+                project_id=project_id,
                 idea=idea,
                 status=JobStatus.QUEUED.value,
             ))
+        elif project_id and existing.project_id and existing.project_id != project_id:
+            raise ValueError("session scope cannot change: project_id")
         self.repo.transition(session_id, JobStatus.RUNNING)
         await self._emit(
             session_id,
@@ -63,7 +67,7 @@ class OrchestratorEngine:
             event_type=EventType.PIPELINE_STARTED,
         )
         try:
-            state = await self._run_stages(session_id, idea)
+            state = await self._run_stages(session_id, idea, project_id=project_id)
             self.repo.transition(session_id, JobStatus.COMPLETED)
             await self._emit(
                 session_id,
@@ -102,11 +106,12 @@ class OrchestratorEngine:
             )
             raise
 
-    async def _run_stages(self, session_id: str, idea: str) -> dict:
+    async def _run_stages(self, session_id: str, idea: str, project_id: str = "") -> dict:
         draft = self.repo.get(session_id) or ProjectDraft(session_id=session_id, idea=idea)
         state = draft.to_dict()
         # 以 session_id 作为知识库 project_id（生产环境后续会显式传入 knowledge_project_id）
-        project_id = session_id
+        knowledge_project_id = project_id or draft.project_id or session_id
+        state["project_id"] = knowledge_project_id
         await self._emit(session_id, "planner", "running", "正在识别行业与边界")
         out = await self._call("planner", idea=idea)
         state["project"] = out.get("project", {})
@@ -117,7 +122,7 @@ class OrchestratorEngine:
         await self._emit(session_id, "architect", "running", "正在构建流程")
         out = await self._call("architect", idea=idea,
                                project=state["project"], requirements=state["requirements"],
-                               project_id=project_id)
+                               project_id=knowledge_project_id)
         state["business_model"] = out.get("business_model", {})
         self._save(session_id, state)
         await self._emit(session_id, "architect", "done", "业务架构已生成")
@@ -125,7 +130,7 @@ class OrchestratorEngine:
         # FORK: sop || risk（二者仅依赖 business_model，真并行）
         await self._emit(session_id, "sop", "running", "正在生成 SOP")
         sop_fut = asyncio.to_thread(self._call_sync, "sop",
-                                    business_model=state["business_model"], project_id=project_id)
+                                    business_model=state["business_model"], project_id=knowledge_project_id)
         if "risk" in self.agents:
             await self._emit(session_id, "risk", "running", "正在评估约束与风险（并行）")
             risk_fut = asyncio.to_thread(self._call_sync, "risk",
@@ -179,14 +184,14 @@ class OrchestratorEngine:
                 await self._emit(session_id, "sop", "loopback",
                                  f"↺ 打回 SOP 重做（第{loop_count+1}次回环），需补齐 {len(high_gaps)} 项缺口")
                 out = await self._call("sop", business_model=state["business_model"],
-                                       fix_instructions=fixes)
+                                       fix_instructions=fixes, project_id=knowledge_project_id)
                 state["sop"] = out.get("sop", {})
             elif target == "architect":
                 await self._emit(session_id, "architect", "loopback",
                                  f"↺ 打回 Architect 重做（第{loop_count+1}次回环），需补齐 {len(high_gaps)} 项缺口")
                 out = await self._call("architect", idea=idea,
                                        project=state["project"], requirements=state["requirements"],
-                                       fix_instructions=fixes)
+                                       fix_instructions=fixes, project_id=knowledge_project_id)
                 state["business_model"] = out.get("business_model", {})
             elif target == "risk" and "risk" in self.agents:
                 await self._emit(session_id, "risk", "loopback",
@@ -255,7 +260,7 @@ class OrchestratorEngine:
         return await asyncio.to_thread(agent.run, **kwargs)
 
     def _upstream_for(self, node, state):
-        project_id = state.get("session_id")
+        project_id = state.get("project_id") or state.get("session_id")
         if node == "architect":
             return {"idea": state["idea"], "project": state["project"],
                     "requirements": state["requirements"], "project_id": project_id}
@@ -275,7 +280,11 @@ class OrchestratorEngine:
     def _save(self, session_id, state):
         current = self.repo.get(session_id)
         draft = ProjectDraft(
-            session_id=session_id, idea=state.get("idea", ""),
+            session_id=session_id,
+            tenant_id=state.get("tenant_id", ""),
+            project_id=state.get("project_id", ""),
+            owner_session_id=state.get("owner_session_id", ""),
+            idea=state.get("idea", ""),
             project=state.get("project", {}), requirements=state.get("requirements", []),
             business_model=state.get("business_model", {}), sop=state.get("sop", {}),
             risk=state.get("risk", {}), review=state.get("review", {}),

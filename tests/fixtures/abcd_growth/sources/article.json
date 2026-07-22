@@ -1,0 +1,14 @@
+{
+  "source_type": "browser_clip",
+  "origin": "https://example.test/evidence/knowledge-growth",
+  "title": "Evidence-led knowledge growth",
+  "published_at": "2026-07-20T08:00:00Z",
+  "content": "Project-specific evidence and explicit feedback gates improve reusable operating methods.",
+  "scores": {
+    "relevance": 96,
+    "value": 94,
+    "freshness": 90,
+    "outputability": 92,
+    "connectedness": 86
+  }
+}

@@ -40,6 +40,7 @@ from mcp.server.fastmcp import FastMCP
 from app.middleware.auth import resolve_knowledge_auth
 from app.mcp.compatibility import build_compatibility_profile
 from app.mcp import wiki_tools
+from app.mcp import growth_tools
 
 logger = logging.getLogger(__name__)
 
@@ -519,6 +520,262 @@ def wiki_schedule(project_id: str, job_type: str, cron: str, timezone: str = "As
     """Persist a bounded Wiki maintenance schedule; it does not claim execution without Celery."""
     _authorize_wiki_project(project_id, api_key, write=True)
     return wiki_tools.wiki_schedule(project_id, job_type, cron, timezone)
+
+
+def _authorize_growth_project(project_id: str, api_key: str = "", *, write: bool = False) -> None:
+    from app.core.config import settings
+
+    role, scoped_project_id = _require_mcp_auth(api_key)
+    if not settings.KNOWLEDGE_GROWTH_ENABLED:
+        raise growth_tools.GrowthUnavailableError(
+            "Knowledge growth is disabled by configuration",
+            {"growth": False},
+        )
+    if write and not settings.KNOWLEDGE_MCP_WRITE_ENABLED:
+        raise growth_tools.GrowthUnavailableError(
+            "Knowledge growth MCP writes are disabled by configuration",
+            {"growth": True, "mcp_write": False},
+        )
+    if role == "admin":
+        return
+    if role == "reader":
+        if write:
+            raise PermissionError("reader keys are read-only for knowledge growth")
+        return
+    if role == "project_admin":
+        if scoped_project_id == project_id:
+            return
+        raise PermissionError("no access to this project")
+    if role == "system":
+        if scoped_project_id == project_id:
+            return
+        raise PermissionError("system credentials must match the requested project")
+    if role == "project_reader":
+        if scoped_project_id != project_id:
+            raise PermissionError("no access to this project")
+        if write:
+            raise PermissionError("project_reader is read-only for knowledge growth")
+        return
+    raise PermissionError("invalid knowledge growth access role")
+
+
+_GROWTH_ACTION_PERMISSIONS = {
+    "profile": ({"get"}, {"update"}),
+    "source_triage": ({"get"}, {"run"}),
+    "method": ({"list", "get", "resolve", "revisions"}, {"propose", "review", "publish", "deprecate"}),
+    "output": ({"list", "get"}, {"register", "evaluate", "file"}),
+    "feedback": ({"list"}, {"create", "process"}),
+    "schedule": ({"list"}, {"create"}),
+    "run": ({"list", "get", "events"}, {"start"}),
+    "distillation": ({"list", "get"}, {"start"}),
+}
+
+
+def _growth_action_is_write(domain: str, action: str) -> bool:
+    read_actions, write_actions = _GROWTH_ACTION_PERMISSIONS.get(domain, (set(), set()))
+    if action in read_actions:
+        return False
+    if action in write_actions:
+        return True
+    raise ValueError(f"unsupported {domain} growth action: {action}")
+
+
+@mcp.tool()
+def knowledge_growth_profile(
+    project_id: str,
+    action: str = "get",
+    profile: dict | None = None,
+    expected_revision: int | None = None,
+    api_key: str = "",
+) -> dict:
+    _authorize_growth_project(project_id, api_key, write=_growth_action_is_write("profile", action))
+    return growth_tools.growth_profile(project_id, action, profile, expected_revision)
+
+
+@mcp.tool()
+def knowledge_growth_assets(
+    project_id: str,
+    stage: str = "",
+    limit: int = 100,
+    cursor: str = "",
+    api_key: str = "",
+) -> dict:
+    _authorize_growth_project(project_id, api_key)
+    return growth_tools.growth_assets(project_id, stage, limit, cursor)
+
+
+@mcp.tool()
+def knowledge_growth_source_triage(
+    project_id: str,
+    action: str = "get",
+    source_id: str = "",
+    api_key: str = "",
+) -> dict:
+    _authorize_growth_project(project_id, api_key, write=_growth_action_is_write("source_triage", action))
+    return growth_tools.growth_source_triage(project_id, action, source_id)
+
+
+@mcp.tool()
+def knowledge_growth_method(
+    project_id: str,
+    action: str = "list",
+    method_id: str = "",
+    proposal_id: str = "",
+    status: str = "",
+    limit: int = 100,
+    cursor: str = "",
+    payload: dict | None = None,
+    api_key: str = "",
+) -> dict:
+    _authorize_growth_project(project_id, api_key, write=_growth_action_is_write("method", action))
+    return growth_tools.growth_method(
+        project_id, action, method_id, proposal_id, status, limit, cursor, payload
+    )
+
+
+@mcp.tool()
+def knowledge_growth_output(
+    project_id: str,
+    action: str = "list",
+    output_id: str = "",
+    status: str = "",
+    limit: int = 100,
+    cursor: str = "",
+    payload: dict | None = None,
+    api_key: str = "",
+) -> dict:
+    _authorize_growth_project(project_id, api_key, write=_growth_action_is_write("output", action))
+    return growth_tools.growth_output(project_id, action, output_id, status, limit, cursor, payload)
+
+
+@mcp.tool()
+def knowledge_growth_feedback(
+    project_id: str,
+    action: str = "list",
+    feedback_id: str = "",
+    output_id: str = "",
+    limit: int = 100,
+    cursor: str = "",
+    payload: dict | None = None,
+    api_key: str = "",
+) -> dict:
+    _authorize_growth_project(project_id, api_key, write=_growth_action_is_write("feedback", action))
+    return growth_tools.growth_feedback(
+        project_id, action, feedback_id, output_id, limit, cursor, payload
+    )
+
+
+@mcp.tool()
+def knowledge_growth_summary(project_id: str, api_key: str = "") -> dict:
+    _authorize_growth_project(project_id, api_key)
+    return growth_tools.growth_summary(project_id)
+
+
+@mcp.tool()
+def knowledge_growth_lineage(
+    project_id: str,
+    relation: str = "",
+    limit: int = 100,
+    cursor: str = "",
+    api_key: str = "",
+) -> dict:
+    _authorize_growth_project(project_id, api_key)
+    return growth_tools.growth_lineage(project_id, relation, limit, cursor)
+
+
+@mcp.tool()
+def knowledge_growth_review(
+    project_id: str,
+    action: str,
+    target_id: str = "",
+    minimum_uses: int = 3,
+    api_key: str = "",
+) -> dict:
+    _authorize_growth_project(project_id, api_key, write=True)
+    return growth_tools.growth_review(project_id, action, target_id, minimum_uses)
+
+
+@mcp.tool()
+def knowledge_growth_schedule(
+    project_id: str,
+    action: str = "list",
+    job_type: str = "",
+    cron: str = "",
+    timezone: str = "Asia/Shanghai",
+    limit: int = 100,
+    cursor: str = "",
+    api_key: str = "",
+) -> dict:
+    _authorize_growth_project(project_id, api_key, write=_growth_action_is_write("schedule", action))
+    return growth_tools.growth_schedule(
+        project_id, action, job_type, cron, timezone, limit, cursor
+    )
+
+
+@mcp.tool()
+def knowledge_growth_run(
+    project_id: str,
+    action: str = "list",
+    run_id: str = "",
+    job_type: str = "",
+    idempotency_key: str = "",
+    after_sequence: int = 0,
+    limit: int = 100,
+    cursor: str = "",
+    payload: dict | None = None,
+    api_key: str = "",
+) -> dict:
+    _authorize_growth_project(project_id, api_key, write=_growth_action_is_write("run", action))
+    return growth_tools.growth_run(
+        project_id,
+        action,
+        run_id,
+        job_type,
+        idempotency_key,
+        after_sequence,
+        limit,
+        cursor,
+        payload,
+    )
+
+
+@mcp.tool()
+def knowledge_growth_distillation(
+    project_id: str,
+    action: str = "list",
+    distillation_id: str = "",
+    kind: str = "",
+    week: str = "",
+    source_cutoff: str = "",
+    idempotency_key: str = "",
+    limit: int = 100,
+    cursor: str = "",
+    api_key: str = "",
+) -> dict:
+    _authorize_growth_project(project_id, api_key, write=_growth_action_is_write("distillation", action))
+    return growth_tools.growth_distillation(
+        project_id,
+        action,
+        distillation_id,
+        kind,
+        week,
+        source_cutoff,
+        idempotency_key,
+        limit,
+        cursor,
+    )
+
+
+@mcp.tool()
+def knowledge_growth_triage(project_id: str, source_id: str, api_key: str = "") -> dict:
+    _authorize_growth_project(project_id, api_key, write=True)
+    return growth_tools.growth_triage(project_id, source_id)
+
+
+@mcp.tool()
+def knowledge_growth_weekly_distill(project_id: str, week: str, source_cutoff: str, api_key: str = "") -> dict:
+    _authorize_growth_project(project_id, api_key, write=True)
+    return growth_tools.growth_weekly_distill(project_id, week, source_cutoff)
 
 
 @mcp.tool()

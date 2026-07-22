@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { lazy, Suspense, useState, useEffect, useRef, useCallback } from 'react';
 import { useWorkspace } from '../store/workspaceStore';
 import {
   cancelOrchestrate,
@@ -31,8 +31,11 @@ import {
   BookOpen,
   Play,
   Sparkles,
+  Sprout,
   Workflow,
 } from 'lucide-react';
+
+const GrowthWorkspace = lazy(() => import('./GrowthWorkspace').then((module) => ({ default: module.GrowthWorkspace })));
 
 // ---- Types ----
 type Mode = 'auto' | 'analyze' | 'compile' | 'board';
@@ -124,6 +127,7 @@ export function UnifiedWorkspace() {
   const [parentSessionId, setParentSessionId] = useState('');
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
+  const [growthOpen, setGrowthOpen] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -297,6 +301,9 @@ export function UnifiedWorkspace() {
           <button type="button" className="skill-trigger" onClick={() => setKnowledgeOpen(true)}>
             <BookOpen size={15} aria-hidden="true" /> Knowledge
           </button>
+          <button type="button" className="skill-trigger" onClick={() => setGrowthOpen(true)}>
+            <Sprout size={15} aria-hidden="true" /> Growth
+          </button>
           <span className={'studio-status ' + statusColor}><i aria-hidden="true" />{statusLabel}</span>
           <code>{sessionDisplay}</code>
         </div>
@@ -424,6 +431,7 @@ export function UnifiedWorkspace() {
       <footer className="studio-footer"><span>{mode === 'auto' && detectedMode ? `Auto -> ${MODE_LABELS[detectedMode]}` : MODE_LABELS[effectiveMode]}</span><span>Session: {sessionDisplay}</span>{compiling && <span className="is-live">pipeline active</span>}{dashData && <span>coverage: {dashData.risk.coverage.coverage_pct}%</span>}<span className="studio-footer__right">BSC Studio 5.0</span></footer>
       {skillsOpen && <SkillMarket onClose={() => setSkillsOpen(false)} context={input || workspaceIdea} />}
       {knowledgeOpen && <KnowledgeWorkspace onClose={() => setKnowledgeOpen(false)} />}
+      {growthOpen && <Suspense fallback={<section className="growth-workspace" aria-label="Knowledge growth workspace"><div className="growth-state" role="status">Loading growth workspace...</div></section>}><GrowthWorkspace onClose={() => setGrowthOpen(false)} /></Suspense>}
     </div>
   );
 }

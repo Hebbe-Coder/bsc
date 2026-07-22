@@ -11,7 +11,15 @@ from app.knowledge.wiki_repository import WikiRepository
 
 _INTERVAL_CRON = re.compile(r"^\*/([1-9][0-9]?) \* \* \* \*$")
 _CALENDAR_CRON = re.compile(r"^([0-5]?[0-9]) ([01]?[0-9]|2[0-3]) \* \* ([*0-6])$")
-_JOB_TYPES = {"source_sync", "horizon_capture", "wiki_maintenance", "knowledge_lint_eval", "weekly_distillation"}
+_JOB_TYPES = {
+    "source_sync",
+    "horizon_capture",
+    "wiki_maintenance",
+    "knowledge_lint_eval",
+    "weekly_distillation",
+    "growth_daily",
+    "growth_weekly_distillation",
+}
 
 
 class ScheduleValidationError(ValueError):

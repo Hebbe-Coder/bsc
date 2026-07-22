@@ -1,0 +1,158 @@
+{
+  "version": "growth-v1",
+  "authority": "docs/superpowers/plans/2026-07-22-abcd-growth-api-mcp.md",
+  "base_paths": {
+    "canonical": "/knowledge/projects/{project_id}",
+    "legacy": "/knowledge/growth/{project_id}",
+    "mcp": "/api/mcp"
+  },
+  "rest_paths": [
+    "/knowledge/projects/{project_id}/profile",
+    "/knowledge/projects/{project_id}/growth/assets",
+    "/knowledge/projects/{project_id}/sources",
+    "/knowledge/projects/{project_id}/sources/{source_id}/triage",
+    "/knowledge/projects/{project_id}/methods",
+    "/knowledge/projects/{project_id}/methods/{method_id}/revisions",
+    "/knowledge/projects/{project_id}/methods/{method_id}/resolve",
+    "/knowledge/projects/{project_id}/methods/{method_id}/deprecate",
+    "/knowledge/projects/{project_id}/methods/proposals/{proposal_id}/review",
+    "/knowledge/projects/{project_id}/methods/proposals/{proposal_id}/publish",
+    "/knowledge/projects/{project_id}/outputs",
+    "/knowledge/projects/{project_id}/outputs/{output_id}",
+    "/knowledge/projects/{project_id}/outputs/{output_id}/evaluate",
+    "/knowledge/projects/{project_id}/outputs/{output_id}/feedback",
+    "/knowledge/projects/{project_id}/outputs/{output_id}/file",
+    "/knowledge/projects/{project_id}/feedback",
+    "/knowledge/projects/{project_id}/feedback/{feedback_id}/process",
+    "/knowledge/projects/{project_id}/growth/lineage",
+    "/knowledge/projects/{project_id}/growth/summary",
+    "/knowledge/projects/{project_id}/growth/review",
+    "/knowledge/projects/{project_id}/schedules",
+    "/knowledge/projects/{project_id}/runs",
+    "/knowledge/projects/{project_id}/runs/{run_id}/events",
+    "/knowledge/projects/{project_id}/runs/{run_id}/events/stream",
+    "/knowledge/projects/{project_id}/distillations",
+    "/knowledge/projects/{project_id}/distillations/{distillation_id}",
+    "/knowledge/projects/{project_id}/distillations/weekly"
+  ],
+  "mcp_tools": [
+    "knowledge_growth_profile",
+    "knowledge_growth_assets",
+    "knowledge_growth_source_triage",
+    "knowledge_growth_method",
+    "knowledge_growth_output",
+    "knowledge_growth_feedback",
+    "knowledge_growth_lineage",
+    "knowledge_growth_summary",
+    "knowledge_growth_review",
+    "knowledge_growth_schedule",
+    "knowledge_growth_run",
+    "knowledge_growth_distillation"
+  ],
+  "authorization": {
+    "reader": {
+      "read": true,
+      "mutate": false,
+      "scope": "global or bound project"
+    },
+    "project_admin": {
+      "read": true,
+      "mutate": true,
+      "scope": "bound project only"
+    },
+    "admin": {
+      "read": true,
+      "mutate": true,
+      "scope": "all projects"
+    },
+    "system": {
+      "read": true,
+      "mutate": true,
+      "scope": "explicit bound project and policy only",
+      "external_http_credential": false
+    }
+  },
+  "pagination": {
+    "parameters": ["limit", "cursor"],
+    "default_limit": 100,
+    "minimum_limit": 1,
+    "maximum_limit": 500,
+    "cursor_format": "decimal offset within the bounded 500-record window",
+    "response_fields": ["limit", "cursor", "next_cursor", "count"]
+  },
+  "events": {
+    "replay_parameter": "after_sequence",
+    "sse_replay_header": "Last-Event-ID",
+    "maximum_page_size": 500,
+    "maximum_payload_bytes": 65536,
+    "required_fields": [
+      "project_id",
+      "run_id",
+      "asset_id",
+      "sequence",
+      "event_type",
+      "actor",
+      "terminal",
+      "payload",
+      "created_at"
+    ],
+    "terminal_states": ["completed", "failed", "cancelled", "unavailable"]
+  },
+  "idempotency": {
+    "outputs": "idempotency_key plus content_hash",
+    "runs": "project_id plus job_type plus idempotency_key",
+    "distillations": "project_id plus kind plus period plus source cutoff/input hash",
+    "duplicate_status": "duplicate"
+  },
+  "optimistic_revision": {
+    "profile_field": "revision",
+    "profile_patch_precondition": "expected_revision",
+    "method_publish_field": "expected_profile_revision",
+    "conflict_http_status": 409,
+    "conflict_mcp_code": -32009
+  },
+  "availability": {
+    "fields": ["growth", "scheduler", "vault", "mcp_write"],
+    "states": ["available", "queued", "duplicate", "unavailable", "failed"],
+    "rule": "file existence and HTTP 200 never imply background execution"
+  },
+  "status_values": {
+    "triage": ["research_topic", "knowledge_candidate", "reference", "archive", "ignore"],
+    "method": ["candidate", "validating", "approved", "published", "rejected", "deprecated", "superseded"],
+    "output": ["registered", "evaluating", "accepted", "rejected", "filed", "archived", "superseded"],
+    "run": ["queued", "running", "completed", "failed", "cancelled", "unavailable"]
+  },
+  "errors": {
+    "permission_denied": {"http_status": 403, "mcp_code": -32001},
+    "dependency_unavailable": {"http_status": 503, "mcp_code": -32003},
+    "resource_not_found": {"http_status": 404, "mcp_code": -32004},
+    "conflict": {"http_status": 409, "mcp_code": -32009},
+    "state_conflict": {"http_status": 409, "mcp_code": -32009},
+    "invalid_arguments": {"http_status": 400, "mcp_code": -32602},
+    "internal_error": {"http_status": 500, "mcp_code": -32000}
+  },
+  "representative_responses": {
+    "list": {
+      "project_id": "fixture-project",
+      "items": [],
+      "pagination": {"limit": 100, "cursor": null, "next_cursor": null, "count": 0},
+      "availability": {"growth": true, "scheduler": false, "vault": false, "mcp_write": false}
+    },
+    "mutation": {
+      "project_id": "fixture-project",
+      "publication_status": "proposal_only",
+      "availability": {"growth": true, "scheduler": false, "vault": true, "mcp_write": true}
+    },
+    "event": {
+      "project_id": "fixture-project",
+      "run_id": "fixture-run",
+      "asset_id": "fixture-asset",
+      "sequence": 1,
+      "event_type": "knowledge.growth.asset.created",
+      "actor": "system",
+      "terminal": false,
+      "payload": {},
+      "created_at": "2026-07-22T00:00:00+00:00"
+    }
+  }
+}

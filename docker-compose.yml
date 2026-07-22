@@ -17,14 +17,16 @@ services:
       - RAG_LLM_PROVIDER=${RAG_LLM_PROVIDER:-deepseek}
       - ALLOW_MOCK_LLM_IN_PRODUCTION=${ALLOW_MOCK_LLM_IN_PRODUCTION:-false}
       - CACHE_TYPE=${CACHE_TYPE:-memory}
-      - DB_TYPE=sqlite
+      - DB_TYPE=${DB_TYPE:-sqlite}
       - DB_PATH=/data/bsc_cloud.db
+      - DB_URL=${DB_URL:-postgresql://bsc:bsc@postgres:5432/bsc}
       - CELERY_ENABLED=${CELERY_ENABLED:-false}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/0}
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
       - KNOWLEDGE_WIKI_ENABLED=${KNOWLEDGE_WIKI_ENABLED:-false}
       - KNOWLEDGE_OBSIDIAN_SYNC_ENABLED=${KNOWLEDGE_OBSIDIAN_SYNC_ENABLED:-false}
       - KNOWLEDGE_SCHEDULES_ENABLED=${KNOWLEDGE_SCHEDULES_ENABLED:-false}
+      - KNOWLEDGE_GROWTH_ENABLED=${KNOWLEDGE_GROWTH_ENABLED:-false}
       - KNOWLEDGE_MCP_WRITE_ENABLED=${KNOWLEDGE_MCP_WRITE_ENABLED:-false}
       - KNOWLEDGE_WIKI_AUTO_PUBLISH_ENABLED=${KNOWLEDGE_WIKI_AUTO_PUBLISH_ENABLED:-false}
       - KNOWLEDGE_WIKI_LLM_PROVIDER=${KNOWLEDGE_WIKI_LLM_PROVIDER:-}
@@ -98,6 +100,28 @@ services:
       - redis
       - full
 
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-bsc}
+      - POSTGRES_USER=${POSTGRES_USER:-bsc}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-bsc}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bsc} -d ${POSTGRES_DB:-bsc}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks:
+      - bsc-network
+    restart: unless-stopped
+    profiles:
+      - postgres
+      - full
+
   celery-worker:
     build:
       context: .
@@ -107,12 +131,14 @@ services:
       - CELERY_ENABLED=true
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/1
-      - DB_TYPE=sqlite
+      - DB_TYPE=${DB_TYPE:-sqlite}
       - DB_PATH=/data/bsc_cloud.db
+      - DB_URL=${DB_URL:-postgresql://bsc:bsc@postgres:5432/bsc}
       - OBSIDIAN_VAULT_ROOT=/vault
       - KNOWLEDGE_WIKI_ENABLED=true
       - KNOWLEDGE_OBSIDIAN_SYNC_ENABLED=${KNOWLEDGE_OBSIDIAN_SYNC_ENABLED:-false}
       - KNOWLEDGE_SCHEDULES_ENABLED=${KNOWLEDGE_SCHEDULES_ENABLED:-false}
+      - KNOWLEDGE_GROWTH_ENABLED=${KNOWLEDGE_GROWTH_ENABLED:-false}
       - KNOWLEDGE_MCP_WRITE_ENABLED=${KNOWLEDGE_MCP_WRITE_ENABLED:-false}
       - KNOWLEDGE_WIKI_AUTO_PUBLISH_ENABLED=${KNOWLEDGE_WIKI_AUTO_PUBLISH_ENABLED:-false}
       - KNOWLEDGE_WIKI_LLM_PROVIDER=${KNOWLEDGE_WIKI_LLM_PROVIDER:-}
@@ -158,12 +184,14 @@ services:
       - CELERY_ENABLED=true
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/1
-      - DB_TYPE=sqlite
+      - DB_TYPE=${DB_TYPE:-sqlite}
       - DB_PATH=/data/bsc_cloud.db
+      - DB_URL=${DB_URL:-postgresql://bsc:bsc@postgres:5432/bsc}
       - OBSIDIAN_VAULT_ROOT=/vault
       - KNOWLEDGE_WIKI_ENABLED=true
       - KNOWLEDGE_OBSIDIAN_SYNC_ENABLED=${KNOWLEDGE_OBSIDIAN_SYNC_ENABLED:-false}
       - KNOWLEDGE_SCHEDULES_ENABLED=${KNOWLEDGE_SCHEDULES_ENABLED:-false}
+      - KNOWLEDGE_GROWTH_ENABLED=${KNOWLEDGE_GROWTH_ENABLED:-false}
       - KNOWLEDGE_MCP_WRITE_ENABLED=${KNOWLEDGE_MCP_WRITE_ENABLED:-false}
       - KNOWLEDGE_WIKI_AUTO_PUBLISH_ENABLED=${KNOWLEDGE_WIKI_AUTO_PUBLISH_ENABLED:-false}
     volumes:
@@ -189,6 +217,8 @@ volumes:
   ollama-data:
     driver: local
   redis-data:
+    driver: local
+  postgres-data:
     driver: local
 
 networks:
