@@ -16,7 +16,18 @@ export type KnowledgeSource = {
 
 export type KnowledgeWorkspaceData = {
   project_id: string;
-  vault: { configured: boolean; status: string; vault_path?: string };
+  vault: {
+    configured: boolean;
+    status: string;
+    vault_path?: string;
+    connection?: {
+      state: 'unconfigured' | 'unavailable' | 'mapped_uninitialized' | 'mapped_incomplete' | 'ready';
+      message: string;
+      missing_managed_files?: string[];
+      missing_managed_directories?: string[];
+    };
+  };
+  plugins: { configured: boolean; supported_adapters: string[]; plugins: Array<{ id: string; name: string; adapter: 'filesystem_drop' | 'filesystem_output'; input_paths: string[]; status: 'awaiting_export' | 'captured' | 'awaiting_output' | 'registered_output'; captured_sources: number; registered_outputs: number; last_captured_at: string; last_registered_at: string }>; errors: string[] };
   sources: number;
   runs: number;
   schedules: number;
@@ -30,7 +41,51 @@ export type KnowledgeWorkspaceData = {
     automatic_publication: boolean;
   };
   sync: { status: string; last_run: KnowledgeRun | null };
+  horizon?: {
+    enabled: boolean;
+    captured_sources: number;
+    last_run: {
+      id: string;
+      status: string;
+      updated_at: string;
+      horizon_run_id: string;
+      stage: string;
+      source_mode: string;
+      accepted: number;
+      created: number;
+      duplicates: number;
+      rejected: number;
+      skipped: boolean;
+    } | null;
+  };
+  growth?: {
+    status: string;
+    last_run: KnowledgeRun | null;
+    sync: {
+      status: string;
+      sources: { created: number; duplicates: number };
+      outputs: { registered: number; duplicates: number };
+      triage: { evaluated: number; eligible: number; pending_review: number };
+    } | null;
+  };
   scheduler: { available: boolean; mode: 'celery' | 'manual' };
+};
+export type KnowledgePluginBridge = { id: string; name: string; adapter?: 'filesystem_drop' | 'filesystem_output'; input_paths: string[] };
+export type FeishuKnowledgeExport = {
+  document_id: string;
+  revision_id: string;
+  document_type: 'document' | 'minutes' | 'doc' | 'docx' | 'meeting' | 'meeting_minutes';
+  source_url: string;
+  title: string;
+  content?: string;
+  source_time?: string;
+  attachments?: Array<Record<string, unknown>>;
+};
+export type FeishuKnowledgeImport = { source: KnowledgeSource; created: boolean; run_id: string };
+export type KnowledgeEvaluationCaseInput = {
+  case_id: string;
+  case_type: 'retrieval' | 'citation' | 'sop' | 'content';
+  expected: { constraints?: string[]; require_citations?: boolean; source_ids?: string[] };
 };
 
 export type KnowledgeProposal = {
@@ -113,7 +168,11 @@ export function setKnowledgeWorkspaceAccessKey(value: string) {
 }
 
 export const fetchKnowledgeWorkspace = (projectId: string) => request<KnowledgeWorkspaceData>(`/knowledge/workspaces/${encodeURIComponent(projectId)}`);
+export const configureKnowledgeVault = (projectId: string, vaultPath: string) => request<{ vault: KnowledgeWorkspaceData['vault'] }>(`/knowledge/workspaces/${encodeURIComponent(projectId)}/vault`, { method: 'PUT', body: JSON.stringify({ vault_path: vaultPath }) });
+export const configureKnowledgePlugins = (projectId: string, plugins: KnowledgePluginBridge[]) => request<KnowledgeWorkspaceData['plugins']>(`/knowledge/workspaces/${encodeURIComponent(projectId)}/plugins`, { method: 'PUT', body: JSON.stringify({ plugins }) });
+export const initializeKnowledgeWorkspace = (projectId: string) => post<{ created: string[]; created_directories?: string[]; indexing: Record<string, unknown>; run_id: string }>(`/knowledge/workspaces/${encodeURIComponent(projectId)}/initialize`, {});
 export const fetchKnowledgeSources = (projectId: string) => request<{ sources: KnowledgeSource[]; count: number }>(`/knowledge/sources?project_id=${encodeURIComponent(projectId)}`);
+export const importFeishuKnowledgeExport = (projectId: string, exportPayload: FeishuKnowledgeExport) => post<FeishuKnowledgeImport>('/knowledge/sources/feishu/import', { project_id: projectId, export: exportPayload });
 export const fetchKnowledgeSource = (projectId: string, sourceId: string) => request<{ source: KnowledgeSource }>(`/knowledge/sources/${encodeURIComponent(sourceId)}?project_id=${encodeURIComponent(projectId)}`);
 export const fetchKnowledgeRuns = (projectId: string) => request<{ runs: KnowledgeRun[]; count: number }>(`/knowledge/runs?project_id=${encodeURIComponent(projectId)}`);
 export const fetchKnowledgeRunEvents = (projectId: string, runId: string, afterSequence = 0) => request<{ events: KnowledgeRunEvent[]; count: number }>(`/knowledge/runs/${encodeURIComponent(runId)}/events?project_id=${encodeURIComponent(projectId)}&after_sequence=${afterSequence}`);
@@ -131,6 +190,7 @@ export const configureKnowledgeSchedule = (projectId: string, jobType: string, c
 export const lintKnowledgeProposal = (projectId: string, proposalId: string) => post<{ proposal_id: string; valid: boolean; findings: Array<{ code: string; message: string; path: string }> }>(`/knowledge/proposals/${encodeURIComponent(proposalId)}/lint?project_id=${encodeURIComponent(projectId)}`, {});
 export const publishKnowledgeProposal = (projectId: string, proposalId: string) => post<{ proposal_id: string; status: string; paths: string[]; evaluation_score: number }>(`/knowledge/proposals/${encodeURIComponent(proposalId)}/publish?project_id=${encodeURIComponent(projectId)}`, {});
 export const rejectKnowledgeProposal = (projectId: string, proposalId: string) => post<{ proposal: KnowledgeProposal }>(`/knowledge/proposals/${encodeURIComponent(proposalId)}/reject?project_id=${encodeURIComponent(projectId)}`, {});
+export const saveKnowledgeEvaluationCase = (projectId: string, evaluationCase: KnowledgeEvaluationCaseInput) => post<{ eval_case: { case_id: string; case_type: string; expected: Record<string, unknown> } }>('/knowledge/eval-cases', { project_id: projectId, ...evaluationCase });
 export const runKnowledgeJob = (projectId: string, jobType: string) => post<{ status: string; run_id: string; execution?: string }>("/knowledge/runs", { project_id: projectId, job_type: jobType });
 export const retryKnowledgeRun = (projectId: string, runId: string) => post<{ status: string; run_id: string; execution?: string }>(`/knowledge/runs/${encodeURIComponent(runId)}/retry?project_id=${encodeURIComponent(projectId)}`, {});
 export const transitionKnowledgeSource = (projectId: string, sourceId: string, status: string) => post<{ source: KnowledgeSource }>(`/knowledge/sources/${encodeURIComponent(sourceId)}/status`, { project_id: projectId, status });

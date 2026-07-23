@@ -1,21 +1,26 @@
 import {
-  AlertTriangle, BarChart3, BookOpen, FileDiff, FileText, KeyRound,
-  LayoutList, LoaderCircle, Network, RefreshCw, ShieldAlert, Sprout, X,
+  AlertTriangle, BarChart3, BookOpen, FileDiff, FileText,
+  LayoutList, LoaderCircle, Network, Play, RefreshCw, ShieldAlert, Sprout, X,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import {
   classifyGrowthError,
   addGrowthOutputFeedback,
+  evaluateGrowthOutput,
+  evaluateGrowthMethodProposal,
   fetchGrowthAccess,
   fetchGrowthAssetDetail,
   fetchGrowthHealth,
   fetchGrowthLineage,
   fetchGrowthOverview,
+  fetchGrowthRuns,
   fetchGrowthStage,
   fetchGrowthTrend,
   fileGrowthOutput,
+  linkGrowthOutputEvidence,
   processGrowthFeedback,
+  publishGrowthMethodProposal,
   setGrowthAccessKey,
   triageGrowthSource,
   type GrowthAccess,
@@ -24,14 +29,18 @@ import {
   type GrowthFeedbackInput,
   type GrowthHealth,
   type GrowthLineage,
+  type GrowthOutputEvaluationInput,
+  type GrowthOutputEvidenceInput,
   type GrowthOverview,
   type GrowthRecord,
   type GrowthRequestState,
+  type GrowthRun,
   type GrowthStage,
   type GrowthStageResult,
   type GrowthTrend,
+  startGrowthRun,
 } from '../../api/growthApi';
-import { useGrowthWorkspaceStore, type GrowthCenterView } from '../../store/knowledgeWorkspaceStore';
+import { useGrowthWorkspaceStore, useKnowledgeWorkspaceStore, type GrowthCenterView } from '../../store/knowledgeWorkspaceStore';
 import { GrowthAssetList } from './GrowthAssetList';
 import { GrowthFunnel } from './GrowthFunnel';
 import { GrowthInspector } from './GrowthInspector';
@@ -40,7 +49,7 @@ import { GrowthStageRail } from './GrowthStageRail';
 import { GrowthTrends } from './GrowthTrends';
 import { GROWTH_STAGES, growthRecordLabel, normalizeGrowthNodeType } from './growthModel';
 
-type Props = { onClose: () => void };
+type Props = { onClose: () => void; runtimeAccessKey?: string };
 type ErrorInfo = { message: string; code: string; status: number };
 type GraphSelection = { id: string; endpointType: string };
 
@@ -69,12 +78,22 @@ function stageForEndpoint(type: string): GrowthStage {
 }
 
 function kindForEndpoint(type: string): GrowthAssetKind {
+  if (type === 'method_proposal') return 'method_proposal';
   const normalized = normalizeGrowthNodeType(type);
   if (normalized === 'source') return 'source';
   if (normalized === 'page') return 'page';
   if (normalized === 'method') return type === 'method_proposal' ? 'proposal' : 'method';
   if (normalized === 'output') return 'output';
   return 'feedback';
+}
+
+function outputNeedsEvidence(detail: GrowthAssetDetail | null): boolean {
+  if (detail?.kind !== 'output' || String(detail.record.status || '') !== 'registered') return false;
+  const sourceRefs = detail.evidence?.source_ids ?? (Array.isArray(detail.record.source_refs) ? detail.record.source_refs : []);
+  const pageRefs = detail.evidence?.page_ids ?? (Array.isArray(detail.record.page_refs) ? detail.record.page_refs : []);
+  const metadata = detail.record.metadata;
+  const requiresEvidence = !(metadata && typeof metadata === 'object' && (metadata as Record<string, unknown>).requires_evidence === false);
+  return requiresEvidence && sourceRefs.length === 0 && pageRefs.length === 0;
 }
 
 function WorkspaceBoundary({ state, error, onRetry }: { state: GrowthRequestState; error: ErrorInfo | null; onRetry: () => void }) {
@@ -129,6 +148,7 @@ function AssetReader({ selected, detail, state, error }: { selected: GrowthRecor
   if (!detail) return <div className="growth-empty growth-empty--reader" role="alert"><AlertTriangle size={18} /><span>{error || 'This asset detail is unavailable.'}</span></div>;
   if (detail.kind === 'page' && detail.content !== undefined) return <SafeTextPreview content={detail.content} />;
   if (detail.kind === 'method' && detail.content !== undefined) return <SafeTextPreview content={detail.content} />;
+  if (detail.kind === 'method_proposal' && detail.content !== undefined) return <SafeTextPreview content={detail.content} />;
   if (detail.kind === 'output') return <div className="growth-output-preview">
     {detail.content !== undefined ? <SafeTextPreview content={detail.content} /> : <div className="growth-descriptor-preview"><FileText size={20} /><h4>{growthRecordLabel(detail.record)}</h4><p>{detail.detailMessage || 'No bounded inline preview is available.'}</p><code>{String(detail.record.vault_path || '')}</code></div>}
     <section aria-label="Output evaluations"><h4>Evaluation</h4>{detail.evaluations?.length ? detail.evaluations.map((evaluation) => <dl key={evaluation.id}><div><dt>Quality</dt><dd>{String(evaluation.quality ?? 'n/a')}</dd></div><div><dt>Groundedness</dt><dd>{String(evaluation.groundedness ?? 'n/a')}</dd></div><div><dt>Status</dt><dd>{String(evaluation.status || 'recorded')}</dd></div></dl>) : <p>No persisted evaluation is attached.</p>}</section>
@@ -144,13 +164,14 @@ function AssetReader({ selected, detail, state, error }: { selected: GrowthRecor
   return <div className="growth-descriptor-preview"><FileText size={20} /><h4>{growthRecordLabel(detail.record)}</h4><p>{detail.detailMessage || 'The persisted descriptor is available in the inspector.'}</p>{typeof detail.record.vault_path === 'string' && <code>{detail.record.vault_path}</code>}</div>;
 }
 
-export function GrowthWorkspace({ onClose }: Props) {
+export function GrowthWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
   const {
     projectId, stage, selectedId, inspectorOpen, query, statusFilter, page, pageSize, centerView, requestStates,
     setProjectId, setStage, setSelectedId, setInspectorOpen, setQuery, setStatusFilter, setPage, setCenterView, setRequestState,
   } = useGrowthWorkspaceStore();
+  const knowledgeProjectId = useKnowledgeWorkspaceStore((state) => state.projectId);
+  const setKnowledgeProjectId = useKnowledgeWorkspaceStore((state) => state.setProjectId);
   const [projectInput, setProjectInput] = useState(projectId);
-  const [accessKey, setAccessKey] = useState('');
   const [reloadEpoch, setReloadEpoch] = useState(0);
   const [overview, setOverview] = useState<GrowthOverview | null>(null);
   const [overviewError, setOverviewError] = useState<ErrorInfo | null>(null);
@@ -166,15 +187,28 @@ export function GrowthWorkspace({ onClose }: Props) {
   const [metricsError, setMetricsError] = useState<ErrorInfo | null>(null);
   const [lineage, setLineage] = useState<GrowthLineage | null>(null);
   const [lineageError, setLineageError] = useState<ErrorInfo | null>(null);
+  const [evidenceSources, setEvidenceSources] = useState<GrowthRecord[]>([]);
+  const [evidenceState, setEvidenceState] = useState<GrowthRequestState>('idle');
   const [relation, setRelation] = useState('');
   const [compact, setCompact] = useState(() => typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(max-width: 760px)').matches : false);
   const [actionMessage, setActionMessage] = useState('');
   const [graphSelection, setGraphSelection] = useState<GraphSelection | null>(null);
+  const [latestRun, setLatestRun] = useState<GrowthRun | null>(null);
+  const [runMessage, setRunMessage] = useState('No growth cycle has been recorded yet.');
 
   useEffect(() => {
     document.documentElement.classList.add('growth-workspace-open');
     return () => document.documentElement.classList.remove('growth-workspace-open');
   }, []);
+  useEffect(() => {
+    const sharedProjectId = knowledgeProjectId.trim() || 'default';
+    setProjectInput(sharedProjectId);
+    if (projectId !== sharedProjectId) setProjectId(sharedProjectId);
+  }, [knowledgeProjectId, projectId, setProjectId]);
+  useEffect(() => {
+    setGrowthAccessKey(runtimeAccessKey);
+    setReloadEpoch((value) => value + 1);
+  }, [runtimeAccessKey]);
   useEffect(() => {
     if (!window.matchMedia) return undefined;
     const media = window.matchMedia('(max-width: 760px)');
@@ -200,6 +234,15 @@ export function GrowthWorkspace({ onClose }: Props) {
     }).catch((reason: unknown) => {
       if (controller.signal.aborted) return;
       const failure = errorInfo(reason); setAccess(null); setAccessError(failure.info); setAccessState(failure.state);
+    });
+    void fetchGrowthRuns(projectId, controller.signal).then((runs) => {
+      if (controller.signal.aborted) return;
+      const latest = runs[0] ?? null;
+      setLatestRun(latest);
+      setRunMessage(latest ? `${String(latest.run_type || 'growth cycle')}: ${String(latest.status || 'recorded')}` : 'No growth cycle has been recorded yet.');
+    }).catch((reason: unknown) => {
+      if (controller.signal.aborted) return;
+      const failure = errorInfo(reason); setLatestRun(null); setRunMessage(`Run status unavailable: ${failure.info.message}`);
     });
     return () => controller.abort();
   }, [projectId, reloadEpoch, setRequestState]);
@@ -245,6 +288,24 @@ export function GrowthWorkspace({ onClose }: Props) {
   }, [graphSelection, projectId, reloadEpoch, selectedId, setRequestState, stage]);
 
   useEffect(() => {
+    if (!outputNeedsEvidence(detail)) {
+      setEvidenceSources([]); setEvidenceState('idle');
+      return undefined;
+    }
+    const controller = new AbortController();
+    setEvidenceSources([]); setEvidenceState('loading');
+    void fetchGrowthStage(projectId, 'A', 500, controller.signal).then((result) => {
+      if (controller.signal.aborted) return;
+      setEvidenceSources(result.records.filter((source) => ['eligible', 'processed'].includes(String(source.status || ''))));
+      setEvidenceState(result.records.length ? 'success' : 'empty');
+    }).catch((reason: unknown) => {
+      if (controller.signal.aborted) return;
+      setEvidenceSources([]); setEvidenceState(errorInfo(reason).state);
+    });
+    return () => controller.abort();
+  }, [detail, projectId, reloadEpoch]);
+
+  useEffect(() => {
     const controller = new AbortController();
     setHealth(null); setTrend(null); setMetricsError(null); setRequestState('metrics', 'loading');
     void Promise.all([fetchGrowthHealth(projectId, controller.signal), fetchGrowthTrend(projectId, controller.signal)]).then(([nextHealth, nextTrend]) => {
@@ -284,9 +345,9 @@ export function GrowthWorkspace({ onClose }: Props) {
   const submitProject = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const nextProject = projectInput.trim() || 'default';
-    setGrowthAccessKey(accessKey);
     setActionMessage(''); setGraphSelection(null);
-    if (nextProject === projectId) refresh(); else setProjectId(nextProject);
+    setKnowledgeProjectId(nextProject);
+    if (nextProject === projectId) refresh();
   };
   const selectAsset = (record: GrowthRecord) => { setGraphSelection(null); setActionMessage(''); setSelectedId(record.id); };
   const followAsset = (id: string, endpointType = '') => {
@@ -314,8 +375,55 @@ export function GrowthWorkspace({ onClose }: Props) {
       const failure = errorInfo(reason); setRequestState('action', failure.state); setActionMessage(failure.info.message);
     }
   };
+  const submitEvidence = async (current: GrowthAssetDetail, payload: GrowthOutputEvidenceInput) => {
+    setRequestState('action', 'loading'); setActionMessage('');
+    try {
+      await linkGrowthOutputEvidence(projectId, current.record.id, payload);
+      setRequestState('action', 'success'); setActionMessage('Evidence lineage was persisted. Inspect it, then complete the quality gate.'); refresh();
+    } catch (reason) {
+      const failure = errorInfo(reason); setRequestState('action', failure.state); setActionMessage(failure.info.message);
+    }
+  };
+  const submitEvaluation = async (current: GrowthAssetDetail, payload: GrowthOutputEvaluationInput) => {
+    setRequestState('action', 'loading'); setActionMessage('');
+    try {
+      const evaluation = await evaluateGrowthOutput(projectId, current.record.id, payload);
+      setRequestState('action', 'success'); setActionMessage(`Quality review persisted: ${String(evaluation.quality ?? 'unavailable')}. Reloading the D-layer lifecycle.`); refresh();
+    } catch (reason) {
+      const failure = errorInfo(reason); setRequestState('action', failure.state); setActionMessage(failure.info.message);
+    }
+  };
+  const evaluateMethodCandidate = async (current: GrowthAssetDetail) => {
+    setRequestState('action', 'loading'); setActionMessage('');
+    try {
+      const evaluation = await evaluateGrowthMethodProposal(projectId, current.record.id);
+      setRequestState('action', 'success'); setActionMessage(`Method gate recorded: ${String(evaluation.eligible ? 'eligible for publication' : 'more evidence or evaluation is required')}.`); refresh();
+    } catch (reason) {
+      const failure = errorInfo(reason); setRequestState('action', failure.state); setActionMessage(failure.info.message);
+    }
+  };
+  const publishMethodCandidate = async (current: GrowthAssetDetail) => {
+    setRequestState('action', 'loading'); setActionMessage('');
+    try {
+      const method = await publishGrowthMethodProposal(projectId, current.record.id, overview?.profile.revision);
+      setRequestState('action', 'success'); setActionMessage(`Published method ${String(method.id)}. It is now available to future governed context packs.`); refresh();
+    } catch (reason) {
+      const failure = errorInfo(reason); setRequestState('action', failure.state); setActionMessage(failure.info.message);
+    }
+  };
+  const startGrowthCycle = async (jobType: 'growth_daily' | 'growth_weekly_distillation') => {
+    setRequestState('action', 'loading'); setRunMessage('Submitting durable growth run...');
+    try {
+      const run = await startGrowthRun(projectId, jobType);
+      setLatestRun(run); setRunMessage(`${jobType}: ${String(run.status || 'queued')}`);
+      setRequestState('action', 'success'); refresh();
+    } catch (reason) {
+      const failure = errorInfo(reason); setRequestState('action', failure.state); setRunMessage(`Run submission failed: ${failure.info.message}`);
+    }
+  };
 
   const accessLabel = accessState === 'loading' ? 'Checking access' : access ? `${access.role || 'project role'} / ${access.can_write ? 'write' : 'read only'}` : `${accessState}${accessError?.status ? ` ${accessError.status}` : ''}`;
+  const sessionLabel = runtimeAccessKey.trim() ? 'Studio session applied' : 'Studio access required';
   const viewButtons: Array<{ id: GrowthCenterView; label: string; icon: typeof LayoutList }> = [
     { id: 'assets', label: 'Assets', icon: LayoutList }, { id: 'metrics', label: 'Metrics', icon: BarChart3 }, { id: 'lineage', label: 'Lineage', icon: Network },
   ];
@@ -326,9 +434,11 @@ export function GrowthWorkspace({ onClose }: Props) {
       <div className="growth-workspace__actions">
         <form onSubmit={submitProject}>
           <label><span>Project</span><input value={projectInput} onChange={(event) => setProjectInput(event.target.value)} aria-label="Growth project ID" /></label>
-          <label><span>Access key</span><input type="password" value={accessKey} onChange={(event) => setAccessKey(event.target.value)} aria-label="Growth access key" placeholder="session key" autoComplete="off" /></label>
-          <button type="submit" title="Load project growth state"><KeyRound size={14} /> Load</button>
+          <button type="submit" title="Load the shared project growth state"><RefreshCw size={14} /> Load</button>
         </form>
+        <button type="button" className="growth-icon-button" disabled={access?.can_write !== true || requestStates.action === 'loading'} onClick={() => void startGrowthCycle('growth_daily')} title="Run daily growth cycle" aria-label="Run daily growth cycle"><Play size={15} /></button>
+        <button type="button" className="growth-icon-button" disabled={access?.can_write !== true || requestStates.action === 'loading'} onClick={() => void startGrowthCycle('growth_weekly_distillation')} title="Run weekly growth distillation" aria-label="Run weekly growth distillation"><Sprout size={15} /></button>
+        <span className={runtimeAccessKey.trim() ? 'growth-session-state is-ready' : 'growth-session-state is-pending'}>{sessionLabel}</span>
         <button type="button" className="growth-icon-button" onClick={refresh} title="Refresh project growth state" aria-label="Refresh growth workspace"><RefreshCw size={16} className={requestStates.overview === 'loading' ? 'spin' : ''} /></button>
         <button type="button" className="growth-icon-button" onClick={onClose} title="Close growth workspace" aria-label="Close growth workspace"><X size={18} /></button>
       </div>
@@ -337,9 +447,10 @@ export function GrowthWorkspace({ onClose }: Props) {
     {overview && <>
       <div className="growth-status-strip">
         <div><span>PROFILE ROLE</span><strong>{overview.profile.user_role || 'not configured'}</strong><small>revision {overview.profile.revision || 0}</small></div>
-        <div><span>API ACCESS</span><strong>{accessLabel}</strong><small>{access?.can_write ? 'permission-gated actions enabled' : 'actions disabled until authorized'}</small></div>
+        <div><span>API ACCESS</span><strong>{accessLabel}</strong><small>{access?.can_write ? 'permission-gated actions enabled' : `${sessionLabel}; actions stay disabled until authorized`}</small></div>
         <div><span>ELIGIBLE A</span><strong>{counts?.eligible_sources ?? 0}</strong><small>of {counts?.sources ?? 0} captured</small></div>
         <div><span>ACCEPTED D</span><strong>{counts?.accepted_outputs ?? 0}</strong><small>{counts?.rejected_outputs ?? 0} rejected</small></div>
+        <div><span>LATEST CYCLE</span><strong>{String(latestRun?.status || 'not run')}</strong><small>{runMessage}</small></div>
       </div>
       <div className="growth-layout">
         <GrowthStageRail projectId={projectId} stage={stage} counts={stageCounts} truncated={stageBounds} onChange={(next) => { setGraphSelection(null); setStage(next); setCenterView('assets'); }} />
@@ -355,7 +466,7 @@ export function GrowthWorkspace({ onClose }: Props) {
           {centerView === 'metrics' && <section className="growth-panel"><div className="growth-panel__heading"><div><p>QUALITY & TRENDS</p><h3>Persisted health observations</h3></div><BarChart3 size={18} /></div><GrowthTrends trend={trend} health={health} counts={counts} state={requestStates.metrics} error={metricsError?.message} onRetry={refresh} /></section>}
           {centerView === 'lineage' && <section className="growth-panel"><div className="growth-panel__heading"><div><p>LINEAGE</p><h3>Bounded evidence relationships</h3></div><span>{lineage ? `${lineage.edges.length}${lineage.truncated ? '+' : ''} edges` : 'not loaded'}</span></div><GrowthLineageGraph lineage={lineage} state={requestStates.lineage} error={lineageError?.message} relation={relation} onRelationChange={setRelation} onSelect={followAsset} onRetry={refresh} /></section>}
         </main>
-        <GrowthInspector selected={selected} detail={detail} state={requestStates.detail} error={detailError?.message} edges={relevantEdges} canWrite={access?.can_write ?? null} compact={compact} open={inspectorOpen} actionState={requestStates.action} actionMessage={actionMessage} onClose={() => setInspectorOpen(false)} onAction={(current) => void runAction(current)} onFeedback={(current, payload) => void submitFeedback(current, payload)} onFollow={followAsset} />
+        <GrowthInspector selected={selected} detail={detail} state={requestStates.detail} error={detailError?.message} edges={relevantEdges} canWrite={access?.can_write ?? null} compact={compact} open={inspectorOpen} actionState={requestStates.action} actionMessage={actionMessage} evidenceSources={evidenceSources} evidenceState={evidenceState} onClose={() => setInspectorOpen(false)} onAction={(current) => void runAction(current)} onEvaluate={(current, payload) => void submitEvaluation(current, payload)} onEvaluateMethod={(current) => void evaluateMethodCandidate(current)} onPublishMethod={(current) => void publishMethodCandidate(current)} onLinkEvidence={(current, payload) => void submitEvidence(current, payload)} onFeedback={(current, payload) => void submitFeedback(current, payload)} onFollow={followAsset} />
       </div>
     </>}
   </section>;

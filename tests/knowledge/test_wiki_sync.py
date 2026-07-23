@@ -4,6 +4,7 @@ import pytest
 
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_sync import ObsidianSyncService
+from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
 
 
 def test_obsidian_sync_imports_user_markdown_without_reading_managed_or_hidden_files(tmp_path):
@@ -90,6 +91,68 @@ def test_obsidian_sync_excludes_all_configured_managed_project_roots(tmp_path):
         assert {source["origin"] for source in repo.list_sources("project-a")} == {
             "research.md", "clients/acme/raw/brief.md", "clients/acme/inbox/signal.json"
         }
+    finally:
+        repo.close()
+
+
+def test_obsidian_sync_attributes_declared_plugin_exports_without_reading_plugin_configuration(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    project_root = root / "projects" / "project-a"
+    (project_root / "raw" / "readwise").mkdir(parents=True)
+    (project_root / "bsc-plugins.json").write_text(
+        '{"plugins":[{"id":"readwise","name":"Readwise Export","adapter":"filesystem_drop","input_paths":["raw/readwise"]}]}',
+        encoding="utf-8",
+    )
+    (project_root / "raw" / "readwise" / "weekly.md").write_text("Imported highlight", encoding="utf-8")
+    repo = WikiRepository(db_path=str(tmp_path / "sync-plugin.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    try:
+        ObsidianSyncService(repo, root).sync(project_id="project-a")
+        source = repo.list_sources("project-a")[0]
+
+        assert source["source_type"] == "obsidian_plugin:readwise"
+        assert source["metadata"]["obsidian_plugin"] == "readwise"
+        assert source["metadata"]["plugin_name"] == "Readwise Export"
+        assert source["origin"].endswith("raw/readwise/weekly.md")
+        status = ObsidianPluginManifest.load(project_root).public_status([source])
+        assert status["plugins"][0]["status"] == "captured"
+        assert status["plugins"][0]["captured_sources"] == 1
+    finally:
+        repo.close()
+
+
+def test_obsidian_sync_accepts_the_documented_obsidian_inbox_and_source_layout(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    project_root = root / "projects" / "project-a"
+    (project_root / "00_Inbox" / "web-clipper").mkdir(parents=True)
+    (project_root / "01_Sources" / "docxer").mkdir(parents=True)
+    (project_root / "04_Outputs").mkdir(parents=True)
+    (project_root / "bsc-plugins.json").write_text(
+        '{"plugins":['
+        '{"id":"web-clipper","name":"Obsidian Web Clipper","adapter":"filesystem_drop","input_paths":["00_Inbox/web-clipper"]},'
+        '{"id":"docxer","name":"Docxer","adapter":"filesystem_drop","input_paths":["01_Sources/docxer"]}'
+        "]}",
+        encoding="utf-8",
+    )
+    (project_root / "00_Inbox" / "web-clipper" / "article.md").write_text("Captured article", encoding="utf-8")
+    (project_root / "01_Sources" / "docxer" / "brief.md").write_text("Converted brief", encoding="utf-8")
+    (project_root / "04_Outputs" / "report.md").write_text("Do not re-ingest output", encoding="utf-8")
+    repo = WikiRepository(db_path=str(tmp_path / "sync-standard-layout.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    try:
+        report = ObsidianSyncService(repo, root).sync(project_id="project-a")
+        sources = {source["origin"]: source for source in repo.list_sources("project-a")}
+
+        assert report["created"] == 2
+        assert set(sources) == {
+            "projects/project-a/00_Inbox/web-clipper/article.md",
+            "projects/project-a/01_Sources/docxer/brief.md",
+        }
+        assert sources["projects/project-a/00_Inbox/web-clipper/article.md"]["metadata"]["obsidian_plugin"] == "web-clipper"
+        assert sources["projects/project-a/01_Sources/docxer/brief.md"]["metadata"]["obsidian_plugin"] == "docxer"
+        assert sources["projects/project-a/00_Inbox/web-clipper/article.md"]["metadata"]["obsidian_adapter"] == "filesystem_drop"
     finally:
         repo.close()
 

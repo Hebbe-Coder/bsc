@@ -46,6 +46,16 @@ def test_filesystem_vault_reloads_published_snapshot(tmp_path):
     assert FilesystemWikiVault(root, "project-a").contents == {"wiki/log.md": "first\n"}
 
 
+def test_filesystem_vault_replaces_an_existing_project_snapshot(tmp_path):
+    root = Path(tmp_path)
+    vault = FilesystemWikiVault(root, "project-a")
+
+    vault.commit({"wiki/overview.md": "# First\n"})
+    vault.commit({"wiki/overview.md": "# Second\n", "wiki/log.md": "- Updated\n"})
+
+    assert vault.contents == {"wiki/log.md": "- Updated\n", "wiki/overview.md": "# Second\n"}
+
+
 @pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlinks are unavailable")
 def test_filesystem_vault_does_not_read_symlinked_files(tmp_path):
     root = tmp_path / "vault"

@@ -14,6 +14,10 @@ from app.core.config import settings
 from app.knowledge.generation_provenance import redact_secrets
 from app.knowledge.growth_distillation import GrowthDistillationService
 from app.knowledge.growth_repository import GrowthRepository
+from app.knowledge.obsidian_output_sync import ObsidianOutputSyncService
+from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
+from app.knowledge.source_triage import SourceTriageService
+from app.knowledge.wiki_sync import ObsidianSyncService
 from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus
 from app.knowledge.wiki_repository import WikiRepository
 
@@ -90,7 +94,9 @@ def execute_growth_run(
         )
         inputs = run.get("input_refs") or {}
         created_at = _parse_datetime(run.get("created_at")) or datetime.now(timezone.utc)
-        cutoff = str(inputs.get("source_cutoff") or created_at.astimezone(timezone.utc).isoformat())
+        sync = _sync_declared_obsidian_exports(repo, project_id=project_id, run_id=run_id)
+        explicit_cutoff = str(inputs.get("source_cutoff") or "").strip()
+        cutoff = explicit_cutoff or datetime.now(timezone.utc).isoformat()
         service = GrowthDistillationService(repo, Path(settings.OBSIDIAN_VAULT_ROOT))
         if run["run_type"] == "growth_daily":
             period = str(inputs.get("date") or created_at.astimezone(ZoneInfo("Asia/Shanghai")).date().isoformat())
@@ -117,7 +123,7 @@ def execute_growth_run(
             "freshness_seconds": max(0, int((finished - (_parse_datetime(cutoff) or finished)).total_seconds())),
             "failure_category": "",
         }
-        refs = {"growth": result, "schedule_id": schedule_id, "metrics": metrics}
+        refs = {"growth": result, "sync": sync, "schedule_id": schedule_id, "metrics": metrics}
         repo.append_run_event(
             project_id=project_id,
             run_id=run_id,
@@ -125,7 +131,13 @@ def execute_growth_run(
             payload={"kind": run["run_type"], "period": period, "input_hash": result.get("input_hash", ""), "paths": result.get("paths", [])},
         )
         repo.update_run_status(project_id, run_id, RunStatus.COMPLETED, output_refs=refs)
-        return {"status": "completed", "run_id": run_id, "growth": result, "metrics": metrics}
+        return {
+            "status": "completed",
+            "run_id": run_id,
+            "growth": result,
+            "sync": sync,
+            "metrics": metrics,
+        }
     except Exception as exc:
         run = repo.get_run(project_id, run_id)
         if not run or run.get("run_type") not in GROWTH_RUN_TYPES:
@@ -320,6 +332,84 @@ def _record_duplicate(repository: WikiRepository, run: dict) -> dict:
         "duplicate": True,
         "output_refs": refs,
     }
+
+
+def _sync_declared_obsidian_exports(
+    repository: GrowthRepository,
+    *,
+    project_id: str,
+    run_id: str,
+) -> dict:
+    """Capture only manifest-declared Obsidian exports before a growth pass.
+
+    The daily job intentionally does not snapshot or modify Wiki pages. It
+    imports A-layer plugin exports, registers D-layer plugin outputs, and
+    records a triage decision for newly pending evidence. Reliability still
+    controls whether a source can enter factual context.
+    """
+    if not settings.KNOWLEDGE_OBSIDIAN_SYNC_ENABLED:
+        report = {"status": "unavailable", "reason": "obsidian_sync_disabled"}
+        repository.append_run_event(
+            project_id=project_id,
+            run_id=run_id,
+            event_type="knowledge.growth.obsidian_sync.unavailable",
+            payload=report,
+        )
+        return report
+    mapping = repository.get_vault(project_id)
+    vault_root = Path(settings.OBSIDIAN_VAULT_ROOT)
+    if not mapping or not settings.OBSIDIAN_VAULT_ROOT or not vault_root.is_dir():
+        report = {"status": "unavailable", "reason": "vault_not_configured"}
+        repository.append_run_event(
+            project_id=project_id,
+            run_id=run_id,
+            event_type="knowledge.growth.obsidian_sync.unavailable",
+            payload=report,
+        )
+        return report
+    try:
+        sources = ObsidianSyncService(repository, vault_root).sync(project_id=project_id)
+        decisions = SourceTriageService(repository).triage_project(project_id, limit=100)
+        outputs = ObsidianOutputSyncService(repository, vault_root).sync(
+            project_id=project_id,
+            run_id=run_id,
+        )
+        project_root = (vault_root / str(mapping["vault_path"])).resolve()
+        manifest = ObsidianPluginManifest.load(project_root)
+        report = {
+            "status": "completed",
+            "sources": sources,
+            "triage": {
+                "evaluated": len(decisions),
+                "eligible": sum(item.get("reliability_pass") is True for item in decisions),
+                "pending_review": sum(item.get("reliability_pass") is not True for item in decisions),
+            },
+            "outputs": outputs,
+            "plugins": manifest.public_status(
+                repository.list_sources(project_id),
+                repository.list_outputs(project_id),
+            ),
+        }
+        repository.append_run_event(
+            project_id=project_id,
+            run_id=run_id,
+            event_type="knowledge.growth.obsidian_sync.completed",
+            payload=report,
+        )
+        return report
+    except Exception as exc:
+        report = {
+            "status": "failed",
+            "reason": "obsidian_export_sync_failed",
+            "error": str(redact_secrets(str(exc)))[:500],
+        }
+        repository.append_run_event(
+            project_id=project_id,
+            run_id=run_id,
+            event_type="knowledge.growth.obsidian_sync.failed",
+            payload=report,
+        )
+        return report
 
 
 def _parse_datetime(value: object) -> datetime | None:

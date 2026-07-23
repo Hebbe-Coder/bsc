@@ -17,11 +17,14 @@ from app.core.config import settings
 from app.knowledge.wiki_commands import WikiCommandError, WikiCommandService
 from app.knowledge.knowledge_graph import KnowledgeGraphService
 from app.knowledge.knowledge_health import KnowledgeHealthService
-from app.knowledge.wiki_bootstrap import WikiBootstrapError
-from app.knowledge.wiki_contracts import SourceStatus
+from app.knowledge.feishu_import import FeishuImportError, FeishuImportService
+from app.knowledge.wiki_bootstrap import WikiBootstrapError, WikiBootstrapService
+from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus, SourceStatus
 from app.knowledge.wiki_repository import WikiRepository
+from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.wiki_source_capture import InvalidSourceTransition, SourceCaptureService
 from app.knowledge.vault import FilesystemWikiVault
+from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
 from app.knowledge.wiki_service import WikiService
 from app.core.celery_app import is_celery_broker_available, is_celery_real
 
@@ -45,7 +48,7 @@ router = APIRouter(
 
 
 def get_wiki_repository() -> WikiRepository:
-    return WikiRepository()
+    return GrowthRepository()
 
 
 class SourceStatusRequest(BaseModel):
@@ -65,6 +68,10 @@ class SourceCaptureRequest(BaseModel):
 
 class VaultMappingRequest(BaseModel):
     vault_path: str = Field(min_length=1, max_length=512)
+
+
+class PluginManifestRequest(BaseModel):
+    plugins: list[dict[str, Any]] = Field(default_factory=list, max_length=64)
 
 
 class ScheduleStateRequest(BaseModel):
@@ -105,8 +112,17 @@ class RunNowRequest(BaseModel):
 
 class HorizonCaptureRequest(BaseModel):
     project_id: str = Field(min_length=1)
-    horizon_run_id: str = Field(min_length=1)
+    # An empty ID deliberately means "discover the latest unimported native run".
+    # Horizon is a producer, so users should not need to inspect its run-store.
+    horizon_run_id: str = ""
     stage: str = "filtered"
+
+
+class FeishuImportRequest(BaseModel):
+    """An explicit user-authorized export, never a Feishu credential bundle."""
+
+    project_id: str = Field(min_length=1)
+    export: dict[str, Any] = Field(default_factory=dict)
 
 
 def _command_error(exc: Exception) -> HTTPException:
@@ -131,6 +147,85 @@ def _safe_error_message(message: str) -> str:
     return redacted[:500]
 
 
+def _workspace_vault_state(project_id: str, mapping: dict[str, Any] | None) -> dict[str, Any]:
+    """Describe the usable Vault boundary without reading user-authored content."""
+    if not mapping:
+        return {"state": "unconfigured", "message": "Map a project-relative Vault folder before sync."}
+    if not settings.OBSIDIAN_VAULT_ROOT:
+        return {"state": "unavailable", "message": "Obsidian Vault root is not configured for this runtime."}
+    try:
+        vault = FilesystemWikiVault(settings.OBSIDIAN_VAULT_ROOT, project_id, mapping["vault_path"])
+    except Exception as exc:
+        return {"state": "unavailable", "message": _safe_error_message(str(exc))}
+
+    project_root = vault.project_root
+    if not project_root.is_dir():
+        return {"state": "mapped_uninitialized", "message": "The project folder has not been initialized yet."}
+    required_paths = ("AGENTS.md", "README.md", "wiki/index.md", "wiki/overview.md", "wiki/log.md")
+    missing_files = [path for path in required_paths if not (project_root / path).is_file()]
+    missing_directories = [
+        path for path in WikiBootstrapService.managed_directories() if not (project_root / path).is_dir()
+    ]
+    if missing_files or missing_directories:
+        return {
+            "state": "mapped_incomplete",
+            "message": "The project boundary is reachable but the managed knowledge workspace is incomplete.",
+            "missing_managed_files": missing_files,
+            "missing_managed_directories": missing_directories,
+        }
+    return {"state": "ready", "message": "Project Vault is reachable and the full managed knowledge workspace is present."}
+
+
+def _latest_growth_run(repo: WikiRepository, project_id: str) -> dict[str, Any] | None:
+    """Return the latest integrated loop without conflating it with a direct sync."""
+    runs = [
+        repo.latest_run_for_type(project_id, "growth_daily"),
+        repo.latest_run_for_type(project_id, "growth_weekly_distillation"),
+    ]
+    candidates = [run for run in runs if run]
+    return max(candidates, key=lambda run: (str(run.get("created_at") or ""), str(run.get("id") or "")), default=None)
+
+
+def _growth_sync_summary(run: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Expose bounded loop evidence, never raw Vault text or provider payloads."""
+    output_refs = (run or {}).get("output_refs") or {}
+    raw = output_refs.get("sync")
+    if not isinstance(raw, dict):
+        return None
+
+    def counts(value: object, fields: tuple[str, ...]) -> dict[str, int]:
+        record = value if isinstance(value, dict) else {}
+        return {field: int(record.get(field, 0) or 0) for field in fields}
+
+    return {
+        "status": str(raw.get("status") or "not_recorded"),
+        "sources": counts(raw.get("sources"), ("created", "duplicates")),
+        "outputs": counts(raw.get("outputs"), ("registered", "duplicates")),
+        "triage": counts(raw.get("triage"), ("evaluated", "eligible", "pending_review")),
+    }
+
+
+def _horizon_run_summary(run: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Expose the latest import outcome without exposing source bodies or provider payloads."""
+    if not run:
+        return None
+    output_refs = run.get("output_refs") or {}
+    report = output_refs.get("horizon") if isinstance(output_refs.get("horizon"), dict) else {}
+    return {
+        "id": str(run.get("id") or ""),
+        "status": str(run.get("status") or "not_run"),
+        "updated_at": str(run.get("updated_at") or ""),
+        "horizon_run_id": str(output_refs.get("horizon_run_id") or ""),
+        "stage": str(output_refs.get("stage") or ""),
+        "source_mode": str(output_refs.get("source_mode") or ""),
+        "accepted": int(report.get("accepted", 0) or 0),
+        "created": int(report.get("created", 0) or 0),
+        "duplicates": int(report.get("duplicates", 0) or 0),
+        "rejected": int(report.get("rejected", 0) or 0),
+        "skipped": bool(report.get("skipped", False)),
+    }
+
+
 def _validate_event_cursor(repo: WikiRepository, project_id: str, run_id: str, after_sequence: int) -> None:
     if after_sequence < 0:
         raise HTTPException(
@@ -149,8 +244,22 @@ def _validate_event_cursor(repo: WikiRepository, project_id: str, run_id: str, a
 def workspace_status(request: Request, project_id: str, repo: WikiRepository = Depends(get_wiki_repository)):
     project_id = _enforce_project_access(request, project_id)
     vault = repo.get_vault(project_id)
+    project_root = None
+    if vault and settings.OBSIDIAN_VAULT_ROOT:
+        try:
+            project_root = FilesystemWikiVault(
+                settings.OBSIDIAN_VAULT_ROOT, project_id, vault["vault_path"]
+            ).project_root
+        except Exception:
+            project_root = None
+    sources = repo.list_sources(project_id)
+    horizon_sources = [source for source in sources if source.get("source_type") == "horizon_signal"]
+    outputs = repo.list_outputs(project_id) if isinstance(repo, GrowthRepository) else []
+    plugins = ObsidianPluginManifest.load(project_root).public_status(sources, outputs)
     role = str(getattr(request.state, "knowledge_role", ""))
     sync_run = repo.latest_run_for_type(project_id, "source_sync")
+    horizon_run = repo.latest_run_for_type(project_id, "horizon_capture")
+    growth_run = _latest_growth_run(repo, project_id)
     scheduler_available = (
         settings.KNOWLEDGE_SCHEDULES_ENABLED
         and is_celery_real()
@@ -159,8 +268,14 @@ def workspace_status(request: Request, project_id: str, repo: WikiRepository = D
     return ApiResponse.ok(
         {
             "project_id": project_id,
-            "vault": {"configured": bool(vault), "status": vault.get("status") if vault else "unconfigured"},
-            "sources": len(repo.list_sources(project_id)),
+            "vault": {
+                "configured": bool(vault),
+                "status": vault.get("status") if vault else "unconfigured",
+                "vault_path": vault.get("vault_path") if vault else "",
+                "connection": _workspace_vault_state(project_id, vault),
+            },
+            "plugins": plugins,
+            "sources": len(sources),
             "runs": len(repo.list_runs(project_id)),
             "schedules": len(repo.list_schedules(project_id)),
             "access": {"role": role, "can_write": role in {"admin", "project_admin"}},
@@ -175,6 +290,16 @@ def workspace_status(request: Request, project_id: str, repo: WikiRepository = D
             "sync": {
                 "status": sync_run["status"] if sync_run else "not_run",
                 "last_run": sync_run,
+            },
+            "horizon": {
+                "enabled": settings.HORIZON_ENABLED,
+                "captured_sources": len(horizon_sources),
+                "last_run": _horizon_run_summary(horizon_run),
+            },
+            "growth": {
+                "status": growth_run["status"] if growth_run else "not_run",
+                "last_run": growth_run,
+                "sync": _growth_sync_summary(growth_run),
             },
             "scheduler": {
                 "available": scheduler_available,
@@ -209,6 +334,29 @@ def configure_workspace_vault(
     return ApiResponse.ok({"vault": {"configured": True, "status": mapping["status"], "vault_path": mapping["vault_path"]}})
 
 
+@router.put("/workspaces/{project_id}/plugins")
+def configure_workspace_plugins(
+    payload: PluginManifestRequest, request: Request, project_id: str, repo: WikiRepository = Depends(get_wiki_repository)
+):
+    """Register filesystem-drop plugin exports for an already mapped project Vault."""
+    project_id = _enforce_project_access(request, project_id, write=True)
+    mapping = repo.get_vault(project_id)
+    if not mapping:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "knowledge_vault_unconfigured", "message": "Map the project Vault before registering plugin exports"},
+        )
+    if not settings.OBSIDIAN_VAULT_ROOT:
+        raise HTTPException(status_code=400, detail="OBSIDIAN_VAULT_ROOT is not configured")
+    try:
+        vault = FilesystemWikiVault(Path(settings.OBSIDIAN_VAULT_ROOT), project_id, mapping["vault_path"])
+        manifest = ObsidianPluginManifest.from_payload({"plugins": payload.plugins})
+        manifest.write_to(vault.project_root)
+    except Exception as exc:
+        raise _command_error(exc) from exc
+    return ApiResponse.ok(manifest.public_status())
+
+
 @router.get("/sources")
 def list_workspace_sources(request: Request, project_id: str, status: str = "", repo: WikiRepository = Depends(get_wiki_repository)):
     project_id = _enforce_project_access(request, project_id)
@@ -227,6 +375,58 @@ def capture_workspace_source(
         )
         return ApiResponse.ok({"source": _source_view(result["source"]), "created": result["created"], "run_id": result["run_id"]})
     except WikiCommandError as exc:
+        raise _command_error(exc) from exc
+
+
+@router.post("/sources/feishu/import")
+def import_workspace_feishu_export(
+    payload: FeishuImportRequest, request: Request, repo: WikiRepository = Depends(get_wiki_repository)
+):
+    """Persist one selected Feishu CLI/export payload as immutable A-layer evidence.
+
+    The caller's project-scoped write authorization is the authorization for
+    this handoff. The export service rejects credentials and does not fetch
+    Feishu, which keeps the browser/API boundary distinct from user-owned CLI
+    authentication.
+    """
+    project_id = _enforce_project_access(request, payload.project_id, write=True)
+    run = KnowledgeRun(
+        project_id=project_id,
+        run_type="feishu_import",
+        trigger="manual",
+        status=RunStatus.RUNNING,
+        actor_id=str(getattr(request.state, "knowledge_role", "") or "http"),
+        input_refs={"provider": "feishu", "mode": "explicit_export"},
+    )
+    repo.create_run(run)
+    try:
+        result = FeishuImportService(repo).import_export(
+            project_id=project_id,
+            payload=payload.export,
+            authorized=True,
+        )
+        source = result.source
+        output_refs = {
+            "created": result.created,
+            "source_id": source["id"],
+            "source_type": source["source_type"],
+            "source_revision": str((source.get("metadata") or {}).get("feishu_revision_id") or ""),
+        }
+        repo.append_run_event(
+            project_id=project_id,
+            run_id=run.id,
+            event_type="knowledge.feishu.imported",
+            payload=output_refs,
+        )
+        repo.update_run_status(project_id, run.id, RunStatus.COMPLETED, output_refs=output_refs)
+        return ApiResponse.ok({"source": _source_view(source), "created": result.created, "run_id": run.id})
+    except FeishuImportError as exc:
+        safe_message = _safe_error_message(str(exc))
+        repo.update_run_status(project_id, run.id, RunStatus.FAILED, error=safe_message)
+        raise HTTPException(status_code=400, detail={"code": exc.code, "message": safe_message}) from exc
+    except Exception as exc:
+        safe_message = _safe_error_message(str(exc))
+        repo.update_run_status(project_id, run.id, RunStatus.FAILED, error=safe_message)
         raise _command_error(exc) from exc
 
 

@@ -85,6 +85,33 @@ class OutputCompletionBridge:
             context=context,
         )
 
+    def register_agent_runtime_deliverable(
+        self,
+        *,
+        execution_id: str,
+        deliverable_id: str,
+        status: str,
+        result: str | bytes | None,
+        filename: str,
+        context: dict[str, Any],
+    ) -> BridgeResult:
+        """Stage one reviewed Agent OS work product in the governed D-layer.
+
+        Runtime outputs are deliberately registered rather than accepted.  The
+        normal evaluation and feedback lifecycle remains the authority for
+        whether a work product can later re-enter an approved context pack.
+        """
+        return self._register(
+            producer_type="agent_runtime",
+            producer_id=deliverable_id,
+            producer_name=execution_id,
+            producer_status=status,
+            result=result,
+            filename=filename,
+            mime_type="text/markdown",
+            context=context,
+        )
+
     def register_export_completion(
         self,
         *,

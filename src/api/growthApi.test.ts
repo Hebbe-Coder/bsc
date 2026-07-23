@@ -8,8 +8,10 @@ import {
   fetchGrowthLineage,
   fetchGrowthOverview,
   fetchGrowthStage,
+  evaluateGrowthOutput,
   fileGrowthOutput,
   growthRecordKind,
+  linkGrowthOutputEvidence,
 } from './growthApi';
 
 const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data }), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -149,6 +151,31 @@ describe('growthApi', () => {
       expect.stringContaining('/project-a/outputs/output-a/file'),
     ]);
     expect(requests.every((item) => item.init?.method === 'POST')).toBe(true);
+  });
+
+  it('links captured evidence before persisting an output quality review', async () => {
+    const requests: Array<{ url: string; body?: string }> = [];
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ url: String(input), body: String(init?.body || '') });
+      return Promise.resolve(ok(String(input).endsWith('/evidence')
+        ? { output: { id: 'output-a', source_refs: [], status: 'registered' }, evidence: { source_ids: ['source-a'], page_ids: [] } }
+        : { evaluation: { id: 'evaluation-a', quality: 90, status: 'completed' } }));
+    }));
+
+    const linked = await linkGrowthOutputEvidence('project-a', 'output-a', { source_ids: ['source-a'], page_ids: [] });
+    const evaluated = await evaluateGrowthOutput('project-a', 'output-a', {
+      groundedness: 0.9, task_fit: 0.9, usefulness: 0.9, coherence: 0.9, format_quality: 0.9, findings: ['Evidence linked'],
+    });
+
+    expect(linked.output.source_refs).toEqual([]);
+    expect(linked.evidence.source_ids).toEqual(['source-a']);
+    expect(evaluated.quality).toBe(90);
+    expect(requests.map((item) => item.url)).toEqual([
+      expect.stringContaining('/project-a/outputs/output-a/evidence'),
+      expect.stringContaining('/project-a/outputs/output-a/evaluate'),
+    ]);
+    expect(JSON.parse(requests[0].body || '{}')).toEqual({ source_ids: ['source-a'], page_ids: [] });
+    expect(JSON.parse(requests[1].body || '{}')).toMatchObject({ groundedness: 0.9, findings: ['Evidence linked'] });
   });
 
   it('retains server graph bounds without inventing a total', async () => {

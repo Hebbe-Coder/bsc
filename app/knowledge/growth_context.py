@@ -73,6 +73,7 @@ class GrowthContextBuilder:
 
     _STATUS_ALLOWED = {"", "active", "approved", "accepted", "eligible", "processed", "published", "filed"}
     MAX_CHARACTERS = 48_000
+    MINIMUM_SOURCE_EXCERPT_CHARACTERS = 640
 
     def __init__(self, max_characters: int = 12_000, *, characters_per_token: int = 4) -> None:
         if max_characters < 512:
@@ -137,11 +138,21 @@ class GrowthContextBuilder:
                 ref = str(record.get("id") or "").strip()
                 if not ref:
                     continue
+                if kind == "page" and self._is_rules_page(record):
+                    omissions.append(ContextOmission(ref=f"page:{ref}", reason="rules_bound_separately"))
+                    continue
+                if kind == "page" and self._is_audit_log(record):
+                    omissions.append(ContextOmission(ref=f"page:{ref}", reason="audit_log_not_generation_context"))
+                    continue
                 candidate_kind = kind
                 candidate_priority = priority
                 if kind == "page" and self._is_navigation_index(record):
                     candidate_kind = "index"
-                    candidate_priority = 5
+                    # Navigation helps retrieval, but generated conclusions must
+                    # prefer published B-layer concepts and immutable evidence.
+                    candidate_priority = 80
+                elif kind == "page":
+                    candidate_priority = self._published_page_priority(record, default=priority)
                 ref_key = (candidate_kind, ref)
                 if ref_key in seen:
                     omissions.append(ContextOmission(ref=f"{candidate_kind}:{ref}", reason="duplicate"))
@@ -203,15 +214,48 @@ class GrowthContextBuilder:
                 rendered_sections.append(fitted)
                 used += len(fitted) + (2 if rendered_sections[:-1] else 0)
 
-        included: dict[str, list[str]] = {kind: [] for kind in ("index", "page", "source", "method", "output", "constraint", "evaluation", "feedback", "distillation")}
+        included_candidates: list[_Candidate] = []
         for item in sorted(candidates, key=lambda candidate: candidate.key):
             section = self._untrusted_section(item)
-            separator = 2 if rendered_sections else 0
-            if used + separator + len(section) > self.max_characters:
+            if len("\n\n".join([*rendered_sections, section])) > self.max_characters:
                 omissions.append(ContextOmission(ref=f"{item.kind}:{item.ref}", reason="budget"))
                 continue
             rendered_sections.append(section)
-            used += separator + len(section)
+            included_candidates.append(item)
+
+        source_candidates = [item for item in sorted(candidates, key=lambda candidate: candidate.key) if item.kind == "source"]
+        if source_candidates and not any(item.kind == "source" for item in included_candidates):
+            source = source_candidates[0]
+            while included_candidates and self._remaining_budget(rendered_sections) < self.MINIMUM_SOURCE_EXCERPT_CHARACTERS:
+                evictable = [
+                    (index, candidate)
+                    for index, candidate in enumerate(included_candidates)
+                    if candidate.kind != "page" or sum(item.kind == "page" for item in included_candidates) > 1
+                ]
+                if not evictable:
+                    break
+                # Remove the least authoritative included candidate first. This
+                # preserves at least one substantive B page alongside A evidence.
+                evict_index, evicted = max(
+                    evictable,
+                    key=lambda item: (item[1].priority, item[1].kind == "index", item[1].ref),
+                )
+                included_candidates.pop(evict_index)
+                rendered_sections.pop(len(rendered_sections) - len(included_candidates) - 1 + evict_index)
+                omissions.append(ContextOmission(ref=f"{evicted.kind}:{evicted.ref}", reason="budget_reserved_for_source"))
+
+            excerpt = self._bounded_untrusted_section(source, self._remaining_budget(rendered_sections))
+            if excerpt:
+                rendered_sections.append(excerpt)
+                included_candidates.append(source)
+                omissions = [
+                    item for item in omissions
+                    if not (item.ref == f"source:{source.ref}" and item.reason == "budget")
+                ]
+                omissions.append(ContextOmission(ref=f"source:{source.ref}", reason="excerpted_for_budget"))
+
+        included: dict[str, list[str]] = {kind: [] for kind in ("index", "page", "source", "method", "output", "constraint", "evaluation", "feedback", "distillation")}
+        for item in included_candidates:
             included[item.kind].append(item.ref if item.kind != "method" else item.revision)
             provenance_kind = "output" if item.kind == "constraint" else item.kind
             provenance.extend((f"{provenance_kind}:{item.ref}", f"{provenance_kind}:{item.ref}@{item.revision}"))
@@ -276,6 +320,24 @@ class GrowthContextBuilder:
         if record.get("project_id") != project_id:
             raise ValueError(f"{kind} records must be project scoped")
 
+    def _remaining_budget(self, sections: list[str]) -> int:
+        used = len("\n\n".join(sections))
+        separator = 2 if sections else 0
+        return max(0, self.max_characters - used - separator)
+
+    @staticmethod
+    def _bounded_untrusted_section(candidate: _Candidate, available: int) -> str:
+        section = GrowthContextBuilder._untrusted_section(candidate)
+        if len(section) <= available:
+            return section
+        marker = "\n[CONTEXT_EXCERPT: content truncated; consult the immutable source]\n"
+        room = available - len(marker)
+        if room < 160:
+            return ""
+        head = max(1, (room * 3) // 4)
+        tail = max(1, room - head)
+        return f"{section[:head]}{marker}{section[-tail:]}"
+
     @staticmethod
     def _revision(record: dict[str, Any], content: str) -> str:
         for key in ("revision", "revision_id", "active_revision_id", "content_hash", "updated_at", "created_at"):
@@ -313,6 +375,24 @@ class GrowthContextBuilder:
         path = str(record.get("path") or "").replace("\\", "/").lower()
         page_kind = str(record.get("page_kind") or record.get("kind") or "").lower()
         return page_kind in {"index", "navigation"} or path.endswith("/index.md") or path == "wiki/index.md"
+
+    @staticmethod
+    def _is_rules_page(record: dict[str, Any]) -> bool:
+        return str(record.get("path") or "").replace("\\", "/") == "AGENTS.md"
+
+    @staticmethod
+    def _is_audit_log(record: dict[str, Any]) -> bool:
+        return str(record.get("path") or "").replace("\\", "/") == "wiki/log.md"
+
+    @staticmethod
+    def _published_page_priority(record: dict[str, Any], *, default: int) -> int:
+        path = str(record.get("path") or "").replace("\\", "/").lower()
+        page_kind = str(record.get("page_kind") or record.get("kind") or "").lower()
+        if path.startswith(("wiki/concepts/", "wiki/decisions/", "wiki/sops/")) or page_kind in {"concept", "decision", "sop"}:
+            return min(default, 10)
+        if path == "wiki/overview.md" or page_kind == "brief":
+            return max(default, 30)
+        return default
 
     @staticmethod
     def _fit(section: str, available: int) -> str:
@@ -447,10 +527,20 @@ class GrowthContextService:
     def _outputs(self, project_id: str, project_root: Path | None) -> list[dict[str, Any]]:
         outputs: list[dict[str, Any]] = []
         for output in self.repository.list_outputs(project_id, limit=self.MAX_RECORDS):
-            if output.get("status") not in {"accepted", "filed", "rejected"}:
+            # Keep pending records visible to the context builder as omission
+            # evidence, without reading their unreviewed body from the Vault.
+            # This makes the D-layer review boundary auditable while preserving
+            # the rule that only accepted/filed prose can become context.
+            if output.get("status") not in {
+                "registered", "evaluating", "accepted", "filed", "rejected"
+            }:
                 continue
             content = ""
-            if project_root and str(output.get("mime_type") or "").startswith("text/"):
+            if (
+                output.get("status") in {"accepted", "filed"}
+                and project_root
+                and str(output.get("mime_type") or "").startswith("text/")
+            ):
                 content = self._read_relative(project_root, str(output.get("vault_path") or ""))
             outputs.append({**output, "content": content})
         return outputs

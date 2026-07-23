@@ -77,3 +77,43 @@ def test_health_marks_citations_stale_when_their_source_is_superseded(tmp_path):
         assert KnowledgeHealthService(repo).snapshot(project_id="project-a")["stale_citation_count"] == 1
     finally:
         repo.close()
+
+
+def test_health_excludes_rules_navigation_and_log_from_substantive_citation_coverage(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "health-substantive-pages.db"))
+    source = SourceCaptureService(repo).capture(
+        CapturedSourceInput(
+            project_id="project-a",
+            source_type="manual_upload",
+            origin="brief.md",
+            raw_content="Evidence-backed policy.",
+            trust_level="trusted",
+        )
+    ).source
+    try:
+        repo.record_publication(
+            project_id="project-a",
+            contents={
+                "AGENTS.md": "# Rules\n",
+                "wiki/index.md": "# Index\n- [[wiki/overview.md]]\n",
+                "wiki/log.md": "# Log\n- Published\n",
+                "wiki/overview.md": (
+                    "---\ntitle: Overview\nkind: brief\n---\n"
+                    f"[[wiki/concepts/policy.md]] [source:{source['id']}]\n"
+                ),
+                "wiki/concepts/policy.md": (
+                    "---\ntitle: Policy\nkind: concept\n---\n"
+                    f"Evidence-backed policy. [source:{source['id']}]\n"
+                ),
+            },
+            source_ids=[source["id"]],
+        )
+
+        health = KnowledgeHealthService(repo).snapshot(project_id="project-a")
+
+        assert health["pages"] == 5
+        assert health["citation_coverage"] == 1.0
+        assert health["uncited_page_ids"] == []
+        assert health["orphan_page_ids"] == []
+    finally:
+        repo.close()

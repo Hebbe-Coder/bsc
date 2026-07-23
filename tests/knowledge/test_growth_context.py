@@ -110,9 +110,90 @@ def test_indexes_are_navigation_only_and_duplicate_evidence_revisions_are_omitte
     assert any(item.ref == "source:source-b" and item.reason == "duplicate_content" for item in pack.omissions)
 
 
+def test_published_b_knowledge_precedes_navigation_while_rules_and_logs_are_not_duplicated():
+    pack = GrowthContextBuilder(max_characters=1_500).build(
+        project_id="project-a",
+        profile={"revision": 1},
+        rules="Use evidence.",
+        task="Create a weekly knowledge distillation.",
+        pages=[
+            {"id": "rules-copy", "project_id": "project-a", "path": "AGENTS.md", "status": "published", "content": "Duplicated rules"},
+            {"id": "audit-log", "project_id": "project-a", "path": "wiki/log.md", "status": "published", "content": "Audit event"},
+            {"id": "navigation", "project_id": "project-a", "path": "wiki/index.md", "status": "published", "content": "Navigation only"},
+            {"id": "concept", "project_id": "project-a", "path": "wiki/concepts/loop.md", "status": "published", "content": "ABCD loop governs evidence-backed knowledge growth."},
+        ],
+        sources=[{
+            "id": "large-prd",
+            "project_id": "project-a",
+            "status": "processed",
+            "raw_content": "Opening requirement. " + ("Detailed requirement. " * 500) + "Closing criterion.",
+        }],
+    )
+
+    assert pack.page_ids == ("concept",)
+    assert "page:concept" in pack.rendered
+    assert pack.rendered.index("page:concept") < pack.rendered.index("source:large-prd")
+    assert {"page:rules-copy", "page:audit-log"} <= {item.ref for item in pack.omissions}
+    reasons = {item.ref: item.reason for item in pack.omissions}
+    assert reasons["page:rules-copy"] == "rules_bound_separately"
+    assert reasons["page:audit-log"] == "audit_log_not_generation_context"
+
+
+def test_source_reservation_preserves_a_domain_concept_before_project_overview():
+    pack = GrowthContextBuilder(max_characters=1_300).build(
+        project_id="project-a",
+        profile={"revision": 1},
+        rules="Use evidence.",
+        task="Prepare a weekly distillation.",
+        pages=[
+            {"id": "overview", "project_id": "project-a", "path": "wiki/overview.md", "page_kind": "brief", "status": "published", "content": "Overview summary. " * 40},
+            {"id": "concept", "project_id": "project-a", "path": "wiki/concepts/loop.md", "page_kind": "concept", "status": "published", "content": "ABCD loop is the reusable project knowledge model."},
+        ],
+        sources=[{
+            "id": "large-prd",
+            "project_id": "project-a",
+            "status": "processed",
+            "raw_content": "Opening evidence. " + ("Detailed evidence. " * 500) + "Closing evidence.",
+        }],
+    )
+
+    assert pack.source_ids == ("large-prd",)
+    assert pack.page_ids == ("concept",)
+    assert "page:concept" in pack.rendered
+    assert "page:overview" in pack.omitted_refs
+
+
 def test_context_policy_override_remains_bounded():
     with pytest.raises(ValueError, match="must not exceed"):
         GrowthContextBuilder(max_characters=48_001)
+
+
+def test_large_eligible_source_keeps_a_bounded_evidence_excerpt_when_pages_consume_budget():
+    pack = GrowthContextBuilder(max_characters=1_200).build(
+        project_id="project-a",
+        profile={"revision": 1},
+        rules="Use cited evidence.",
+        task="Create a grounded project brief.",
+        pages=[{
+            "id": "bootstrap-page",
+            "project_id": "project-a",
+            "status": "published",
+            "content": "Bootstrap guidance. " * 50,
+        }],
+        sources=[{
+            "id": "large-prd",
+            "project_id": "project-a",
+            "status": "eligible",
+            "raw_content": "Opening requirement. " + ("Detailed requirement. " * 400) + "Closing acceptance criterion.",
+        }],
+    )
+
+    assert pack.character_count <= 1_200
+    assert pack.source_ids == ("large-prd",)
+    assert "[CONTEXT_EXCERPT: content truncated; consult the immutable source]" in pack.rendered
+    assert "Opening requirement." in pack.rendered
+    assert "Closing acceptance criterion." in pack.rendered
+    assert any(item.ref == "source:large-prd" and item.reason == "excerpted_for_budget" for item in pack.omissions)
 
 
 def test_assumptions_and_research_gaps_are_bound_into_context_hash():

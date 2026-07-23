@@ -90,6 +90,41 @@ def test_lint_reports_invalid_metadata_citations_links_and_maintenance_updates()
     assert {"missing_frontmatter", "unknown_source", "dangling_page_link", "missing_overview_update", "missing_index_update", "missing_log_update"} <= codes
 
 
+def test_lint_rejects_a_substantive_update_without_an_inline_source_citation():
+    report = WikiLint().lint_proposal(
+        _proposal(
+            WikiOperation(
+                operation=WikiOperationType.CREATE,
+                path="wiki/concepts/approval.md",
+                content="---\ntitle: Approval\nkind: concept\n---\n\nUnsupported claim.",
+                source_ids=["source-a"],
+            ),
+            WikiOperation(
+                operation=WikiOperationType.APPEND,
+                path="wiki/index.md",
+                content="\n- [[wiki/concepts/approval.md]]\n",
+                source_ids=["source-a"],
+            ),
+            WikiOperation(
+                operation=WikiOperationType.APPEND,
+                path="wiki/overview.md",
+                content="\n- Updated. [source:source-a]\n",
+                source_ids=["source-a"],
+            ),
+            WikiOperation(
+                operation=WikiOperationType.APPEND,
+                path="wiki/log.md",
+                content="\n- Updated. [source:source-a]\n",
+                source_ids=["source-a"],
+            ),
+        ),
+        rules=parse_project_rules(build_default_agents_rules("project-a")),
+        source_ids={"source-a"},
+    )
+
+    assert "missing_source_citation" in {finding.code for finding in report.findings}
+
+
 def test_project_lint_reports_orphan_stale_and_uncited_pages():
     from datetime import datetime, timezone
 

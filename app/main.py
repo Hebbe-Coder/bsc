@@ -3,6 +3,8 @@ BSC Backend - FastAPI Entry Point
 ----------------------------------
 Start: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 """
+import asyncio
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -193,7 +195,11 @@ class TimingMiddleware(BaseHTTPMiddleware):
         try:
             from app.core.metrics import record_request
             endpoint = f"{r.method} {r.url.path}"
-            record_request(endpoint, elapsed_ms, resp.status_code)
+            # Request metrics are best-effort telemetry. Their database write
+            # must not delay a successful API response or an async pipeline.
+            asyncio.create_task(
+                asyncio.to_thread(record_request, endpoint, elapsed_ms, resp.status_code)
+            )
         except Exception:
             pass
         

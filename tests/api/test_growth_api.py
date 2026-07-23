@@ -12,6 +12,7 @@ from app.knowledge.growth_contracts import (
     FeedbackType,
     KnowledgeLineageEdge,
     MethodAsset,
+    MethodProposal,
     MethodRevision,
     MethodStatus,
     OutputAsset,
@@ -172,6 +173,44 @@ def test_assets_are_paginated_bounded_and_redacted(growth_api):
     assert over_limit.status_code == invalid_stage.status_code == 422
 
 
+def test_method_candidates_are_visible_and_reviewable_in_growth_review_queue(growth_api):
+    client, repo = growth_api
+    proposal = repo.save_method_proposal(
+        MethodProposal(
+            id="method-proposal-a",
+            project_id="project-a",
+            operation="create",
+            body="# Evidence brief\nUse the verified project evidence.",
+            manifest={"task_family": "evidence-brief"},
+            source_output_ids=["output-a", "output-b", "output-c"],
+            rationale="Three comparable accepted outputs",
+        )
+    )
+
+    review = client.get(
+        "/knowledge/projects/project-a/growth/assets",
+        headers=_headers(),
+        params={"stage": "review"},
+    )
+    detail = client.get(
+        f"/knowledge/projects/project-a/methods/proposals/{proposal['id']}",
+        headers=_headers(),
+    )
+    summary = client.get(
+        "/knowledge/projects/project-a/growth/summary",
+        headers=_headers(),
+    )
+
+    assert review.status_code == detail.status_code == summary.status_code == 200
+    candidate = next(item for item in review.json()["data"]["items"] if item["id"] == proposal["id"])
+    assert candidate["asset_type"] == "method_proposal"
+    assert candidate["task_family"] == "evidence-brief"
+    assert "body" not in candidate
+    assert detail.json()["data"]["proposal"]["body"] == proposal["body"]
+    assert summary.json()["data"]["counts"]["method_proposals"] == 1
+    assert summary.json()["data"]["counts"]["review_records"] == 1
+
+
 def test_reader_can_read_but_cannot_mutate(growth_api):
     client, _repo = growth_api
     read = client.get("/knowledge/projects/project-a/profile", headers=_headers("growth-reader-key"))
@@ -293,6 +332,93 @@ def test_sources_triage_methods_outputs_feedback_and_review_are_project_scoped(g
     )
     assert reviewed.status_code == 200, reviewed.text
     assert reviewed.json()["data"]["review"]["feedback_id"] == feedback_id
+
+
+def test_external_output_must_link_eligible_project_evidence_before_quality_review(growth_api):
+    client, repo = growth_api
+    source = _capture(repo, "project-a", "source supporting the plugin export")
+    repo.update_source_status("project-a", source["id"], SourceStatus.ELIGIBLE)
+    other_source = _capture(repo, "project-b", "private source")
+    repo.update_source_status("project-b", other_source["id"], SourceStatus.ELIGIBLE)
+    output = repo.register_output(
+        OutputAsset(
+            id="external-plugin-output",
+            project_id="project-a",
+            kind="external_plugin_output",
+            title="Plugin research draft",
+            content_hash=hashlib.sha256(b"plugin-output").hexdigest(),
+            vault_path="outputs/2026/plugin-research.md",
+            idempotency_key="external-plugin-output",
+            metadata={"origin": "external", "obsidian_plugin": "web-clipper"},
+        )
+    )
+    immutable_before = {
+        key: output[key]
+        for key in ("content_hash", "vault_path", "idempotency_key", "source_refs", "page_refs")
+    }
+    components = {
+        "groundedness": 0.9,
+        "task_fit": 0.9,
+        "usefulness": 0.9,
+        "coherence": 0.9,
+        "format_quality": 0.9,
+        "findings": ["Claim coverage matches the linked source."],
+    }
+
+    unlinked_review = client.post(
+        f"/knowledge/projects/project-a/outputs/{output['id']}/evaluate",
+        headers=_headers(),
+        json=components,
+    )
+    cross_project = client.post(
+        f"/knowledge/projects/project-a/outputs/{output['id']}/evidence",
+        headers=_headers(),
+        json={"source_ids": [other_source["id"]], "page_ids": []},
+    )
+    reader_link = client.post(
+        f"/knowledge/projects/project-a/outputs/{output['id']}/evidence",
+        headers=_headers("growth-reader-key"),
+        json={"source_ids": [source["id"]], "page_ids": []},
+    )
+
+    assert unlinked_review.status_code == 400
+    assert "external evidence ancestry" in unlinked_review.json()["message"]["message"]
+    assert cross_project.status_code == 404
+    assert reader_link.status_code == 403
+
+    linked = client.post(
+        f"/knowledge/projects/project-a/outputs/{output['id']}/evidence",
+        headers=_headers(),
+        json={"source_ids": [source["id"], source["id"]], "page_ids": []},
+    )
+    assert linked.status_code == 200, linked.text
+    assert linked.json()["data"]["output"]["source_refs"] == []
+    assert linked.json()["data"]["evidence"]["source_ids"] == [source["id"]]
+    assert repo.get_output("project-a", output["id"])["updated_at"] == output["updated_at"]
+
+    reviewed = client.post(
+        f"/knowledge/projects/project-a/outputs/{output['id']}/evaluate",
+        headers=_headers(),
+        json=components,
+    )
+    locked = client.post(
+        f"/knowledge/projects/project-a/outputs/{output['id']}/evidence",
+        headers=_headers(),
+        json={"source_ids": [source["id"]], "page_ids": []},
+    )
+
+    assert reviewed.status_code == 200, reviewed.text
+    assert reviewed.json()["data"]["evaluation"]["quality"] == 90
+    assert repo.get_output("project-a", output["id"])["status"] == "accepted"
+    assert {key: repo.get_output("project-a", output["id"])[key] for key in immutable_before} == immutable_before
+    assert locked.status_code == 409
+    detail = client.get(
+        f"/knowledge/projects/project-a/outputs/{output['id']}", headers=_headers()
+    )
+    assert detail.status_code == 200
+    assert detail.json()["data"]["evidence"]["source_ids"] == [source["id"]]
+    edges = repo.list_lineage("project-a", relation="output_used_source")
+    assert any(edge["from_id"] == source["id"] and edge["to_id"] == output["id"] for edge in edges)
 
 
 def test_method_revisions_are_paginated_readable_and_project_scoped(growth_api):

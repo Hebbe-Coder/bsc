@@ -18,6 +18,8 @@ from app.knowledge.horizon_run_store import HorizonRunStoreClient, HorizonRunSto
 from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.scheduler import KnowledgeScheduler
 from app.knowledge.growth_scheduler import GrowthScheduleCoordinator
+from app.knowledge.growth_repository import GrowthRepository
+from app.knowledge.obsidian_output_sync import ObsidianOutputSyncService
 from app.knowledge.wiki_sync import ObsidianSyncService
 from app.knowledge.wiki_compiler import WikiCompilationError, WikiCompiler
 from app.knowledge.proposal_gate import ProposalGateError
@@ -46,8 +48,6 @@ class KnowledgeFailure:
 
 def classify_knowledge_failure(exc: Exception) -> KnowledgeFailure:
     message = str(exc).lower()
-    if "not configured" in message or "required" in message:
-        return KnowledgeFailure("configuration", "configuration_missing", False)
     if isinstance(exc, HorizonClientError):
         return KnowledgeFailure("transient_dependency", "horizon_unavailable", True)
     if isinstance(exc, WikiCompilationError):
@@ -60,6 +60,8 @@ def classify_knowledge_failure(exc: Exception) -> KnowledgeFailure:
         return KnowledgeFailure("extraction", "extraction_failed", False)
     if isinstance(exc, PermissionError):
         return KnowledgeFailure("policy", "permission_denied", False)
+    if "not configured" in message or "required" in message:
+        return KnowledgeFailure("configuration", "configuration_missing", False)
     return KnowledgeFailure("transient_dependency", "unexpected_dependency_failure", True)
 
 
@@ -153,7 +155,7 @@ def execute_knowledge_run(
                     status=RunStatus.UNAVAILABLE,
                     message="Obsidian Vault is not configured",
                     failure=KnowledgeFailure("configuration", "vault_not_configured", False),
-                )
+            )
             report = ObsidianSyncService(repo, Path(settings.OBSIDIAN_VAULT_ROOT)).sync(project_id=project_id)
             managed_vault = FilesystemWikiVault(Path(settings.OBSIDIAN_VAULT_ROOT), project_id, mapping["vault_path"])
             if managed_vault.project_root.is_dir():
@@ -173,6 +175,12 @@ def execute_knowledge_run(
             else:
                 report["wiki_pages"] = 0
                 report["wiki_index"] = {"indexed": 0, "removed": 0, "failures": []}
+            # Snapshot rebuilding replaces derived Wiki edges. Register D-layer
+            # output lineage afterwards so its run-to-output audit edge persists.
+            growth_repo = repo if isinstance(repo, GrowthRepository) else GrowthRepository.borrow(repo)
+            report["output_feedback"] = ObsidianOutputSyncService(
+                growth_repo, Path(settings.OBSIDIAN_VAULT_ROOT)
+            ).sync(project_id=project_id, run_id=run_id)
             repo.append_run_event(
                 project_id=project_id, run_id=run_id, event_type="knowledge.source.sync.completed", payload=report
             )

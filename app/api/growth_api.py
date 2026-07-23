@@ -113,9 +113,11 @@ class MethodProposalRequest(GrowthRequest):
 
 
 class MethodReviewRequest(GrowthRequest):
-    comparable_uses: int = Field(ge=0, le=10_000)
-    average_quality: float = Field(ge=0, le=100)
-    groundedness: float = Field(ge=0, le=1)
+    # The evaluator derives its decision from persisted outputs and evaluations.
+    # These optional fields preserve supplied telemetry for the audit record.
+    comparable_uses: int = Field(default=0, ge=0, le=10_000)
+    average_quality: float = Field(default=0, ge=0, le=100)
+    groundedness: float = Field(default=0, ge=0, le=1)
     security_failures: int = Field(default=0, ge=0, le=10_000)
     regression_failures: int = Field(default=0, ge=0, le=10_000)
 
@@ -163,6 +165,19 @@ class OutputEvaluationRequest(GrowthRequest):
     coherence: float = Field(ge=0, le=1)
     format_quality: float = Field(ge=0, le=1)
     findings: list[str] = Field(default_factory=list, max_length=100)
+
+
+class OutputEvidenceRequest(GrowthRequest):
+    source_ids: list[str] = Field(default_factory=list, max_length=100)
+    page_ids: list[str] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def require_evidence_reference(self) -> "OutputEvidenceRequest":
+        self.source_ids = list(dict.fromkeys(value.strip() for value in self.source_ids if value.strip()))
+        self.page_ids = list(dict.fromkeys(value.strip() for value in self.page_ids if value.strip()))
+        if not self.source_ids and not self.page_ids:
+            raise ValueError("at least one source_ids or page_ids reference is required")
+        return self
 
 
 class FeedbackRequest(GrowthRequest):
@@ -252,6 +267,7 @@ def list_assets(
     if stage in {None, "review"}:
         items.extend({**_public_record(item), "stage": "review", "asset_type": "feedback"} for item in _guard(lambda: repo.list_feedback(project_id, limit=MAX_PAGE_SIZE)))
         items.extend({**_public_proposal(item), "stage": "review", "asset_type": "wiki_proposal"} for item in _guard(lambda: repo.list_proposals(project_id, limit=MAX_PAGE_SIZE)))
+        items.extend({**_public_method_proposal(item), "stage": "review", "asset_type": "method_proposal"} for item in _guard(lambda: repo.list_method_proposals(project_id, limit=MAX_PAGE_SIZE)))
     page, pagination = _paginate(items, limit=limit, cursor=cursor)
     return _ok(request, repo, project_id, {"project_id": project_id, "stage": stage or "all", "items": page, "pagination": pagination})
 
@@ -333,6 +349,35 @@ def list_methods(
     records = _guard(lambda: repo.list_methods(project_id, status=status, limit=MAX_PAGE_SIZE))
     page, pagination = _paginate([_public_record(item) for item in records], limit=limit, cursor=cursor)
     return _ok(request, repo, project_id, {"methods": page, "pagination": pagination})
+
+
+@project_router.get("/methods/proposals")
+def list_method_proposals(
+    project_id: str,
+    request: Request,
+    status: str = Query(default="", max_length=32),
+    limit: int = Query(default=100, ge=1, le=MAX_PAGE_SIZE),
+    cursor: str | None = Query(default=None, max_length=16),
+    repo: GrowthRepository = Depends(get_growth_repository),
+):
+    project_id = _enforce_growth_access(request, project_id)
+    records = _guard(lambda: repo.list_method_proposals(project_id, status=status, limit=MAX_PAGE_SIZE))
+    page, pagination = _paginate([_public_method_proposal(item) for item in records], limit=limit, cursor=cursor)
+    return _ok(request, repo, project_id, {"proposals": page, "pagination": pagination})
+
+
+@project_router.get("/methods/proposals/{proposal_id}")
+def read_method_proposal(
+    project_id: str,
+    proposal_id: str,
+    request: Request,
+    repo: GrowthRepository = Depends(get_growth_repository),
+):
+    project_id = _enforce_growth_access(request, project_id)
+    proposal = _guard(lambda: repo.get_method_proposal(project_id, proposal_id))
+    if not proposal:
+        raise _http_error(404, "growth_resource_not_found", "method proposal not found in project")
+    return _ok(request, repo, project_id, {"proposal": _public_record(proposal)})
 
 
 @project_router.post("/methods", status_code=201)
@@ -532,12 +577,14 @@ def read_output(
         raise _http_error(404, "growth_resource_not_found", "output not found in project")
     evaluations = _guard(lambda: repo.list_output_evaluations(project_id, output_id=output_id, limit=MAX_PAGE_SIZE))
     feedback = _guard(lambda: repo.list_feedback(project_id, output_id=output_id, limit=MAX_PAGE_SIZE))
+    evidence = _guard(lambda: repo.list_output_evidence_references(project_id, output_id))
     return _ok(
         request,
         repo,
         project_id,
         {
             "output": _public_record(output),
+            "evidence": evidence,
             "evaluations": [_public_record(item) for item in evaluations],
             "feedback": [_public_record(item) for item in feedback],
         },
@@ -604,6 +651,28 @@ def evaluate_output(
         )
     )
     return _ok(request, repo, project_id, {"evaluation": _public_record(result)})
+
+
+@project_router.post("/outputs/{output_id}/evidence")
+def attach_output_evidence(
+    project_id: str,
+    output_id: str,
+    payload: OutputEvidenceRequest,
+    request: Request,
+    repo: GrowthRepository = Depends(get_growth_repository),
+):
+    project_id = _enforce_growth_access(request, project_id, write=True)
+    result = _guard_state_transition(
+        lambda: repo.attach_output_evidence_references(
+            project_id,
+            output_id,
+            source_ids=payload.source_ids,
+            page_ids=payload.page_ids,
+        ),
+        "output evidence attachment state conflict",
+    )
+    evidence = _guard(lambda: repo.list_output_evidence_references(project_id, output_id))
+    return _ok(request, repo, project_id, {"output": _public_record(result), "evidence": evidence})
 
 
 @project_router.post("/outputs/{output_id}/feedback", status_code=201)
@@ -1075,6 +1144,17 @@ def _public_proposal(record: dict[str, Any]) -> dict[str, Any]:
     return value
 
 
+def _public_method_proposal(record: dict[str, Any]) -> dict[str, Any]:
+    """Return review-list metadata without sending a candidate body eagerly."""
+    value = _public_record(record)
+    value.pop("body", None)
+    manifest = value.pop("manifest", {}) or {}
+    source_output_ids = value.pop("source_output_ids", []) or []
+    value["task_family"] = str(manifest.get("task_family") or "")
+    value["source_output_count"] = len(source_output_ids)
+    return value
+
+
 def _public_record(record: dict[str, Any] | None) -> dict[str, Any] | None:
     if record is None:
         return None
@@ -1087,6 +1167,7 @@ def _summary(repo: GrowthRepository, project_id: str) -> dict[str, Any]:
     methods = repo.list_methods(project_id, limit=MAX_PAGE_SIZE)
     feedback = repo.list_feedback(project_id, limit=MAX_PAGE_SIZE)
     proposals = repo.list_proposals(project_id, limit=MAX_PAGE_SIZE)
+    method_proposals = repo.list_method_proposals(project_id, limit=MAX_PAGE_SIZE)
     return {
         "project_id": project_id,
         "counts": {
@@ -1100,12 +1181,17 @@ def _summary(repo: GrowthRepository, project_id: str) -> dict[str, Any]:
             "rejected_outputs": sum(item.get("status") == "rejected" for item in outputs),
             "feedback": len(feedback),
             "wiki_proposals": len(proposals),
-            "review_records": len(feedback) + len(proposals),
+            "method_proposals": len(method_proposals),
+            "review_records": len(feedback) + len(proposals) + len(method_proposals),
         },
         "bounded": {
             "methods": len(methods) == MAX_PAGE_SIZE,
             "outputs": len(outputs) == MAX_PAGE_SIZE,
-            "review": len(feedback) == MAX_PAGE_SIZE or len(proposals) == MAX_PAGE_SIZE,
+            "review": (
+                len(feedback) == MAX_PAGE_SIZE
+                or len(proposals) == MAX_PAGE_SIZE
+                or len(method_proposals) == MAX_PAGE_SIZE
+            ),
         },
     }
 
@@ -1174,6 +1260,8 @@ def _guard_state_transition(callback, fallback_message: str):
         return callback()
     except HTTPException:
         raise
+    except KeyError as exc:
+        raise _translate_error(exc) from exc
     except ValueError as exc:
         normalized = str(exc).lower()
         state_markers = (

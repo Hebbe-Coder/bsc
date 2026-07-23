@@ -185,6 +185,8 @@ The product gap is the absence of first-class C/D lifecycle, output feedback, cr
 
 Existing `distillations/<week>/` records remain readable and are not moved automatically. New dual-track automation writes under `distillations/每周蒸馏/` after the feature is enabled.
 
+Workspace initialization atomically creates any missing layout directories and a root operational `README.md` alongside the managed Wiki baseline. It never creates synthetic factual knowledge, overwrites a user-authored file, or treats the new layout as a captured source. A Vault with only the former minimal Wiki files is reported as `mapped_incomplete` until this layout exists.
+
 ### 5.3 Binary file policy
 
 - PDF, image, office, audio, video, and generated binary files must not be decoded as UTF-8.
@@ -403,6 +405,7 @@ Automation rules:
 
 - Feishu CLI may import documents, meeting summaries, and explicitly selected content under user authorization.
 - Imported Feishu content becomes A-layer evidence with source URL, document revision, capture time, and attachment references.
+- Studio provides an explicit-export handoff for one user-selected Feishu document or meeting-summary JSON. It creates a project-scoped import run and redacts/rejects credentials; it never scrapes Feishu or performs background account access.
 - Obsidian plugins are optional capture tools; BSC works without Claudian, Clipper, Importer, Docxer, HyperFrames, or third-party Skill packages.
 - Plugin-generated files pass the same project, path, source, and trust controls as any other input.
 
@@ -522,6 +525,7 @@ Metrics must be computed from persisted records. The UI must not infer success f
 14. The Friday automation archives a prior managed revision when source input changes during the same week.
 15. A user-authored file inside the distillation path is not overwritten.
 16. A Feishu meeting summary is imported under the correct project and preserves document revision provenance.
+16a. A Studio explicit-export import creates a `feishu_import` audit run, redacts raw evidence from source list responses, and rejects credentials before persistence.
 17. Cross-project method, output, source, graph, API, and MCP access is rejected.
 18. Desktop and mobile users can move from an output to its method, Wiki context, and original evidence.
 19. Missing Redis, Horizon, model, OCR, transcription, or Vault configuration produces a truthful unavailable state.

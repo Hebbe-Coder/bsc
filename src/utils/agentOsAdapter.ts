@@ -105,7 +105,9 @@ export function adaptAgentOsToDashboard(resp: AgentAnalysisResponse): DashboardD
 
   const rawSops = Array.isArray(report.sops) && report.sops.length > 0
     ? report.sops
-    : (report.objectives || []);
+    : (Array.isArray(artifactGraph.deliverables)
+      ? artifactGraph.deliverables.flatMap((deliverable: any) => Array.isArray(deliverable.actions) ? deliverable.actions : [])
+      : (report.objectives || []));
   const sops = rawSops.map((step: unknown, index: number) => {
     if (step && typeof step === 'object') {
       const item = step as Record<string, unknown>;

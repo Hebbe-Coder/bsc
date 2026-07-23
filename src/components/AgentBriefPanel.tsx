@@ -17,6 +17,7 @@ export function AgentBriefPanel({ businessModel }: { businessModel: Record<strin
   const assumptions = list(graph, 'assumptions').slice(0, 4);
   const constraints = list(graph, 'constraints').slice(0, 4);
   const decisions = list(graph, 'decisions').slice(0, 2);
+  const deliverables = list(graph, 'deliverables').slice(0, 3);
   const objectives = Array.isArray(model.objectives) ? model.objectives.filter((item): item is string => typeof item === 'string') : [];
 
   return (
@@ -72,6 +73,16 @@ export function AgentBriefPanel({ businessModel }: { businessModel: Record<strin
             </div>
           </section>
         </div>
+        {deliverables.length > 0 && <section>
+          <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">Project Deliverables</p>
+          <div className="space-y-2">
+            {deliverables.map((deliverable, index) => <div key={`${text(deliverable.artifact_id)}-${index}`} className="rounded-xl border border-emerald-100 bg-emerald-50/50 px-3 py-2">
+              <p className="text-sm font-medium text-slate-800">{text(deliverable.title) || text(deliverable.label)}</p>
+              {text(deliverable.summary) && <p className="mt-1 text-xs leading-relaxed text-slate-600">{text(deliverable.summary)}</p>}
+              {Array.isArray(deliverable.differentiators) && deliverable.differentiators.length > 0 && <p className="mt-1 text-xs text-emerald-700">{String(deliverable.differentiators[0])}</p>}
+            </div>)}
+          </div>
+        </section>}
       </div>
     </div>
   );

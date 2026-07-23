@@ -26,6 +26,9 @@ export function growthRecordLabel(record: GrowthRecord): string {
     const rationale = String(record.rationale || '').trim();
     return rationale || `Wiki proposal ${record.id}`;
   }
+  if (record.asset_type === 'method_proposal') {
+    return String(record.rationale || record.task_family || `Method candidate ${record.id}`);
+  }
   return String(record.title || record.name || record.origin || record.path || record.slug || record.id);
 }
 

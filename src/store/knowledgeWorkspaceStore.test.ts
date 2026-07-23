@@ -21,6 +21,7 @@ const snapshot = (projectId: string): KnowledgeSnapshot => ({
   workspace: {
     project_id: projectId,
     vault: { configured: true, status: 'configured' },
+    plugins: { configured: false, supported_adapters: ['filesystem_drop', 'filesystem_output'], plugins: [], errors: [] },
     sources: 0,
     runs: 1,
     schedules: 0,

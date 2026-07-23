@@ -4,8 +4,10 @@ from app.api.knowledge_workspace_api import get_wiki_repository
 from app.core.config import settings
 from app.main import app
 from app.knowledge.wiki_repository import WikiRepository
+from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus
 from app.knowledge.wiki_source_capture import CapturedSourceInput, SourceCaptureService
+from app.knowledge.wiki_sync import ObsidianSyncService
 from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.wiki_rules import build_default_agents_rules
 
@@ -30,8 +32,141 @@ def test_workspace_api_requires_scope_and_redacts_raw_evidence(tmp_path):
         source = scoped.json()["data"]["sources"][0]
         assert "raw_content" not in source
         assert status.json()["data"]["vault"]["configured"] is True
+        assert status.json()["data"]["vault"]["vault_path"] == "projects/project-a"
     finally:
         settings.API_KEY = previous_key
+        app.dependency_overrides.clear()
+        repo.close()
+
+
+def test_workspace_status_exposes_the_last_integrated_growth_cycle(tmp_path):
+    repo = GrowthRepository(db_path=str(tmp_path / "workspace-growth-status.db"))
+    run = KnowledgeRun(id="growth-daily-1", project_id="project-a", run_type="growth_daily", trigger="manual")
+    repo.create_run(run)
+    repo.update_run_status(
+        "project-a",
+        run.id,
+        RunStatus.COMPLETED,
+        output_refs={
+            "sync": {
+                "status": "completed",
+                "sources": {"created": 2, "duplicates": 1},
+                "outputs": {"registered": 1, "duplicates": 0},
+                "triage": {"evaluated": 2, "eligible": 1, "pending_review": 1},
+            },
+            "growth": {"status": "generated", "period": "2026-07-23"},
+        },
+    )
+    previous_key = settings.API_KEY
+    settings.API_KEY = "workspace-admin"
+    app.dependency_overrides[get_wiki_repository] = lambda: repo
+    client = TestClient(app)
+    try:
+        response = client.get("/knowledge/workspaces/project-a", headers={"Authorization": "Bearer workspace-admin"})
+
+        assert response.status_code == 200
+        growth = response.json()["data"]["growth"]
+        assert growth["status"] == "completed"
+        assert growth["last_run"]["id"] == run.id
+        assert growth["sync"] == {
+            "status": "completed",
+            "sources": {"created": 2, "duplicates": 1},
+            "outputs": {"registered": 1, "duplicates": 0},
+            "triage": {"evaluated": 2, "eligible": 1, "pending_review": 1},
+        }
+    finally:
+        settings.API_KEY = previous_key
+        app.dependency_overrides.clear()
+        repo.close()
+
+
+def test_workspace_status_exposes_bounded_horizon_import_evidence(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "workspace-horizon-status.db"))
+    SourceCaptureService(repo).capture(
+        CapturedSourceInput(
+            project_id="project-a",
+            source_type="horizon_signal",
+            origin="https://example.com/horizon-signal",
+            raw_content="Immutable Horizon evidence.",
+            trust_level="reviewed",
+        )
+    )
+    run = KnowledgeRun(id="horizon-import-1", project_id="project-a", run_type="horizon_capture", trigger="manual")
+    repo.create_run(run)
+    repo.update_run_status(
+        "project-a",
+        run.id,
+        RunStatus.COMPLETED,
+        output_refs={
+            "horizon_run_id": "run-native-1",
+            "stage": "enriched",
+            "source_mode": "run_store",
+            "horizon": {"accepted": 1, "created": 1, "duplicates": 0, "rejected": 0},
+        },
+    )
+    previous_key = settings.API_KEY
+    settings.API_KEY = "workspace-admin"
+    app.dependency_overrides[get_wiki_repository] = lambda: repo
+    client = TestClient(app)
+    try:
+        response = client.get("/knowledge/workspaces/project-a", headers={"Authorization": "Bearer workspace-admin"})
+
+        assert response.status_code == 200
+        horizon = response.json()["data"]["horizon"]
+        assert horizon["captured_sources"] == 1
+        assert horizon["last_run"] == {
+            "id": "horizon-import-1",
+            "status": "completed",
+            "updated_at": repo.get_run("project-a", run.id)["updated_at"],
+            "horizon_run_id": "run-native-1",
+            "stage": "enriched",
+            "source_mode": "run_store",
+            "accepted": 1,
+            "created": 1,
+            "duplicates": 0,
+            "rejected": 0,
+            "skipped": False,
+        }
+    finally:
+        settings.API_KEY = previous_key
+        app.dependency_overrides.clear()
+        repo.close()
+
+
+def test_workspace_requires_the_full_operational_layout_before_reporting_ready(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "workspace-layout.db"))
+    vault_root = tmp_path / "vault"
+    vault_root.mkdir()
+    previous_key = settings.API_KEY
+    previous_root = settings.OBSIDIAN_VAULT_ROOT
+    settings.API_KEY = "workspace-admin"
+    settings.OBSIDIAN_VAULT_ROOT = str(vault_root)
+    app.dependency_overrides[get_wiki_repository] = lambda: repo
+    client = TestClient(app)
+    try:
+        headers = {"Authorization": "Bearer workspace-admin"}
+        repo.configure_vault("project-a", "projects/project-a")
+        project_root = vault_root / "projects" / "project-a"
+        project_root.mkdir(parents=True)
+        for path in ("AGENTS.md", "wiki/index.md", "wiki/overview.md", "wiki/log.md"):
+            target = project_root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("# Existing baseline\n", encoding="utf-8")
+
+        incomplete = client.get("/knowledge/workspaces/project-a", headers=headers)
+        initialized = client.post("/knowledge/workspaces/project-a/initialize", headers=headers)
+        ready = client.get("/knowledge/workspaces/project-a", headers=headers)
+
+        assert incomplete.status_code == 200
+        assert incomplete.json()["data"]["vault"]["connection"]["state"] == "mapped_incomplete"
+        assert "00_Inbox" in incomplete.json()["data"]["vault"]["connection"]["missing_managed_directories"]
+        assert initialized.status_code == 200
+        assert "00_Inbox" in initialized.json()["data"]["created_directories"]
+        assert ready.status_code == 200
+        assert ready.json()["data"]["vault"]["connection"]["state"] == "ready"
+    finally:
+        settings.API_KEY = previous_key
+        settings.OBSIDIAN_VAULT_ROOT = previous_root
         app.dependency_overrides.clear()
         repo.close()
 
@@ -89,12 +224,73 @@ def test_workspace_horizon_capture_records_unavailable_when_sidecar_is_not_confi
         response = client.post(
             "/knowledge/horizon/capture",
             headers={"Authorization": "Bearer workspace-admin"},
-            json={"project_id": "project-a", "horizon_run_id": "radar-42", "stage": "filtered"},
+            json={"project_id": "project-a", "stage": "filtered"},
         )
 
         assert response.status_code == 200
         assert response.json()["data"]["status"] == "unavailable"
-        assert repo.list_runs("project-a")[0]["run_type"] == "horizon_capture"
+        run = repo.list_runs("project-a")[0]
+        assert run["run_type"] == "horizon_capture"
+        assert run["input_refs"]["horizon_run_id"] == ""
+    finally:
+        settings.API_KEY = previous_key
+        app.dependency_overrides.clear()
+        repo.close()
+
+
+def test_workspace_feishu_import_is_scoped_auditable_and_credential_safe(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "workspace-feishu-import.db"))
+    previous_key = settings.API_KEY
+    settings.API_KEY = "workspace-admin"
+    app.dependency_overrides[get_wiki_repository] = lambda: repo
+    client = TestClient(app)
+    payload = {
+        "project_id": "project-a",
+        "export": {
+            "document_id": "doccnA1",
+            "revision_id": "rev-7",
+            "document_type": "minutes",
+            "source_url": "https://example.feishu.cn/minutes/doccnA1",
+            "title": "Weekly knowledge review",
+            "content": "Decision: retain evidence gates.",
+            "source_time": "2026-07-23T09:00:00+00:00",
+        },
+    }
+    try:
+        headers = {"Authorization": "Bearer workspace-admin"}
+        created = client.post("/knowledge/sources/feishu/import", headers=headers, json=payload)
+        duplicate = client.post("/knowledge/sources/feishu/import", headers=headers, json=payload)
+        rejected = client.post(
+            "/knowledge/sources/feishu/import",
+            headers=headers,
+            json={
+                "project_id": "project-a",
+                "export": {**payload["export"], "access_token": "do-not-persist-me"},
+            },
+        )
+
+        assert created.status_code == 200
+        result = created.json()["data"]
+        assert result["created"] is True
+        assert result["source"]["source_type"] == "feishu_minutes"
+        assert result["source"]["metadata"]["feishu_revision_id"] == "rev-7"
+        assert "raw_content" not in result["source"]
+        assert duplicate.status_code == 200
+        assert duplicate.json()["data"]["created"] is False
+        assert duplicate.json()["data"]["source"]["id"] == result["source"]["id"]
+
+        run = repo.get_run("project-a", result["run_id"])
+        assert run and run["run_type"] == "feishu_import"
+        assert run["status"] == "completed"
+        assert run["output_refs"] == {
+            "created": True,
+            "source_id": result["source"]["id"],
+            "source_type": "feishu_minutes",
+            "source_revision": "rev-7",
+        }
+        assert rejected.status_code == 400
+        assert "do-not-persist-me" not in str(repo.list_runs("project-a"))
+        assert "do-not-persist-me" not in str(repo.list_sources("project-a"))
     finally:
         settings.API_KEY = previous_key
         app.dependency_overrides.clear()
@@ -144,6 +340,90 @@ def test_workspace_admin_operations_are_scoped_and_read_distillation_files(tmp_p
         )
         assert mapping.status_code == 200
         assert mapping.json()["data"]["vault"]["vault_path"] == "clients/acme"
+
+        mapped_status = client.get("/knowledge/workspaces/project-a", headers=headers)
+        assert mapped_status.status_code == 200
+        assert mapped_status.json()["data"]["vault"]["connection"]["state"] == "mapped_uninitialized"
+
+        plugin_bridge = client.put(
+            "/knowledge/workspaces/project-a/plugins",
+            headers=headers,
+            json={
+                "plugins": [
+                    {
+                        "id": "readwise",
+                        "name": "Readwise Export",
+                        "adapter": "filesystem_drop",
+                        "input_paths": ["raw/readwise"],
+                    }
+                ]
+            },
+        )
+        assert plugin_bridge.status_code == 200
+        assert plugin_bridge.json()["data"]["plugins"][0]["status"] == "awaiting_export"
+        manifest = vault_root / "clients" / "acme" / "bsc-plugins.json"
+        assert manifest.is_file()
+        assert '"id": "readwise"' in manifest.read_text(encoding="utf-8")
+        plugin_export = vault_root / "clients" / "acme" / "raw" / "readwise" / "highlights.md"
+        plugin_export.parent.mkdir(parents=True, exist_ok=True)
+        plugin_export.write_text("A verified plugin export", encoding="utf-8")
+        report = ObsidianSyncService(repo, vault_root).sync(project_id="project-a")
+        captured_source = repo.list_sources("project-a")[0]
+        assert report["created"] == 1
+        assert captured_source["source_type"] == "obsidian_plugin:readwise"
+        assert captured_source["metadata"]["obsidian_plugin"] == "readwise"
+
+        invalid_plugin = client.put(
+            "/knowledge/workspaces/project-a/plugins",
+            headers=headers,
+            json={"plugins": [{"id": "escape", "input_paths": ["wiki/escape"]}]},
+        )
+        assert invalid_plugin.status_code == 400
+
+        duplicate_plugin = client.put(
+            "/knowledge/workspaces/project-a/plugins",
+            headers=headers,
+            json={
+                "plugins": [
+                    {"id": "readwise", "input_paths": ["raw/readwise"]},
+                    {"id": "readwise", "input_paths": ["inbox/readwise"]},
+                ]
+            },
+        )
+        assert duplicate_plugin.status_code == 400
+
+        output_bridge = client.put(
+            "/knowledge/workspaces/project-a/plugins",
+            headers=headers,
+            json={
+                "plugins": [
+                    {
+                        "id": "hyperframes",
+                        "name": "HyperFrames output",
+                        "adapter": "filesystem_output",
+                        "input_paths": ["04_Outputs/hyperframes"],
+                    }
+                ]
+            },
+        )
+        assert output_bridge.status_code == 200
+        bridge = output_bridge.json()["data"]["plugins"][0]
+        assert bridge["adapter"] == "filesystem_output"
+        assert bridge["status"] == "awaiting_output"
+
+        invalid_output_plugin = client.put(
+            "/knowledge/workspaces/project-a/plugins",
+            headers=headers,
+            json={"plugins": [{"id": "output-escape", "adapter": "filesystem_output", "input_paths": ["wiki/escape"]}]},
+        )
+        assert invalid_output_plugin.status_code == 400
+
+        broad_output_plugin = client.put(
+            "/knowledge/workspaces/project-a/plugins",
+            headers=headers,
+            json={"plugins": [{"id": "output-root", "adapter": "filesystem_output", "input_paths": ["04_Outputs"]}]},
+        )
+        assert broad_output_plugin.status_code == 400
 
         source = SourceCaptureService(repo).capture(
             CapturedSourceInput(project_id="project-a", source_type="manual_upload", origin="brief.md", raw_content="private evidence")

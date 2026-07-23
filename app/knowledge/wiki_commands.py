@@ -424,14 +424,14 @@ class WikiCommandService:
     def start_horizon_capture(self, *, project_id: str, horizon_run_id: str, stage: str, trigger: str) -> dict:
         if stage not in {"filtered", "enriched"}:
             raise WikiCommandError("Horizon stage must be filtered or enriched")
-        if not horizon_run_id.strip():
-            raise WikiCommandError("Horizon run ID is required")
         run = KnowledgeRun(
             project_id=project_id,
             run_type="horizon_capture",
             trigger=trigger,
             status=RunStatus.QUEUED,
-            input_refs={"horizon_run_id": horizon_run_id, "stage": stage},
+            # No ID requests a safe run-store discovery. An explicit ID is kept
+            # for replaying a known Horizon run during an audit.
+            input_refs={"horizon_run_id": horizon_run_id.strip(), "stage": stage},
         )
         self.repository.create_run(run)
         if not is_celery_real():

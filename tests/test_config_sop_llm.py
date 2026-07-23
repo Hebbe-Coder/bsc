@@ -12,3 +12,7 @@ def test_kimi_config_defaults():
     assert settings.KIMI_BASE_URL == "https://api.moonshot.cn/v1"
     assert settings.KIMI_MODEL == "moonshot-v1-8k"
     assert settings.KIMI_API_KEY == ""
+
+
+def test_semantic_growth_distillation_defaults_to_disabled():
+    assert type(settings).model_fields["KNOWLEDGE_GROWTH_SEMANTIC_DISTILLATION_ENABLED"].default is False

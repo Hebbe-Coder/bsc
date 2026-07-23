@@ -24,6 +24,7 @@ from .types import (
     ConstraintArtifact,
     CoverageArtifact,
     DecisionArtifact,
+    DeliverableArtifact,
     EvidenceArtifact,
     GapArtifact,
     GapCategory,
@@ -296,6 +297,24 @@ class ArtifactGraphStore:
         coverages = [a for a in artifacts if a.artifact_type == ArtifactType.COVERAGE]
         gaps = [a for a in artifacts if a.artifact_type == ArtifactType.GAP]
         decisions = [a for a in artifacts if a.artifact_type == ArtifactType.DECISION]
+        # ``created_at`` has second precision for compatibility. Preserve the
+        # index insertion order so same-second deliverables do not shuffle in
+        # an exported project report.
+        deliverables = [
+            artifact
+            for artifact_id, metadata in self._index.items()
+            if metadata.get("artifact_type") == ArtifactType.DELIVERABLE.value
+            and self._matches_scope(metadata)
+            and (not project_id or metadata.get("project_id") == project_id)
+            for artifact in [self.get(artifact_id)]
+            if artifact is not None
+        ]
+        sop_actions = [
+            action
+            for deliverable in deliverables
+            if isinstance(deliverable, DeliverableArtifact) and deliverable.kind == "sop"
+            for action in deliverable.actions
+        ]
 
         result: dict[str, Any] = {
             "business_domain": biz_models[0].domain if biz_models else "",
@@ -323,6 +342,8 @@ class ArtifactGraphStore:
             "optimization": {},
             "composed": {},
             "report": {},
+            "deliverables": [a.model_dump() for a in deliverables],
+            "sops": sop_actions,
             "status": "legacy_export",
             "_version": 2,
             "_artifact_graph": {
@@ -335,6 +356,7 @@ class ArtifactGraphStore:
                 "coverages": [a.model_dump() for a in coverages],
                 "gaps": [a.model_dump() for a in gaps],
                 "decisions": [a.model_dump() for a in decisions],
+                "deliverables": [a.model_dump() for a in deliverables],
             },
         }
         return result

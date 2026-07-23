@@ -20,6 +20,8 @@ from app.schemas.agent_os import (
     AgentMission,
     AgentOSRequest,
     AgentRuntimeMetadata,
+    KnowledgeContextMetadata,
+    KnowledgeOutputRegistration,
 )
 
 
@@ -33,6 +35,8 @@ MODELS = [
     ModelUsage,
     CapabilityExecutionAttempt,
     CapabilityExecutionMetadata,
+    KnowledgeContextMetadata,
+    KnowledgeOutputRegistration,
     AgentRuntimeMetadata,
     AgentAnalysisResponse,
 ]

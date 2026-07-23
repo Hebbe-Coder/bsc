@@ -1,34 +1,64 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import ReactFlow, { Background, Controls, type Edge, type Node } from 'reactflow';
 import 'reactflow/dist/style.css';
 import {
   AlertTriangle, BookOpen, CheckCircle2, ChevronRight, Clock3, Database, Download, FileClock,
-  FileText, GitPullRequest, KeyRound, Link2, Network, Pause, Play, RefreshCw, RotateCcw,
-  Search, ShieldCheck, Sparkles, WandSparkles, X,
+  FileText, GitPullRequest, Link2, Network, Pause, Play, RefreshCw, RotateCcw,
+  Pencil, Search, ShieldCheck, Sparkles, Sprout, Trash2, Upload, WandSparkles, X,
 } from 'lucide-react';
 import {
-  configureKnowledgeSchedule, fetchKnowledgeGraph, fetchKnowledgeHealth, fetchKnowledgeHealthTrend,
+  configureKnowledgePlugins, configureKnowledgeSchedule, configureKnowledgeVault, fetchKnowledgeGraph, fetchKnowledgeHealth, fetchKnowledgeHealthTrend,
   fetchKnowledgePage, fetchKnowledgePages, fetchKnowledgeProposals, fetchKnowledgeRunEvents,
-  fetchKnowledgeRuns, fetchKnowledgeSchedules, fetchKnowledgeSources, fetchKnowledgeWorkspace,
+  fetchKnowledgeRuns, fetchKnowledgeSchedules, fetchKnowledgeSources, fetchKnowledgeWorkspace, importFeishuKnowledgeExport, initializeKnowledgeWorkspace,
   fetchWeeklyDistillation, fetchWeeklyDistillations, lintKnowledgeProposal, publishKnowledgeProposal,
-  rejectKnowledgeProposal, restoreKnowledgePageRevision, retryKnowledgeRun, runKnowledgeJob, setKnowledgeScheduleState,
-  setKnowledgeWorkspaceAccessKey, streamKnowledgeRunEvents, transitionKnowledgeSource,
-  type KnowledgeGraphNode, type KnowledgeHealth,
-  type KnowledgePage, type KnowledgePageDetail, type KnowledgeProposal, type KnowledgeRun,
+  rejectKnowledgeProposal, restoreKnowledgePageRevision, retryKnowledgeRun, runKnowledgeJob, saveKnowledgeEvaluationCase, setKnowledgeScheduleState,
+  streamKnowledgeRunEvents, transitionKnowledgeSource,
+  type FeishuKnowledgeExport, type KnowledgeEvaluationCaseInput, type KnowledgeGraphNode, type KnowledgeHealth, type KnowledgeWorkspaceData,
+  type KnowledgePage, type KnowledgePageDetail, type KnowledgePluginBridge, type KnowledgeProposal, type KnowledgeRun,
   type KnowledgeRunEvent, type KnowledgeSchedule, type KnowledgeSource,
   type WeeklyDistillation, type WeeklyDistillationDetail,
 } from '../api/knowledgeWorkspaceApi';
 import { useKnowledgeWorkspaceStore, type KnowledgeProposalBaselines } from '../store/knowledgeWorkspaceStore';
+import { resolveStudioAccessStatus } from './knowledgeWorkspaceAccess';
 
-type Props = { onClose: () => void };
+type Props = { onClose: () => void; runtimeAccessKey?: string };
 type GraphNodeData = { record: KnowledgeGraphNode; label: string };
 
-const JOB_TYPES = ['source_sync', 'horizon_capture', 'wiki_maintenance', 'knowledge_lint_eval', 'weekly_distillation'];
+export const KNOWLEDGE_JOB_OPTIONS = [
+  { id: 'source_sync', label: 'Sync declared exports', defaultCron: '0 8 * * 1' },
+  { id: 'horizon_capture', label: 'Capture Horizon run', defaultCron: '0 8 * * 1' },
+  { id: 'wiki_maintenance', label: 'Compile Wiki proposal', defaultCron: '0 9 * * 1' },
+  { id: 'knowledge_lint_eval', label: 'Evaluate knowledge health', defaultCron: '0 10 * * 1' },
+  { id: 'weekly_distillation', label: 'Legacy weekly distillation', defaultCron: '0 17 * * 5' },
+  { id: 'growth_daily', label: 'Daily growth cycle', defaultCron: '0 17 * * *' },
+  { id: 'growth_weekly_distillation', label: 'Friday weekly growth distillation', defaultCron: '30 17 * * 5' },
+] as const;
 const TERMINAL_RUNS = new Set(['completed', 'failed', 'cancelled', 'unavailable']);
 const TrendChart = lazy(() => import('echarts-for-react'));
+const OBSIDIAN_PLUGIN_PRESETS = [
+  { id: 'custom', name: 'Custom evidence export', adapter: 'filesystem_drop', input_paths: ['00_Inbox/custom'] },
+  { id: 'horizon', name: 'Horizon news capture', adapter: 'filesystem_drop', input_paths: ['00_Inbox/auto-capture'] },
+  { id: 'readwise', name: 'Readwise / Reader export', adapter: 'filesystem_drop', input_paths: ['00_Inbox/readwise'] },
+  { id: 'web-clipper', name: 'Obsidian Web Clipper', adapter: 'filesystem_drop', input_paths: ['00_Inbox/web-clipper'] },
+  { id: 'social-import', name: 'Social import export', adapter: 'filesystem_drop', input_paths: ['00_Inbox/social'] },
+  { id: 'feishu-cli', name: 'Feishu CLI export', adapter: 'filesystem_drop', input_paths: ['01_Sources/feishu'] },
+  { id: 'docxer', name: 'Docxer export', adapter: 'filesystem_drop', input_paths: ['01_Sources/docxer'] },
+  { id: 'importer', name: 'Obsidian Importer export', adapter: 'filesystem_drop', input_paths: ['01_Sources/importer'] },
+  { id: 'hyperframes', name: 'HyperFrames output feedback', adapter: 'filesystem_output', input_paths: ['04_Outputs/hyperframes'] },
+  { id: 'markdown-output', name: 'Markdown formatter output feedback', adapter: 'filesystem_output', input_paths: ['04_Outputs/articles'] },
+  { id: 'project-raw', name: 'Legacy raw/ export', adapter: 'filesystem_drop', input_paths: ['raw/custom'] },
+  { id: 'project-inbox', name: 'Legacy inbox/ export', adapter: 'filesystem_drop', input_paths: ['inbox/custom'] },
+] as const;
 
-export function KnowledgeWorkspace({ onClose }: Props) {
-  const [accessKey, setAccessKey] = useState('');
+const VAULT_CONNECTION_LABELS: Record<NonNullable<KnowledgeWorkspaceData['vault']['connection']>['state'], string> = {
+  unconfigured: 'No project Vault mapped',
+  unavailable: 'Vault unavailable to this runtime',
+  mapped_uninitialized: 'Vault mapped, Wiki not initialized',
+  mapped_incomplete: 'Vault reachable, baseline incomplete',
+  ready: 'Vault connected and Wiki ready',
+};
+
+export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
   const {
     projectId, workspace, sources, runs, schedules, graph, proposals, pages, distillations, health, trend,
     selectedPage, selectedSource, selectedProposal, selectedRun, selectedDistillation, proposalBaselines,
@@ -41,6 +71,13 @@ export function KnowledgeWorkspace({ onClose }: Props) {
   const [isCompactViewport, setIsCompactViewport] = useState(() => window.matchMedia('(max-width: 780px)').matches);
   const [scheduleJobType, setScheduleJobType] = useState('source_sync');
   const [scheduleCron, setScheduleCron] = useState('0 8 * * 1');
+  const [vaultPath, setVaultPath] = useState('projects/default');
+  const [pluginPreset, setPluginPreset] = useState('custom');
+  const [pluginId, setPluginId] = useState('');
+  const [pluginName, setPluginName] = useState('');
+  const [pluginAdapter, setPluginAdapter] = useState<KnowledgePluginBridge['adapter']>('filesystem_drop');
+  const [pluginPaths, setPluginPaths] = useState('00_Inbox/custom');
+  const feishuExportInput = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async (graphFilter = graphEdgeType) => {
     const requestedProject = projectId;
@@ -68,7 +105,10 @@ export function KnowledgeWorkspace({ onClose }: Props) {
     }
   }, [applyLoad, beginLoad, failLoad, graphEdgeType, projectId]);
 
-  useEffect(() => { void load(graphEdgeType); }, [graphEdgeType, load]);
+  useEffect(() => { void load(graphEdgeType); }, [graphEdgeType, load, runtimeAccessKey]);
+  useEffect(() => {
+    if (workspace?.vault.vault_path) setVaultPath(workspace.vault.vault_path);
+  }, [workspace?.vault.vault_path]);
   useEffect(() => {
     const query = window.matchMedia('(max-width: 780px)');
     const sync = () => setIsCompactViewport(query.matches);
@@ -156,7 +196,8 @@ export function KnowledgeWorkspace({ onClose }: Props) {
 
   const runJob = (jobType: string) => withAction(async () => {
     const result = await runKnowledgeJob(projectId, jobType);
-    showMessage(`${jobType} ${result.status}: ${result.run_id}`);
+    const label = KNOWLEDGE_JOB_OPTIONS.find((option) => option.id === jobType)?.label ?? jobType;
+    showMessage(`${label} ${result.status}: ${result.run_id}`);
     await load();
     const persisted = (await fetchKnowledgeRuns(projectId)).runs.find((item) => item.id === result.run_id);
     if (persisted) inspectRun(persisted);
@@ -174,6 +215,13 @@ export function KnowledgeWorkspace({ onClose }: Props) {
     const result = await publishKnowledgeProposal(projectId, proposal.id);
     showMessage(`Published ${result.paths.length} Wiki files at evaluation score ${result.evaluation_score}.`);
     await load();
+    setSelectedProposal((await fetchKnowledgeProposals(projectId)).proposals.find((item) => item.id === proposal.id) ?? null);
+  });
+  const saveProposalEvaluationCase = (proposal: KnowledgeProposal, evaluationCase: KnowledgeEvaluationCaseInput) => withAction(async () => {
+    await saveKnowledgeEvaluationCase(projectId, evaluationCase);
+    showMessage(`Evaluation baseline ${evaluationCase.case_id} saved for this project. Re-run Publish to evaluate this patch.`);
+    await load();
+    setSelectedProposal((await fetchKnowledgeProposals(projectId)).proposals.find((item) => item.id === proposal.id) ?? proposal);
   });
   const rejectProposal = (proposal: KnowledgeProposal) => withAction(async () => {
     await rejectKnowledgeProposal(projectId, proposal.id);
@@ -207,6 +255,91 @@ export function KnowledgeWorkspace({ onClose }: Props) {
       await load();
     });
   };
+  const mapVault = () => withAction(async () => {
+    const normalizedPath = vaultPath.trim();
+    if (!normalizedPath) throw new Error('A project-relative Vault folder is required.');
+    const result = await configureKnowledgeVault(projectId, normalizedPath);
+    setVaultPath(result.vault.vault_path || normalizedPath);
+    showMessage(`Vault mapped to ${result.vault.vault_path || normalizedPath}. Initialize it before the first sync.`);
+    await load();
+  });
+  const initializeVault = () => withAction(async () => {
+    const result = await initializeKnowledgeWorkspace(projectId);
+    showMessage(`Knowledge workspace initialized: ${result.created.length} managed files and ${result.created_directories?.length ?? 0} operational folders created.`);
+    await load();
+    const persisted = (await fetchKnowledgeRuns(projectId)).runs.find((item) => item.id === result.run_id);
+    if (persisted) inspectRun(persisted);
+  });
+  const importFeishuExport = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = '';
+    if (!file) return;
+    void withAction(async () => {
+      if (file.size > 2_000_000) throw new Error('Feishu export must be 2 MB or smaller. Export one document or meeting summary at a time.');
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(await file.text());
+      } catch {
+        throw new Error('The selected file is not valid Feishu export JSON.');
+      }
+      if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
+        throw new Error('The selected file must contain one Feishu document or meeting-summary export.');
+      }
+      const result = await importFeishuKnowledgeExport(projectId, parsed as FeishuKnowledgeExport);
+      setSelectedSource(result.source);
+      showMessage(`${result.created ? 'Imported' : 'Matched existing'} Feishu ${result.source.source_type.replace('feishu_', '')} revision ${(result.source.metadata.feishu_revision_id as string) || 'unknown'} into immutable evidence.`);
+      await load();
+      const persisted = (await fetchKnowledgeRuns(projectId)).runs.find((item) => item.id === result.run_id);
+      if (persisted) inspectRun(persisted);
+    });
+  };
+  const registerPluginBridge = () => withAction(async () => {
+    const id = pluginId.trim();
+    const inputPaths = [...new Set(pluginPaths.split(/[\n,]/).map((path) => path.trim()).filter(Boolean))];
+    if (!id || !inputPaths.length) throw new Error('Plugin ID and at least one export folder are required.');
+    const existing = workspace?.plugins.plugins.map((plugin) => ({ id: plugin.id, name: plugin.name, adapter: plugin.adapter, input_paths: plugin.input_paths })) ?? [];
+    const next = [...existing.filter((plugin) => plugin.id !== id), { id, name: pluginName.trim() || id, adapter: pluginAdapter, input_paths: inputPaths }] satisfies KnowledgePluginBridge[];
+    const result = await configureKnowledgePlugins(projectId, next);
+    const bridge = result.plugins.find((plugin) => plugin.id === id);
+    setPluginPreset('custom');
+    setPluginId('');
+    setPluginName('');
+    setPluginAdapter('filesystem_drop');
+    setPluginPaths('00_Inbox/custom');
+    showMessage(pluginAdapter === 'filesystem_output'
+      ? `${bridge?.name || id} output bridge registered. Run Sync to copy exports into pending D-layer review.`
+      : `${bridge?.name || id} bridge registered. Export into ${inputPaths.join(', ')} and run Sync to capture immutable evidence.`);
+    await load();
+  });
+  const selectPluginPreset = (value: string) => {
+    setPluginPreset(value);
+    const preset = OBSIDIAN_PLUGIN_PRESETS.find((item) => item.id === value);
+    if (!preset) return;
+    setPluginId(preset.id === 'custom' ? '' : preset.id);
+    setPluginName(preset.id === 'custom' ? '' : preset.name);
+    setPluginAdapter(preset.adapter);
+    setPluginPaths(preset.input_paths.join(', '));
+  };
+  const editPluginBridge = (plugin: KnowledgeWorkspaceData['plugins']['plugins'][number]) => {
+    setPluginPreset('custom');
+    setPluginId(plugin.id);
+    setPluginName(plugin.name);
+    setPluginAdapter(plugin.adapter);
+    setPluginPaths(plugin.input_paths.join(', '));
+  };
+  const removePluginBridge = (id: string) => withAction(async () => {
+    const existing = workspace?.plugins.plugins.map((plugin) => ({ id: plugin.id, name: plugin.name, adapter: plugin.adapter, input_paths: plugin.input_paths })) ?? [];
+    await configureKnowledgePlugins(projectId, existing.filter((plugin) => plugin.id !== id));
+    if (pluginId === id) {
+      setPluginPreset('custom');
+      setPluginId('');
+      setPluginName('');
+      setPluginAdapter('filesystem_drop');
+      setPluginPaths('00_Inbox/custom');
+    }
+    showMessage(`Plugin bridge ${id} removed. Existing captured evidence remains immutable and reviewable.`);
+    await load();
+  });
 
   const maxNodes = 160;
   const filteredGraphNodes = graph.nodes.filter((record) => (
@@ -240,16 +373,46 @@ export function KnowledgeWorkspace({ onClose }: Props) {
     (trend?.proposal_outcomes ?? []).map((item) => item.statuses[status] ?? 0),
   ]));
   const showTrendCharts = !isCompactViewport || mobilePane === 'inspector';
-  const canWrite = workspace?.access.can_write ?? false;
+  const accessStatus = resolveStudioAccessStatus(runtimeAccessKey, workspace, loading, error);
+  const canWrite = accessStatus.verified && (workspace?.access.can_write ?? false);
+  const pluginCount = workspace?.plugins.plugins.length ?? 0;
+  const capturedPluginCount = workspace?.plugins.plugins.filter((plugin) => plugin.captured_sources > 0).length ?? 0;
+  const registeredOutputPluginCount = workspace?.plugins.plugins.filter((plugin) => plugin.registered_outputs > 0).length ?? 0;
+  const connectedPluginCount = workspace?.plugins.plugins.filter((plugin) => plugin.captured_sources > 0 || plugin.registered_outputs > 0).length ?? 0;
+  const capturedPluginSources = workspace?.plugins.plugins.reduce((total, plugin) => total + plugin.captured_sources, 0) ?? 0;
+  const registeredPluginOutputs = workspace?.plugins.plugins.reduce((total, plugin) => total + plugin.registered_outputs, 0) ?? 0;
+  const evaluationDetail = !health ? 'Health unavailable' : health.evaluation.status === 'unavailable' ? 'Evaluation baseline missing' : `Evaluation ${health.evaluation.status}`;
+  const vaultConnection = workspace?.vault.connection;
+  const vaultConnectionState = vaultConnection?.state ?? (workspace?.vault.configured ? 'mapped_uninitialized' : 'unconfigured');
+  const vaultConnectionLabel = VAULT_CONNECTION_LABELS[vaultConnectionState];
+  const initialized = vaultConnectionState === 'ready';
+  const growth = workspace?.growth;
+  const growthSync = growth?.sync;
+  const horizon = workspace?.horizon;
+  const horizonDetail = !horizon?.enabled
+    ? 'Horizon producer is not configured for this runtime'
+    : !horizon.last_run
+      ? 'No Horizon intelligence has been imported into this project'
+      : horizon.last_run.skipped
+        ? `Latest run already imported (${horizon.captured_sources} evidence records)`
+        : `${horizon.last_run.status}: ${horizon.last_run.created} new, ${horizon.last_run.duplicates} duplicate (${horizon.captured_sources} evidence records)`;
+  const growthCycleDetail = !growth || growth.status === 'not_run'
+    ? 'No integrated daily or weekly growth run yet'
+    : growthSync
+      ? `${growth.status}: ${growthSync.sources.created} evidence captured, ${growthSync.outputs.registered} outputs registered, ${growthSync.triage.eligible}/${growthSync.triage.evaluated} passed triage`
+      : `${growth.status}: sync evidence was not recorded`;
 
   return <section className="knowledge-workspace" aria-label="Knowledge workspace">
     <header className="knowledge-workspace__header">
       <div className="knowledge-workspace__title"><span className="eyebrow"><BookOpen size={14} /> KNOWLEDGE WORKSPACE</span><h2>Evidence, proposals, and growth loops.</h2><p>Project-scoped Wiki maintenance with evidence, gates, and replayable execution.</p></div>
       <div className="knowledge-workspace__actions">
         <label><span>Project</span><input value={projectId} onChange={(event) => setProjectId(event.target.value)} aria-label="Project ID" /></label>
-        <label><span>Access key</span><input type="password" value={accessKey} onChange={(event) => setAccessKey(event.target.value)} placeholder="Access key" aria-label="Knowledge access key" /></label>
-        <button onClick={() => { setKnowledgeWorkspaceAccessKey(accessKey); void load(); }} title="Use this key only for the current browser session"><KeyRound size={15} /> Connect</button>
+        <span className={`knowledge-runtime-state ${accessStatus.verified ? 'is-ready' : 'is-warning'}`} title={accessStatus.detail}>{accessStatus.label}</span>
         <button onClick={() => void runJob('source_sync')} disabled={actionBusy || !canWrite || workspace?.features.obsidian_sync === false} title={workspace?.features.obsidian_sync === false ? 'Obsidian synchronization is disabled by configuration' : 'Capture user-authored Obsidian material as immutable evidence'}><Download size={15} /> Sync</button>
+        <button onClick={() => void runJob('horizon_capture')} disabled={actionBusy || !canWrite || !workspace?.vault.configured || workspace?.features.horizon === false} title="Discover the latest unimported enriched Horizon run and capture its high-scoring items as immutable evidence"><Sparkles size={15} /> Import Horizon</button>
+        <input ref={feishuExportInput} className="knowledge-file-input" type="file" accept="application/json,.json" aria-label="Select a Feishu export JSON file" onChange={importFeishuExport} />
+        <button onClick={() => feishuExportInput.current?.click()} disabled={actionBusy || !canWrite} title="Import one user-authorized Feishu CLI document or meeting-summary export into immutable evidence"><Upload size={15} /> Import Feishu</button>
+        <button onClick={() => void runJob('growth_daily')} disabled={actionBusy || !canWrite || !workspace?.vault.configured} title="Capture declared plugin exports, triage evidence, register output feedback, and write today's governed distillation. Wiki publication remains review-gated."><Sprout size={15} /> Growth cycle</button>
         <button onClick={() => void runJob('wiki_maintenance')} disabled={actionBusy || !canWrite} title="Compile eligible evidence into a reviewable proposal"><WandSparkles size={15} /> Maintain</button>
         <button onClick={() => void load()} disabled={loading} title="Refresh current project state"><RefreshCw size={15} className={loading ? 'spin' : ''} /> Refresh</button>
         <button className="icon-button" onClick={onClose} aria-label="Close knowledge workspace"><X size={18} /></button>
@@ -258,11 +421,35 @@ export function KnowledgeWorkspace({ onClose }: Props) {
     {error && <div className="knowledge-workspace__error" role="alert">{error}</div>}
     {actionMessage && <div className="knowledge-action-message" role="status">{actionMessage}</div>}
     {loading && !workspace ? <div className="knowledge-workspace__loading">Loading the project knowledge state...</div> : <>
+      <section className="knowledge-vault-setup" aria-label="Project Vault setup">
+        <div><span className="eyebrow">PROJECT VAULT</span><h3>{vaultConnectionLabel}</h3><p>{vaultConnection?.message || 'Use a folder inside the configured Obsidian Vault. BSC will only manage this project boundary.'}</p>{vaultConnection?.missing_managed_files?.length ? <small>Missing files: {vaultConnection.missing_managed_files.join(', ')}</small> : null}{vaultConnection?.missing_managed_directories?.length ? <small>Missing workspace layout: {vaultConnection.missing_managed_directories.length} folders, including {vaultConnection.missing_managed_directories.slice(0, 4).join(', ')}{vaultConnection.missing_managed_directories.length > 4 ? ', ...' : ''}</small> : null}</div>
+        <div className="knowledge-vault-setup__actions"><label>Vault folder<input value={vaultPath} onChange={(event) => setVaultPath(event.target.value)} placeholder="projects/your-project" aria-label="Project Vault folder" disabled={actionBusy} /></label><button type="button" onClick={() => void mapVault()} disabled={actionBusy || !canWrite || !vaultPath.trim()} title="Map this project to the typed Vault folder"><Link2 size={15} /> {workspace?.vault.configured ? 'Update map' : 'Map Vault'}</button>{workspace?.vault.configured && !initialized && <button type="button" onClick={() => void initializeVault()} disabled={actionBusy || !canWrite} title="Create the full A/B/C/D project layout, rules, and initial Wiki pages"><BookOpen size={15} /> Initialize workspace</button>}</div>
+      </section>
+      {workspace?.vault.configured && <section className="knowledge-plugin-setup" aria-label="Obsidian plugin export bridge">
+        <div><span className="eyebrow">OBSIDIAN PLUGIN EXPORTS</span><h3>Connect exported notes and output feedback.</h3><p>Evidence bridges read only declared <code>00_Inbox/</code>, <code>01_Sources/</code>, <code>raw/</code>, or <code>inbox/</code> folders. Output bridges copy only declared <code>04_Outputs/</code> or <code>outputs/</code> files into pending D-layer review. BSC does not inspect or execute <code>.obsidian</code> plugin code.</p><small>Claudian is an Obsidian-to-Codex companion. Markdown formatter and HyperFrames use an output bridge; their files never become reusable context until evaluation and feedback accept them.</small></div>
+        <div className="knowledge-plugin-setup__actions">
+          <label>Preset<select value={pluginPreset} onChange={(event) => selectPluginPreset(event.target.value)} aria-label="Plugin export preset" disabled={actionBusy}>{OBSIDIAN_PLUGIN_PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}</select></label>
+          <label>Plugin ID<input value={pluginId} onChange={(event) => setPluginId(event.target.value)} placeholder="readwise" aria-label="Plugin ID" disabled={actionBusy} /></label>
+          <label>Name<input value={pluginName} onChange={(event) => setPluginName(event.target.value)} placeholder="Readwise Export" aria-label="Plugin display name" disabled={actionBusy} /></label>
+          <label>Bridge purpose<select value={pluginAdapter} onChange={(event) => setPluginAdapter(event.target.value as KnowledgePluginBridge['adapter'])} aria-label="Plugin bridge purpose" disabled={actionBusy}><option value="filesystem_drop">Evidence import</option><option value="filesystem_output">Output feedback</option></select></label>
+          <label>Export folders<input value={pluginPaths} onChange={(event) => setPluginPaths(event.target.value)} placeholder={pluginAdapter === 'filesystem_output' ? '04_Outputs/articles' : '00_Inbox/web-clipper, 01_Sources/importer'} aria-label="Plugin export folders" disabled={actionBusy} /></label>
+          <button type="button" onClick={() => void registerPluginBridge()} disabled={actionBusy || !canWrite || !pluginId.trim() || !pluginPaths.trim()} title="Register a governed filesystem export bridge"><Link2 size={15} /> Register bridge</button>
+        </div>
+        <PluginBridgeTable plugins={workspace.plugins.plugins} busy={actionBusy} canWrite={canWrite} onEdit={editPluginBridge} onRemove={removePluginBridge} />
+      </section>}
+      <section className="knowledge-connection-path" aria-label="Knowledge connection path">
+        <ConnectionStep label="Studio access" detail={accessStatus.detail} ready={accessStatus.verified} />
+        <ConnectionStep label="Vault boundary" detail={vaultConnectionLabel} ready={vaultConnectionState === 'ready'} />
+        <ConnectionStep label="Horizon radar" detail={horizonDetail} ready={Boolean(horizon?.last_run && horizon.last_run.status === 'completed')} />
+        <ConnectionStep label="Plugin bridges" detail={pluginCount ? (connectedPluginCount ? `${capturedPluginSources} evidence source${capturedPluginSources === 1 ? '' : 's'}, ${registeredPluginOutputs} pending output${registeredPluginOutputs === 1 ? '' : 's'}` : 'Awaiting a declared export') : 'No plugin bridge registered'} ready={connectedPluginCount > 0} />
+        <ConnectionStep label="Growth cycle" detail={growthCycleDetail} ready={growth?.status === 'completed'} />
+        <ConnectionStep label="Governed use" detail={pages.length ? `${pages.length} published Wiki page${pages.length === 1 ? '' : 's'}` : 'No published knowledge context'} ready={pages.length > 0} />
+      </section>
       <div className="knowledge-status-strip">
-        <StatusMetric icon={<Database size={16} />} label="Evidence" value={workspace?.sources ?? 0} detail={workspace?.vault.configured ? `Vault connected / sync ${workspace.sync.status}` : 'Vault unconfigured'} />
+        <StatusMetric icon={<Database size={16} />} label="Evidence" value={workspace?.sources ?? 0} detail={workspace?.vault.configured ? `${vaultConnectionLabel} / direct sync ${workspace.sync.status} / growth ${growth?.status ?? 'not_run'}` : 'Vault unconfigured'} />
         <StatusMetric icon={<GitPullRequest size={16} />} label="Proposals" value={proposals.length} detail={`${health?.pending_proposal_ids.length ?? 0} awaiting review`} />
         <StatusMetric icon={<Network size={16} />} label="Relations" value={graph.count} detail={graphEdgeType || 'all edge types'} />
-        <StatusMetric icon={<ShieldCheck size={16} />} label="Citation coverage" value={health?.citation_coverage == null ? 'N/A' : `${Math.round(health.citation_coverage * 100)}%`} detail={health?.evaluation.status === 'unavailable' ? 'Evaluation baseline missing' : `Evaluation ${health?.evaluation.status}`} />
+        <StatusMetric icon={<ShieldCheck size={16} />} label="Citation coverage" value={health?.citation_coverage == null ? 'N/A' : `${Math.round(health.citation_coverage * 100)}%`} detail={evaluationDetail} />
       </div>
       <nav className="knowledge-mobile-tabs" aria-label="Knowledge mobile panes">
         <button className={mobilePane === 'tree' ? 'is-active' : ''} onClick={() => setMobilePane('tree')}>Navigate</button>
@@ -271,8 +458,9 @@ export function KnowledgeWorkspace({ onClose }: Props) {
       </nav>
       <div className="knowledge-layout" data-mobile-pane={mobilePane}>
         <aside className="knowledge-pane knowledge-pane--tree" aria-label="Vault tree">
-          <PaneHeader title="Vault" detail={workspace?.vault.configured ? `configured / sync ${workspace.sync.status}` : 'unconfigured'} />
-          <div className="knowledge-vault-state"><span className={workspace?.vault.configured ? 'is-ready' : 'is-warning'}>{workspace?.vault.configured ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}</span><span>{workspace?.vault.configured ? 'Managed project root' : 'Map a project Vault before publication'}</span></div>
+          <PaneHeader title="Vault" detail={workspace?.vault.configured ? `${vaultConnectionState} / sync ${workspace.sync.status}` : 'unconfigured'} />
+          <div className="knowledge-vault-state"><span className={vaultConnectionState === 'ready' ? 'is-ready' : 'is-warning'}>{vaultConnectionState === 'ready' ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}</span><span>{vaultConnectionLabel}</span></div>
+          <div className="knowledge-vault-state"><span className={connectedPluginCount ? 'is-ready' : 'is-warning'}>{connectedPluginCount ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}</span><span>{pluginCount ? (connectedPluginCount ? `${connectedPluginCount}/${pluginCount} bridge${pluginCount === 1 ? '' : 's'} active: ${capturedPluginSources} evidence source${capturedPluginSources === 1 ? '' : 's'}, ${registeredPluginOutputs} pending output${registeredPluginOutputs === 1 ? '' : 's'}` : `${pluginCount} plugin bridge${pluginCount === 1 ? '' : 's'} awaiting export`) : (workspace?.plugins.configured ? 'Plugin manifest has no supported adapters' : 'No BSC plugin manifest configured')}</span></div>
           <VaultTree pages={pages} selectedPageId={selectedPage?.page.id ?? ''} onSelect={inspectPage} />
           <PaneHeader title="Evidence" detail={`${sources.length} records`} />
           <div className="knowledge-list knowledge-list--tree">{sources.length ? sources.map((source) => <button className={`knowledge-record ${selectedSource?.id === source.id ? 'is-selected' : ''}`} key={source.id} onClick={() => setSelectedSource(source)}><span className={`source-status source-status--${source.status}`}>{source.status}</span><strong>{source.origin || source.id}</strong><small>{source.source_type}</small></button>) : <Empty text="No evidence has been captured for this project." />}</div>
@@ -289,7 +477,7 @@ export function KnowledgeWorkspace({ onClose }: Props) {
             <ViewTab active={centerView === 'distillation'} onClick={() => setCenterView('distillation')} icon={<Sparkles size={14} />} label="Weekly" />
           </nav>
           {centerView === 'page' && <WikiReader page={selectedPage} pages={pages} busy={actionBusy} canWrite={canWrite} onCitation={inspectSource} onWikiLink={followWikiLink} onRestore={restoreRevision} />}
-          {centerView === 'proposal' && <ProposalReview proposal={selectedProposal} baselines={proposalBaselines} busy={actionBusy} canWrite={canWrite} onLint={lintProposal} onPublish={publishProposal} onReject={rejectProposal} />}
+          {centerView === 'proposal' && <ProposalReview proposal={selectedProposal} baselines={proposalBaselines} busy={actionBusy} canWrite={canWrite} onLint={lintProposal} onPublish={publishProposal} onReject={rejectProposal} onSaveEvaluationCase={saveProposalEvaluationCase} />}
           {centerView === 'run' && <RunTimeline runs={runs} selectedRun={selectedRun} events={runEvents} busy={actionBusy} onSelect={inspectRun} onRetry={retryRun} />}
           {centerView === 'graph' && <section className="knowledge-graph-view">
             <header className="knowledge-content-header"><div><span className="eyebrow">RELATIONSHIP GRAPH</span><h3>Traceable knowledge relations</h3></div><div className="knowledge-graph-filters"><label className="knowledge-select-label">Edge filter<select value={graphEdgeType} onChange={(event) => setGraphEdgeType(event.target.value)}><option value="">All edges</option>{graphTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label><label className="knowledge-select-label">Node type<select value={graphNodeType} onChange={(event) => setGraphNodeType(event.target.value)}><option value="">All types</option>{graphNodeTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label><label className="knowledge-select-label">Node status<select value={graphNodeStatus} onChange={(event) => setGraphNodeStatus(event.target.value)}><option value="">All states</option>{graphNodeStatuses.map((status) => <option key={status} value={status}>{status}</option>)}</select></label></div></header>
@@ -323,7 +511,7 @@ export function KnowledgeWorkspace({ onClose }: Props) {
           {selectedSource ? <SourceInspector source={selectedSource} busy={actionBusy} canWrite={canWrite} onApprove={promoteSource} /> : <Empty text="Select evidence to inspect immutable provenance, policy state, and capture metadata." />}
           <PaneHeader title="Automation" detail={`${schedules.length} schedules`} />
           <div className="knowledge-list">{schedules.length ? schedules.map((schedule) => <div className="knowledge-schedule" key={schedule.id}><div><strong>{schedule.job_type}</strong><small>{schedule.cron} / {schedule.timezone}</small><small>{schedule.enabled ? `Next ${formatTimestamp(schedule.next_run_at)}` : schedule.scheduler_available ? 'Paused' : 'Scheduler unavailable; manual execution only'}</small><small>Last result: {schedule.last_result ? `${schedule.last_result.status} / ${formatTimestamp(schedule.last_result.updated_at)}` : 'not run'}</small></div><div className="knowledge-schedule__actions"><button className="icon-button" disabled={actionBusy || !canWrite} title={`Run ${schedule.job_type} now`} aria-label={`Run ${schedule.job_type} now`} onClick={() => void runJob(schedule.job_type)}><Play size={14} /></button><button className="icon-button" disabled={actionBusy || !canWrite || !schedule.scheduler_available} title={schedule.enabled ? 'Pause schedule' : 'Enable schedule'} aria-label={schedule.enabled ? 'Pause schedule' : 'Enable schedule'} onClick={() => void toggleSchedule(schedule)}>{schedule.enabled ? <Pause size={14} /> : <Clock3 size={14} />}</button></div></div>) : <Empty text={workspace?.scheduler.available ? 'No schedules configured for this project.' : 'Durable scheduling is unavailable. Manual governed runs remain available.'} />}</div>
-          <form className="knowledge-schedule-form" onSubmit={createSchedule}><label>Job<select value={scheduleJobType} onChange={(event) => setScheduleJobType(event.target.value)} disabled={workspace?.features.schedules === false}>{JOB_TYPES.map((jobType) => <option key={jobType} value={jobType}>{jobType}</option>)}</select></label><label>Cron<input value={scheduleCron} onChange={(event) => setScheduleCron(event.target.value)} aria-label="Schedule cron" disabled={workspace?.features.schedules === false} /></label><button disabled={actionBusy || !canWrite || workspace?.features.schedules === false} type="submit"><Clock3 size={14} /> Save cadence</button></form>
+          <form className="knowledge-schedule-form" onSubmit={createSchedule}><label>Job<select value={scheduleJobType} onChange={(event) => { const selected = KNOWLEDGE_JOB_OPTIONS.find((option) => option.id === event.target.value); setScheduleJobType(event.target.value); if (selected) setScheduleCron(selected.defaultCron); }} disabled={workspace?.features.schedules === false}>{KNOWLEDGE_JOB_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label><label>Cron<input value={scheduleCron} onChange={(event) => setScheduleCron(event.target.value)} aria-label="Schedule cron" disabled={workspace?.features.schedules === false} /></label><button disabled={actionBusy || !canWrite || workspace?.features.schedules === false} type="submit"><Clock3 size={14} /> Save cadence</button></form>
           <PaneHeader title="Knowledge health" detail={health?.status || 'unavailable'} />
           <HealthInspector health={health} />
           <PaneHeader title="Observed trends" detail="persisted records only" />
@@ -338,6 +526,17 @@ function PaneHeader({ title, detail }: { title: string; detail: string }) { retu
 function Empty({ text }: { text: string }) { return <p className="knowledge-empty">{text}</p>; }
 function ViewTab({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) { return <button className={active ? 'is-active' : ''} onClick={onClick}>{icon}{label}</button>; }
 function StatusMetric({ icon, label, value, detail }: { icon: React.ReactNode; label: string; value: number | string; detail: string }) { return <div className="knowledge-status-metric"><span>{icon}</span><div><small>{label}</small><strong>{value}</strong><p>{detail}</p></div></div>; }
+function ConnectionStep({ label, detail, ready }: { label: string; detail: string; ready: boolean }) { return <div className={ready ? 'is-ready' : 'is-pending'}><span>{ready ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}</span><div><strong>{label}</strong><small>{detail}</small></div></div>; }
+function PluginBridgeTable({ plugins, busy, canWrite, onEdit, onRemove }: { plugins: KnowledgeWorkspaceData['plugins']['plugins']; busy: boolean; canWrite: boolean; onEdit: (plugin: KnowledgeWorkspaceData['plugins']['plugins'][number]) => void; onRemove: (id: string) => void }) {
+  if (!plugins.length) return <p className="knowledge-plugin-empty">No plugin export bridge is registered. A bridge is only considered connected after Sync captures an exported source.</p>;
+  return <div className="knowledge-plugin-table" role="list" aria-label="Registered plugin export bridges">{plugins.map((plugin) => {
+    const outputBridge = plugin.adapter === 'filesystem_output';
+    const connected = outputBridge ? plugin.status === 'registered_output' : plugin.status === 'captured';
+    const count = outputBridge ? plugin.registered_outputs : plugin.captured_sources;
+    const timestamp = outputBridge ? plugin.last_registered_at : plugin.last_captured_at;
+    return <div key={plugin.id} role="listitem"><div><strong>{plugin.name}</strong><small>{plugin.id} / {outputBridge ? 'output feedback' : 'evidence import'} / {plugin.input_paths.join(', ')}</small></div><span className={connected ? 'is-ready' : 'is-pending'}>{connected ? (outputBridge ? `${count} pending output${count === 1 ? '' : 's'}` : `${count} captured`) : (outputBridge ? 'awaiting output' : 'awaiting export')}</span><small>{timestamp ? `Last ${formatTimestamp(timestamp)}` : (outputBridge ? 'No output registered yet' : 'No captured export yet')}</small><div className="knowledge-plugin-table__actions"><button type="button" className="icon-button" disabled={busy || !canWrite} title={`Edit ${plugin.name} bridge`} aria-label={`Edit ${plugin.name} bridge`} onClick={() => onEdit(plugin)}><Pencil size={14} /></button><button type="button" className="icon-button is-danger" disabled={busy || !canWrite} title={`Remove ${plugin.name} bridge`} aria-label={`Remove ${plugin.name} bridge`} onClick={() => void onRemove(plugin.id)}><Trash2 size={14} /></button></div></div>;
+  })}</div>;
+}
 
 function VaultTree({ pages, selectedPageId, onSelect }: { pages: KnowledgePage[]; selectedPageId: string; onSelect: (page: KnowledgePage) => void }) {
   const grouped = new Map<string, KnowledgePage[]>();
@@ -373,10 +572,52 @@ function SafeMarkdown({ content, pages, onCitation, onWikiLink }: { content: str
   })}</article>;
 }
 
-export function ProposalReview({ proposal, baselines, busy, canWrite, onLint, onPublish, onReject }: { proposal: KnowledgeProposal | null; baselines: KnowledgeProposalBaselines; busy: boolean; canWrite: boolean; onLint: (proposal: KnowledgeProposal) => void; onPublish: (proposal: KnowledgeProposal) => void; onReject: (proposal: KnowledgeProposal) => void }) {
+export function ProposalReview({ proposal, baselines, busy, canWrite, onLint, onPublish, onReject, onSaveEvaluationCase }: {
+  proposal: KnowledgeProposal | null;
+  baselines: KnowledgeProposalBaselines;
+  busy: boolean;
+  canWrite: boolean;
+  onLint: (proposal: KnowledgeProposal) => void;
+  onPublish: (proposal: KnowledgeProposal) => void;
+  onReject: (proposal: KnowledgeProposal) => void;
+  onSaveEvaluationCase?: (proposal: KnowledgeProposal, evaluationCase: KnowledgeEvaluationCaseInput) => void;
+}) {
+  const [evaluationCaseId, setEvaluationCaseId] = useState('');
+  const [evaluationType, setEvaluationType] = useState<KnowledgeEvaluationCaseInput['case_type']>('content');
+  const [evaluationConstraints, setEvaluationConstraints] = useState('');
+  const [evaluationSourceIds, setEvaluationSourceIds] = useState('');
+  const [requireCitations, setRequireCitations] = useState(true);
+  useEffect(() => {
+    setEvaluationCaseId(proposal ? `${proposal.id}-content` : '');
+    setEvaluationType('content');
+    setEvaluationConstraints('');
+    setEvaluationSourceIds(proposal?.source_ids.join(', ') || '');
+    setRequireCitations(true);
+  }, [proposal?.id]);
   if (!proposal) return <section className="knowledge-reader-empty"><GitPullRequest size={26} /><h3>Select a proposal</h3><p>Review each persisted operation against its current page body before asking the governed publication gate to apply it.</p></section>;
   const canAct = canWrite && ['draft', 'failed'].includes(proposal.status);
-  return <section className="proposal-review"><header className="knowledge-content-header"><div><span className="eyebrow">GOVERNED PATCH</span><h3>{proposal.rationale || proposal.id}</h3><p>{proposal.source_ids.length} evidence references / {proposal.operations.length} operations</p></div><span className="record-kind">{proposal.status}</span></header><div className="proposal-actions"><button disabled={busy || !canAct} onClick={() => onLint(proposal)}><Search size={14} /> Lint</button><button disabled={busy || !canAct} onClick={() => onPublish(proposal)}><ShieldCheck size={14} /> Publish</button><button className="is-danger" disabled={busy || !canAct} onClick={() => onReject(proposal)}><X size={14} /> Reject</button></div><div className="proposal-operations">{proposal.operations.map((operation) => { const before = baselines[operation.path] ?? ''; const after = operation.operation === 'append' ? `${before}${operation.content}` : operation.operation === 'archive' ? '' : operation.content; return <article key={operation.id}><header><span>{operation.operation}</span><strong>{operation.path}</strong>{operation.destination_path && <small>to {operation.destination_path}</small>}</header><div className="proposal-diff"><pre><small>Before</small>{before || '(new page or no stored revision)'}</pre><pre><small>After</small>{after || '(archived)'}</pre></div><p>Evidence: {operation.source_ids.length ? operation.source_ids.join(', ') : 'manual operation; no immutable source claim'}</p></article>; })}</div></section>;
+  const saveBaseline = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!onSaveEvaluationCase) return;
+    const constraints = evaluationConstraints.split('\n').map((item) => item.trim()).filter(Boolean);
+    const sourceIds = evaluationSourceIds.split(',').map((item) => item.trim()).filter(Boolean);
+    const expected = evaluationType === 'content' || evaluationType === 'sop'
+      ? { constraints, require_citations: requireCitations }
+      : { source_ids: sourceIds };
+    onSaveEvaluationCase(proposal, { case_id: evaluationCaseId.trim(), case_type: evaluationType, expected });
+  };
+  return <section className="proposal-review">
+    <header className="knowledge-content-header"><div><span className="eyebrow">GOVERNED PATCH</span><h3>{proposal.rationale || proposal.id}</h3><p>{proposal.source_ids.length} evidence references / {proposal.operations.length} operations</p></div><span className="record-kind">{proposal.status}</span></header>
+    <div className="proposal-actions"><button disabled={busy || !canAct} onClick={() => onLint(proposal)}><Search size={14} /> Lint</button><button disabled={busy || !canAct} onClick={() => onPublish(proposal)}><ShieldCheck size={14} /> Validate &amp; publish</button><button className="is-danger" disabled={busy || !canAct} onClick={() => onReject(proposal)}><X size={14} /> Reject</button></div>
+    {onSaveEvaluationCase && <form className="proposal-evaluation-form" onSubmit={saveBaseline}>
+      <header><span className="eyebrow">PROJECT EVALUATION BASELINE</span><small>Persisted rules are applied by the publication gate.</small></header>
+      <label>Case ID<input value={evaluationCaseId} onChange={(event) => setEvaluationCaseId(event.target.value)} aria-label="Evaluation case ID" required disabled={busy || !canWrite} /></label>
+      <label>Evaluation type<select value={evaluationType} onChange={(event) => setEvaluationType(event.target.value as KnowledgeEvaluationCaseInput['case_type'])} aria-label="Evaluation case type" disabled={busy || !canWrite}><option value="content">Content</option><option value="sop">SOP</option><option value="citation">Citation</option><option value="retrieval">Retrieval</option></select></label>
+      {evaluationType === 'content' || evaluationType === 'sop' ? <><label>Required project constraints<textarea value={evaluationConstraints} onChange={(event) => setEvaluationConstraints(event.target.value)} aria-label="Required project constraints" placeholder="One testable phrase per line" disabled={busy || !canWrite} /></label><label className="knowledge-check"><input type="checkbox" checked={requireCitations} onChange={(event) => setRequireCitations(event.target.checked)} disabled={busy || !canWrite} /> Require source citations</label></> : <label>Expected source IDs<input value={evaluationSourceIds} onChange={(event) => setEvaluationSourceIds(event.target.value)} aria-label="Expected source IDs" placeholder="source-a, source-b" required disabled={busy || !canWrite} /></label>}
+      <button type="submit" disabled={busy || !canWrite || !evaluationCaseId.trim()}><CheckCircle2 size={14} /> Save evaluation baseline</button>
+    </form>}
+    <div className="proposal-operations">{proposal.operations.map((operation) => { const before = baselines[operation.path] ?? ''; const after = operation.operation === 'append' ? `${before}${operation.content}` : operation.operation === 'archive' ? '' : operation.content; return <article key={operation.id}><header><span>{operation.operation}</span><strong>{operation.path}</strong>{operation.destination_path && <small>to {operation.destination_path}</small>}</header><div className="proposal-diff"><pre><small>Before</small>{before || '(new page or no stored revision)'}</pre><pre><small>After</small>{after || '(archived)'}</pre></div><p>Evidence: {operation.source_ids.length ? operation.source_ids.join(', ') : 'manual operation; no immutable source claim'}</p></article>; })}</div>
+  </section>;
 }
 
 function RunTimeline({ runs, selectedRun, events, busy, onSelect, onRetry }: { runs: KnowledgeRun[]; selectedRun: KnowledgeRun | null; events: KnowledgeRunEvent[]; busy: boolean; onSelect: (run: KnowledgeRun) => void; onRetry: (run: KnowledgeRun) => void }) {
@@ -390,7 +631,8 @@ function DistillationReader({ records, selected, onSelect }: { records: WeeklyDi
 
 export function SourceInspector({ source, busy, canWrite, onApprove }: { source: KnowledgeSource; busy: boolean; canWrite: boolean; onApprove: (source: KnowledgeSource) => void }) {
   const curated = Boolean(source.metadata.curated || source.metadata.user_annotation || source.metadata.annotation);
-  return <section className="source-inspector"><span className={`source-status source-status--${source.status}`}>{source.status}</span><h3>{source.origin || source.id}</h3><dl><div><dt>Type</dt><dd>{source.source_type}</dd></div><div><dt>Trust</dt><dd>{source.trust_level}</dd></div><div><dt>Captured</dt><dd>{formatTimestamp(source.captured_at)}</dd></div><div><dt>SHA-256</dt><dd>{source.content_hash}</dd></div><div><dt>Vault path</dt><dd>{source.vault_path || 'external or API import'}</dd></div><div><dt>Interpretation</dt><dd>{curated ? 'Curated opinion or user annotation' : 'Immutable evidence record'}</dd></div></dl>{source.supersedes_id && <p className="source-supersedes">Supersedes source {source.supersedes_id}</p>}{source.status === 'validated' && <button disabled={busy || !canWrite} onClick={() => onApprove(source)}><CheckCircle2 size={14} /> Approve for synthesis</button>}</section>;
+  const pluginName = typeof source.metadata.plugin_name === 'string' ? source.metadata.plugin_name : source.metadata.obsidian_plugin;
+  return <section className="source-inspector"><span className={`source-status source-status--${source.status}`}>{source.status}</span><h3>{source.origin || source.id}</h3><dl><div><dt>Type</dt><dd>{source.source_type}</dd></div>{pluginName ? <div><dt>Plugin export</dt><dd>{String(pluginName)}</dd></div> : null}<div><dt>Trust</dt><dd>{source.trust_level}</dd></div><div><dt>Captured</dt><dd>{formatTimestamp(source.captured_at)}</dd></div><div><dt>SHA-256</dt><dd>{source.content_hash}</dd></div><div><dt>Vault path</dt><dd>{source.vault_path || 'external or API import'}</dd></div><div><dt>Interpretation</dt><dd>{curated ? 'Curated opinion or user annotation' : 'Immutable evidence record'}</dd></div></dl>{source.supersedes_id && <p className="source-supersedes">Supersedes source {source.supersedes_id}</p>}{source.status === 'validated' && <button disabled={busy || !canWrite} onClick={() => onApprove(source)}><CheckCircle2 size={14} /> Approve for synthesis</button>}</section>;
 }
 
 function HealthInspector({ health }: { health: KnowledgeHealth | null }) { if (!health) return <Empty text="Health records are unavailable until the workspace loads." />; return <div className="health-inspector"><HealthRow label="Dangling citations" value={health.dangling_citation_count} /><HealthRow label="Stale citations" value={health.stale_citation_count} /><HealthRow label="Stale pages" value={health.stale_page_ids.length} /><HealthRow label="Orphan pages" value={health.orphan_page_ids.length} /><HealthRow label="Uncited eligible evidence" value={health.uncited_eligible_source_ids.length} /><HealthRow label="Pending proposals" value={health.pending_proposal_ids.length} /><HealthRow label="Contradictions" value={health.contradiction_count} /></div>; }

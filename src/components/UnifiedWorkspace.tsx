@@ -1,5 +1,6 @@
 import { lazy, Suspense, useState, useEffect, useRef, useCallback } from 'react';
 import { useWorkspace } from '../store/workspaceStore';
+import { useKnowledgeWorkspaceStore } from '../store/knowledgeWorkspaceStore';
 import {
   cancelOrchestrate,
   startOrchestrate,
@@ -8,6 +9,8 @@ import {
   type OrchestratorEvent,
 } from '../api/orchestrateApi';
 import { runAnalysis } from '../api/agentOsApi';
+import type { KnowledgeContextMetadata, KnowledgeOutputRegistration } from '../api/generated/agentOsContracts';
+import { fetchWrapper } from '../api/fetchWrapper';
 import { adaptAgentOsToDashboard } from '../utils/agentOsAdapter';
 import { fetchCompilerDashboard, type DashboardData } from '../api/compilerDashboardApi';
 import { RiskPanel } from './RiskPanel';
@@ -42,6 +45,17 @@ type Mode = 'auto' | 'analyze' | 'compile' | 'board';
 type LogType = 'system' | 'agent' | 'tool' | 'error' | 'result' | 'thinking' | 'stage';
 interface LogEntry { id: string; type: LogType; text: string; time: string; }
 type EffectiveMode = 'analyze' | 'compile' | 'board';
+
+export function formatRuntimeError(reason: unknown): string {
+  const message = reason instanceof Error ? reason.message : String(reason || 'Analysis failed');
+  if (/failed to fetch|networkerror/i.test(message)) {
+    return 'Cannot reach the BSC API. Start the backend or set VITE_API_PROXY_TARGET, then restart Vite.';
+  }
+  if (/status:\s*401|authentication required/i.test(message)) {
+    return 'Authentication required. Enter the runtime access key in the control rail.';
+  }
+  return message;
+}
 
 function includesModeSignal(text: string, signal: string): boolean {
   const normalized = signal.toLowerCase();
@@ -128,6 +142,9 @@ export function UnifiedWorkspace() {
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const [growthOpen, setGrowthOpen] = useState(false);
+  const [runtimeAccessKey, setRuntimeAccessKey] = useState('');
+  const [knowledgeContext, setKnowledgeContext] = useState<KnowledgeContextMetadata | null>(null);
+  const [knowledgeOutputRegistration, setKnowledgeOutputRegistration] = useState<KnowledgeOutputRegistration | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -140,6 +157,8 @@ export function UnifiedWorkspace() {
   const businessModel = useWorkspace((s) => s.businessModel);
   const sop = useWorkspace((s) => s.sop);
   const workspaceIdea = useWorkspace((s) => s.idea);
+  const knowledgeProjectId = useKnowledgeWorkspaceStore((s) => s.projectId);
+  const setKnowledgeProjectId = useKnowledgeWorkspaceStore((s) => s.setProjectId);
 
   const addLog = useCallback((type: LogType, text: string) => {
     const entry: LogEntry = { id: String(++logCounter), type, text, time: new Date().toLocaleTimeString('en-US', { hour12: false }) };
@@ -171,12 +190,13 @@ export function UnifiedWorkspace() {
       return;
     }
     const value = input.trim();
-    setInput(''); setLoading(true); setError(null); setDashData(null); setLogs([]);
+    setInput(''); setLoading(true); setError(null); setDashData(null); setLogs([]); setKnowledgeContext(null); setKnowledgeOutputRegistration(null);
     logCounter = 0; setPipelineStages({});
     clearTerminal();
 
     addLog('system', 'Mode: ' + MODE_LABELS[effectiveMode] + (mode === 'auto' ? ' (auto)' : ''));
     addLog('system', 'Input: ' + (value.length > 80 ? value.slice(0, 80) + '...' : value));
+    addLog('system', 'Project context: ' + (knowledgeProjectId.trim() || 'unscoped'));
 
     try {
       if (effectiveMode === 'compile') {
@@ -186,6 +206,7 @@ export function UnifiedWorkspace() {
         const res = await startOrchestrate(value, {
           contextPolicy,
           parentSessionId: contextPolicy === 'fresh' ? undefined : parentSessionId.trim(),
+          projectId: knowledgeProjectId.trim() || undefined,
         });
         beginSession(res.session_id, value);
         setSessionId(res.session_id);
@@ -248,13 +269,38 @@ export function UnifiedWorkspace() {
         // ---- Agent OS / Board ----
         const isBoard = effectiveMode === 'board';
         addLog('thinking', isBoard ? 'Convening board: CEO, CFO, CTO, Ops...' : 'Planning mission capabilities...');
-        const result = await runAnalysis({ input: value, mode: 'llm', board: isBoard });
+        const result = await runAnalysis({
+          input: value,
+          mode: 'llm',
+          board: isBoard,
+          project_id: knowledgeProjectId.trim(),
+        });
         if (result.status !== 'completed') {
           throw new Error(result.runtime.errors[0] || 'Agent OS did not complete the analysis');
         }
         beginSession(result.execution_id, value);
         setSessionId(result.execution_id);
         setPipelineStages(projectAgentPipeline(result.runtime.capability_executions));
+        setKnowledgeContext(result.runtime.knowledge_context);
+        setKnowledgeOutputRegistration(result.runtime.knowledge_output_registration);
+        if (result.runtime.knowledge_context.knowledge_context_used) {
+          const references = result.runtime.knowledge_context.page_ids.length
+            + result.runtime.knowledge_context.source_ids.length
+            + result.runtime.knowledge_context.method_revision_ids.length
+            + result.runtime.knowledge_context.output_ids.length;
+          addLog('tool', 'Project knowledge used: ' + references + ' governed references / pack ' + result.runtime.knowledge_context.context_pack_id.slice(0, 12));
+        } else {
+          const gap = result.runtime.knowledge_context.research_gaps[0];
+          addLog('tool', 'Project knowledge unavailable' + (gap ? ': ' + gap : ''));
+        }
+        const registration = result.runtime.knowledge_output_registration;
+        if (registration.registered > 0) {
+          addLog('result', `D-layer staged ${registration.registered} reviewable output${registration.registered === 1 ? '' : 's'}; evaluation is required before reuse.`);
+        } else if (registration.attempted > 0) {
+          addLog('error', 'D-layer staging did not complete: ' + (registration.errors[0] || registration.status));
+        } else if (result.runtime.knowledge_context.knowledge_context_used) {
+          addLog('tool', 'D-layer staging: ' + registration.status.replace(/_/g, ' '));
+        }
         addLog('agent', 'Mission: ' + result.mission.title);
         addLog('system', 'Steps: ' + result.mission.steps + ' | Mode: ' + result.mission.mode);
         if (result.artifacts > 0) addLog('result', 'Artifacts: ' + result.artifacts);
@@ -273,9 +319,10 @@ export function UnifiedWorkspace() {
         addLog('result', 'Analysis complete');
         setLoading(false);
       }
-    } catch (e: any) {
-      addLog('error', e.message || 'Failed');
-      setError(e.message || 'Analysis failed');
+    } catch (reason: unknown) {
+      const message = formatRuntimeError(reason);
+      addLog('error', message);
+      setError(message);
       setCompiling(false);
       setLoading(false);
     }
@@ -328,6 +375,52 @@ export function UnifiedWorkspace() {
                 </button>
               ))}
             </div>
+          </section>
+
+          <section className="rail-section runtime-access">
+            <div className="rail-section__heading"><p className="rail-label">RUNTIME ACCESS</p><span>{runtimeAccessKey ? 'ready' : 'required'}</span></div>
+            <label className="runtime-access__field">
+              <span>API key</span>
+              <input
+                type="password"
+                value={runtimeAccessKey}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setRuntimeAccessKey(value);
+                  fetchWrapper.setAuthToken(value.trim() || undefined);
+                }}
+                placeholder="Runtime access key"
+                aria-label="Runtime access key"
+                autoComplete="off"
+              />
+            </label>
+          </section>
+
+          <section className="rail-section runtime-access knowledge-context-control">
+            <div className="rail-section__heading"><p className="rail-label">PROJECT KNOWLEDGE</p><span>{knowledgeContext ? (knowledgeContext.knowledge_context_used ? 'used' : knowledgeContext.availability) : 'not checked'}</span></div>
+            <label className="runtime-access__field">
+              <span>Project ID</span>
+              <input
+                type="text"
+                value={knowledgeProjectId}
+                onChange={(event) => setKnowledgeProjectId(event.target.value)}
+                placeholder="Mapped knowledge project"
+                aria-label="Project knowledge context ID"
+                autoComplete="off"
+                disabled={loading}
+              />
+            </label>
+            <p className="rail-note">A run verifies the mapped Vault, pages, methods and prior outputs before it reports that knowledge was used.</p>
+            {knowledgeContext && <p className={'knowledge-context-status ' + (knowledgeContext.knowledge_context_used ? 'is-used' : 'is-unavailable')}>
+              {knowledgeContext.knowledge_context_used
+                ? `${knowledgeContext.page_ids.length} pages, ${knowledgeContext.source_ids.length} sources, ${knowledgeContext.method_revision_ids.length} methods, ${knowledgeContext.output_ids.length} prior outputs`
+                : (knowledgeContext.research_gaps[0] || 'No approved project context was available for this run.')}
+            </p>}
+            {knowledgeOutputRegistration && <p className={'knowledge-context-status ' + (knowledgeOutputRegistration.registered > 0 ? 'is-used' : 'is-unavailable')}>
+              {knowledgeOutputRegistration.registered > 0
+                ? `${knowledgeOutputRegistration.registered} new D-layer output${knowledgeOutputRegistration.registered === 1 ? '' : 's'} awaiting evaluation before knowledge reuse`
+                : `D-layer: ${knowledgeOutputRegistration.status.replace(/_/g, ' ')}`}
+            </p>}
           </section>
 
           <section className="rail-section rail-context">
@@ -428,10 +521,10 @@ export function UnifiedWorkspace() {
         </main>
       </div>
 
-      <footer className="studio-footer"><span>{mode === 'auto' && detectedMode ? `Auto -> ${MODE_LABELS[detectedMode]}` : MODE_LABELS[effectiveMode]}</span><span>Session: {sessionDisplay}</span>{compiling && <span className="is-live">pipeline active</span>}{dashData && <span>coverage: {dashData.risk.coverage.coverage_pct}%</span>}<span className="studio-footer__right">BSC Studio 5.0</span></footer>
+      <footer className="studio-footer"><span>{mode === 'auto' && detectedMode ? `Auto -> ${MODE_LABELS[detectedMode]}` : MODE_LABELS[effectiveMode]}</span><span>Project: {knowledgeProjectId || 'unscoped'}</span><span>Session: {sessionDisplay}</span>{compiling && <span className="is-live">pipeline active</span>}{dashData && <span>coverage: {dashData.risk.coverage.coverage_pct}%</span>}<span className="studio-footer__right">BSC Studio 5.0</span></footer>
       {skillsOpen && <SkillMarket onClose={() => setSkillsOpen(false)} context={input || workspaceIdea} />}
-      {knowledgeOpen && <KnowledgeWorkspace onClose={() => setKnowledgeOpen(false)} />}
-      {growthOpen && <Suspense fallback={<section className="growth-workspace" aria-label="Knowledge growth workspace"><div className="growth-state" role="status">Loading growth workspace...</div></section>}><GrowthWorkspace onClose={() => setGrowthOpen(false)} /></Suspense>}
+      {knowledgeOpen && <KnowledgeWorkspace onClose={() => setKnowledgeOpen(false)} runtimeAccessKey={runtimeAccessKey} />}
+      {growthOpen && <Suspense fallback={<section className="growth-workspace" aria-label="Knowledge growth workspace"><div className="growth-state" role="status">Loading growth workspace...</div></section>}><GrowthWorkspace onClose={() => setGrowthOpen(false)} runtimeAccessKey={runtimeAccessKey} /></Suspense>}
     </div>
   );
 }

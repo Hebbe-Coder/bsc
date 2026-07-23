@@ -2,13 +2,25 @@ from datetime import datetime, timezone
 import json
 
 from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus
+from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_source_capture import CapturedSourceInput, SourceCaptureService
 from app.knowledge.wiki_evaluator import WikiEvaluator
 from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.wiki_rules import build_default_agents_rules
-from app.tasks.knowledge_tasks import execute_knowledge_run
+from app.knowledge.wiki_compiler import WikiCompilationError
+from app.tasks.knowledge_tasks import classify_knowledge_failure, execute_knowledge_run
 from app.tasks.knowledge_tasks import reconcile_knowledge_schedules
+
+
+def test_compiler_schema_failure_is_not_misclassified_as_missing_configuration():
+    failure = classify_knowledge_failure(WikiCompilationError("operation field required"))
+
+    assert failure.__dict__ == {
+        "category": "compiler",
+        "code": "compiler_failed",
+        "retryable": False,
+    }
 
 
 def test_weekly_distillation_task_marks_run_unavailable_without_eligible_evidence(tmp_path, monkeypatch):
@@ -111,6 +123,39 @@ def test_source_sync_task_reconciles_user_edited_managed_wiki_pages(tmp_path, mo
         assert repo.get_page_content("project-a", page["id"])["content"].endswith("User-maintained page.\n")
         events = repo.list_run_events(project_id="project-a", run_id=run.id)
         assert any(event["event_type"] == "knowledge.wiki.snapshot.synced" for event in events)
+    finally:
+        repo.close()
+
+
+def test_source_sync_task_registers_declared_external_output_feedback(tmp_path, monkeypatch):
+    repo = GrowthRepository(db_path=str(tmp_path / "tasks-output-feedback.db"))
+    run = KnowledgeRun(project_id="project-a", run_type="source_sync", trigger="manual")
+    repo.create_run(run)
+    vault_root = tmp_path / "vault"
+    project_root = vault_root / "projects" / "project-a"
+    output_root = project_root / "04_Outputs" / "hyperframes"
+    output_root.mkdir(parents=True)
+    (output_root / "video-brief.md").write_text("# Video brief\nPlugin generated output", encoding="utf-8")
+    (project_root / "bsc-plugins.json").write_text(
+        '{"plugins":[{"id":"hyperframes","name":"HyperFrames","adapter":"filesystem_output","input_paths":["04_Outputs/hyperframes"]}]}',
+        encoding="utf-8",
+    )
+    repo.configure_vault("project-a", "projects/project-a")
+    monkeypatch.setattr("app.tasks.knowledge_tasks.settings.OBSIDIAN_VAULT_ROOT", str(vault_root))
+    try:
+        result = execute_knowledge_run("project-a", run.id, repository=repo)
+        output = repo.list_outputs("project-a")[0]
+
+        assert result["status"] == "completed"
+        assert result["sync"]["output_feedback"] == {
+            "scanned": 1, "registered": 1, "duplicates": 0, "rejected": 0, "skipped": 0
+        }
+        assert output["status"] == "registered"
+        assert output["metadata"]["original_path"] == "04_Outputs/hyperframes/video-brief.md"
+        assert any(
+            edge["edge_type"] == "output_produced_by_run" and edge["from_id"] == run.id and edge["to_id"] == output["id"]
+            for edge in repo.list_lineage("project-a")
+        )
     finally:
         repo.close()
 

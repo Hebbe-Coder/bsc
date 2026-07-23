@@ -23,6 +23,7 @@ from .types import (
     ConstraintArtifact,
     CoverageArtifact,
     DecisionArtifact,
+    DeliverableArtifact,
     EvidenceArtifact,
     GapArtifact,
     GapCategory,
@@ -46,6 +47,7 @@ __all__ = [
     "CoverageArtifact",
     "GapArtifact",
     "DecisionArtifact",
+    "DeliverableArtifact",
     # Enums
     "ArtifactType",
     "ArtifactStatus",

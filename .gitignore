@@ -44,6 +44,8 @@ build/
 *.spec
 
 # ---- SQLite runtime artifacts (WAL/SHM sidecars, regenerated every run) ----
+app/bsc_cloud.db
+app/bsc_cloud.db-*
 *.db-wal
 *.db-shm
 app/data/local-production-smoke.db

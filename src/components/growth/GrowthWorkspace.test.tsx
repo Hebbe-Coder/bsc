@@ -5,17 +5,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   addGrowthOutputFeedback,
+  evaluateGrowthOutput,
   GrowthRequestError,
   fetchGrowthAccess,
   fetchGrowthAssetDetail,
   fetchGrowthHealth,
   fetchGrowthLineage,
   fetchGrowthOverview,
+  fetchGrowthRuns,
   fetchGrowthStage,
   fetchGrowthTrend,
   fileGrowthOutput,
+  linkGrowthOutputEvidence,
+  setGrowthAccessKey,
+  startGrowthRun,
 } from '../../api/growthApi';
-import { useGrowthWorkspaceStore } from '../../store/knowledgeWorkspaceStore';
+import { useGrowthWorkspaceStore, useKnowledgeWorkspaceStore } from '../../store/knowledgeWorkspaceStore';
 import { GrowthWorkspace } from './GrowthWorkspace';
 
 vi.mock('../../api/growthApi', async (importOriginal) => {
@@ -27,12 +32,16 @@ vi.mock('../../api/growthApi', async (importOriginal) => {
     fetchGrowthHealth: vi.fn(),
     fetchGrowthLineage: vi.fn(),
     fetchGrowthOverview: vi.fn(),
+    fetchGrowthRuns: vi.fn(),
     fetchGrowthStage: vi.fn(),
     fetchGrowthTrend: vi.fn(),
     addGrowthOutputFeedback: vi.fn(),
+    evaluateGrowthOutput: vi.fn(),
     fileGrowthOutput: vi.fn(),
+    linkGrowthOutputEvidence: vi.fn(),
     processGrowthFeedback: vi.fn(),
     setGrowthAccessKey: vi.fn(),
+    startGrowthRun: vi.fn(),
     triageGrowthSource: vi.fn(),
   };
 });
@@ -44,8 +53,13 @@ const mockedDetail = vi.mocked(fetchGrowthAssetDetail);
 const mockedHealth = vi.mocked(fetchGrowthHealth);
 const mockedTrend = vi.mocked(fetchGrowthTrend);
 const mockedLineage = vi.mocked(fetchGrowthLineage);
+const mockedRuns = vi.mocked(fetchGrowthRuns);
 const mockedAddFeedback = vi.mocked(addGrowthOutputFeedback);
+const mockedEvaluateOutput = vi.mocked(evaluateGrowthOutput);
 const mockedFileOutput = vi.mocked(fileGrowthOutput);
+const mockedLinkEvidence = vi.mocked(linkGrowthOutputEvidence);
+const mockedSetGrowthAccessKey = vi.mocked(setGrowthAccessKey);
+const mockedStartGrowthRun = vi.mocked(startGrowthRun);
 
 const overview = {
   profile: { project_id: 'default', user_role: 'researcher', revision: 3 },
@@ -67,13 +81,18 @@ function installSuccessfulProject() {
   mockedHealth.mockResolvedValue({ status: 'available', citation_coverage: 1, orphan_page_ids: [], stale_page_ids: [], uncited_eligible_source_ids: [], pending_proposal_ids: [], dangling_citation_count: 0, stale_citation_count: 0, contradiction_count: 0, contradiction_pairs: [], evaluation: { status: 'available', latest_score: 92, runs: 1, reason: '' } });
   mockedTrend.mockResolvedValue({ source_throughput: [{ date: '2026-07-20', count: 2 }], proposal_outcomes: [], evaluations: [], current: {} as never });
   mockedLineage.mockResolvedValue({ project_id: 'default', edges: [], limit: 200, truncated: false });
+  mockedRuns.mockResolvedValue([]);
   mockedAddFeedback.mockResolvedValue({ id: 'feedback-new', status: 'pending' });
+  mockedEvaluateOutput.mockResolvedValue({ id: 'evaluation-new', quality: 90, status: 'completed' });
   mockedFileOutput.mockResolvedValue({ id: 'output-a', status: 'filed' });
+  mockedLinkEvidence.mockResolvedValue({ output: { id: 'output-a', status: 'registered', source_refs: [] }, evidence: { source_ids: ['source-a'], page_ids: [] } });
+  mockedStartGrowthRun.mockResolvedValue({ id: 'growth-run-a', run_id: 'growth-run-a', run_type: 'growth_daily', status: 'queued' });
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   useGrowthWorkspaceStore.getState().reset();
+  useKnowledgeWorkspaceStore.getState().setProjectId('default');
   installSuccessfulProject();
   Object.defineProperty(window, 'matchMedia', { configurable: true, value: vi.fn((query: string) => ({ matches: false, media: query, onchange: null, addEventListener: vi.fn(), removeEventListener: vi.fn(), addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn() })) });
 });
@@ -81,6 +100,32 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe('GrowthWorkspace', () => {
+  it('uses the shared Studio session and project boundary', async () => {
+    useKnowledgeWorkspaceStore.getState().setProjectId('project-shared');
+    render(<GrowthWorkspace onClose={vi.fn()} runtimeAccessKey="session-key" />);
+
+    await waitFor(() => expect(mockedSetGrowthAccessKey).toHaveBeenCalledWith('session-key'));
+    await waitFor(() => expect(mockedOverview).toHaveBeenCalledWith('project-shared', expect.any(AbortSignal)));
+    expect(screen.queryByRole('textbox', { name: 'Growth access key' })).not.toBeInTheDocument();
+    expect(screen.getByText('Studio session applied')).toBeVisible();
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Growth project ID' }), { target: { value: 'project-next' } });
+    fireEvent.click(screen.getByRole('button', { name: /Load/i }));
+    await waitFor(() => expect(useKnowledgeWorkspaceStore.getState().projectId).toBe('project-next'));
+  });
+
+  it('starts a real daily growth run and reflects its durable status in the workspace', async () => {
+    mockedRuns.mockResolvedValue([{ id: 'growth-run-a', run_type: 'growth_daily', status: 'queued' }]);
+    render(<GrowthWorkspace onClose={vi.fn()} />);
+
+    const runButton = await screen.findByRole('button', { name: 'Run daily growth cycle' });
+    await waitFor(() => expect(runButton).toBeEnabled());
+    fireEvent.click(runButton);
+
+    await waitFor(() => expect(mockedStartGrowthRun).toHaveBeenCalledWith('default', 'growth_daily'));
+    expect(await screen.findByText(/growth_daily: queued/i)).toBeVisible();
+  });
+
   it('loads stage, list and detail, then supports keyboard stage navigation', async () => {
     render(<GrowthWorkspace onClose={vi.fn()} />);
 
@@ -137,6 +182,21 @@ describe('GrowthWorkspace', () => {
     expect(screen.getByText('# New content')).toBeVisible();
   });
 
+  it('opens an automatically detected method candidate from the review queue', async () => {
+    const candidate = { id: 'method-proposal-a', asset_type: 'method_proposal', status: 'candidate', task_family: 'evidence-brief', rationale: 'Three comparable accepted outputs' };
+    mockedStage.mockImplementation(async (_projectId, currentStage, limit) => ({ project_id: 'default', stage: currentStage, records: currentStage === 'review' ? [candidate] : currentStage === 'A' ? [source] : [], limit, truncated: false }));
+    mockedDetail.mockImplementation(async (_projectId, currentStage) => currentStage === 'review'
+      ? { kind: 'method_proposal', record: { ...candidate, body: '# Evidence brief\nUse verified project evidence.' }, content: '# Evidence brief\nUse verified project evidence.', detailAvailability: 'complete' }
+      : { kind: 'source', record: source, detailAvailability: 'metadata_only' });
+    render(<GrowthWorkspace onClose={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole('tab', { name: /Review/i }));
+    fireEvent.click(await screen.findByRole('option', { name: /Three comparable accepted outputs/i }));
+
+    expect(await screen.findByText('Use verified project evidence.')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Evaluate method candidate' })).toBeVisible();
+  });
+
   it('shows verified output content, evaluation history and usable feedback actions', async () => {
     const output = { id: 'output-a', title: 'Verified SOP', status: 'accepted', asset_type: 'output', vault_path: 'outputs/2026/output-a/sop.md' };
     mockedStage.mockImplementation(async (_projectId, currentStage, limit) => ({ project_id: 'default', stage: currentStage, records: currentStage === 'D' ? [output] : currentStage === 'A' ? [source] : [], limit, truncated: false }));
@@ -158,6 +218,35 @@ describe('GrowthWorkspace', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'File accepted output' }));
     await waitFor(() => expect(mockedFileOutput).toHaveBeenCalledWith('default', 'output-a'));
+  });
+
+  it('links a captured source before allowing a standalone plugin output through quality review', async () => {
+    const output = { id: 'plugin-output', title: 'Web Clipper synthesis', status: 'registered', asset_type: 'output', vault_path: 'outputs/2026/plugin-output.md', metadata: { origin: 'external' } };
+    mockedStage.mockImplementation(async (_projectId, currentStage, limit) => ({ project_id: 'default', stage: currentStage, records: currentStage === 'D' ? [output] : currentStage === 'A' ? [source] : [], limit, truncated: false }));
+    mockedDetail.mockImplementation(async (_projectId, currentStage) => currentStage === 'D'
+      ? { kind: 'output', record: output, content: '# Plugin synthesis\nNeeds evidence linkage.', evaluations: [], feedback: [], detailAvailability: 'complete' }
+      : { kind: 'source', record: source, detailAvailability: 'metadata_only' });
+    render(<GrowthWorkspace onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('tab', { name: /Outputs/i }));
+    fireEvent.click(await screen.findByRole('option', { name: /Web Clipper synthesis/i }));
+
+    const evidenceSelect = await screen.findByRole('listbox', { name: 'Registered evidence sources' });
+    fireEvent.change(evidenceSelect, { target: { value: 'source-a' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Link selected evidence' }));
+    await waitFor(() => expect(mockedLinkEvidence).toHaveBeenCalledWith('default', 'plugin-output', { source_ids: ['source-a'], page_ids: [] }));
+
+    mockedDetail.mockResolvedValue({ kind: 'output', record: output, evidence: { source_ids: ['source-a'], page_ids: [] }, content: '# Plugin synthesis\nLinked evidence.', evaluations: [], feedback: [], detailAvailability: 'complete' });
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh growth workspace' }));
+    await screen.findByRole('slider', { name: 'Groundedness score' });
+    for (const label of ['Groundedness', 'Task fit', 'Usefulness', 'Coherence', 'Format quality']) {
+      fireEvent.change(screen.getByRole('slider', { name: `${label} score` }), { target: { value: '90' } });
+    }
+    fireEvent.change(screen.getByRole('textbox', { name: 'Output evaluation findings' }), { target: { value: 'Cites captured source.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Evaluate output' }));
+
+    await waitFor(() => expect(mockedEvaluateOutput).toHaveBeenCalledWith('default', 'plugin-output', {
+      groundedness: 0.9, task_fit: 0.9, usefulness: 0.9, coherence: 0.9, format_quality: 0.9, findings: ['Cites captured source.'],
+    }));
   });
 
   it('renders method content without duplicating the active revision JSON in metadata', async () => {

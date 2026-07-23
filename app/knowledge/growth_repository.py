@@ -46,6 +46,18 @@ class GrowthRepository(WikiRepository):
         super().__init__(*args, **kwargs)
         ensure_schema(self)
 
+    @classmethod
+    def borrow(cls, repository: WikiRepository) -> "GrowthRepository":
+        """Expose A/B/C/D tables through an existing Wiki repository backend.
+
+        Task execution owns the original repository. The temporary growth
+        facade must therefore not close the shared backend when it is garbage
+        collected after one D-layer import.
+        """
+        growth = cls(backend=repository._get_connection())
+        growth._owns_connection = False
+        return growth
+
     def _decode_growth(self, row: Any, json_fields: tuple[str, ...] = ()) -> dict[str, Any] | None:
         return self._decode(row, json_fields) if row else None
 
@@ -295,6 +307,22 @@ class GrowthRepository(WikiRepository):
         ).fetchone()
         return self._decode_growth(row, ("manifest_json", "source_output_ids_json", "eval_summary_json"))
 
+    def list_method_proposals(
+        self, project_id: str, status: str = "", limit: int = 100
+    ) -> list[dict[str, Any]]:
+        params: list[Any] = [project_id]
+        query = "SELECT * FROM knowledge_method_proposals WHERE project_id=?"
+        if status:
+            query += " AND status=?"
+            params.append(status)
+        query += " ORDER BY created_at DESC,id DESC LIMIT ?"
+        params.append(limit)
+        rows = self._execute(query, tuple(params)).fetchall()
+        return [
+            self._decode_growth(row, ("manifest_json", "source_output_ids_json", "eval_summary_json")) or {}
+            for row in rows
+        ]
+
     def update_method_proposal_evaluation(self, project_id: str, proposal_id: str, summary: dict[str, Any], status: str) -> dict[str, Any]:
         cursor = self._execute(
             "UPDATE knowledge_method_proposals SET status=?,eval_summary_json=?,updated_at=? WHERE project_id=? AND id=?",
@@ -475,6 +503,115 @@ class GrowthRepository(WikiRepository):
         query += " ORDER BY created_at DESC,id DESC LIMIT ?"
         params.append(max(1, min(limit, 500)))
         return [self._decode_growth(row, ("source_refs_json", "page_refs_json", "quality_json", "metadata_json")) or {} for row in self._execute(query, tuple(params)).fetchall()]
+
+    def list_output_evidence_references(self, project_id: str, output_id: str) -> dict[str, list[str]]:
+        """Return registration references plus separately attached review evidence."""
+        output = self.get_output(project_id, output_id)
+        if not output:
+            raise KeyError("output not found in project")
+        source_ids = list(dict.fromkeys(str(value) for value in output.get("source_refs") or [] if str(value)))
+        page_ids = list(dict.fromkeys(str(value) for value in output.get("page_refs") or [] if str(value)))
+        rows = self._execute(
+            "SELECT from_id,edge_type FROM knowledge_graph_edges "
+            "WHERE project_id=? AND to_id=? AND edge_type IN ('output_used_source','output_used_page') "
+            "ORDER BY created_at,id",
+            (project_id, output_id),
+        ).fetchall()
+        for row in rows:
+            edge = self._row_to_dict(row)
+            if edge["edge_type"] == "output_used_source":
+                source_ids.append(str(edge["from_id"]))
+            else:
+                page_ids.append(str(edge["from_id"]))
+        return {
+            "source_ids": list(dict.fromkeys(source_ids)),
+            "page_ids": list(dict.fromkeys(page_ids)),
+        }
+
+    def attach_output_evidence_references(
+        self,
+        project_id: str,
+        output_id: str,
+        *,
+        source_ids: list[str],
+        page_ids: list[str],
+    ) -> dict[str, Any]:
+        """Attach reviewable A/B evidence before an output's first evaluation.
+
+        Output bytes, registration provenance, and generation references stay
+        immutable. This only appends graph evidence that an external Obsidian
+        plugin cannot provide when it writes a standalone export.
+        """
+        output = self.get_output(project_id, output_id)
+        if not output:
+            raise KeyError("output not found in project")
+        if output.get("status") != OutputStatus.REGISTERED.value:
+            raise LifecycleConflictError(
+                "evidence references can only be changed while the output status is registered"
+            )
+
+        sources = list(dict.fromkeys(str(value).strip() for value in source_ids if str(value).strip()))
+        pages = list(dict.fromkeys(str(value).strip() for value in page_ids if str(value).strip()))
+        if not sources and not pages:
+            raise ValueError("at least one evidence reference is required")
+        for source_id in sources:
+            source = self.get_source(project_id, source_id)
+            if not source:
+                raise KeyError("source evidence reference is missing or belongs to another project")
+            if str(source.get("source_type") or "") in {"generated_output", "output", "synthetic"}:
+                raise ValueError("output evidence must reference external A-layer sources")
+            if str(source.get("status") or "") not in {"eligible", "processed"}:
+                raise ValueError("output evidence source must be eligible or processed")
+        for page_id in pages:
+            if not self.get_page(project_id, page_id):
+                raise KeyError("page evidence reference is missing or belongs to another project")
+
+        references = [
+            *(('source', source_id, "output_used_source") for source_id in sources),
+            *(('page', page_id, "output_used_page") for page_id in pages),
+        ]
+        backend = self._begin_lifecycle_transaction(f"{project_id}:output:{output_id}:evidence")
+        try:
+            current = self.get_output(project_id, output_id)
+            if not current or current.get("status") != OutputStatus.REGISTERED.value:
+                raise LifecycleConflictError(
+                    "evidence references could not be attached because the output status changed"
+                )
+            existing = self.list_output_evidence_references(project_id, output_id)
+            if len(set(existing["source_ids"]) | set(sources)) + len(set(existing["page_ids"]) | set(pages)) > 100:
+                raise ValueError("evidence references exceed the maximum of 100")
+            for endpoint_type, endpoint_id, relation in references:
+                duplicate = self._execute(
+                    "SELECT 1 FROM knowledge_graph_edges WHERE project_id=? AND from_id=? AND to_id=? AND edge_type=? LIMIT 1",
+                    (project_id, endpoint_id, output_id, relation),
+                ).fetchone()
+                if duplicate:
+                    continue
+                if self._would_cycle(project_id, endpoint_id, output_id):
+                    raise LineageConflictError("evidence lineage would create a cycle")
+                edge_id = hashlib.sha256(
+                    f"{project_id}|{endpoint_type}|{endpoint_id}|{output_id}|{relation}".encode()
+                ).hexdigest()[:24]
+                self._execute(
+                    "INSERT INTO knowledge_graph_edges "
+                    "(id,project_id,from_id,to_id,edge_type,metadata_json,revision,created_at) "
+                    "VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING",
+                    (
+                        edge_id,
+                        project_id,
+                        endpoint_id,
+                        output_id,
+                        relation,
+                        self._json_dumps({"attached_during": "output_review"}),
+                        "output-evidence-v1",
+                        self._now(),
+                    ),
+                )
+            self._commit()
+        except Exception:
+            backend.rollback()
+            raise
+        return self.get_output(project_id, output_id) or {}
 
     def file_output(
         self,

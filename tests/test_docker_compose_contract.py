@@ -31,6 +31,14 @@ def test_deepseek_configuration_reaches_api_and_worker_only():
     assert "ollama" not in compose["services"]["celery-worker"]["depends_on"]
 
 
+def test_semantic_distillation_is_explicit_and_enabled_in_the_docker_runtime():
+    compose = yaml.safe_load(Path("docker-compose.yml").read_text(encoding="utf-8"))
+    expected = "KNOWLEDGE_GROWTH_SEMANTIC_DISTILLATION_ENABLED=${KNOWLEDGE_GROWTH_SEMANTIC_DISTILLATION_ENABLED:-true}"
+
+    for service_name in ("bsc-backend", "celery-worker", "celery-beat"):
+        assert expected in set(compose["services"][service_name]["environment"])
+
+
 def test_horizon_run_store_configuration_reaches_api_and_worker_only():
     compose = yaml.safe_load(Path("docker-compose.yml").read_text(encoding="utf-8"))
     required = {
@@ -56,6 +64,7 @@ def test_horizon_run_store_configuration_reaches_api_and_worker_only():
 def test_api_and_worker_share_the_redis_broker_contract():
     compose = yaml.safe_load(Path("docker-compose.yml").read_text(encoding="utf-8"))
     api_required = {
+        "REDIS_URL=redis://redis:6379/0",
         "CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/0}",
         "CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND:-redis://redis:6379/1}",
     }
@@ -67,3 +76,24 @@ def test_api_and_worker_share_the_redis_broker_contract():
     assert api_required <= set(compose["services"]["bsc-backend"]["environment"])
     for service_name in ("celery-worker", "celery-beat"):
         assert worker_required <= set(compose["services"][service_name]["environment"])
+
+
+def test_durable_services_share_postgresql_and_redis_runtime_dependencies():
+    compose = yaml.safe_load(Path("docker-compose.yml").read_text(encoding="utf-8"))
+
+    for service_name in ("bsc-backend", "celery-worker", "celery-beat"):
+        environment = set(compose["services"][service_name]["environment"])
+        assert "DB_TYPE=postgresql" in environment
+        assert "EVENT_BACKEND=redis" in environment
+        assert "REDIS_URL=redis://redis:6379/0" in environment
+        assert "DB_URL=postgresql://${POSTGRES_USER:-bsc}:${POSTGRES_PASSWORD:-bsc}@postgres:5432/${POSTGRES_DB:-bsc}" in environment
+        assert compose["services"][service_name]["depends_on"] == {
+            "redis": {"condition": "service_healthy"},
+            "postgres": {"condition": "service_healthy"},
+        }
+
+    assert "CACHE_TYPE=redis" in set(compose["services"]["bsc-backend"]["environment"])
+    assert compose["services"]["redis"]["healthcheck"]["test"] == ["CMD", "redis-cli", "ping"]
+    assert "profiles" not in compose["services"]["redis"]
+    assert "profiles" not in compose["services"]["postgres"]
+    assert "postgres-data-v2:/var/lib/postgresql/data" in compose["services"]["postgres"]["volumes"]

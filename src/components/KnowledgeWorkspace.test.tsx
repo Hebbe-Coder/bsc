@@ -4,7 +4,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { KnowledgeProposal, KnowledgeSource } from '../api/knowledgeWorkspaceApi';
-import { ProposalReview, SourceInspector, WikiReader } from './KnowledgeWorkspace';
+import { KNOWLEDGE_JOB_OPTIONS, ProposalReview, SourceInspector, WikiReader } from './KnowledgeWorkspace';
 
 const proposal: KnowledgeProposal = {
   id: 'proposal-a',
@@ -28,12 +28,19 @@ const source: KnowledgeSource = {
   content_hash: 'a'.repeat(64),
   trust_level: 'reviewed',
   status: 'validated',
-  metadata: {},
+  metadata: { obsidian_plugin: 'readwise', plugin_name: 'Readwise Export' },
   supersedes_id: null,
   captured_at: '2026-07-22T00:00:00Z',
 };
 
 describe('KnowledgeWorkspace focused components', () => {
+  it('offers the actual daily and weekly growth jobs to the knowledge scheduler', () => {
+    expect(KNOWLEDGE_JOB_OPTIONS).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'growth_daily', defaultCron: '0 17 * * *' }),
+      expect.objectContaining({ id: 'growth_weekly_distillation', defaultCron: '30 17 * * 5' }),
+    ]));
+  });
+
   it('shows an explicit empty reader state', () => {
     render(<WikiReader page={null} pages={[]} busy={false} canWrite={false} onCitation={vi.fn()} onWikiLink={vi.fn()} onRestore={vi.fn()} />);
 
@@ -50,11 +57,24 @@ describe('KnowledgeWorkspace focused components', () => {
     expect(publish).toHaveBeenCalledWith(proposal);
   });
 
-  it('never renders an evidence editor and disables curation for a reader', () => {
-    render(<SourceInspector source={source} busy={false} canWrite={false} onApprove={vi.fn()} />);
+  it('saves a project-specific evaluation baseline instead of assuming a template', () => {
+    const saveBaseline = vi.fn();
+    render(<ProposalReview proposal={proposal} baselines={{}} busy={false} canWrite onLint={vi.fn()} onPublish={vi.fn()} onReject={vi.fn()} onSaveEvaluationCase={saveBaseline} />);
 
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Required project constraints' }), { target: { value: 'named owner\nreview window' } });
+    fireEvent.click(screen.getByRole('button', { name: /save evaluation baseline/i }));
+
+    expect(saveBaseline).toHaveBeenCalledWith(proposal, expect.objectContaining({
+      case_type: 'content', expected: { constraints: ['named owner', 'review window'], require_citations: true },
+    }));
+  });
+
+  it('never renders an evidence editor and disables curation for a reader', () => {
+    const { container } = render(<SourceInspector source={source} busy={false} canWrite={false} onApprove={vi.fn()} />);
+
+    expect(container.querySelector('input, textarea')).toBeNull();
     expect(screen.getByRole('button', { name: /approve for synthesis/i })).toBeDisabled();
     expect(screen.getByText(source.content_hash)).toBeVisible();
+    expect(screen.getByText('Readwise Export')).toBeVisible();
   });
 });

@@ -25,7 +25,7 @@ from app.artifacts.types import (
     ArtifactType, BaseArtifact, ARTIFACT_CLASS_MAP,
     BusinessModelArtifact, AssumptionArtifact, RiskArtifact,
     ConstraintArtifact, EvidenceArtifact, CoverageArtifact,
-    GapArtifact, DecisionArtifact, Severity, GapCategory,
+    GapArtifact, DecisionArtifact, DeliverableArtifact, Severity, GapCategory,
 )
 from app.core.prompt_context import (
     CapabilityPromptBudget,
@@ -74,21 +74,31 @@ MOCK_CAPABILITY_FACTORIES: dict[str, Callable[[], dict[str, Any]]] = {
         }],
     },
     "sop_design": lambda: {
-        "workflow": [{"step": 1, "name": "Intake"}],
-        "roles": [{"role": "Operator"}],
-        "sla": [{"metric": "response_time", "target": "< 10m"}],
-        "metrics": [{"name": "resolution_rate", "target": "95%"}],
-        "kpi": [{"name": "csat", "target": "4.7"}],
+        "kind": "sop",
+        "title": "Support intake operating loop",
+        "summary": "Triage work before automation and retain exceptions for review.",
+        "differentiators": ["Human review threshold is explicit"],
+        "sections": [{"title": "Intake", "details": ["Classify and route each request"]}],
+        "actions": [{"title": "Triage request", "owner": "Operator", "trigger": "New request", "action": "Classify and route", "output": "assigned case", "metric": "response_time < 10m", "timebox": "5m"}],
+        "evidence_gaps": ["No baseline quality data"],
     },
     "strategy_analysis": lambda: {
-        "growth_opportunities": [{"opportunity": "Expand self-service coverage"}],
-        "strategic_path": [{"phase": "pilot", "timeline": "30d"}],
+        "kind": "strategy",
+        "title": "Support automation pilot strategy",
+        "summary": "Validate one high-volume intent before scaling automation.",
+        "differentiators": ["Scale is gated by exception quality"],
+        "sections": [{"title": "Pilot", "details": ["Use a single high-volume intent"]}],
+        "actions": [{"title": "Run pilot", "owner": "Support lead", "trigger": "Weekly review", "action": "Compare exception rate to baseline", "output": "scale decision", "metric": "exception rate", "timebox": "30m"}],
+        "evidence_gaps": ["No demand baseline"],
     },
     "optimization_recommendations": lambda: {
-        "recommendations": [{
-            "title": "Automate repetitive ticket classification",
-            "priority": "P1",
-        }],
+        "kind": "optimization",
+        "title": "Classification optimization plan",
+        "summary": "Remove repeat triage only after measuring misrouting.",
+        "differentiators": ["Misrouting guardrail precedes automation"],
+        "sections": [{"title": "Guardrail", "details": ["Review low-confidence classifications"]}],
+        "actions": [{"title": "Measure routing", "owner": "Operations analyst", "trigger": "Before rollout", "action": "Sample routing quality", "output": "baseline", "metric": "misroute rate", "timebox": "2h"}],
+        "evidence_gaps": ["No current routing sample"],
     },
     "coverage_analysis": lambda: {
         "dimension_scores": {"operations": 0.9, "risk": 0.8, "customer": 0.85},
@@ -118,10 +128,13 @@ MOCK_CAPABILITY_FACTORIES: dict[str, Callable[[], dict[str, Any]]] = {
         "contradicts": False,
     },
     "report_composition": lambda: {
-        "executive_summary": "The business case is viable with a staged rollout.",
-        "sections": [{"title": "Summary", "content": "Pilot first."}],
-        "key_findings": [{"finding": "Operational gains are credible"}],
-        "recommendations": [{"title": "Stage the rollout"}],
+        "kind": "decision_brief",
+        "title": "Support automation decision brief",
+        "summary": "Approve a measured pilot, not a broad rollout.",
+        "differentiators": ["Decision depends on documented exception evidence"],
+        "sections": [{"title": "Recommendation", "details": ["Pilot first"]}],
+        "actions": [{"title": "Approve pilot", "owner": "Operations lead", "trigger": "Decision review", "action": "Fund one pilot lane", "output": "pilot charter", "metric": "validated quality", "timebox": "30m"}],
+        "evidence_gaps": ["No acceptance baseline"],
     },
 }
 
@@ -247,16 +260,29 @@ RISKS: {risks}
 
 Output JSON: {{"constraints": [{{"constraint": "...", "type": "...", "hard_limit": true, "workaround": "..."}}]}}""",
 
-    "sop_design": """You are a Process Designer. Given a business model, design Standard Operating Procedures:
-1. Key workflows
-2. Roles and responsibilities
-3. Decision points
-4. SLAs and metrics
-5. Handoff points
+    "sop_design": """You are a Process Designer. Build a project-specific operating procedure, not a generic template.
+Use only stated facts and the project knowledge in the input. Separate every missing fact into evidence_gaps; do not invent a market, role, metric, or baseline.
 
 BUSINESS MODEL: {business_model}
 
-Output JSON with workflows, roles, sla, metrics, kpi sections.""",
+Output exactly one JSON object: {{"kind":"sop","title":"...","summary":"...","differentiators":["specific decision or operating constraint"],"sections":[{{"title":"...","details":["..."]}}],"actions":[{{"title":"...","owner":"...","trigger":"...","action":"...","output":"...","metric":"...","timebox":"..."}}],"evidence_gaps":["..."]}}.
+Each action must be executable and must expose its trigger, accountable owner, output and success measure.""",
+
+    "strategy_analysis": """You are a Strategy Analyst. Form a project-specific strategic path from the available business artifacts and project knowledge.
+Do not reuse generic expansion or pilot advice. Identify the distinctive bet, the evidence that supports it, and the uncertainty that could invalidate it.
+
+BUSINESS MODEL: {business_model}
+RISKS: {risks}
+
+Output exactly one JSON object: {{"kind":"strategy","title":"...","summary":"...","differentiators":["..."],"sections":[{{"title":"...","details":["..."]}}],"actions":[{{"title":"...","owner":"...","trigger":"...","action":"...","output":"...","metric":"...","timebox":"..."}}],"evidence_gaps":["..."]}}.""",
+
+    "optimization_recommendations": """You are an Operations Optimizer. Produce a constrained improvement plan tailored to the project artifacts and project knowledge.
+Prioritize bottlenecks that are actually evidenced. State the guardrail that prevents optimization from harming quality, compliance, or the user experience.
+
+BUSINESS MODEL: {business_model}
+CONSTRAINTS: {all_artifacts}
+
+Output exactly one JSON object: {{"kind":"optimization","title":"...","summary":"...","differentiators":["..."],"sections":[{{"title":"...","details":["..."]}}],"actions":[{{"title":"...","owner":"...","trigger":"...","action":"...","output":"...","metric":"...","timebox":"..."}}],"evidence_gaps":["..."]}}.""",
 
     "coverage_analysis": """You are a Coverage Analyst. Given all artifacts so far, assess which business dimensions are covered and which are MISSING. Dimensions to check:
 - Market analysis
@@ -306,17 +332,12 @@ AVAILABLE DATA: {available_evidence}
 
 Output JSON: {{"finding": "...", "evidence_type": "...", "strength": "...", "contradicts": true/false}}""",
 
-    "report_composition": """You are a Report Composer. Compile all analysis into an executive summary:
-1. Business overview
-2. Key assumptions (validated vs unvalidated)
-3. Risk summary (by severity)
-4. Gaps identified
-5. Decision recommendation
-6. Next steps
+    "report_composition": """You are a Report Composer. Write a decision brief for this specific project, using the artifacts and project knowledge provided.
+Make the recommendation traceable: distinguish evidence from assumptions, preserve unresolved evidence gaps, and name the exact next action that changes the decision.
 
 {all_artifacts}
 
-Output JSON with executive_summary, sections, key_findings, recommendations.""",
+Output exactly one JSON object: {{"kind":"decision_brief","title":"...","summary":"...","differentiators":["..."],"sections":[{{"title":"...","details":["..."]}}],"actions":[{{"title":"...","owner":"...","trigger":"...","action":"...","output":"...","metric":"...","timebox":"..."}}],"evidence_gaps":["..."]}}.""",
 }
 
 
@@ -531,6 +552,7 @@ class NanobotAgentBackend:
         fields = (
             "label", "domain", "value_proposition", "customer_segments",
             "objectives", "key_activities", "key_resources", "statement",
+            "project_thesis", "distinctive_bets", "key_unknowns", "success_metrics",
             "category", "criticality", "counterfactual", "risk_statement",
             "dimension", "severity", "probability", "mitigation",
             "constraint_statement", "constraint_type", "hard_limit", "workaround",
@@ -538,6 +560,8 @@ class NanobotAgentBackend:
             "dimension_scores", "dimensions_missed", "overall_coverage",
             "gap_statement", "resolution", "decision_statement", "alternatives",
             "rationale", "assumption_confidence", "risk_acceptable", "coverage_pct",
+            "kind", "title", "summary", "differentiators", "sections", "actions",
+            "evidence_gaps", "context_pack_id",
             "confidence", "status",
         )
         parts = [f"[{artifact.artifact_id}] type: {artifact.artifact_type.value}"]
@@ -575,7 +599,13 @@ class NanobotAgentBackend:
 
         # Map JSON to artifacts based on capability output types
         for at in capability.output_artifact_types:
-            artifacts = self._map_to_artifacts(data, at, project_id)
+            artifact_data = data
+            if at == ArtifactType.DELIVERABLE and not data.get("kind"):
+                artifact_data = {
+                    **data,
+                    "kind": _deliverable_kind(capability.name),
+                }
+            artifacts = self._map_to_artifacts(artifact_data, at, project_id)
             for art in artifacts:
                 self.store.add(art)
                 artifact_ids.append(art.artifact_id)
@@ -604,6 +634,10 @@ class NanobotAgentBackend:
                 revenue_model=data.get("revenue_model", ""),
                 key_activities=data.get("key_activities", []),
                 key_resources=data.get("key_resources", []),
+                project_thesis=data.get("project_thesis", ""),
+                distinctive_bets=_string_list(data.get("distinctive_bets")),
+                key_unknowns=_string_list(data.get("key_unknowns")),
+                success_metrics=_string_list(data.get("success_metrics")),
             ))
 
         elif artifact_type == ArtifactType.ASSUMPTION:
@@ -687,6 +721,21 @@ class NanobotAgentBackend:
                 finding=data.get("finding", ""),
                 strength=_parse_sev(data.get("strength", "medium")),
                 contradicts=data.get("contradicts", False),
+            ))
+
+        elif artifact_type == ArtifactType.DELIVERABLE:
+            title = str(data.get("title") or "Project deliverable")
+            results.append(cls(
+                artifact_type=artifact_type,
+                project_id=project_id,
+                label=title[:80],
+                kind=str(data.get("kind") or "deliverable"),
+                title=title,
+                summary=str(data.get("summary") or ""),
+                differentiators=_string_list(data.get("differentiators")),
+                sections=_object_list(data.get("sections")),
+                actions=_object_list(data.get("actions")),
+                evidence_gaps=_string_list(data.get("evidence_gaps")),
             ))
 
         return results
@@ -1020,6 +1069,27 @@ def _parse_gap_category(value: Any) -> GapCategory:
         "invalid_model": GapCategory.MODEL_FAILED,
     }
     return mapping.get(normalized, GapCategory.ANALYSIS_INSUFFICIENT)
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if str(item).strip()]
+
+
+def _object_list(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [dict(item) for item in value if isinstance(item, dict)]
+
+
+def _deliverable_kind(capability_name: str) -> str:
+    return {
+        "sop_design": "sop",
+        "strategy_analysis": "strategy",
+        "optimization_recommendations": "optimization",
+        "report_composition": "decision_brief",
+    }.get(capability_name, "deliverable")
 
 
 def _uses_mock_capability_response(llm: Any) -> bool:

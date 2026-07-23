@@ -197,7 +197,10 @@ class FeedbackRouter:
 
     def _external_sources(self, output: dict[str, Any]) -> set[str]:
         sources: set[str] = set()
-        for source_id in output.get("source_refs") or []:
+        evidence = self.repository.list_output_evidence_references(
+            output["project_id"], output["id"]
+        )
+        for source_id in evidence["source_ids"]:
             source = self.repository.get_source(output["project_id"], source_id)
             if (
                 source

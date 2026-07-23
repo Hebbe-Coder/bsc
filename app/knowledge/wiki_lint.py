@@ -77,7 +77,10 @@ class WikiLint:
                     findings.append(self._finding("missing_frontmatter", operation.path, "Wiki pages require YAML frontmatter."))
                 elif frontmatter.get("kind") not in rules.allowed_page_kinds:
                     findings.append(self._finding("invalid_page_kind", operation.path, "Frontmatter kind is not allowed by AGENTS.md."))
-            for source_id in _SOURCE_REF.findall(operation.content):
+            citations = _SOURCE_REF.findall(operation.content)
+            if operation.path not in {"wiki/index.md", "wiki/log.md"} and not citations:
+                findings.append(self._finding("missing_source_citation", operation.path, "Substantive Wiki updates require an immutable source citation."))
+            for source_id in citations:
                 if source_id not in source_ids:
                     findings.append(self._finding("unknown_source", operation.path, f"Citation references unknown source: {source_id}", source_id))
             for target in _WIKI_LINK.findall(operation.content):

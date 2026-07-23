@@ -179,6 +179,179 @@ def test_runtime_runner_uses_request_scoped_project(tmp_path, monkeypatch):
     assert captured["max_iterations"] == 2
 
 
+def test_runtime_runner_injects_mapped_project_knowledge_without_returning_vault_text(tmp_path, monkeypatch):
+    from app.capabilities import runner
+    from app.capabilities.runtime import RuntimePhase, RuntimeResult
+
+    captured = {}
+
+    class FakeRuntime:
+        def __init__(self, *, store, registry, planner, max_iterations, executor_backend):
+            self.store = store
+
+        async def run(self, *, prd_text, domain_hint, project_id):
+            captured["prd_text"] = prd_text
+            self.store.create_business_model(label="Knowledge scoped", project_id=project_id)
+            return RuntimeResult(
+                status=RuntimePhase.COMPLETED,
+                artifact_graph=self.store,
+                export=self.store.export(project_id=project_id),
+                mission={},
+            )
+
+    monkeypatch.setattr(runner, "BusinessRuntime", FakeRuntime)
+    result = asyncio.run(runner.run_business_runtime(
+        input_text="Create an editorial SOP",
+        project_id="project-knowledge",
+        data_dir=str(tmp_path),
+        knowledge_context_provider=lambda project_id, query: {
+            "knowledge_context_used": True,
+            "availability": "available",
+            "context_type": "growth",
+            "context_pack_id": "pack-42",
+            "context_block": "Use the Friday evidence review before publishing.",
+            "page_ids": ["page-1"],
+            "source_ids": ["source-1"],
+            "method_revision_ids": ["method-1"],
+            "output_ids": ["output-1"],
+        },
+    ))
+
+    assert "Friday evidence review" in captured["prd_text"]
+    assert "[current request]\nCreate an editorial SOP" in captured["prd_text"]
+    assert result["runtime"]["knowledge_context"]["knowledge_context_used"] is True
+    assert result["runtime"]["knowledge_context"]["context_pack_id"] == "pack-42"
+    assert "context_block" not in result["runtime"]["knowledge_context"]
+
+
+def test_runtime_stages_contextual_deliverables_in_pending_growth_d_layer(tmp_path, monkeypatch):
+    """A completed run becomes reviewable D-layer material, never auto-context."""
+    from app.artifacts import DeliverableArtifact
+    from app.capabilities import runner
+    from app.capabilities.runtime import RuntimePhase, RuntimeResult
+    from app.core.config import settings
+    from app.knowledge.growth_context import GrowthContextService
+    from app.knowledge.growth_contracts import MethodAsset, MethodRevision, MethodStatus
+    from app.knowledge.growth_repository import GrowthRepository
+    from app.knowledge.output_registry import OutputRegistry
+    from app.knowledge.wiki_contracts import SourceRecord, SourceStatus
+
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    repository = GrowthRepository(db_path=str(tmp_path / "growth-runtime.db"))
+    repository.configure_vault("project-knowledge", "projects/knowledge", "test-owner")
+    repository.create_source(SourceRecord(
+        id="source-knowledge",
+        project_id="project-knowledge",
+        source_type="research_note",
+        content_hash="a" * 64,
+        raw_content="Evidence for the tailored operating model.",
+        status=SourceStatus.ELIGIBLE,
+    ))
+    repository.record_publication(
+        project_id="project-knowledge",
+        contents={
+            "wiki/operating-model.md": (
+                "---\ntitle: Operating model\nkind: concept\nstatus: active\n"
+                "citations: [source-knowledge]\n---\n# Operating model\n"
+                "Use an evidence review before publishing.\n"
+            ),
+        },
+        source_ids=["source-knowledge"],
+    )
+    page_id = repository.list_pages("project-knowledge")[0]["id"]
+    repository.create_method(MethodAsset(
+        id="method-editorial",
+        project_id="project-knowledge",
+        slug="evidence-editorial",
+        name="Evidence editorial method",
+        status=MethodStatus.PUBLISHED,
+        active_revision_id="method-revision-1",
+    ))
+    repository.save_method_revision(MethodRevision(
+        id="method-revision-1",
+        method_id="method-editorial",
+        project_id="project-knowledge",
+        version=1,
+        body="Verify sources before every externally visible claim.",
+        status=MethodStatus.PUBLISHED,
+    ))
+
+    captured = {}
+
+    class FakeRuntime:
+        def __init__(self, *, store, registry, planner, max_iterations, executor_backend):
+            self.store = store
+
+        async def run(self, *, prd_text, domain_hint, project_id):
+            captured["prd_text"] = prd_text
+            self.store.add(DeliverableArtifact(
+                artifact_id="deliverable-knowledge",
+                project_id=project_id,
+                label="Evidence-led editorial SOP",
+                kind="sop",
+                title="Evidence-led editorial SOP",
+                summary="Use the verified project evidence before drafting.",
+                differentiators=["Project review occurs before publication."],
+                sections=[{"heading": "Review gate", "content": "Check cited claims."}],
+                actions=[{"title": "Verify evidence", "owner": "editor"}],
+                evidence_gaps=["Confirm the weekly performance baseline."],
+            ))
+            return RuntimeResult(
+                status=RuntimePhase.COMPLETED,
+                artifact_graph=self.store,
+                export=self.store.export(project_id=project_id),
+                mission={},
+            )
+
+    monkeypatch.setattr(runner, "BusinessRuntime", FakeRuntime)
+    monkeypatch.setattr("app.knowledge.growth_repository.GrowthRepository", lambda: repository)
+    monkeypatch.setattr(settings, "KNOWLEDGE_GROWTH_ENABLED", True)
+    monkeypatch.setattr(settings, "OBSIDIAN_VAULT_ROOT", str(vault))
+
+    try:
+        result = asyncio.run(runner.run_business_runtime(
+            input_text="Raw prompt must not be written into the Vault: sk-sensitive-token",
+            project_id="project-knowledge",
+            data_dir=str(tmp_path / "artifacts"),
+            knowledge_context_provider=lambda project_id, query: {
+                "knowledge_context_used": True,
+                "availability": "available",
+                "context_type": "growth",
+                "context_pack_id": "context-pack-knowledge",
+                "context_block": "Use the project's Friday evidence review.",
+                "page_ids": [page_id],
+                "source_ids": ["source-knowledge"],
+                "method_revision_ids": ["method-revision-1"],
+            },
+        ))
+
+        registration = result["runtime"]["knowledge_output_registration"]
+        assert "Friday evidence review" in captured["prd_text"]
+        assert registration["status"] == "registered"
+        assert registration["attempted"] == registration["registered"] == 1
+        output_id = registration["output_ids"][0]
+        output = repository.get_output("project-knowledge", output_id)
+        assert output["status"] == "registered"
+        assert output["source_refs"] == ["source-knowledge"]
+        assert output["page_refs"] == [page_id]
+        assert output["method_revision_id"] == "method-revision-1"
+        materialized = OutputRegistry(repository, vault).read_content(
+            "project-knowledge", output_id
+        )["content"]
+        assert "Evidence-led editorial SOP" in materialized
+        assert "Raw prompt must not be written" not in materialized
+        assert "sk-sensitive-token" not in materialized
+
+        subsequent_context = GrowthContextService(repository, vault).build_context(
+            project_id="project-knowledge", task="Write a follow-up SOP"
+        )
+        assert output_id not in subsequent_context.output_ids
+        assert f"output:{output_id}" in subsequent_context.omitted_refs
+    finally:
+        repository.close()
+
+
 def test_runtime_runner_isolates_same_project_between_runs(tmp_path, monkeypatch):
     from app.capabilities import runner
     from app.capabilities.runtime import RuntimeResult, RuntimePhase

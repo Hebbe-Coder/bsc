@@ -63,6 +63,99 @@ def test_compiler_persists_draft_proposal_without_mutating_evidence(tmp_path):
         repo.close()
 
 
+def test_compiler_removes_declared_rule_context_refs_but_keeps_real_evidence(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "compiler-rule-reference.db"))
+    source = _eligible_source(repo)
+    provider = FakeCompilerProvider(
+        {
+            "rationale": "Keep the project rule as instruction and cite the source as evidence.",
+            "operations": [
+                {
+                    "operation": "create",
+                    "path": "wiki/concepts/approval.md",
+                    "content": (
+                        "---\ntitle: Approval\nkind: concept\n---\n\n"
+                        f"Human approval is mandatory. [source:rules:project-a] [source:{source['id']}]"
+                    ),
+                    "source_ids": ["rules:project-a", source["id"]],
+                }
+            ],
+        }
+    )
+    try:
+        result = WikiCompiler(repo, provider).compile_maintenance(
+            project_id="project-a",
+            source_ids=[source["id"]],
+            trigger="manual",
+            rules_text=build_default_agents_rules("project-a"),
+        )
+
+        operation = result.proposal["operations"][0]
+        assert operation["source_ids"] == [source["id"]]
+        assert "[source:rules:project-a]" not in operation["content"]
+        assert f"[source:{source['id']}]" in operation["content"]
+        assert result.proposal["eval_summary"]["ignored_internal_context_refs"] == ["rules:project-a"]
+    finally:
+        repo.close()
+
+
+def test_compiler_rejects_rule_context_without_real_evidence(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "compiler-rule-only-reference.db"))
+    source = _eligible_source(repo)
+    provider = FakeCompilerProvider(
+        {
+            "operations": [
+                {
+                    "operation": "create",
+                    "path": "wiki/concepts/approval.md",
+                    "content": "---\ntitle: Approval\nkind: concept\n---\n\nRule only. [source:rules:project-a]",
+                    "source_ids": ["rules:project-a"],
+                }
+            ],
+        }
+    )
+    try:
+        with pytest.raises(WikiCompilationError, match="immutable source provenance"):
+            WikiCompiler(repo, provider).compile_maintenance(
+                project_id="project-a",
+                source_ids=[source["id"]],
+                trigger="manual",
+                rules_text=build_default_agents_rules("project-a"),
+            )
+    finally:
+        repo.close()
+
+
+def test_compiler_rejects_context_excerpt_artifacts_in_proposed_wiki_prose(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "compiler-context-artifact.db"))
+    source = _eligible_source(repo)
+    provider = FakeCompilerProvider(
+        {
+            "operations": [
+                {
+                    "operation": "create",
+                    "path": "wiki/concepts/approval.md",
+                    "content": (
+                        "---\ntitle: Approval\nkind: concept\n---\n\n"
+                        f"Approval is required (content truncated in source). [source:{source['id']}]"
+                    ),
+                    "source_ids": [source["id"]],
+                }
+            ],
+        }
+    )
+    try:
+        with pytest.raises(WikiCompilationError, match="context truncation artifact"):
+            WikiCompiler(repo, provider).compile_maintenance(
+                project_id="project-a",
+                source_ids=[source["id"]],
+                trigger="manual",
+                rules_text=build_default_agents_rules("project-a"),
+            )
+    finally:
+        repo.close()
+
+
 @pytest.mark.parametrize(
     "response, message",
     [

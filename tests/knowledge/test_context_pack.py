@@ -38,6 +38,33 @@ def test_context_pack_rejects_cross_project_records():
         )
 
 
+def test_context_pack_keeps_a_bounded_source_excerpt_when_pages_consume_the_budget():
+    rules = parse_project_rules(build_default_agents_rules("project-a"))
+    pack = ContextPackBuilder(max_characters=2_000).build(
+        project_id="project-a",
+        rules=rules,
+        pages=[{
+            "id": "bootstrap-page",
+            "project_id": "project-a",
+            "content": "Published guidance. " * 120,
+        }],
+        sources=[{
+            "id": "large-prd",
+            "project_id": "project-a",
+            "raw_content": "Opening requirement. " + ("Detailed requirement. " * 500) + "Closing acceptance criterion.",
+        }],
+    )
+
+    assert pack.character_count <= pack.character_budget
+    assert pack.source_ids == ("large-prd",)
+    assert "[source:large-prd] Evidence" in pack.rendered
+    assert "[CONTEXT_EXCERPT: content truncated; consult the immutable source]" in pack.rendered
+    assert "Opening requirement." in pack.rendered
+    assert "Closing acceptance criterion." in pack.rendered
+    assert pack.rendered.split("[CONTEXT_EXCERPT", 1)[0].rstrip().endswith(".")
+    assert "large-prd:excerpted_for_budget" in pack.omitted_refs
+
+
 class CandidateRetriever:
     def __init__(self):
         self.calls = []

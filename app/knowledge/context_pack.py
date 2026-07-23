@@ -36,6 +36,8 @@ class ContextPack(BaseModel):
 class ContextPackBuilder:
     """Select full sections in deterministic priority order without cross-project leaks."""
 
+    MINIMUM_SOURCE_EXCERPT_CHARACTERS = 640
+
     def __init__(self, *, max_characters: int = 12_000) -> None:
         if max_characters < 512:
             raise ValueError("max_characters must be at least 512")
@@ -69,25 +71,53 @@ class ContextPackBuilder:
         if weekly_distillation:
             sections.extend(self._records("distillation", "Weekly Distillation", project_id, [weekly_distillation], "content"))
 
-        included: list[str] = []
+        included: list[tuple[str, str, str]] = []
         omitted: list[str] = []
-        page_ids: list[str] = []
-        source_ids: list[str] = []
-        section_refs: list[str] = []
-        used = 0
         for kind, ref_id, label, content in sections:
             rendered = f"## [{kind}:{ref_id}] {label}\n{content.strip()}\n"
-            if used + len(rendered) > self.max_characters:
+            if self._rendered_length(included, rendered) > self.max_characters:
                 omitted.append(ref_id)
                 continue
-            included.append(rendered)
-            used += len(rendered)
-            section_refs.append(f"{kind}:{ref_id}")
-            if kind == "page":
-                page_ids.append(ref_id)
-            elif kind == "source":
-                source_ids.append(ref_id)
-        rendered = "\n".join(included).strip()
+            included.append((kind, ref_id, rendered))
+
+        source_candidates = [section for section in sections if section[0] == "source"]
+        if source_candidates and not any(kind == "source" for kind, _, _ in included):
+            minimum = min(self.MINIMUM_SOURCE_EXCERPT_CHARACTERS, max(160, self.max_characters // 2))
+            while included and self._remaining_budget(included) < minimum:
+                # Rules and explicit task constraints remain governing context;
+                # published pages are derived material and can yield to A-layer evidence.
+                removable_index = next(
+                    (
+                        index
+                        for index in range(len(included) - 1, -1, -1)
+                        if included[index][0] not in {"rules", "constraint"}
+                    ),
+                    None,
+                )
+                if removable_index is None:
+                    break
+                kind, ref_id, _ = included.pop(removable_index)
+                omitted.append(f"{kind}:{ref_id}:budget_reserved_for_source")
+
+            kind, ref_id, label, content = source_candidates[0]
+            excerpt = self._bounded_section(
+                kind=kind,
+                ref_id=ref_id,
+                label=label,
+                content=content,
+                # Existing sections retain their trailing newline when joined,
+                # so the next section consumes an additional blank-line pair.
+                available=max(0, self._remaining_budget(included) - (2 if included else 0)),
+            )
+            if excerpt:
+                included.append((kind, ref_id, excerpt))
+                omitted = [item for item in omitted if item != ref_id]
+                omitted.append(f"{ref_id}:excerpted_for_budget")
+
+        rendered = "\n".join(section for _, _, section in included).strip()
+        page_ids = [ref_id for kind, ref_id, _ in included if kind == "page"]
+        source_ids = [ref_id for kind, ref_id, _ in included if kind == "source"]
+        section_refs = [f"{kind}:{ref_id}" for kind, ref_id, _ in included]
         revision = hashlib.sha256(
             f"{project_id}|{rules.revision}|{rendered}".encode("utf-8")
         ).hexdigest()
@@ -106,6 +136,48 @@ class ContextPackBuilder:
             weekly_distillation_id=str(weekly_distillation.get("id") or "") if weekly_distillation else "",
             token_budget=self.max_characters // 4,
         )
+
+    def _rendered_length(self, included: list[tuple[str, str, str]], next_section: str = "") -> int:
+        rendered = "\n".join([*(section for _, _, section in included), next_section]).strip()
+        return len(rendered)
+
+    def _remaining_budget(self, included: list[tuple[str, str, str]]) -> int:
+        return max(0, self.max_characters - self._rendered_length(included))
+
+    @staticmethod
+    def _bounded_section(*, kind: str, ref_id: str, label: str, content: str, available: int) -> str:
+        prefix = f"## [{kind}:{ref_id}] {label}\n"
+        normalized_content = content.strip()
+        full = f"{prefix}{normalized_content}\n"
+        if len(full) <= available:
+            return full
+        marker = "\n[CONTEXT_EXCERPT: content truncated; consult the immutable source]\n"
+        room = available - len(prefix) - len(marker)
+        if room < 160:
+            return ""
+        head = max(1, (room * 3) // 4)
+        tail = max(1, room - head)
+        return (
+            f"{prefix}{ContextPackBuilder._head_at_boundary(normalized_content, head)}"
+            f"{marker}{ContextPackBuilder._tail_at_boundary(normalized_content, tail)}\n"
+        )
+
+    @staticmethod
+    def _head_at_boundary(content: str, limit: int) -> str:
+        candidate = content[:limit].rstrip()
+        boundary = max(candidate.rfind(marker) for marker in ("\n", ".", "!", "?", "。", "！", "？"))
+        if boundary >= max(80, limit // 2):
+            return candidate[:boundary + 1].rstrip()
+        return candidate
+
+    @staticmethod
+    def _tail_at_boundary(content: str, limit: int) -> str:
+        candidate = content[-limit:].lstrip()
+        boundaries = [candidate.find(marker) + 1 for marker in ("\n", ".", "!", "?", "。", "！", "？")]
+        boundary = min((index for index in boundaries if index > 0), default=0)
+        if 0 < boundary <= len(candidate) // 2:
+            return candidate[boundary:].lstrip()
+        return candidate
 
     @staticmethod
     def _records(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Protocol
@@ -32,6 +33,20 @@ class WikiCompilationResult:
 
 class WikiCompiler:
     """A proposal-only compiler: evidence and published Vault state remain unchanged."""
+
+    _SOURCE_CITATION = re.compile(r"\[source:([^\]\s]+)\]")
+    _CONTEXT_EXCERPT_ARTIFACT = re.compile(
+        r"\[CONTEXT_EXCERPT(?::[^\]]*)?\]|\bcontent\s+truncated\s+in\s+source\b",
+        re.IGNORECASE,
+    )
+    _NON_EVIDENCE_CONTEXT_KINDS = frozenset({
+        "constraint",
+        "decision",
+        "distillation",
+        "evaluation",
+        "page",
+        "rules",
+    })
 
     def __init__(
         self,
@@ -147,9 +162,10 @@ class WikiCompiler:
             for item in contradictions
         ) or "- None detected; do not invent a contradiction."
         return (
-            "Compile the supplied project evidence into a JSON Wiki proposal. "
-            "Return an object with rationale and operations only. Every operation must use wiki/ paths "
-            "and cite only supplied source IDs. Do not claim any file has been published.\n\n"
+            "Compile the supplied project evidence into a reviewable Wiki proposal, not a generic summary. "
+            "Distill reusable, project-specific concepts, decisions, or methods that improve a later task. "
+            "Every factual statement must be traceable to supplied source IDs. Return only the proposal JSON schema "
+            "specified by the Wiki compiler; never claim any file has been published.\n\n"
             f"Rule revision: {rules.revision}\n\nContradiction candidates:\n{contradiction_block}\n\n{context_pack.rendered}"
         )
 
@@ -171,14 +187,24 @@ class WikiCompiler:
             raise WikiCompilationError(f"invalid proposal operations: {exc}") from exc
         if not operations:
             raise WikiCompilationError("proposal requires at least one operation")
+        internal_context_refs = {
+            reference
+            for reference in context_pack.section_refs
+            if reference.partition(":")[0] in WikiCompiler._NON_EVIDENCE_CONTEXT_KINDS
+        }
+        normalized_operations: list[WikiOperation] = []
+        ignored_context_refs: set[str] = set()
         for operation in operations:
             if not operation.path.startswith("wiki/"):
                 raise WikiCompilationError("proposal operations may only target wiki/ paths")
-            if not operation.source_ids:
-                raise WikiCompilationError("every automatic operation requires source provenance")
-            unknown = set(operation.source_ids) - selected_ids
-            if unknown:
-                raise WikiCompilationError("operation cites unknown source IDs: " + ", ".join(sorted(unknown)))
+            normalized, ignored = WikiCompiler._normalize_operation_evidence(
+                operation,
+                selected_ids=selected_ids,
+                internal_context_refs=internal_context_refs,
+            )
+            normalized_operations.append(normalized)
+            ignored_context_refs.update(ignored)
+        operations = normalized_operations
         operations.append(
             WikiOperation(
                 operation=WikiOperationType.APPEND,
@@ -222,8 +248,58 @@ class WikiCompiler:
                 "input_page_ids": list(context_pack.page_ids),
                 "input_source_ids": list(context_pack.source_ids),
                 "contradictions": contradictions,
+                "ignored_internal_context_refs": sorted(ignored_context_refs),
             },
         )
+
+    @classmethod
+    def _normalize_operation_evidence(
+        cls,
+        operation: WikiOperation,
+        *,
+        selected_ids: set[str],
+        internal_context_refs: set[str],
+    ) -> tuple[WikiOperation, set[str]]:
+        """Remove declared context labels while rejecting every non-evidence citation.
+
+        Context packs deliberately label project rules, pages, evaluations, and
+        distillations as ``[kind:id]``. A provider can copy those labels into
+        ``source_ids`` even though they are instructions, not immutable evidence.
+        Only labels already declared in this context pack are removable; every
+        other unknown identifier remains a hard failure.
+        """
+        ignored: set[str] = set()
+        normalized_source_ids: list[str] = []
+        for source_id in operation.source_ids:
+            if source_id in selected_ids:
+                if source_id not in normalized_source_ids:
+                    normalized_source_ids.append(source_id)
+            elif source_id in internal_context_refs:
+                ignored.add(source_id)
+            else:
+                raise WikiCompilationError(f"operation cites unknown source IDs: {source_id}")
+
+        def replace_citation(match: re.Match[str]) -> str:
+            source_id = match.group(1)
+            if source_id in selected_ids:
+                return match.group(0)
+            if source_id in internal_context_refs:
+                ignored.add(source_id)
+                return ""
+            raise WikiCompilationError(f"operation cites unknown source IDs: {source_id}")
+
+        content = cls._SOURCE_CITATION.sub(replace_citation, operation.content)
+        if cls._CONTEXT_EXCERPT_ARTIFACT.search(content):
+            raise WikiCompilationError("proposal contains a context truncation artifact instead of evidence-grounded prose")
+        if not normalized_source_ids:
+            raise WikiCompilationError("every automatic operation requires immutable source provenance")
+        if operation.operation in {
+            WikiOperationType.CREATE,
+            WikiOperationType.REPLACE,
+            WikiOperationType.APPEND,
+        } and not cls._SOURCE_CITATION.search(content):
+            raise WikiCompilationError("automatic content operations require an inline citation to a selected source")
+        return operation.model_copy(update={"source_ids": normalized_source_ids, "content": content}), ignored
 
     @staticmethod
     def _contradictions(sources: list[dict[str, Any]]) -> list[dict[str, str]]:

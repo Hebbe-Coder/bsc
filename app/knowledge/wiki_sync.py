@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_source_capture import CapturedSourceInput, SourceCaptureService
+from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
 
 
 class ObsidianSyncService:
@@ -30,6 +31,8 @@ class ObsidianSyncService:
             if mapping.get("vault_path")
         }
         project_root = mappings.get(project_id, ())
+        project_directory = (self.vault_root.joinpath(*project_root)).resolve() if project_root else None
+        manifest = ObsidianPluginManifest.load(project_directory)
         managed_roots = {("projects",)} | set(mappings.values())
         for path in self.vault_root.rglob("*"):
             if path.is_symlink():
@@ -41,6 +44,8 @@ class ObsidianSyncService:
             if self._excluded(relative, project_root, managed_roots):
                 continue
             seen_paths.add(relative.as_posix())
+            project_relative = "/".join(relative.parts[len(project_root):]) if project_root else ""
+            plugin = manifest.plugin_for(project_relative) if project_relative else None
             extension = path.suffix.lower()
             if extension not in {".md", ".txt", ".json", ".canvas"}:
                 result = self.capture_service.capture(
@@ -54,6 +59,7 @@ class ObsidianSyncService:
                         trust_level="untrusted",
                         metadata={
                             "sync": "obsidian",
+                            **self._plugin_metadata(plugin),
                             "modified_at": path.stat().st_mtime_ns,
                             "extension": extension,
                             "byte_size": path.stat().st_size,
@@ -77,6 +83,7 @@ class ObsidianSyncService:
                         content_hash=self._file_hash(path),
                         metadata={
                             "sync": "obsidian",
+                            **self._plugin_metadata(plugin),
                             "modified_at": path.stat().st_mtime_ns,
                             "extension": extension,
                             "byte_size": path.stat().st_size,
@@ -94,13 +101,14 @@ class ObsidianSyncService:
             result = self.capture_service.capture(
                 CapturedSourceInput(
                     project_id=project_id,
-                    source_type="obsidian_markdown" if extension == ".md" else "obsidian_file",
+                    source_type=(f"obsidian_plugin:{plugin.plugin_id}" if plugin else ("obsidian_markdown" if extension == ".md" else "obsidian_file")),
                     origin=relative.as_posix(),
                     vault_path=relative.as_posix(),
                     raw_content=content,
                     trust_level="untrusted",
                     metadata={
                         "sync": "obsidian",
+                        **self._plugin_metadata(plugin),
                         "modified_at": path.stat().st_mtime_ns,
                         "extension": extension,
                         "extraction_status": "complete",
@@ -135,6 +143,16 @@ class ObsidianSyncService:
         self.repository.update_source_metadata(source["project_id"], source["id"], restored)
 
     @staticmethod
+    def _plugin_metadata(plugin) -> dict:
+        if plugin is None:
+            return {}
+        return {
+            "obsidian_plugin": plugin.plugin_id,
+            "plugin_name": plugin.name,
+            "obsidian_adapter": plugin.adapter,
+        }
+
+    @staticmethod
     def _file_hash(path: Path) -> str:
         digest = hashlib.sha256()
         with path.open("rb") as handle:
@@ -158,5 +176,5 @@ class ObsidianSyncService:
             return True
         if project_root and parts[:len(project_root)] == project_root:
             project_relative = parts[len(project_root):]
-            return not project_relative or project_relative[0] not in {"raw", "inbox"}
+            return not ObsidianPluginManifest.is_source_export_path(project_relative)
         return any(parts[:len(root)] == root for root in managed_roots or {("projects",)})

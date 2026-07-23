@@ -1,7 +1,7 @@
 import { apiFetch, fetchWrapper } from './fetchWrapper';
 
 export type GrowthStage = 'A' | 'B' | 'C' | 'D' | 'review';
-export type GrowthAssetKind = 'source' | 'page' | 'method' | 'output' | 'feedback' | 'proposal';
+export type GrowthAssetKind = 'source' | 'page' | 'method' | 'method_proposal' | 'output' | 'feedback' | 'proposal';
 export type GrowthRequestState = 'idle' | 'loading' | 'success' | 'empty' | 'permission' | 'offline' | 'unavailable' | 'error';
 
 export type GrowthProfile = {
@@ -27,6 +27,7 @@ export type GrowthCounts = {
   rejected_outputs: number;
   feedback: number;
   wiki_proposals?: number;
+  method_proposals?: number;
   review_records?: number;
 };
 
@@ -122,6 +123,12 @@ export type GrowthStageResult = {
   truncated: boolean;
 };
 
+export type GrowthRun = GrowthRecord & {
+  run_id?: string;
+  run_type?: 'growth_daily' | 'growth_weekly_distillation';
+  status?: string;
+};
+
 export type GrowthPageDetail = {
   page: GrowthRecord;
   content: string;
@@ -141,6 +148,7 @@ export type GrowthAssetDetail = {
   evaluations?: GrowthRecord[];
   feedback?: GrowthRecord[];
   contentDescriptor?: GrowthOutputContent;
+  evidence?: GrowthOutputEvidence;
   detailAvailability: 'complete' | 'metadata_only';
   detailMessage?: string;
 };
@@ -155,11 +163,38 @@ export type GrowthOutputContent = {
   content: string;
 };
 
+export type GrowthOutputEvidence = {
+  source_ids: string[];
+  page_ids: string[];
+};
+
 export type GrowthFeedbackInput = {
   feedback_type: 'accepted' | 'rejected' | 'corrected' | 'rated' | 'reused';
   rating?: number;
   correction?: string;
   comment?: string;
+};
+
+export type GrowthOutputEvaluationInput = {
+  groundedness: number;
+  task_fit: number;
+  usefulness: number;
+  coherence: number;
+  format_quality: number;
+  findings: string[];
+};
+
+export type GrowthOutputEvidenceInput = {
+  source_ids: string[];
+  page_ids: string[];
+};
+
+export type GrowthMethodReviewInput = {
+  comparable_uses?: number;
+  average_quality?: number;
+  groundedness?: number;
+  security_failures?: number;
+  regression_failures?: number;
 };
 
 type ApiEnvelope<T> = {
@@ -260,7 +295,12 @@ function stageRecords(payload: GrowthAssets, stage: GrowthStage): GrowthRecord[]
   return [...(payload.feedback ?? []), ...(payload.proposals ?? [])];
 }
 
+function referenceIds(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && Boolean(item)) : [];
+}
+
 export function growthRecordKind(record: GrowthRecord, stage: GrowthStage): GrowthAssetKind {
+  if (record.asset_type === 'method_proposal') return 'method_proposal';
   if (record.asset_type === 'wiki_proposal' || record.asset_type === 'proposal') return 'proposal';
   if (record.asset_type === 'feedback') return 'feedback';
   if (stage === 'A') return 'source';
@@ -289,6 +329,27 @@ export async function fetchGrowthAccess(projectId: string, signal?: AbortSignal)
     signal,
   );
   return { role: workspace.access.role, can_write: workspace.access.can_write, features: workspace.features };
+}
+
+export async function fetchGrowthRuns(projectId: string, signal?: AbortSignal): Promise<GrowthRun[]> {
+  const payload = await request<{ runs: GrowthRun[] }>(
+    `/knowledge/growth/${encoded(projectId)}/runs?limit=20`,
+    signal,
+  );
+  return payload.runs;
+}
+
+export async function startGrowthRun(
+  projectId: string,
+  jobType: 'growth_daily' | 'growth_weekly_distillation',
+  signal?: AbortSignal,
+): Promise<GrowthRun> {
+  const payload = await request<{ run: GrowthRun }>(
+    `/knowledge/growth/${encoded(projectId)}/runs`,
+    signal,
+    { method: 'POST', body: JSON.stringify({ job_type: jobType }) },
+  );
+  return payload.run;
 }
 
 export async function fetchGrowthStage(projectId: string, stage: GrowthStage, limit = 40, signal?: AbortSignal): Promise<GrowthStageResult> {
@@ -360,6 +421,18 @@ export async function fetchGrowthAssetDetail(
     const baselines = await fetchProposalBaselines(projectId, merged, signal);
     return { kind, record: merged, baselines, detailAvailability: 'complete' };
   }
+  if (kind === 'method_proposal') {
+    const detail = await request<{ proposal: GrowthRecord }>(
+      `/knowledge/growth/${encoded(projectId)}/methods/proposals/${encoded(record.id)}`,
+      signal,
+    );
+    return {
+      kind,
+      record: { ...record, ...detail.proposal },
+      content: typeof detail.proposal.body === 'string' ? detail.proposal.body : undefined,
+      detailAvailability: 'complete',
+    };
+  }
   if (kind === 'method') {
     const resolved = await request<{ method: GrowthRecord; revision: GrowthRecord | null; resolution_status: string }>(
       `/knowledge/growth/${encoded(projectId)}/methods/${encoded(record.id)}/resolve`,
@@ -378,7 +451,7 @@ export async function fetchGrowthAssetDetail(
   }
   if (kind === 'output') {
     const [outputDetail, contentPayload] = await Promise.all([
-      request<{ output: GrowthRecord; evaluations: GrowthRecord[]; feedback: GrowthRecord[] }>(
+      request<{ output: GrowthRecord; evidence?: GrowthOutputEvidence; evaluations: GrowthRecord[]; feedback: GrowthRecord[] }>(
         `/knowledge/growth/${encoded(projectId)}/outputs/${encoded(record.id)}`,
         signal,
       ),
@@ -400,6 +473,10 @@ export async function fetchGrowthAssetDetail(
       content,
       evaluations: outputDetail.evaluations,
       feedback: outputDetail.feedback,
+      evidence: outputDetail.evidence ?? {
+        source_ids: referenceIds(outputDetail.output.source_refs),
+        page_ids: referenceIds(outputDetail.output.page_refs),
+      },
       contentDescriptor: descriptor,
       detailAvailability: content === undefined ? 'metadata_only' : 'complete',
       detailMessage,
@@ -409,6 +486,7 @@ export async function fetchGrowthAssetDetail(
     source: 'Raw evidence bodies are intentionally excluded from this API; provenance metadata remains available.',
     page: '',
     method: 'No published method revision is currently resolvable.',
+    method_proposal: 'The method candidate is available for governed evaluation and publication review.',
     output: 'The governed output descriptor is available, but no verified inline preview was returned.',
     feedback: 'Feedback metadata is complete for this review record.',
     proposal: 'This method proposal body is available in the persisted proposal record.',
@@ -447,6 +525,34 @@ export async function addGrowthOutputFeedback(
   return payload.feedback;
 }
 
+export async function evaluateGrowthOutput(
+  projectId: string,
+  outputId: string,
+  evaluation: GrowthOutputEvaluationInput,
+  signal?: AbortSignal,
+): Promise<GrowthRecord> {
+  const payload = await request<{ evaluation: GrowthRecord }>(
+    `/knowledge/growth/${encoded(projectId)}/outputs/${encoded(outputId)}/evaluate`,
+    signal,
+    { method: 'POST', body: JSON.stringify(evaluation) },
+  );
+  return payload.evaluation;
+}
+
+export async function linkGrowthOutputEvidence(
+  projectId: string,
+  outputId: string,
+  evidence: GrowthOutputEvidenceInput,
+  signal?: AbortSignal,
+): Promise<{ output: GrowthRecord; evidence: GrowthOutputEvidence }> {
+  const payload = await request<{ output: GrowthRecord; evidence: GrowthOutputEvidence }>(
+    `/knowledge/growth/${encoded(projectId)}/outputs/${encoded(outputId)}/evidence`,
+    signal,
+    { method: 'POST', body: JSON.stringify(evidence) },
+  );
+  return payload;
+}
+
 export async function fileGrowthOutput(projectId: string, outputId: string, signal?: AbortSignal): Promise<GrowthRecord> {
   const payload = await request<{ output: GrowthRecord }>(
     `/knowledge/growth/${encoded(projectId)}/outputs/${encoded(outputId)}/file`,
@@ -454,6 +560,34 @@ export async function fileGrowthOutput(projectId: string, outputId: string, sign
     { method: 'POST', body: JSON.stringify({ reason: 'Filed from the Growth workspace after accepted evaluation review.' }) },
   );
   return payload.output;
+}
+
+export async function evaluateGrowthMethodProposal(
+  projectId: string,
+  proposalId: string,
+  review: GrowthMethodReviewInput = {},
+  signal?: AbortSignal,
+): Promise<GrowthRecord> {
+  const payload = await request<{ proposal_id: string; evaluation: GrowthRecord }>(
+    `/knowledge/growth/${encoded(projectId)}/methods/proposals/${encoded(proposalId)}/review`,
+    signal,
+    { method: 'POST', body: JSON.stringify(review) },
+  );
+  return payload.evaluation;
+}
+
+export async function publishGrowthMethodProposal(
+  projectId: string,
+  proposalId: string,
+  expectedProfileRevision?: number,
+  signal?: AbortSignal,
+): Promise<GrowthRecord> {
+  const payload = await request<{ method: GrowthRecord }>(
+    `/knowledge/growth/${encoded(projectId)}/methods/proposals/${encoded(proposalId)}/publish`,
+    signal,
+    { method: 'POST', body: JSON.stringify({ expected_profile_revision: expectedProfileRevision }) },
+  );
+  return payload.method;
 }
 
 // Kept for callers that still consume the pre-P8 aggregate API.

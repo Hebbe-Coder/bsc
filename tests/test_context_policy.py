@@ -37,3 +37,44 @@ def test_resume_requires_a_source_session():
         assert "source session" in str(exc)
     else:
         raise AssertionError("resume without source must fail closed")
+
+
+def test_fresh_keeps_project_knowledge_as_persistent_context():
+    packet = ContextManager(max_tokens=256).build(
+        "Create a project-specific SOP",
+        policy=ContextPolicy.FRESH,
+        persistent_items=[ContextItem(
+            role="project_knowledge",
+            content="The audience rejects generic templates and requires a Friday evidence review.",
+            priority=100,
+        )],
+    )
+
+    assert "[persistent project context]" in packet.rendered_input
+    assert "Friday evidence review" in packet.rendered_input
+    assert packet.rendered_input.endswith("[current request]\nCreate a project-specific SOP")
+    assert packet.usage.persistent_items == 1
+    assert packet.usage.persistent_included == 1
+
+
+def test_fork_and_resume_keep_project_knowledge_outside_chat_history():
+    for policy in (ContextPolicy.FORK, ContextPolicy.RESUME):
+        packet = ContextManager(max_tokens=256).build(
+            "Produce the next project-specific SOP",
+            policy=policy,
+            inherited_items=[ContextItem(role="session", content="prior user decision")],
+            persistent_items=[ContextItem(
+                role="project_knowledge",
+                content="Publishing requires the project's Friday evidence review.",
+                priority=100,
+            )],
+        )
+
+        assert "[persistent project context]" in packet.rendered_input
+        assert "Friday evidence review" in packet.rendered_input
+        assert "[inherited context]" in packet.rendered_input
+        assert packet.rendered_input.endswith(
+            "[current request]\nProduce the next project-specific SOP"
+        )
+        assert packet.usage.persistent_items == 1
+        assert packet.usage.persistent_included == 1

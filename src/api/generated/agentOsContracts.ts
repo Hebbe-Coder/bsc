@@ -76,6 +76,34 @@ export interface CapabilityExecutionMetadata {
   model_usage: ModelUsage | null;
 }
 
+export interface KnowledgeContextMetadata {
+  knowledge_context_used: boolean;
+  context_type: string;
+  availability: string;
+  context_pack_id: string;
+  profile_revision: number;
+  rules_revision: string;
+  page_ids: string[];
+  source_ids: string[];
+  method_revision_ids: string[];
+  output_ids: string[];
+  rejected_output_ids: string[];
+  evaluation_ids: string[];
+  feedback_ids: string[];
+  assumptions: string[];
+  research_gaps: string[];
+  omitted_refs: string[];
+}
+
+export interface KnowledgeOutputRegistration {
+  status: string;
+  attempted: number;
+  registered: number;
+  output_ids: string[];
+  audit_run_ids: string[];
+  errors: string[];
+}
+
 export interface AgentRuntimeMetadata {
   status: string;
   execution_id: string;
@@ -86,6 +114,9 @@ export interface AgentRuntimeMetadata {
   stage_modes: Record<string, string>;
   degraded: boolean;
   capability_executions: CapabilityExecutionMetadata[];
+  context: Record<string, unknown>;
+  knowledge_context: KnowledgeContextMetadata;
+  knowledge_output_registration: KnowledgeOutputRegistration;
 }
 
 export interface AgentAnalysisResponse {

@@ -96,11 +96,14 @@ class OutputEvaluator:
         if not bool((output.get("metadata") or {}).get("requires_evidence", True)):
             return
         external_sources: set[str] = set()
-        for source_id in output.get("source_refs") or []:
+        evidence = self.repository.list_output_evidence_references(
+            output["project_id"], output["id"]
+        )
+        for source_id in evidence["source_ids"]:
             source = self.repository.get_source(output["project_id"], source_id)
             if self._is_external_evidence(source):
                 external_sources.add(source_id)
-        for page_id in output.get("page_refs") or []:
+        for page_id in evidence["page_ids"]:
             for citation in self.repository.list_citations(output["project_id"], page_id):
                 source_id = str(citation.get("source_id") or "")
                 source = self.repository.get_source(output["project_id"], source_id)

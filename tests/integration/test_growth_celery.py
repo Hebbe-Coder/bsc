@@ -45,6 +45,70 @@ def test_growth_task_is_registered_and_duplicate_delivery_is_idempotent(tmp_path
         repo.close()
 
 
+def test_growth_daily_syncs_declared_obsidian_exports_before_distillation(tmp_path, monkeypatch):
+    root = tmp_path / "vault"
+    project_root = root / "projects" / "project-a"
+    (project_root / "raw" / "readwise").mkdir(parents=True)
+    (project_root / "04_Outputs" / "hyperframes").mkdir(parents=True)
+    (project_root / "raw" / "readwise" / "research.md").write_text(
+        "# Research signal\nA source exported by an Obsidian plugin.", encoding="utf-8"
+    )
+    (project_root / "04_Outputs" / "hyperframes" / "brief.md").write_text(
+        "# Video brief\nA real plugin output awaiting review.", encoding="utf-8"
+    )
+    (project_root / "bsc-plugins.json").write_text(
+        '{"plugins":['
+        '{"id":"readwise","name":"Readwise","adapter":"filesystem_drop","input_paths":["raw/readwise"]},'
+        '{"id":"hyperframes","name":"HyperFrames","adapter":"filesystem_output","input_paths":["04_Outputs/hyperframes"]}'
+        ']}',
+        encoding="utf-8",
+    )
+    repo = GrowthRepository(db_path=str(tmp_path / "growth-plugin-daily.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    run = _queued_run(repo, run_id="plugin-daily")
+    monkeypatch.setattr(settings, "KNOWLEDGE_GROWTH_ENABLED", True)
+    monkeypatch.setattr(settings, "KNOWLEDGE_OBSIDIAN_SYNC_ENABLED", True)
+    monkeypatch.setattr(settings, "OBSIDIAN_VAULT_ROOT", str(root))
+    try:
+        result = execute_growth_run("project-a", run.id, repository=repo)
+
+        assert result["status"] == "completed"
+        assert result["sync"]["status"] == "completed"
+        assert result["sync"]["sources"]["created"] == 1
+        assert result["sync"]["outputs"]["registered"] == 1
+        assert result["sync"]["plugins"]["plugins"] == [
+            {
+                "id": "readwise",
+                "name": "Readwise",
+                "adapter": "filesystem_drop",
+                "input_paths": ["raw/readwise"],
+                "status": "captured",
+                "captured_sources": 1,
+                "registered_outputs": 0,
+                "last_captured_at": repo.list_sources("project-a")[0]["captured_at"],
+                "last_registered_at": "",
+            },
+            {
+                "id": "hyperframes",
+                "name": "HyperFrames",
+                "adapter": "filesystem_output",
+                "input_paths": ["04_Outputs/hyperframes"],
+                "status": "registered_output",
+                "captured_sources": 0,
+                "registered_outputs": 1,
+                "last_captured_at": "",
+                "last_registered_at": repo.list_outputs("project-a")[0]["created_at"],
+            },
+        ]
+        assert repo.list_sources("project-a")[0]["status"] == "validated"
+        assert repo.list_outputs("project-a")[0]["status"] == "registered"
+        events = repo.list_run_events(project_id="project-a", run_id=run.id)
+        assert any(event["event_type"] == "knowledge.growth.obsidian_sync.completed" for event in events)
+        assert any(event["event_type"] == "knowledge.growth.distillation.completed" for event in events)
+    finally:
+        repo.close()
+
+
 def test_growth_entrypoint_rejects_non_growth_run_without_mutating_it(tmp_path):
     repo = GrowthRepository(db_path=str(tmp_path / "growth-wrong-domain.db"))
     run = KnowledgeRun(id="wiki-run", project_id="project-a", run_type="wiki_maintenance", trigger="manual")

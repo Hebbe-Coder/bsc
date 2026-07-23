@@ -284,6 +284,7 @@ ARTIFACT TYPES (knowledge units):
 - coverage: dimension coverage analysis
 - gap: identified gaps
 - decision: business decisions with rationale
+- deliverable: a reviewable SOP, strategy, optimization plan, or decision brief
 
 PRD TEXT:
 {prd_text[:4000]}

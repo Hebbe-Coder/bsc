@@ -35,3 +35,18 @@ def test_vault_commit_can_archive_managed_text_without_touching_binary(tmp_path)
 
     assert not (project / "remove.md").exists()
     assert binary.read_bytes() == b"\xff\xfe\x00\x01"
+
+
+def test_vault_commit_creates_safe_empty_operational_directories(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    vault = FilesystemWikiVault(root, "project-a")
+
+    vault.commit(
+        {"README.md": "# Workspace\n"},
+        directories=("00_Inbox/web-clipper", "01_Sources/feishu", "04_Outputs/articles"),
+    )
+
+    assert (root / "projects" / "project-a" / "00_Inbox" / "web-clipper").is_dir()
+    assert (root / "projects" / "project-a" / "01_Sources" / "feishu").is_dir()
+    assert (root / "projects" / "project-a" / "04_Outputs" / "articles").is_dir()

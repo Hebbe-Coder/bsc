@@ -15,6 +15,23 @@ from app.knowledge.growth_contracts import (
     OutputFeedback,
 )
 from app.knowledge.wiki_contracts import SourceRecord, SourceStatus
+from app.knowledge.wiki_rules import build_default_agents_rules
+
+
+class _NarrativeProvider:
+    def render(self, *, kind, project_id, period, context):
+        if kind == "daily":
+            return {"daily": "## Grounded daily synthesis\n\n[source:source-a@revision-a] changes the project decision context."}
+        names = GrowthDistillationService.WEEKLY_DOCUMENTS
+        return {
+            "weekly": {
+                names[0]: "# This week\n\n[source:source-a] is the decisive evidence.",
+                names[1]: "# Knowledge actions\n\nReview [source:source-a].",
+                names[2]: "# Content creation\n\nUse accepted D output as a style example only.",
+                names[3]: "# Next context\n\n[source:source-a] remains available.",
+                names[4]: "# Method iteration\n\nNo method promotion without evaluation.",
+            }
+        }
 
 
 def test_weekly_distillation_is_idempotent_and_writes_dual_track_bundle(tmp_path):
@@ -45,6 +62,40 @@ def test_weekly_distillation_is_idempotent_and_writes_dual_track_bundle(tmp_path
         assert len(manifest["paths"]) == 5
         for relative, expected_hash in manifest["file_hashes"].items():
             assert hashlib.sha256((root / "projects" / "project-a" / relative).read_bytes()).hexdigest() == expected_hash
+    finally:
+        repo.close()
+
+
+def test_distillation_uses_validated_narrative_provider_and_records_its_mode(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "distillation-narrative.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        repo.create_source(
+            SourceRecord(
+                id="source-a",
+                project_id="project-a",
+                source_type="article",
+                content_hash="a" * 64,
+                raw_content="The project must keep review gates before publication.",
+                trust_level="trusted",
+                status=SourceStatus.ELIGIBLE,
+            )
+        )
+        service = GrowthDistillationService(repo, root, narrative_provider=_NarrativeProvider())
+
+        daily = service.run_daily("project-a", "2026-07-24", source_cutoff="2026-07-24T09:00:00Z")
+        weekly = service.run_weekly("project-a", "2026-W30", source_cutoff="2026-07-24T09:00:00Z")
+
+        daily_path = root / "projects" / "project-a" / daily["paths"][0]
+        weekly_path = root / "projects" / "project-a" / weekly["paths"][0]
+        assert "Grounded daily synthesis" in daily_path.read_text(encoding="utf-8")
+        assert "[source:source-a]" in daily_path.read_text(encoding="utf-8")
+        assert "[source:source-a@revision-a]" not in daily_path.read_text(encoding="utf-8")
+        assert "decisive evidence" in weekly_path.read_text(encoding="utf-8")
+        assert daily["manifest"]["generation"]["mode"] == "llm"
+        assert weekly["manifest"]["generation"]["mode"] == "llm"
     finally:
         repo.close()
 
@@ -279,5 +330,51 @@ def test_changed_weekly_input_preserves_previous_managed_revision_and_user_file(
         assert second["input_hash"] != first["input_hash"]
         assert (weekly_root / "revisions" / first["input_hash"] / "manifest.json").exists()
         assert (weekly_root / "user-note.md").read_text(encoding="utf-8") == "keep me"
+    finally:
+        repo.close()
+
+
+def test_weekly_context_uses_published_b_page_without_duplicating_rules_or_audit_log(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "distillation-context-pages.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        project_root = root / "projects" / "project-a"
+        project_root.mkdir(parents=True)
+        (project_root / "AGENTS.md").write_text(build_default_agents_rules("project-a"), encoding="utf-8")
+        source = SourceRecord(
+            id="source-a",
+            project_id="project-a",
+            source_type="manual_upload",
+            content_hash="a" * 64,
+            raw_content="The ABCD loop requires immutable evidence.",
+            trust_level="trusted",
+            status=SourceStatus.ELIGIBLE,
+        )
+        repo.create_source(source)
+        repo.record_publication(
+            project_id="project-a",
+            contents={
+                "AGENTS.md": build_default_agents_rules("project-a"),
+                "wiki/index.md": "# Index\n- [[wiki/concepts/loop.md]]\n",
+                "wiki/log.md": "# Log\n- Publication event\n",
+                "wiki/concepts/loop.md": (
+                    "---\ntitle: ABCD loop\nkind: concept\n---\n"
+                    "ABCD governs knowledge growth. [source:source-a]\n"
+                ),
+            },
+            source_ids=["source-a"],
+        )
+
+        result = GrowthDistillationService(repo, root).run_weekly(
+            "project-a", "2026-W30", source_cutoff="2100-01-01T00:00:00Z"
+        )
+        context = result["manifest"]["context"]
+        page_by_path = {page["path"]: page["id"] for page in repo.list_pages("project-a")}
+
+        assert page_by_path["wiki/concepts/loop.md"] in context["page_ids"]
+        assert page_by_path["AGENTS.md"] not in context["page_ids"]
+        assert page_by_path["wiki/log.md"] not in context["page_ids"]
     finally:
         repo.close()

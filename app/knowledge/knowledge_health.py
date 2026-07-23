@@ -11,6 +11,8 @@ from app.knowledge.wiki_repository import WikiRepository
 class KnowledgeHealthService:
     """Calculate inspectable health facts without inventing unavailable measurements."""
 
+    _NON_SUBSTANTIVE_PATHS = frozenset({"AGENTS.md", "wiki/index.md", "wiki/log.md"})
+
     def __init__(self, repository: WikiRepository) -> None:
         self.repository = repository
 
@@ -23,14 +25,23 @@ class KnowledgeHealthService:
         proposals = self.repository.list_proposals(project_id)
         edges = self.repository.list_graph_edges(project_id, edge_type="wiki_links_to")
         page_ids = {page["id"] for page in pages}
+        substantive_page_ids = {
+            page["id"]
+            for page in pages
+            if str(page.get("path") or "") not in self._NON_SUBSTANTIVE_PATHS
+        }
         source_ids = {source["id"] for source in sources}
         cited_page_ids = {citation["wiki_page_id"] for citation in citations}
-        linked_page_ids = {edge["to_id"] for edge in edges if edge["to_id"] in page_ids}
+        linked_page_ids = {edge["to_id"] for edge in edges if edge["to_id"] in substantive_page_ids}
         eligible_sources = {source["id"] for source in sources if source["status"] == "eligible"}
         cited_sources = {citation["source_id"] for citation in citations}
-        stale_pages = [page["id"] for page in pages if self._is_stale(page.get("updated_at", ""), current)]
+        stale_pages = [
+            page["id"]
+            for page in pages
+            if page["id"] in substantive_page_ids and self._is_stale(page.get("updated_at", ""), current)
+        ]
         pending = [proposal["id"] for proposal in proposals if proposal["status"] in {"draft", "validating", "approved"}]
-        uncited_pages = page_ids - cited_page_ids
+        uncited_pages = substantive_page_ids - cited_page_ids
         eval_runs = self.repository.list_eval_runs(project_id, limit=20)
         latest_eval = eval_runs[0] if eval_runs else None
         contradiction_pairs: set[tuple[str, str]] = set()
@@ -48,8 +59,8 @@ class KnowledgeHealthService:
             "pages": len(pages),
             "sources": len(sources),
             "citations": len(citations),
-            "citation_coverage": len(page_ids - uncited_pages) / len(page_ids) if page_ids else None,
-            "orphan_page_ids": sorted(page_ids - linked_page_ids),
+            "citation_coverage": (len(substantive_page_ids - uncited_pages) / len(substantive_page_ids)) if substantive_page_ids else None,
+            "orphan_page_ids": sorted(substantive_page_ids - linked_page_ids),
             "uncited_page_ids": sorted(uncited_pages),
             "dangling_citation_count": sum(1 for citation in citations if citation["source_id"] not in source_ids),
             "stale_citation_count": sum(1 for citation in all_citations if citation["status"] == "stale"),

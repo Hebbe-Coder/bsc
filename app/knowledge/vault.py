@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 from pathlib import Path, PurePosixPath
+from typing import Iterable
 from uuid import uuid4
 
 from app.knowledge.proposal_gate import InMemoryWikiVault, ProposalGateError
@@ -52,12 +53,13 @@ class FilesystemWikiVault(InMemoryWikiVault):
         # ``InMemoryWikiVault`` initializes this attribute; filesystem state is read on demand.
         pass
 
-    def commit(self, staged: dict[str, str]) -> None:
+    def commit(self, staged: dict[str, str], *, directories: Iterable[str] = ()) -> None:
         staging_parent = self.root / ".bsc-staging"
         staging_parent.mkdir(parents=True, exist_ok=True)
         transaction_id = uuid4().hex
         staged_root = staging_parent / f"{self.project_id}-{transaction_id}"
         backup_root = staging_parent / f"{self.project_id}-{transaction_id}.backup"
+        requested_directories = tuple(dict.fromkeys(self._normalize_directory(directory) for directory in directories))
         try:
             target = self.project_root
             if target.exists() and any(path.is_symlink() for path in target.rglob("*")):
@@ -74,18 +76,20 @@ class FilesystemWikiVault(InMemoryWikiVault):
                         continue
                     if relative_path not in staged:
                         existing.unlink()
+            for relative_directory in requested_directories:
+                self._safe_child(staged_root, relative_directory).mkdir(parents=True, exist_ok=True)
             for relative_path, content in staged.items():
                 destination = self._safe_child(staged_root, relative_path)
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_text(content, encoding="utf-8", newline="\n")
             target.parent.mkdir(parents=True, exist_ok=True)
             if target.exists():
-                os.replace(target, backup_root)
+                self._move_directory(target, backup_root)
             try:
-                os.replace(staged_root, target)
+                self._move_directory(staged_root, target)
             except Exception:
                 if backup_root.exists():
-                    os.replace(backup_root, target)
+                    self._move_directory(backup_root, target)
                 raise
             if backup_root.exists():
                 shutil.rmtree(backup_root)
@@ -94,11 +98,38 @@ class FilesystemWikiVault(InMemoryWikiVault):
                 shutil.rmtree(staged_root)
 
     @staticmethod
+    def _move_directory(source: Path, destination: Path) -> None:
+        """Move an unshared project directory within its Vault volume.
+
+        ``os.replace`` maps to a directory replacement operation that can reject
+        an otherwise valid first publish on Windows. Every destination used by
+        this transaction is absent, so ``rename`` retains same-volume atomicity
+        there while preserving the existing replace behavior on POSIX.
+        """
+        if os.name == "nt":
+            os.rename(source, destination)
+        else:
+            os.replace(source, destination)
+
+    @staticmethod
     def _safe_child(root: Path, relative_path: str) -> Path:
         candidate = (root / relative_path).resolve()
         if root.resolve() not in candidate.parents:
             raise ProposalGateError("Vault operation escaped its staged project directory")
         return candidate
+
+    @staticmethod
+    def _normalize_directory(value: str) -> str:
+        raw = str(value or "").strip().replace("\\", "/").strip("/")
+        path = PurePosixPath(raw)
+        if (
+            not raw
+            or path.is_absolute()
+            or any(part in {"", ".", ".."} for part in path.parts)
+            or (path.parts and ":" in path.parts[0])
+        ):
+            raise ProposalGateError("Vault directory must be a safe project-relative path")
+        return path.as_posix()
 
     def _resolve_project_root(self, vault_path: str) -> Path:
         raw_path = str(vault_path).replace("\\", "/")
