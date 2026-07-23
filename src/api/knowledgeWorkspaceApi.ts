@@ -27,7 +27,7 @@ export type KnowledgeWorkspaceData = {
       missing_managed_directories?: string[];
     };
   };
-  plugins: { configured: boolean; supported_adapters: string[]; plugins: Array<{ id: string; name: string; adapter: 'filesystem_drop' | 'filesystem_output'; input_paths: string[]; status: 'awaiting_export' | 'captured' | 'awaiting_output' | 'registered_output'; captured_sources: number; registered_outputs: number; last_captured_at: string; last_registered_at: string }>; errors: string[] };
+  plugins: { configured: boolean; supported_adapters: string[]; plugins: Array<{ id: string; name: string; adapter: 'filesystem_drop' | 'filesystem_output'; input_paths: string[]; path_status: 'ready' | 'missing' | 'unavailable' | 'unverified'; status: 'awaiting_export' | 'captured' | 'awaiting_output' | 'registered_output'; captured_sources: number; registered_outputs: number; last_captured_at: string; last_registered_at: string }>; errors: string[] };
   sources: number;
   runs: number;
   schedules: number;

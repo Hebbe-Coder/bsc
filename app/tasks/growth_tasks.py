@@ -388,6 +388,7 @@ def _sync_declared_obsidian_exports(
             "plugins": manifest.public_status(
                 repository.list_sources(project_id),
                 repository.list_outputs(project_id),
+                project_root=project_root,
             ),
         }
         repository.append_run_event(

@@ -327,6 +327,17 @@
 - **Configuration boundary:** no third-party `.obsidian` plugin code or settings was executed, edited, or inferred. The Xiaohongshu plugin currently declares its own `XHS Notes` default folder outside the mapped project boundary, so its plugin-side save location must be changed through its own Obsidian settings to `projects/default/00_Inbox/social` before BSC can legitimately capture its next export. The other bridges likewise become captured only after their plugins write a real file into their declared project folder.
 - **Rollback:** replacing `bsc-plugins.json` through the same authenticated endpoint with the prior two-entry manifest removes the four new bridges without changing sources, outputs, Wiki pages, schedules, or plugin-owned settings.
 
+## 2026-07-23 - Installed Plugin Route Truthfulness And Live Sync
+
+- **State:** complete for BSC route verification and Xiaohongshu export configuration; real third-party export capture remains correctly pending its first actual file.
+- **Contract correction:** Studio presets now use the enabled Obsidian plugin IDs: `obsidian-clipper`, `xiaohongshu-importer`, `docxer`, and `obsidian-importer`. Horizon is removed from filesystem presets because its live integration is the native run store, not an unrelated Vault directory.
+- **Readiness signal:** `GET /knowledge/workspaces/{project_id}` and growth preflight now report `path_status` separately from capture. `ready` means the declared project-local directory exists; it never means the plugin has exported a document. The UI shows either a ready folder awaiting real output or the missing-directory condition.
+- **Live configuration:** the enabled Xiaohongshu Importer persisted setting was changed from `XHS Notes` to `projects/default/00_Inbox/social`, matching the authenticated project manifest. Categories and media-download preference were not changed. Obsidian applies this persisted setting when that plugin reloads; no imported note was fabricated to force a capture result.
+- **Live runtime evidence:** authenticated `source_sync` run `4f39c3efbee0` completed with zero created sources and zero registered outputs. Authenticated `growth_daily` run `8bf97c9a33b4` completed and persisted ordered `knowledge.growth.obsidian_sync.completed` evidence. All five declared routes reported `path_status=ready`; the four source routes remain `awaiting_export`, and the Markdown output route remains `awaiting_output`.
+- **Quality boundary:** the daily loop evaluated two existing pending-review baseline records but promoted none. No untrusted plugin export, external output, or provider response was claimed as accepted knowledge.
+- **Verification:** focused backend suite passed `33 passed, 1 skipped`; frontend suite passed `68 passed`; `npm run check` and `git diff --check` passed. Full backend regression passed `1027 passed, 12 skipped` in 377.43 seconds. `npm run build` and `docker compose config --quiet` passed. `npm run lint` exited successfully with 0 errors and the repository's existing warning inventory; production build retains the existing large-chunk advisory. Docker API health, PostgreSQL, Redis, and Celery were healthy before the live run.
+- **Remaining real-world action:** create a real Clipper, Xiaohongshu, Docxer, or Importer export in its configured directory. The next growth run will capture it immutably as `obsidian_plugin:<plugin-id>` and leave it review-gated; that final external producer proof cannot be truthfully simulated.
+
 ### `<date/time> - <plan/task>`
 
 - **State:** in progress / complete / blocked

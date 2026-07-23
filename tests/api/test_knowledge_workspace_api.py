@@ -82,6 +82,53 @@ def test_workspace_status_exposes_the_last_integrated_growth_cycle(tmp_path):
         repo.close()
 
 
+def test_workspace_status_distinguishes_missing_plugin_folder_from_ready_export_route(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "workspace-plugin-route.db"))
+    vault_root = tmp_path / "vault"
+    project_root = vault_root / "projects" / "project-a"
+    project_root.mkdir(parents=True)
+    (project_root / "bsc-plugins.json").write_text(
+        """{
+  "plugins": [
+    {
+      "id": "obsidian-clipper",
+      "name": "Obsidian Clipper exports",
+      "adapter": "filesystem_drop",
+      "input_paths": ["00_Inbox/web-clipper"]
+    }
+  ]
+}
+""",
+        encoding="utf-8",
+    )
+    repo.configure_vault("project-a", "projects/project-a")
+    previous_key = settings.API_KEY
+    previous_root = settings.OBSIDIAN_VAULT_ROOT
+    settings.API_KEY = "workspace-admin"
+    settings.OBSIDIAN_VAULT_ROOT = str(vault_root)
+    app.dependency_overrides[get_wiki_repository] = lambda: repo
+    client = TestClient(app)
+    headers = {"Authorization": "Bearer workspace-admin"}
+    try:
+        missing = client.get("/knowledge/workspaces/project-a", headers=headers)
+        assert missing.status_code == 200
+        missing_plugin = missing.json()["data"]["plugins"]["plugins"][0]
+        assert missing_plugin["path_status"] == "missing"
+        assert missing_plugin["status"] == "awaiting_export"
+
+        (project_root / "00_Inbox" / "web-clipper").mkdir(parents=True)
+        ready = client.get("/knowledge/workspaces/project-a", headers=headers)
+        assert ready.status_code == 200
+        ready_plugin = ready.json()["data"]["plugins"]["plugins"][0]
+        assert ready_plugin["path_status"] == "ready"
+        assert ready_plugin["status"] == "awaiting_export"
+    finally:
+        settings.API_KEY = previous_key
+        settings.OBSIDIAN_VAULT_ROOT = previous_root
+        app.dependency_overrides.clear()
+        repo.close()
+
+
 def test_workspace_status_exposes_bounded_horizon_import_evidence(tmp_path):
     repo = WikiRepository(db_path=str(tmp_path / "workspace-horizon-status.db"))
     SourceCaptureService(repo).capture(

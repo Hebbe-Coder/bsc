@@ -35,15 +35,14 @@ export const KNOWLEDGE_JOB_OPTIONS = [
 ] as const;
 const TERMINAL_RUNS = new Set(['completed', 'failed', 'cancelled', 'unavailable']);
 const TrendChart = lazy(() => import('echarts-for-react'));
-const OBSIDIAN_PLUGIN_PRESETS = [
+export const OBSIDIAN_PLUGIN_PRESETS = [
   { id: 'custom', name: 'Custom evidence export', adapter: 'filesystem_drop', input_paths: ['00_Inbox/custom'] },
-  { id: 'horizon', name: 'Horizon news capture', adapter: 'filesystem_drop', input_paths: ['00_Inbox/auto-capture'] },
   { id: 'readwise', name: 'Readwise / Reader export', adapter: 'filesystem_drop', input_paths: ['00_Inbox/readwise'] },
-  { id: 'web-clipper', name: 'Obsidian Web Clipper', adapter: 'filesystem_drop', input_paths: ['00_Inbox/web-clipper'] },
-  { id: 'social-import', name: 'Social import export', adapter: 'filesystem_drop', input_paths: ['00_Inbox/social'] },
+  { id: 'obsidian-clipper', name: 'Obsidian Clipper export', adapter: 'filesystem_drop', input_paths: ['00_Inbox/web-clipper'] },
+  { id: 'xiaohongshu-importer', name: 'Xiaohongshu Importer export', adapter: 'filesystem_drop', input_paths: ['00_Inbox/social'] },
   { id: 'feishu-cli', name: 'Feishu CLI export', adapter: 'filesystem_drop', input_paths: ['01_Sources/feishu'] },
   { id: 'docxer', name: 'Docxer export', adapter: 'filesystem_drop', input_paths: ['01_Sources/docxer'] },
-  { id: 'importer', name: 'Obsidian Importer export', adapter: 'filesystem_drop', input_paths: ['01_Sources/importer'] },
+  { id: 'obsidian-importer', name: 'Obsidian Importer export', adapter: 'filesystem_drop', input_paths: ['01_Sources/importer'] },
   { id: 'hyperframes', name: 'HyperFrames output feedback', adapter: 'filesystem_output', input_paths: ['04_Outputs/hyperframes'] },
   { id: 'markdown-output', name: 'Markdown formatter output feedback', adapter: 'filesystem_output', input_paths: ['04_Outputs/articles'] },
   { id: 'project-raw', name: 'Legacy raw/ export', adapter: 'filesystem_drop', input_paths: ['raw/custom'] },
@@ -376,9 +375,8 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
   const accessStatus = resolveStudioAccessStatus(runtimeAccessKey, workspace, loading, error);
   const canWrite = accessStatus.verified && (workspace?.access.can_write ?? false);
   const pluginCount = workspace?.plugins.plugins.length ?? 0;
-  const capturedPluginCount = workspace?.plugins.plugins.filter((plugin) => plugin.captured_sources > 0).length ?? 0;
-  const registeredOutputPluginCount = workspace?.plugins.plugins.filter((plugin) => plugin.registered_outputs > 0).length ?? 0;
   const connectedPluginCount = workspace?.plugins.plugins.filter((plugin) => plugin.captured_sources > 0 || plugin.registered_outputs > 0).length ?? 0;
+  const readyPluginRouteCount = workspace?.plugins.plugins.filter((plugin) => plugin.path_status === 'ready').length ?? 0;
   const capturedPluginSources = workspace?.plugins.plugins.reduce((total, plugin) => total + plugin.captured_sources, 0) ?? 0;
   const registeredPluginOutputs = workspace?.plugins.plugins.reduce((total, plugin) => total + plugin.registered_outputs, 0) ?? 0;
   const evaluationDetail = !health ? 'Health unavailable' : health.evaluation.status === 'unavailable' ? 'Evaluation baseline missing' : `Evaluation ${health.evaluation.status}`;
@@ -395,7 +393,7 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
       ? 'No Horizon intelligence has been imported into this project'
       : horizon.last_run.skipped
         ? `Latest run already imported (${horizon.captured_sources} evidence records)`
-        : `${horizon.last_run.status}: ${horizon.last_run.created} new, ${horizon.last_run.duplicates} duplicate (${horizon.captured_sources} evidence records)`;
+      : `${horizon.last_run.source_mode === 'run_store' ? 'Native run store' : 'Horizon import'} ${horizon.last_run.status}: ${horizon.last_run.created} new, ${horizon.last_run.duplicates} duplicate (${horizon.captured_sources} evidence records)`;
   const growthCycleDetail = !growth || growth.status === 'not_run'
     ? 'No integrated daily or weekly growth run yet'
     : growthSync
@@ -426,7 +424,7 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
         <div className="knowledge-vault-setup__actions"><label>Vault folder<input value={vaultPath} onChange={(event) => setVaultPath(event.target.value)} placeholder="projects/your-project" aria-label="Project Vault folder" disabled={actionBusy} /></label><button type="button" onClick={() => void mapVault()} disabled={actionBusy || !canWrite || !vaultPath.trim()} title="Map this project to the typed Vault folder"><Link2 size={15} /> {workspace?.vault.configured ? 'Update map' : 'Map Vault'}</button>{workspace?.vault.configured && !initialized && <button type="button" onClick={() => void initializeVault()} disabled={actionBusy || !canWrite} title="Create the full A/B/C/D project layout, rules, and initial Wiki pages"><BookOpen size={15} /> Initialize workspace</button>}</div>
       </section>
       {workspace?.vault.configured && <section className="knowledge-plugin-setup" aria-label="Obsidian plugin export bridge">
-        <div><span className="eyebrow">OBSIDIAN PLUGIN EXPORTS</span><h3>Connect exported notes and output feedback.</h3><p>Evidence bridges read only declared <code>00_Inbox/</code>, <code>01_Sources/</code>, <code>raw/</code>, or <code>inbox/</code> folders. Output bridges copy only declared <code>04_Outputs/</code> or <code>outputs/</code> files into pending D-layer review. BSC does not inspect or execute <code>.obsidian</code> plugin code.</p><small>Claudian is an Obsidian-to-Codex companion. Markdown formatter and HyperFrames use an output bridge; their files never become reusable context until evaluation and feedback accept them.</small></div>
+        <div><span className="eyebrow">OBSIDIAN PLUGIN EXPORTS</span><h3>Connect exported notes and output feedback.</h3><p>Evidence bridges read only declared <code>00_Inbox/</code>, <code>01_Sources/</code>, <code>raw/</code>, or <code>inbox/</code> folders. Output bridges copy only declared <code>04_Outputs/</code> or <code>outputs/</code> files into pending D-layer review. BSC does not inspect or execute <code>.obsidian</code> plugin code.</p><small>Horizon uses the native radar channel below, not a plugin-folder bridge. Claudian is an Obsidian-to-Codex companion. Markdown formatter and HyperFrames use an output bridge; their files never become reusable context until evaluation and feedback accept them.</small></div>
         <div className="knowledge-plugin-setup__actions">
           <label>Preset<select value={pluginPreset} onChange={(event) => selectPluginPreset(event.target.value)} aria-label="Plugin export preset" disabled={actionBusy}>{OBSIDIAN_PLUGIN_PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}</select></label>
           <label>Plugin ID<input value={pluginId} onChange={(event) => setPluginId(event.target.value)} placeholder="readwise" aria-label="Plugin ID" disabled={actionBusy} /></label>
@@ -441,7 +439,7 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
         <ConnectionStep label="Studio access" detail={accessStatus.detail} ready={accessStatus.verified} />
         <ConnectionStep label="Vault boundary" detail={vaultConnectionLabel} ready={vaultConnectionState === 'ready'} />
         <ConnectionStep label="Horizon radar" detail={horizonDetail} ready={Boolean(horizon?.last_run && horizon.last_run.status === 'completed')} />
-        <ConnectionStep label="Plugin bridges" detail={pluginCount ? (connectedPluginCount ? `${capturedPluginSources} evidence source${capturedPluginSources === 1 ? '' : 's'}, ${registeredPluginOutputs} pending output${registeredPluginOutputs === 1 ? '' : 's'}` : 'Awaiting a declared export') : 'No plugin bridge registered'} ready={connectedPluginCount > 0} />
+        <ConnectionStep label="Plugin bridges" detail={pluginCount ? (connectedPluginCount ? `${capturedPluginSources} evidence source${capturedPluginSources === 1 ? '' : 's'}, ${registeredPluginOutputs} pending output${registeredPluginOutputs === 1 ? '' : 's'}` : readyPluginRouteCount ? `${readyPluginRouteCount}/${pluginCount} export folders ready; awaiting first real export` : 'Export folder setup is incomplete') : 'No plugin bridge registered'} ready={connectedPluginCount > 0} />
         <ConnectionStep label="Growth cycle" detail={growthCycleDetail} ready={growth?.status === 'completed'} />
         <ConnectionStep label="Governed use" detail={pages.length ? `${pages.length} published Wiki page${pages.length === 1 ? '' : 's'}` : 'No published knowledge context'} ready={pages.length > 0} />
       </section>
@@ -460,7 +458,7 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
         <aside className="knowledge-pane knowledge-pane--tree" aria-label="Vault tree">
           <PaneHeader title="Vault" detail={workspace?.vault.configured ? `${vaultConnectionState} / sync ${workspace.sync.status}` : 'unconfigured'} />
           <div className="knowledge-vault-state"><span className={vaultConnectionState === 'ready' ? 'is-ready' : 'is-warning'}>{vaultConnectionState === 'ready' ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}</span><span>{vaultConnectionLabel}</span></div>
-          <div className="knowledge-vault-state"><span className={connectedPluginCount ? 'is-ready' : 'is-warning'}>{connectedPluginCount ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}</span><span>{pluginCount ? (connectedPluginCount ? `${connectedPluginCount}/${pluginCount} bridge${pluginCount === 1 ? '' : 's'} active: ${capturedPluginSources} evidence source${capturedPluginSources === 1 ? '' : 's'}, ${registeredPluginOutputs} pending output${registeredPluginOutputs === 1 ? '' : 's'}` : `${pluginCount} plugin bridge${pluginCount === 1 ? '' : 's'} awaiting export`) : (workspace?.plugins.configured ? 'Plugin manifest has no supported adapters' : 'No BSC plugin manifest configured')}</span></div>
+          <div className="knowledge-vault-state"><span className={connectedPluginCount ? 'is-ready' : 'is-warning'}>{connectedPluginCount ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}</span><span>{pluginCount ? (connectedPluginCount ? `${connectedPluginCount}/${pluginCount} bridge${pluginCount === 1 ? '' : 's'} active: ${capturedPluginSources} evidence source${capturedPluginSources === 1 ? '' : 's'}, ${registeredPluginOutputs} pending output${registeredPluginOutputs === 1 ? '' : 's'}` : readyPluginRouteCount ? `${readyPluginRouteCount}/${pluginCount} export folders ready; awaiting real plugin output` : `${pluginCount} bridge route${pluginCount === 1 ? '' : 's'} need a valid export folder`) : (workspace?.plugins.configured ? 'Plugin manifest has no supported adapters' : 'No BSC plugin manifest configured')}</span></div>
           <VaultTree pages={pages} selectedPageId={selectedPage?.page.id ?? ''} onSelect={inspectPage} />
           <PaneHeader title="Evidence" detail={`${sources.length} records`} />
           <div className="knowledge-list knowledge-list--tree">{sources.length ? sources.map((source) => <button className={`knowledge-record ${selectedSource?.id === source.id ? 'is-selected' : ''}`} key={source.id} onClick={() => setSelectedSource(source)}><span className={`source-status source-status--${source.status}`}>{source.status}</span><strong>{source.origin || source.id}</strong><small>{source.source_type}</small></button>) : <Empty text="No evidence has been captured for this project." />}</div>
@@ -534,7 +532,10 @@ function PluginBridgeTable({ plugins, busy, canWrite, onEdit, onRemove }: { plug
     const connected = outputBridge ? plugin.status === 'registered_output' : plugin.status === 'captured';
     const count = outputBridge ? plugin.registered_outputs : plugin.captured_sources;
     const timestamp = outputBridge ? plugin.last_registered_at : plugin.last_captured_at;
-    return <div key={plugin.id} role="listitem"><div><strong>{plugin.name}</strong><small>{plugin.id} / {outputBridge ? 'output feedback' : 'evidence import'} / {plugin.input_paths.join(', ')}</small></div><span className={connected ? 'is-ready' : 'is-pending'}>{connected ? (outputBridge ? `${count} pending output${count === 1 ? '' : 's'}` : `${count} captured`) : (outputBridge ? 'awaiting output' : 'awaiting export')}</span><small>{timestamp ? `Last ${formatTimestamp(timestamp)}` : (outputBridge ? 'No output registered yet' : 'No captured export yet')}</small><div className="knowledge-plugin-table__actions"><button type="button" className="icon-button" disabled={busy || !canWrite} title={`Edit ${plugin.name} bridge`} aria-label={`Edit ${plugin.name} bridge`} onClick={() => onEdit(plugin)}><Pencil size={14} /></button><button type="button" className="icon-button is-danger" disabled={busy || !canWrite} title={`Remove ${plugin.name} bridge`} aria-label={`Remove ${plugin.name} bridge`} onClick={() => void onRemove(plugin.id)}><Trash2 size={14} /></button></div></div>;
+    const pathReady = plugin.path_status === 'ready';
+    const waitingLabel = pathReady ? (outputBridge ? 'folder ready; awaiting output' : 'folder ready; awaiting export') : plugin.path_status === 'missing' ? 'export folder missing' : 'folder unavailable';
+    const waitingDetail = pathReady ? (outputBridge ? 'Folder ready; no output registered yet' : 'Folder ready; no captured export yet') : `Folder status: ${plugin.path_status}`;
+    return <div key={plugin.id} role="listitem"><div><strong>{plugin.name}</strong><small>{plugin.id} / {outputBridge ? 'output feedback' : 'evidence import'} / {plugin.input_paths.join(', ')}</small></div><span className={connected ? 'is-ready' : 'is-pending'}>{connected ? (outputBridge ? `${count} pending output${count === 1 ? '' : 's'}` : `${count} captured`) : waitingLabel}</span><small>{timestamp ? `Last ${formatTimestamp(timestamp)}` : waitingDetail}</small><div className="knowledge-plugin-table__actions"><button type="button" className="icon-button" disabled={busy || !canWrite} title={`Edit ${plugin.name} bridge`} aria-label={`Edit ${plugin.name} bridge`} onClick={() => onEdit(plugin)}><Pencil size={14} /></button><button type="button" className="icon-button is-danger" disabled={busy || !canWrite} title={`Remove ${plugin.name} bridge`} aria-label={`Remove ${plugin.name} bridge`} onClick={() => void onRemove(plugin.id)}><Trash2 size={14} /></button></div></div>;
   })}</div>;
 }
 

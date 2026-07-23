@@ -115,9 +115,10 @@ def test_obsidian_sync_attributes_declared_plugin_exports_without_reading_plugin
         assert source["metadata"]["obsidian_plugin"] == "readwise"
         assert source["metadata"]["plugin_name"] == "Readwise Export"
         assert source["origin"].endswith("raw/readwise/weekly.md")
-        status = ObsidianPluginManifest.load(project_root).public_status([source])
+        status = ObsidianPluginManifest.load(project_root).public_status([source], project_root=project_root)
         assert status["plugins"][0]["status"] == "captured"
         assert status["plugins"][0]["captured_sources"] == 1
+        assert status["plugins"][0]["path_status"] == "ready"
     finally:
         repo.close()
 

@@ -4,7 +4,14 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { KnowledgeProposal, KnowledgeSource, WeeklyDistillation, WeeklyDistillationDetail } from '../api/knowledgeWorkspaceApi';
-import { DistillationReader, KNOWLEDGE_JOB_OPTIONS, ProposalReview, SourceInspector, WikiReader } from './KnowledgeWorkspace';
+import {
+  DistillationReader,
+  KNOWLEDGE_JOB_OPTIONS,
+  OBSIDIAN_PLUGIN_PRESETS,
+  ProposalReview,
+  SourceInspector,
+  WikiReader,
+} from './KnowledgeWorkspace';
 
 const proposal: KnowledgeProposal = {
   id: 'proposal-a',
@@ -54,6 +61,18 @@ describe('KnowledgeWorkspace focused components', () => {
     expect(KNOWLEDGE_JOB_OPTIONS).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'growth_daily', defaultCron: '0 17 * * *' }),
       expect.objectContaining({ id: 'growth_weekly_distillation', defaultCron: '30 17 * * 5' }),
+    ]));
+  });
+
+  it('uses installed plugin IDs for filesystem bridges and keeps native Horizon out of the export presets', () => {
+    expect(OBSIDIAN_PLUGIN_PRESETS).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'obsidian-clipper', input_paths: ['00_Inbox/web-clipper'] }),
+      expect.objectContaining({ id: 'xiaohongshu-importer', input_paths: ['00_Inbox/social'] }),
+      expect.objectContaining({ id: 'docxer', input_paths: ['01_Sources/docxer'] }),
+      expect.objectContaining({ id: 'obsidian-importer', input_paths: ['01_Sources/importer'] }),
+    ]));
+    expect(OBSIDIAN_PLUGIN_PRESETS).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'horizon' }),
     ]));
   });
 

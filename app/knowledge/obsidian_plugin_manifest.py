@@ -169,8 +169,9 @@ class ObsidianPluginManifest:
         self,
         sources: Iterable[dict[str, Any]] = (),
         outputs: Iterable[dict[str, Any]] = (),
+        project_root: Path | None = None,
     ) -> dict[str, Any]:
-        """Expose source capture and D-layer registration independently."""
+        """Expose configured path readiness separately from captured output."""
         captured_sources: dict[str, list[dict[str, Any]]] = {
             plugin.plugin_id: [] for plugin in self.plugins
         }
@@ -197,6 +198,7 @@ class ObsidianPluginManifest:
                     "name": plugin.name,
                     "adapter": plugin.adapter,
                     "input_paths": list(plugin.input_paths),
+                    "path_status": self._path_status(plugin, project_root),
                     "status": self._status(plugin, captured_sources[plugin.plugin_id], registered_outputs[plugin.plugin_id]),
                     "captured_sources": len(captured_sources[plugin.plugin_id]),
                     "registered_outputs": len(registered_outputs[plugin.plugin_id]),
@@ -219,3 +221,25 @@ class ObsidianPluginManifest:
         if plugin.adapter == _OUTPUT_ADAPTER:
             return "registered_output" if outputs else "awaiting_output"
         return "captured" if sources else "awaiting_export"
+
+    @staticmethod
+    def _path_status(plugin: ObsidianPlugin, project_root: Path | None) -> str:
+        if project_root is None:
+            return "unverified"
+        try:
+            root = project_root.resolve()
+            if root.is_symlink() or not root.is_dir():
+                return "unavailable"
+            for configured_path in plugin.input_paths:
+                current = root
+                for part in PurePosixPath(configured_path).parts:
+                    current = current / part
+                    if current.is_symlink():
+                        return "missing"
+                resolved = current.resolve()
+                resolved.relative_to(root)
+                if not resolved.is_dir():
+                    return "missing"
+        except (OSError, ValueError):
+            return "unavailable"
+        return "ready"

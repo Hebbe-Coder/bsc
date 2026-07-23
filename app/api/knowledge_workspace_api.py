@@ -256,7 +256,7 @@ def workspace_status(request: Request, project_id: str, repo: WikiRepository = D
     sources = repo.list_sources(project_id)
     horizon_sources = [source for source in sources if source.get("source_type") == "horizon_signal"]
     outputs = repo.list_outputs(project_id) if isinstance(repo, GrowthRepository) else []
-    plugins = ObsidianPluginManifest.load(project_root).public_status(sources, outputs)
+    plugins = ObsidianPluginManifest.load(project_root).public_status(sources, outputs, project_root=project_root)
     role = str(getattr(request.state, "knowledge_role", ""))
     sync_run = repo.latest_run_for_type(project_id, "source_sync")
     horizon_run = repo.latest_run_for_type(project_id, "horizon_capture")
@@ -355,7 +355,7 @@ def configure_workspace_plugins(
         manifest.write_to(vault.project_root)
     except Exception as exc:
         raise _command_error(exc) from exc
-    return ApiResponse.ok(manifest.public_status())
+    return ApiResponse.ok(manifest.public_status(project_root=vault.project_root))
 
 
 @router.get("/sources")
