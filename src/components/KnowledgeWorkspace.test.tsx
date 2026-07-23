@@ -3,8 +3,8 @@ import '@testing-library/jest-dom/vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { KnowledgeProposal, KnowledgeSource } from '../api/knowledgeWorkspaceApi';
-import { KNOWLEDGE_JOB_OPTIONS, ProposalReview, SourceInspector, WikiReader } from './KnowledgeWorkspace';
+import type { KnowledgeProposal, KnowledgeSource, WeeklyDistillation, WeeklyDistillationDetail } from '../api/knowledgeWorkspaceApi';
+import { DistillationReader, KNOWLEDGE_JOB_OPTIONS, ProposalReview, SourceInspector, WikiReader } from './KnowledgeWorkspace';
 
 const proposal: KnowledgeProposal = {
   id: 'proposal-a',
@@ -33,6 +33,22 @@ const source: KnowledgeSource = {
   captured_at: '2026-07-22T00:00:00Z',
 };
 
+const growthDistillation: WeeklyDistillation = {
+  id: 'growth-weekly-1', project_id: 'project-a', week: '2026-W30', period: '2026-W30', kind: 'weekly', record_type: 'growth',
+  knowledge_path: 'distillations/weekly/2026-W30/summary.md', content_path: 'distillations/weekly/2026-W30/actions.md', context_path: '',
+  paths: ['distillations/weekly/2026-W30/summary.md', 'distillations/weekly/2026-W30/actions.md'],
+  source_cutoff: '2026-07-24T09:00:00Z', status: 'generated', created_at: '2026-07-24T09:01:00Z',
+  generation: { mode: 'llm' }, manifest: {},
+};
+
+const growthDistillationDetail: WeeklyDistillationDetail = {
+  distillation: growthDistillation,
+  documents: {
+    'distillations/weekly/2026-W30/summary.md': '# Project-specific summary\n\n[source:source-a] changed the release decision.',
+    'distillations/weekly/2026-W30/actions.md': '# Verify\n\nReview [source:source-a] before publication.',
+  },
+};
+
 describe('KnowledgeWorkspace focused components', () => {
   it('offers the actual daily and weekly growth jobs to the knowledge scheduler', () => {
     expect(KNOWLEDGE_JOB_OPTIONS).toEqual(expect.arrayContaining([
@@ -45,6 +61,14 @@ describe('KnowledgeWorkspace focused components', () => {
     render(<WikiReader page={null} pages={[]} busy={false} canWrite={false} onCitation={vi.fn()} onWikiLink={vi.fn()} onRestore={vi.fn()} />);
 
     expect(screen.getByRole('heading', { name: 'Choose a published page' })).toBeVisible();
+  });
+
+  it('renders a persisted growth bundle with its governed documents', () => {
+    render(<DistillationReader records={[growthDistillation]} selected={growthDistillationDetail} onSelect={vi.fn()} />);
+
+    expect(screen.getByRole('heading', { name: '2026-W30' })).toBeVisible();
+    expect(screen.getByText('Project-specific summary', { exact: false })).toBeVisible();
+    expect(screen.getByText('weekly / generated')).toBeVisible();
   });
 
   it('keeps proposal controls visible but disabled for a reader', () => {

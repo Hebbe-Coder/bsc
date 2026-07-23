@@ -1004,3 +1004,10 @@ class GrowthRepository(WikiRepository):
         query += " ORDER BY period DESC,created_at DESC LIMIT ?"
         params.append(max(1, min(limit, 500)))
         return [self._decode_growth(row, ("paths_json", "manifest_json")) or {} for row in self._execute(query, tuple(params)).fetchall()]
+
+    def get_growth_distillation_by_id(self, project_id: str, distillation_id: str) -> dict[str, Any] | None:
+        row = self._execute(
+            "SELECT * FROM knowledge_growth_distillations WHERE project_id=? AND id=?",
+            (project_id, distillation_id),
+        ).fetchone()
+        return self._decode_growth(row, ("paths_json", "manifest_json"))

@@ -1,3 +1,5 @@
+import json
+
 from fastapi.testclient import TestClient
 
 from app.api.knowledge_workspace_api import get_wiki_repository
@@ -317,6 +319,122 @@ def test_workspace_source_transition_requires_scoped_writer_and_changes_lifecycl
         assert response.json()["data"]["source"]["status"] == "eligible"
     finally:
         settings.API_KEY = previous_key
+        app.dependency_overrides.clear()
+        repo.close()
+
+
+def test_workspace_lists_and_reads_growth_distillations_from_the_mapped_vault(tmp_path):
+    repo = GrowthRepository(db_path=str(tmp_path / "workspace-growth-distillation.db"))
+    vault_root = tmp_path / "vault"
+    vault_root.mkdir()
+    previous_key = settings.API_KEY
+    previous_root = settings.OBSIDIAN_VAULT_ROOT
+    settings.API_KEY = "workspace-admin"
+    settings.OBSIDIAN_VAULT_ROOT = str(vault_root)
+    repo.configure_vault("project-a", "projects/project-a")
+    paths = [
+        "distillations/weekly/2026-W30/summary.md",
+        "distillations/weekly/2026-W30/actions.md",
+    ]
+    FilesystemWikiVault(vault_root, "project-a", "projects/project-a").commit({
+        paths[0]: "# Summary\n\n[source:source-a] supports the project decision.\n",
+        paths[1]: "# Actions\n\nVerify [source:source-a] before publication.\n",
+    })
+    record = repo.record_growth_distillation(
+        project_id="project-a",
+        period="2026-W30",
+        kind="weekly",
+        input_hash="a" * 64,
+        paths=paths,
+        manifest={
+            "source_cutoff": "2026-07-24T09:00:00+00:00",
+            "generation": {"mode": "llm", "provider": "test", "model": "test-model", "reason": ""},
+        },
+    )
+    app.dependency_overrides[get_wiki_repository] = lambda: repo
+    client = TestClient(app)
+    headers = {"Authorization": "Bearer workspace-admin"}
+    try:
+        listed = client.get("/knowledge/distillations?project_id=project-a", headers=headers)
+
+        assert listed.status_code == 200
+        assert listed.json()["data"] == {
+            "count": 1,
+            "distillations": [
+                {
+                    "id": record["id"],
+                    "project_id": "project-a",
+                    "record_type": "growth",
+                    "kind": "weekly",
+                    "period": "2026-W30",
+                    "week": "2026-W30",
+                    "knowledge_path": paths[0],
+                    "content_path": paths[1],
+                    "context_path": "",
+                    "paths": paths,
+                    "source_cutoff": "2026-07-24T09:00:00+00:00",
+                    "status": "generated",
+                    "created_at": record["created_at"],
+                    "manifest": record["manifest"],
+                    "generation": record["manifest"]["generation"],
+                }
+            ],
+        }
+
+        detail = client.get(f"/knowledge/distillations/{record['id']}?project_id=project-a", headers=headers)
+        assert detail.status_code == 200
+        assert detail.json()["data"]["distillation"]["record_type"] == "growth"
+        assert detail.json()["data"]["documents"] == {
+            paths[0]: "# Summary\n\n[source:source-a] supports the project decision.\n",
+            paths[1]: "# Actions\n\nVerify [source:source-a] before publication.\n",
+        }
+
+        cross_project = client.get(f"/knowledge/distillations/{record['id']}?project_id=project-b", headers=headers)
+        assert cross_project.status_code == 404
+    finally:
+        settings.API_KEY = previous_key
+        settings.OBSIDIAN_VAULT_ROOT = previous_root
+        app.dependency_overrides.clear()
+        repo.close()
+
+
+def test_workspace_reads_the_archived_files_for_a_previous_growth_revision(tmp_path):
+    repo = GrowthRepository(db_path=str(tmp_path / "workspace-growth-history.db"))
+    vault_root = tmp_path / "vault"
+    vault_root.mkdir()
+    previous_key = settings.API_KEY
+    previous_root = settings.OBSIDIAN_VAULT_ROOT
+    settings.API_KEY = "workspace-admin"
+    settings.OBSIDIAN_VAULT_ROOT = str(vault_root)
+    repo.configure_vault("project-a", "projects/project-a")
+    path = "distillations/weekly/2026-W30/summary.md"
+    old_hash = "a" * 64
+    current_hash = "b" * 64
+    FilesystemWikiVault(vault_root, "project-a", "projects/project-a").commit({
+        path: "# Current summary\n\n[source:source-current]\n",
+        "distillations/weekly/2026-W30/manifest.json": json.dumps({"input_hash": current_hash}),
+        f"distillations/weekly/2026-W30/revisions/{old_hash}/summary.md": "# Archived summary\n\n[source:source-old]\n",
+    })
+    old = repo.record_growth_distillation(
+        project_id="project-a", period="2026-W30", kind="weekly", input_hash=old_hash, paths=[path], manifest={}
+    )
+    current = repo.record_growth_distillation(
+        project_id="project-a", period="2026-W30", kind="weekly", input_hash=current_hash, paths=[path], manifest={}
+    )
+    app.dependency_overrides[get_wiki_repository] = lambda: repo
+    client = TestClient(app)
+    headers = {"Authorization": "Bearer workspace-admin"}
+    try:
+        archived_detail = client.get(f"/knowledge/distillations/{old['id']}?project_id=project-a", headers=headers)
+        current_detail = client.get(f"/knowledge/distillations/{current['id']}?project_id=project-a", headers=headers)
+
+        assert archived_detail.status_code == 200
+        assert archived_detail.json()["data"]["documents"] == {path: "# Archived summary\n\n[source:source-old]\n"}
+        assert current_detail.status_code == 200
+        assert current_detail.json()["data"]["documents"] == {path: "# Current summary\n\n[source:source-current]\n"}
+    finally:
+        settings.API_KEY = previous_key
+        settings.OBSIDIAN_VAULT_ROOT = previous_root
         app.dependency_overrides.clear()
         repo.close()
 

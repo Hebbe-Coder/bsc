@@ -318,6 +318,15 @@
 - **Persistent cadence:** five enabled schedules now use `Asia/Shanghai`: `source_sync` daily 17:00, `horizon_capture` daily 17:05, `wiki_maintenance` daily 17:15, `growth_daily` daily 17:25, and `growth_weekly_distillation` Friday 17:40. The next executions are persisted in PostgreSQL and are reconciled by Celery Beat every minute.
 - **Boundary and rollback:** the Horizon filesystem plugin bridge correctly remains `awaiting_export` because this live integration reads Horizon's native run-store rather than pretending that an unrelated folder export occurred. Disable the five schedules first to pause future work; published Wiki pages can be restored by the existing revision proposal flow, and neither immutable source records nor the original SQLite snapshot are deleted.
 
+## 2026-07-23 - Installed Obsidian Plugin Bridge Activation And Verification
+
+- **State:** complete for BSC-side plugin bridge activation; awaiting the first real export from each user-operated Obsidian plugin.
+- **Installed-plugin mapping:** after confirming the enabled Vault plugins, the authenticated `default` project manifest was atomically updated through `PUT /knowledge/workspaces/default/plugins`. It preserves the existing Horizon A-layer and Markdown output D-layer bridges, and adds `obsidian-clipper -> 00_Inbox/web-clipper`, `xiaohongshu-importer -> 00_Inbox/social`, `docxer -> 01_Sources/docxer`, and `obsidian-importer -> 01_Sources/importer`.
+- **Claudian boundary:** Claudian is a Vault-local coding collaborator, not an evidence exporter. It remains subject to `AGENTS.md`, the project directory boundary, proposal review, citations, and the B/C/D lifecycle; it is deliberately not registered as an A-layer source that could bypass provenance.
+- **Runtime evidence:** the live Workspace readback reports the mapped `projects/default` Vault as `ready` and all four newly registered A-layer bridges as `awaiting_export`, rather than claiming connection from installation alone. Manual source-sync run `d7e2e6a747d6` completed through queued, running, Wiki-snapshot, source-sync, and completed events. It scanned only the declared capture surface, produced no new source and no output registration, and indexed seven existing Wiki pages without failures.
+- **Configuration boundary:** no third-party `.obsidian` plugin code or settings was executed, edited, or inferred. The Xiaohongshu plugin currently declares its own `XHS Notes` default folder outside the mapped project boundary, so its plugin-side save location must be changed through its own Obsidian settings to `projects/default/00_Inbox/social` before BSC can legitimately capture its next export. The other bridges likewise become captured only after their plugins write a real file into their declared project folder.
+- **Rollback:** replacing `bsc-plugins.json` through the same authenticated endpoint with the prior two-entry manifest removes the four new bridges without changing sources, outputs, Wiki pages, schedules, or plugin-owned settings.
+
 ### `<date/time> - <plan/task>`
 
 - **State:** in progress / complete / blocked

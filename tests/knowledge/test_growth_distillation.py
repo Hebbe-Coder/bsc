@@ -22,14 +22,42 @@ class _NarrativeProvider:
     def render(self, *, kind, project_id, period, context):
         if kind == "daily":
             return {"daily": "## Grounded daily synthesis\n\n[source:source-a@revision-a] changes the project decision context."}
-        names = GrowthDistillationService.WEEKLY_DOCUMENTS
+        names = GrowthDistillationService.WEEKLY_NARRATIVE_SLOTS
         return {
             "weekly": {
                 names[0]: "# This week\n\n[source:source-a] is the decisive evidence.",
                 names[1]: "# Knowledge actions\n\nReview [source:source-a].",
-                names[2]: "# Content creation\n\nUse accepted D output as a style example only.",
+                names[2]: "# Content creation\n\nUse [source:source-a] for a review-gate explainer.",
                 names[3]: "# Next context\n\n[source:source-a] remains available.",
-                names[4]: "# Method iteration\n\nNo method promotion without evaluation.",
+                names[4]: "# Method iteration\n\n[source:source-a] requires evaluation before promotion.",
+            }
+        }
+
+
+class _UncitedNarrativeProvider:
+    def render(self, *, kind, project_id, period, context):
+        if kind == "daily":
+            return {"daily": "## Generic daily update\n\nNothing to review."}
+        return {
+            "weekly": {
+                name: "## Generic weekly update\n\nNothing to review."
+                for name in GrowthDistillationService.WEEKLY_NARRATIVE_SLOTS
+            }
+        }
+
+
+class _PartialNarrativeProvider:
+    def render(self, *, kind, project_id, period, context):
+        if kind == "daily":
+            return {"daily": "## Grounded daily synthesis\n\n[source:source-a] changed the project decision context."}
+        slots = GrowthDistillationService.WEEKLY_NARRATIVE_SLOTS
+        return {
+            "weekly": {
+                slots[0]: "## Bespoke summary\n\n[source:source-a] changes the project decision context.",
+                slots[1]: "## Uncited action\n\nFollow up next week.",
+                slots[2]: "## Uncited content\n\nDraft a useful article.",
+                slots[3]: "## Uncited context\n\nContinue the review.",
+                slots[4]: "## Uncited method\n\nRevise the process.",
             }
         }
 
@@ -96,8 +124,95 @@ def test_distillation_uses_validated_narrative_provider_and_records_its_mode(tmp
         assert "decisive evidence" in weekly_path.read_text(encoding="utf-8")
         assert daily["manifest"]["generation"]["mode"] == "llm"
         assert weekly["manifest"]["generation"]["mode"] == "llm"
+        assert weekly["manifest"]["distillation_contract_revision"] == GrowthDistillationService.DISTILLATION_CONTRACT_REVISION
     finally:
         repo.close()
+
+
+def test_distillation_rejects_uncited_narrative_and_uses_governed_fallback(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "distillation-uncited.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        repo.create_source(
+            SourceRecord(
+                id="source-a",
+                project_id="project-a",
+                source_type="article",
+                content_hash="a" * 64,
+                raw_content="Review gates are required before publication.",
+                trust_level="trusted",
+                status=SourceStatus.ELIGIBLE,
+            )
+        )
+
+        result = GrowthDistillationService(repo, root, narrative_provider=_UncitedNarrativeProvider()).run_weekly(
+            "project-a", "2026-W30", source_cutoff="2026-07-24T09:00:00Z"
+        )
+
+        assert result["manifest"]["generation"] == {
+            "mode": "deterministic",
+            "provider": "",
+            "model": "",
+            "reason": "provider_response_rejected",
+        }
+        rendered = (root / "projects" / "project-a" / result["paths"][0]).read_text(encoding="utf-8")
+        assert "Generic weekly update" not in rendered
+        assert "source-a" in rendered
+        assert all(
+            "[source:source-a]" in (root / "projects" / "project-a" / path).read_text(encoding="utf-8")
+            for path in result["paths"]
+        )
+    finally:
+        repo.close()
+
+
+def test_distillation_preserves_only_cited_llm_documents_and_records_hybrid_provenance(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "distillation-hybrid.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        repo.create_source(
+            SourceRecord(
+                id="source-a",
+                project_id="project-a",
+                source_type="article",
+                content_hash="a" * 64,
+                raw_content="Review gates are required before publication.",
+                trust_level="trusted",
+                status=SourceStatus.ELIGIBLE,
+            )
+        )
+
+        result = GrowthDistillationService(repo, root, narrative_provider=_PartialNarrativeProvider()).run_weekly(
+            "project-a", "2026-W30", source_cutoff="2026-07-24T09:00:00Z"
+        )
+
+        generation = result["manifest"]["generation"]
+        assert generation["mode"] == "hybrid"
+        assert generation["reason"] == "invalid_llm_documents_replaced"
+        assert generation["llm_documents"] == [GrowthDistillationService.WEEKLY_DOCUMENTS[0]]
+        assert set(generation["fallback_documents"]) == set(GrowthDistillationService.WEEKLY_DOCUMENTS[1:])
+        summary = (root / "projects" / "project-a" / result["paths"][0]).read_text(encoding="utf-8")
+        assert "Bespoke summary" in summary
+        assert "Uncited action" not in (root / "projects" / "project-a" / result["paths"][1]).read_text(encoding="utf-8")
+    finally:
+        repo.close()
+
+
+def test_distillation_contract_revision_participates_in_idempotency_hash(monkeypatch):
+    baseline = GrowthDistillationService._input_hash([], "2026-07-24T09:00:00+00:00", "context")
+    monkeypatch.setattr(
+        GrowthDistillationService,
+        "DISTILLATION_CONTRACT_REVISION",
+        GrowthDistillationService.DISTILLATION_CONTRACT_REVISION + 1,
+    )
+
+    revised = GrowthDistillationService._input_hash([], "2026-07-24T09:00:00+00:00", "context")
+
+    assert revised != baseline
 
 
 def test_tampered_managed_file_is_never_archived_or_overwritten(tmp_path):

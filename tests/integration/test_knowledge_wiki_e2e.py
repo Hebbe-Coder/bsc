@@ -44,7 +44,7 @@ def test_filesystem_wiki_lifecycle_is_source_backed_and_atomic(tmp_path, monkeyp
     try:
         repository.configure_vault(project_id, "clients/acme")
         bootstrap = WikiBootstrapService(repository).initialize(project_id=project_id)
-        assert set(bootstrap["created"]) == {"wiki/overview.md", "wiki/index.md", "wiki/log.md"}
+        assert set(bootstrap["created"]) == {"README.md", "wiki/overview.md", "wiki/index.md", "wiki/log.md"}
         assert (project_root / "AGENTS.md").read_text(encoding="utf-8") == user_rules
 
         sync_report = ObsidianSyncService(repository, root).sync(project_id=project_id)

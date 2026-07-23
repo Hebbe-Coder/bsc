@@ -102,7 +102,23 @@ export type KnowledgeProposal = {
 export type KnowledgePage = { id: string; path: string; title: string; page_kind: string; version: number; status: string; metadata: Record<string, unknown> };
 export type KnowledgePageRevision = { id: string; version: number; content_hash: string; proposal_id: string; created_at: string };
 export type KnowledgePageDetail = { page: KnowledgePage; content: string; citations: Array<{ source_id: string; claim_text: string; anchor: string }>; revisions: KnowledgePageRevision[]; backlinks: KnowledgeGraphEdge[] };
-export type WeeklyDistillation = { id: string; week: string; knowledge_path: string; content_path: string; context_path: string; source_cutoff: string; status: string; created_at: string };
+export type WeeklyDistillation = {
+  id: string;
+  project_id: string;
+  week: string;
+  knowledge_path: string;
+  content_path: string;
+  context_path: string;
+  source_cutoff: string;
+  status: string;
+  created_at: string;
+  record_type?: 'legacy' | 'growth';
+  kind?: 'daily' | 'weekly';
+  period?: string;
+  paths?: string[];
+  manifest?: Record<string, unknown>;
+  generation?: Record<string, unknown>;
+};
 export type WeeklyDistillationDetail = { distillation: WeeklyDistillation; documents: Record<string, string> };
 export type KnowledgeRun = { id: string; run_type: string; trigger: string; status: string; error: string; retry_of: string | null; input_refs: Record<string, unknown>; output_refs: Record<string, unknown>; created_at: string; updated_at: string };
 export type KnowledgeSchedule = { id: string; job_type: string; cron: string; enabled: number | boolean; timezone: string; last_run_at: string; next_run_at: string; scheduler_available: boolean; last_result: KnowledgeRun | null };

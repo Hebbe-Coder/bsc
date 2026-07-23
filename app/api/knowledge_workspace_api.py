@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+import re
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -669,7 +670,10 @@ def workspace_schedules(request: Request, project_id: str, repo: WikiRepository 
 @router.get("/distillations")
 def list_workspace_distillations(request: Request, project_id: str, repo: WikiRepository = Depends(get_wiki_repository)):
     project_id = _enforce_project_access(request, project_id)
-    records = repo.list_distillations(project_id)
+    records = [_legacy_distillation_view(record) for record in repo.list_distillations(project_id)]
+    if isinstance(repo, GrowthRepository):
+        records.extend(_growth_distillation_view(record) for record in repo.list_growth_distillations(project_id, limit=500))
+    records.sort(key=lambda record: (str(record.get("created_at") or ""), str(record.get("period") or "")), reverse=True)
     return ApiResponse.ok({"distillations": records, "count": len(records)})
 
 
@@ -750,10 +754,161 @@ def read_workspace_distillation(
     distillation_id: str, request: Request, project_id: str, repo: WikiRepository = Depends(get_wiki_repository)
 ):
     project_id = _enforce_project_access(request, project_id)
+    legacy = repo.get_distillation(project_id, distillation_id)
+    if legacy:
+        try:
+            result = WikiCommandService(repo).read_distillation(project_id=project_id, distillation_id=distillation_id)
+        except WikiCommandError as exc:
+            raise _command_error(exc) from exc
+        result["distillation"] = _legacy_distillation_view(legacy)
+        return ApiResponse.ok(result)
+
+    growth = repo.get_growth_distillation_by_id(project_id, distillation_id) if isinstance(repo, GrowthRepository) else None
+    if growth:
+        try:
+            documents = _read_growth_distillation_documents(repo, growth)
+        except WikiCommandError as exc:
+            raise _command_error(exc) from exc
+        return ApiResponse.ok({"distillation": _growth_distillation_view(growth), "documents": documents})
+    raise _command_error(WikiCommandError("weekly distillation not found"))
+
+
+def _legacy_distillation_view(record: dict[str, Any]) -> dict[str, Any]:
+    paths = [str(record.get(key) or "") for key in ("knowledge_path", "content_path", "context_path")]
+    return {
+        **record,
+        "record_type": "legacy",
+        "kind": "weekly",
+        "period": str(record.get("week") or ""),
+        "paths": [path for path in paths if path],
+        "manifest": {},
+        "generation": {},
+    }
+
+
+def _growth_distillation_view(record: dict[str, Any]) -> dict[str, Any]:
+    manifest = record.get("manifest") if isinstance(record.get("manifest"), dict) else {}
+    paths = [str(path) for path in record.get("paths") or [] if str(path)]
+    period = str(record.get("period") or "")
+    return {
+        "id": record.get("id", ""),
+        "project_id": record.get("project_id", ""),
+        "record_type": "growth",
+        "kind": str(record.get("kind") or "weekly"),
+        "period": period,
+        "week": period if str(record.get("kind") or "") == "weekly" else "",
+        "knowledge_path": paths[0] if paths else "",
+        "content_path": paths[1] if len(paths) > 1 else "",
+        "context_path": paths[2] if len(paths) > 2 else "",
+        "paths": paths,
+        "source_cutoff": str(manifest.get("source_cutoff") or ""),
+        "status": str(record.get("status") or ""),
+        "created_at": str(record.get("created_at") or ""),
+        "manifest": manifest,
+        "generation": manifest.get("generation") if isinstance(manifest.get("generation"), dict) else {},
+    }
+
+
+def _read_growth_distillation_documents(repo: GrowthRepository, record: dict[str, Any]) -> dict[str, str]:
+    mapping = repo.get_vault(str(record.get("project_id") or ""))
+    if not mapping:
+        raise WikiCommandError("project Vault mapping is not configured")
+    vault_root = str(settings.OBSIDIAN_VAULT_ROOT or "").strip()
+    if not vault_root:
+        raise WikiCommandError("Obsidian Vault is not configured")
     try:
-        return ApiResponse.ok(WikiCommandService(repo).read_distillation(project_id=project_id, distillation_id=distillation_id))
-    except WikiCommandError as exc:
-        raise _command_error(exc) from exc
+        vault = FilesystemWikiVault(vault_root, str(record["project_id"]), mapping["vault_path"])
+    except (OSError, ValueError) as exc:
+        raise WikiCommandError("project Vault is unavailable") from exc
+
+    documents: dict[str, str] = {}
+    for relative, path in _growth_distillation_document_locations(vault, record):
+        try:
+            unavailable = not path.is_file() or path.is_symlink() or path.stat().st_size > 1_000_000
+        except OSError:
+            unavailable = True
+        if unavailable:
+            raise WikiCommandError("managed distillation document is unavailable")
+        try:
+            documents[relative] = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise WikiCommandError("managed distillation document is unreadable") from exc
+    if not documents:
+        raise WikiCommandError("growth distillation has no managed documents")
+    return documents
+
+
+def _growth_distillation_document_locations(
+    vault: FilesystemWikiVault, record: dict[str, Any]
+) -> list[tuple[str, Path]]:
+    paths = [str(path) for path in record.get("paths") or [] if str(path)]
+    locations = [(relative, _safe_growth_distillation_path(vault, relative)) for relative in paths]
+    input_hash = str(record.get("input_hash") or "")
+    if not re.fullmatch(r"[a-f0-9]{64}", input_hash) or not locations:
+        return locations
+
+    if str(record.get("kind") or "") == "weekly":
+        current_root = locations[0][1].parent
+        current_hash = _weekly_manifest_input_hash(current_root / "manifest.json")
+        if not current_hash or current_hash == input_hash:
+            return locations
+        return [
+            (
+                relative,
+                _safe_growth_distillation_path(
+                    vault,
+                    (Path(relative).parent / "revisions" / input_hash / Path(relative).name).as_posix(),
+                ),
+            )
+            for relative, _path in locations
+        ]
+
+    if str(record.get("kind") or "") == "daily" and len(locations) == 1:
+        relative, current = locations[0]
+        current_hash = _daily_marker_input_hash(current)
+        if current_hash and current_hash != input_hash:
+            archived = Path(relative).parent / "revisions" / str(record.get("period") or "") / f"{input_hash}.md"
+            return [(relative, _safe_growth_distillation_path(vault, archived.as_posix()))]
+    return locations
+
+
+def _weekly_manifest_input_hash(path: Path) -> str:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return ""
+    value = str(payload.get("input_hash") or "") if isinstance(payload, dict) else ""
+    return value if re.fullmatch(r"[a-f0-9]{64}", value) else ""
+
+
+def _daily_marker_input_hash(path: Path) -> str:
+    try:
+        first_line = path.open("r", encoding="utf-8").readline(2_048)
+    except (OSError, UnicodeDecodeError):
+        return ""
+    match = re.search(r"\binput_hash=([a-f0-9]{64})\b", first_line)
+    return match.group(1) if match else ""
+
+
+def _safe_growth_distillation_path(vault: FilesystemWikiVault, relative: str) -> Path:
+    normalized = str(relative or "").replace("\\", "/")
+    parts = Path(normalized).parts
+    if (
+        not normalized
+        or normalized.startswith("/")
+        or not parts
+        or parts[0].casefold() != "distillations"
+        or any(part in {"", ".", ".."} for part in parts)
+        or ":" in parts[0]
+    ):
+        raise WikiCommandError("persisted growth output path is invalid")
+    root = vault.project_root.resolve()
+    candidate = (root / Path(normalized)).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise WikiCommandError("persisted growth output path escaped the project Vault") from exc
+    return candidate
 
 
 def _source_view(record: dict) -> dict:

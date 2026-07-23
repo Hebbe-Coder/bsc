@@ -88,20 +88,33 @@ class ConfiguredDistillationNarrativeProvider:
 
     @staticmethod
     def _system_prompt(kind: str) -> str:
-        names = list(GrowthDistillationService.WEEKLY_DOCUMENTS)
         if kind == "daily":
             shape = '{"daily":"Markdown body only"}'
         else:
-            shape = json.dumps({"weekly": {name: "Markdown body only" for name in names}}, ensure_ascii=False)
+            shape = json.dumps(
+                {"weekly": {slot: "Markdown body only" for slot in GrowthDistillationService.WEEKLY_NARRATIVE_SLOTS}}
+            )
         return (
             "You maintain a governed personal knowledge base. Return one JSON object only, "
             f"matching this exact shape: {shape}\n"
-            "Write a concrete, project-specific synthesis, not a template or record dump. "
-            "Use only the supplied context. Cite every factual statement with an exact "
-            "[source:<id>] or [page:<id>] reference from the context. If evidence is insufficient, "
-            "write it as an assumption, unanswered question, or review action. Accepted outputs may "
-            "inform voice and method only; they are not factual evidence. Never claim a Wiki page, "
-            "method, or automation was published or executed unless the context explicitly says so."
+            "Write a concrete, project-specific synthesis, never a template, generic status report, "
+            "or record dump. Every document must contain at least one exact [source:<id>] or "
+            "[page:<id>] reference from the supplied context, and every factual claim must be grounded "
+            "by one of those references. If evidence is insufficient, explain the specific gap and give "
+            "a bounded review action that still cites the evidence being assessed.\n"
+            "For a daily run, explain what changed, why it matters to this project, and the next review "
+            "action. For weekly runs, write five distinct documents in the supplied order: (1) a sourced "
+            "decision-and-change summary; (2) prioritized knowledge actions with owners or verification "
+            "criteria; (3) two or more source-backed content angles or briefs, never an empty statement "
+            "that there is no content to create; (4) a reusable next-week context brief with open questions; "
+            "and (5) method improvements tied to observed evidence, feedback, or evaluation.\n"
+            "For weekly output, use the five ASCII keys in the JSON shape exactly. Do not rename, number, "
+            "translate, or replace them with filenames.\n"
+            "The prompt ends with an authoritative citation ledger. Every document value must include at least "
+            "one label copied exactly from that ledger. Do not invent labels or use a revision suffix.\n"
+            "Use only the supplied context. Accepted outputs may inform voice and method only; they are not "
+            "factual evidence. Never claim a Wiki page, method, or automation was published or executed "
+            "unless the context explicitly says so."
         )
 
 
@@ -112,6 +125,16 @@ class ManagedContentConflictError(ValueError):
 class GrowthDistillationService:
     OWNER = "bsc.knowledge.growth"
     OWNERSHIP_MARKER = "bsc-growth-distillation/v1"
+    # Bump this whenever the semantic output contract changes. It makes a
+    # previously accepted but weaker bundle a new, auditable revision.
+    DISTILLATION_CONTRACT_REVISION = 4
+    WEEKLY_NARRATIVE_SLOTS = (
+        "summary",
+        "knowledge_actions",
+        "content_briefs",
+        "next_context",
+        "method_iteration",
+    )
     WEEKLY_DIRECTORY = "每周蒸馏"
     DAILY_DIRECTORY = "每日增量"
     WEEKLY_DOCUMENTS = (
@@ -240,7 +263,11 @@ class GrowthDistillationService:
             period=week,
             context=context,
         )
-        docs = narrative.get("weekly") or self._weekly_documents(project_id, week, cutoff, inputs, changes, context)
+        fallback_docs = self._weekly_documents(project_id, week, cutoff, inputs, changes, context)
+        docs = {
+            name: (narrative.get("weekly") or {}).get(name) or fallback_docs[name]
+            for name in self.WEEKLY_DOCUMENTS
+        }
         paths = [
             (root / name).relative_to(vault.project_root).as_posix()
             for name in self.WEEKLY_DOCUMENTS
@@ -388,6 +415,7 @@ class GrowthDistillationService:
     @staticmethod
     def _input_hash(inputs: list[dict[str, Any]], cutoff: str, context_hash: str = "") -> str:
         return GrowthDistillationService._json_hash({
+            "distillation_contract_revision": GrowthDistillationService.DISTILLATION_CONTRACT_REVISION,
             "source_cutoff": cutoff,
             "inputs": inputs,
             "context_hash": context_hash,
@@ -503,6 +531,12 @@ class GrowthDistillationService:
             "rules_revision": pack.rules_revision,
             "source_ids": list(pack.source_ids),
             "page_ids": list(pack.page_ids),
+            "citation_source_ids": sorted(
+                str(item["id"]) for item in inputs if item.get("type") == "source" and item.get("id")
+            ),
+            "citation_page_ids": sorted(
+                str(item["id"]) for item in inputs if item.get("type") == "page" and item.get("id")
+            ),
             "method_revision_ids": list(pack.method_revision_ids),
             "output_ids": list(pack.output_ids),
             "assumptions": list(pack.assumptions),
@@ -539,7 +573,7 @@ class GrowthDistillationService:
         project_id: str,
         period: str,
         context: dict[str, Any],
-    ) -> tuple[dict[str, Any], dict[str, str]]:
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         fallback = {
             "mode": "deterministic",
             "provider": "",
@@ -551,7 +585,7 @@ class GrowthDistillationService:
                 kind=kind,
                 project_id=project_id,
                 period=period,
-                context=str(context.get("rendered") or ""),
+                context=str(context.get("rendered") or "") + self._citation_ledger(context),
             )
         except Exception:
             return {}, {**fallback, "reason": "provider_request_failed"}
@@ -566,23 +600,35 @@ class GrowthDistillationService:
                 payload: dict[str, Any] = {"daily": daily}
             else:
                 weekly = rendered.get("weekly")
-                if not isinstance(weekly, dict) or set(weekly) != set(self.WEEKLY_DOCUMENTS):
+                if not isinstance(weekly, dict):
                     raise ValueError("weekly_narrative_shape_invalid")
-                payload = {
-                    "weekly": {
-                        name: self._validated_markdown(weekly.get(name), context)
-                        for name in self.WEEKLY_DOCUMENTS
+                if set(weekly) == set(self.WEEKLY_NARRATIVE_SLOTS):
+                    weekly = {
+                        filename: weekly[slot]
+                        for filename, slot in zip(self.WEEKLY_DOCUMENTS, self.WEEKLY_NARRATIVE_SLOTS, strict=True)
                     }
+                elif set(weekly) != set(self.WEEKLY_DOCUMENTS):
+                    raise ValueError("weekly_narrative_shape_invalid")
+                accepted = {
+                    name: self._validated_markdown(weekly.get(name), context)
+                    for name in self.WEEKLY_DOCUMENTS
                 }
-                if any(not body for body in payload["weekly"].values()):
+                accepted = {name: body for name, body in accepted.items() if body}
+                if not accepted:
                     raise ValueError("weekly_narrative_content_invalid")
+                payload = {"weekly": accepted}
         except (TypeError, ValueError):
             return {}, {**fallback, "reason": "provider_response_rejected"}
+        fallback_documents = []
+        if kind == "weekly":
+            fallback_documents = [name for name in self.WEEKLY_DOCUMENTS if name not in payload["weekly"]]
         return payload, {
-            "mode": "llm",
+            "mode": "hybrid" if fallback_documents else "llm",
             "provider": str(getattr(self.narrative_provider, "provider", "configured") or "configured"),
             "model": str(getattr(self.narrative_provider, "model", "") or ""),
-            "reason": "",
+            "reason": "invalid_llm_documents_replaced" if fallback_documents else "",
+            "llm_documents": [name for name in self.WEEKLY_DOCUMENTS if name in payload.get("weekly", {})],
+            "fallback_documents": fallback_documents,
         }
 
     @staticmethod
@@ -599,11 +645,25 @@ class GrowthDistillationService:
             content,
         )
         source_ids = {str(item) for item in context.get("source_ids") or []}
+        source_ids.update(str(item) for item in context.get("citation_source_ids") or [])
         page_ids = {str(item) for item in context.get("page_ids") or []}
-        for kind, ref in re.findall(r"\[(source|page):([^\]]+)\]", content):
+        page_ids.update(str(item) for item in context.get("citation_page_ids") or [])
+        references = re.findall(r"\[(source|page):([^\]]+)\]", content)
+        if not references:
+            return ""
+        for kind, ref in references:
             if (kind == "source" and ref not in source_ids) or (kind == "page" and ref not in page_ids):
                 return ""
         return content
+
+    @staticmethod
+    def _citation_ledger(context: dict[str, Any]) -> str:
+        sources = [f"[source:{item}]" for item in context.get("citation_source_ids") or []]
+        pages = [f"[page:{item}]" for item in context.get("citation_page_ids") or []]
+        labels = sources + pages
+        if not labels:
+            return ""
+        return "\n\nCitation ledger (copy these labels exactly):\n" + "\n".join(f"- {label}" for label in labels) + "\n"
 
     def _page_content_at_cutoff(
         self,
@@ -838,12 +898,13 @@ class GrowthDistillationService:
         source_cutoff: str,
         inputs: list[dict[str, Any]],
         context: dict[str, Any],
-        generation: dict[str, str],
+        generation: dict[str, Any],
         paths: list[str],
         file_hashes: dict[str, str],
     ) -> dict[str, Any]:
         return {
-            "schema_version": 1,
+            "schema_version": 2,
+            "distillation_contract_revision": self.DISTILLATION_CONTRACT_REVISION,
             "owner": self.OWNER,
             "ownership_marker": self.OWNERSHIP_MARKER,
             "project_id": project_id,
@@ -941,6 +1002,7 @@ class GrowthDistillationService:
         contradictions = [item for item in by_type.get("lineage", []) if item.get("relation") == "source_contradicts_source"]
         evidence = "\n".join(f"- [source:{item}]" for item in source_refs) or "- No eligible source records at the cutoff."
         pages = "\n".join(f"- [page:{item}]" for item in page_refs) or "- No published Wiki page records at the cutoff."
+        grounding = f"{evidence}\n\n{pages}"
         return {
             "00-本周总结.md": (
                 "# 本周总结\n\n"
@@ -960,18 +1022,21 @@ class GrowthDistillationService:
                 "Accepted D outputs are style/method examples only. Every factual claim still requires an A/B citation.\n\n"
                 f"## Accepted examples\n\n```json\n{json.dumps(accepted_outputs, ensure_ascii=False, indent=2)}\n```\n\n"
                 f"## Regression constraints\n\n```json\n{json.dumps(rejected_outputs, ensure_ascii=False, indent=2)}\n```"
+                f"\n\n## Grounding\n\n{grounding}"
             ),
             "03-下周上下文包.md": (
                 "# 下周上下文包\n\n"
                 f"- Project: `{project_id}`\n- Source cutoff: `{cutoff}`\n- Context ID: `{context['context_id']}`\n"
                 f"- Context hash: `{context['context_hash']}`\n\n"
                 f"```json\n{json.dumps(context, ensure_ascii=False, indent=2, sort_keys=True)}\n```"
+                f"\n\n## Grounding\n\n{grounding}"
             ),
             "04-方法迭代.md": (
                 "# 方法迭代\n\n"
                 "Only method candidates that pass evaluation and publication gates may become active revisions.\n\n"
                 f"## Methods\n\n```json\n{json.dumps(by_type.get('method', []), ensure_ascii=False, indent=2)}\n```\n\n"
                 f"## Evaluations and feedback\n\n```json\n{json.dumps(by_type.get('evaluation', []) + by_type.get('feedback', []), ensure_ascii=False, indent=2)}\n```"
+                f"\n\n## Grounding\n\n{grounding}"
             ),
         }
 
