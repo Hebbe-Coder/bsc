@@ -7,7 +7,7 @@ export const GROWTH_STAGES: Array<{ id: GrowthStage; index: string; label: strin
   { id: 'B', index: 'B', label: 'Knowledge', detail: 'Compiled Wiki state' },
   { id: 'C', index: 'C', label: 'Methods', detail: 'Tested reusable playbooks' },
   { id: 'D', index: 'D', label: 'Outputs', detail: 'Grounded project work' },
-  { id: 'review', index: 'R', label: 'Review', detail: 'Feedback and proposals' },
+  { id: 'review', index: 'R', label: 'Review', detail: 'Feedback, proposals and distillations' },
 ];
 
 export const GROWTH_RELATIONS = [
@@ -18,6 +18,11 @@ export const GROWTH_RELATIONS = [
 ];
 
 export function growthRecordLabel(record: GrowthRecord): string {
+  if (record.asset_type === 'distillation') {
+    const period = String(record.period || record.week || '').trim();
+    const kind = record.kind === 'daily' ? 'Daily' : 'Weekly';
+    return `${kind} distillation${period ? ` ${period}` : ''}`;
+  }
   if (typeof record.feedback_type === 'string') {
     const summary = String(record.correction || record.comment || '').trim();
     return `${record.feedback_type} feedback${summary ? `: ${summary.slice(0, 48)}` : ''}`;

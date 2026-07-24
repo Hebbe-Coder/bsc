@@ -9,6 +9,7 @@ from app.knowledge.growth_contracts import (
     FeedbackType,
     KnowledgeLineageEdge,
     MethodProposal,
+    is_verified_output_status,
 )
 from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.wiki_contracts import WikiOperation, WikiProposal
@@ -129,7 +130,7 @@ class FeedbackRouter:
     def _route_accepted(
         self, feedback: dict[str, Any], output: dict[str, Any]
     ) -> tuple[str, str]:
-        if output.get("status") != "accepted":
+        if not is_verified_output_status(output.get("status")):
             raise ValueError("accepted feedback cannot promote an output that has not passed evaluation")
         proposal_config = (output.get("metadata") or {}).get("wiki_proposal") or {}
         raw_operations = proposal_config.get("operations") or []
@@ -168,8 +169,8 @@ class FeedbackRouter:
 
     def _route_reused(self, output: dict[str, Any]) -> tuple[str, str]:
         quality = float((output.get("quality") or {}).get("quality", 0))
-        if output.get("status") != "accepted" or quality < 85:
-            raise ValueError("method routing requires an accepted output with quality >= 85")
+        if not is_verified_output_status(output.get("status")) or quality < 85:
+            raise ValueError("method routing requires a verified output with quality >= 85")
         config = (output.get("metadata") or {}).get("method_candidate") or {}
         body = str(config.get("body") or "").strip()
         if not body:

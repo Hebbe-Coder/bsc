@@ -55,7 +55,7 @@ def test_health_marks_citations_stale_when_their_source_is_superseded(tmp_path):
         ).source
         repo.record_publication(
             project_id="project-a",
-            contents={"wiki/index.md": f"# Index\nClaim [source:{first['id']}]\n"},
+            contents={"wiki/concepts/policy.md": f"# Policy\nClaim [source:{first['id']}]\n"},
             source_ids=[],
         )
 
@@ -115,5 +115,25 @@ def test_health_excludes_rules_navigation_and_log_from_substantive_citation_cove
         assert health["citation_coverage"] == 1.0
         assert health["uncited_page_ids"] == []
         assert health["orphan_page_ids"] == []
+    finally:
+        repo.close()
+
+
+def test_health_excludes_navigation_and_log_citation_history_from_dangling_and_stale_counts(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "health-nonsubstantive-citations.db"))
+    try:
+        repo.record_publication(
+            project_id="project-a",
+            contents={
+                "wiki/index.md": "# Index\nLegacy [source:missing-source]\n",
+                "wiki/log.md": "# Log\nLegacy [source:missing-source]\n",
+            },
+            source_ids=[],
+        )
+
+        health = KnowledgeHealthService(repo).snapshot(project_id="project-a")
+
+        assert health["dangling_citation_count"] == 0
+        assert health["stale_citation_count"] == 0
     finally:
         repo.close()

@@ -46,6 +46,7 @@ describe('GrowthTrends', () => {
     render(<GrowthTrends trend={trend} health={health} counts={counts} state="success" onRetry={vi.fn()} />);
     expect(screen.getByText('80%')).toBeVisible();
     expect(screen.getByText('75%')).toBeVisible();
+    expect(screen.getByText('OUTPUT VERIFICATION')).toBeVisible();
     expect(screen.getByText('not exposed by P7')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '7d' }));
     expect(screen.getByRole('button', { name: '7d' })).toHaveAttribute('aria-pressed', 'true');

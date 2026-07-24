@@ -12,6 +12,7 @@ from typing import Any, Iterable
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.knowledge.generation_provenance import redact_secrets, sanitize_untrusted_text
+from app.knowledge.source_triage import source_admission_reason
 
 
 class ContextOmission(BaseModel):
@@ -37,6 +38,7 @@ class GrowthContextPack(BaseModel):
     estimated_tokens: int = Field(ge=0)
     provenance: tuple[str, ...] = ()
     source_ids: tuple[str, ...] = ()
+    project_context_source_ids: tuple[str, ...] = ()
     page_ids: tuple[str, ...] = ()
     index_refs: tuple[str, ...] = ()
     method_revision_ids: tuple[str, ...] = ()
@@ -94,6 +96,7 @@ class GrowthContextBuilder:
         task: str,
         pages: Iterable[dict[str, Any]] = (),
         sources: Iterable[dict[str, Any]] = (),
+        project_contexts: Iterable[dict[str, Any]] = (),
         methods: Iterable[dict[str, Any]] = (),
         outputs: Iterable[dict[str, Any]] = (),
         evaluations: Iterable[dict[str, Any]] = (),
@@ -117,6 +120,7 @@ class GrowthContextBuilder:
 
         groups = (
             (10, "page", pages, "content"),
+            (15, "project_context", project_contexts, "raw_content"),
             (20, "source", sources, "raw_content"),
             (30, "method", methods, "body"),
             (40, "output", outputs, "content"),
@@ -171,6 +175,9 @@ class GrowthContextBuilder:
                 if kind == "output" and status not in {"accepted", "filed"}:
                     omissions.append(ContextOmission(ref=f"{kind}:{ref}", reason="output_not_accepted"))
                     continue
+                if kind == "project_context" and status not in {"captured", "validated", "eligible", "processed"}:
+                    omissions.append(ContextOmission(ref=f"{kind}:{ref}", reason="project_context_unavailable"))
+                    continue
                 if kind in {"source", "page"} and status not in self._STATUS_ALLOWED:
                     reason = "failed_reliability" if status in {"failed", "rejected", "quarantined", "untrusted"} else "stale_or_ineligible"
                     omissions.append(ContextOmission(ref=f"{kind}:{ref}", reason=reason))
@@ -203,16 +210,23 @@ class GrowthContextBuilder:
             self._trusted_section("rules", resolved_rules_revision, str(redact_secrets(rules or ""))),
             self._trusted_section("task", "request", str(redact_secrets(task or ""))),
         )
+        # A growth run must not turn into a rules-only prompt. Reserve a
+        # bounded excerpt for A-layer evidence before fitting trusted metadata.
+        evidence_reserve = self._evidence_reserve(candidates, mandatory_count=len(mandatory))
         rendered_sections: list[str] = []
         used = 0
         for index, section in enumerate(mandatory):
             remaining_required = len(mandatory) - index - 1
-            reserve = remaining_required * 48
-            available = max(0, self.max_characters - used - reserve)
+            # Reserve both content and separators for the required sections
+            # that follow. Without this, a near-limit rules document could
+            # leave the final task section two characters over budget.
+            separator = 2 if rendered_sections else 0
+            reserve = (remaining_required * 50) + evidence_reserve
+            available = max(0, self.max_characters - used - separator - reserve)
             fitted = self._fit(section, available)
             if fitted:
                 rendered_sections.append(fitted)
-                used += len(fitted) + (2 if rendered_sections[:-1] else 0)
+                used += separator + len(fitted)
 
         included_candidates: list[_Candidate] = []
         for item in sorted(candidates, key=lambda candidate: candidate.key):
@@ -254,7 +268,21 @@ class GrowthContextBuilder:
                 ]
                 omissions.append(ContextOmission(ref=f"source:{source.ref}", reason="excerpted_for_budget"))
 
-        included: dict[str, list[str]] = {kind: [] for kind in ("index", "page", "source", "method", "output", "constraint", "evaluation", "feedback", "distillation")}
+        included: dict[str, list[str]] = {
+            kind: []
+            for kind in (
+                "index",
+                "page",
+                "project_context",
+                "source",
+                "method",
+                "output",
+                "constraint",
+                "evaluation",
+                "feedback",
+                "distillation",
+            )
+        }
         for item in included_candidates:
             included[item.kind].append(item.ref if item.kind != "method" else item.revision)
             provenance_kind = "output" if item.kind == "constraint" else item.kind
@@ -294,6 +322,7 @@ class GrowthContextBuilder:
             estimated_tokens=math.ceil(len(rendered) / self.characters_per_token),
             provenance=tuple(dict.fromkeys(provenance)),
             source_ids=tuple(included["source"]),
+            project_context_source_ids=tuple(included["project_context"]),
             page_ids=tuple(included["page"]),
             index_refs=tuple(included["index"]),
             method_revision_ids=tuple(included["method"]),
@@ -325,6 +354,15 @@ class GrowthContextBuilder:
         separator = 2 if sections else 0
         return max(0, self.max_characters - used - separator)
 
+    def _evidence_reserve(self, candidates: Iterable[_Candidate], *, mandatory_count: int) -> int:
+        if not any(candidate.kind == "source" for candidate in candidates):
+            return 0
+        mandatory_floor = (mandatory_count * 48) + (max(0, mandatory_count - 1) * 2)
+        return min(
+            self.MINIMUM_SOURCE_EXCERPT_CHARACTERS,
+            max(0, self.max_characters - mandatory_floor),
+        )
+
     @staticmethod
     def _bounded_untrusted_section(candidate: _Candidate, available: int) -> str:
         section = GrowthContextBuilder._untrusted_section(candidate)
@@ -355,6 +393,7 @@ class GrowthContextBuilder:
         role = {
             "page": "PUBLISHED_B_KNOWLEDGE",
             "index": "NAVIGATION_INDEX_NOT_AUTHORITY",
+            "project_context": "PROJECT_CONTEXT_NOT_FACTUAL_EVIDENCE",
             "source": "EXACT_A_EVIDENCE",
             "method": "APPROVED_METHOD_GUIDANCE_NOT_FACTUAL_EVIDENCE",
             "output": "ACCEPTED_STYLE_EXAMPLE_NOT_FACTUAL_EVIDENCE",
@@ -435,11 +474,28 @@ class GrowthContextService:
         project_root = self._project_root(project_id)
         rules, rules_revision, rule_gaps = self._rules(project_id, project_root)
         pages = self._pages(project_id)
-        sources = [
-            source
-            for source in self.repository.list_sources(project_id)
-            if source.get("status") in {"eligible", "processed"}
-        ][: self.MAX_RECORDS]
+        sources: list[dict[str, Any]] = []
+        project_contexts: list[dict[str, Any]] = []
+        for source in self.repository.list_sources(project_id):
+            metadata = source.get("metadata") or {}
+            is_project_context = (
+                str(source.get("source_type") or "") == "obsidian_project_context"
+                or str(metadata.get("obsidian_workspace_role") or "") == "project_context"
+            )
+            if is_project_context:
+                if (
+                    metadata.get("source_present") is not False
+                    and source.get("status") in {"captured", "validated", "eligible", "processed"}
+                ):
+                    project_contexts.append(source)
+                continue
+            if (
+                source.get("status") in {"eligible", "processed"}
+                and not source_admission_reason(self.repository, project_id, source)
+            ):
+                sources.append(source)
+        sources = sources[: self.MAX_RECORDS]
+        project_contexts = project_contexts[: self.MAX_RECORDS]
         methods = self._methods(project_id)
         outputs = self._outputs(project_id, project_root)
         return self.builder.build(
@@ -450,6 +506,7 @@ class GrowthContextService:
             task=task,
             pages=pages,
             sources=sources,
+            project_contexts=project_contexts,
             methods=methods,
             outputs=outputs,
             evaluations=self._evaluations(project_id),

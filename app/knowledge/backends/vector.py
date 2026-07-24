@@ -77,9 +77,14 @@ class VectorBackend:
                 logger.warning("vector 单条写入跳过 %s: %s", r.get("id"), e)
         if rows:
             try:
-                self.repo._executemany(
-                    "INSERT OR REPLACE INTO knowledge_vectors (chunk_id, model, dim, vector) "
-                    "VALUES (?,?,?,?)", rows)
+                upsert_sql = (
+                    "INSERT INTO knowledge_vectors (chunk_id, model, dim, vector) VALUES (?,?,?,?) "
+                    "ON CONFLICT(chunk_id) DO UPDATE SET "
+                    "model=excluded.model, dim=excluded.dim, vector=excluded.vector"
+                    if getattr(self.repo._get_connection(), "dialect", "sqlite") == "postgresql"
+                    else "INSERT OR REPLACE INTO knowledge_vectors (chunk_id, model, dim, vector) VALUES (?,?,?,?)"
+                )
+                self.repo._executemany(upsert_sql, rows)
                 self.repo._commit()
             except Exception as e:
                 logger.warning("vector 写入失败: %s", e)

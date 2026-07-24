@@ -17,6 +17,16 @@ _OUTPUT_ADAPTER = "filesystem_output"
 _SUPPORTED_ADAPTERS = frozenset({_SOURCE_ADAPTER, _OUTPUT_ADAPTER})
 _SOURCE_EXPORT_ROOTS = frozenset({"raw", "inbox", "00_Inbox", "01_Sources"})
 _OUTPUT_EXPORT_ROOTS = frozenset({"outputs", "04_Outputs"})
+_SYNCABLE_KNOWLEDGE_ROOTS = _SOURCE_EXPORT_ROOTS | frozenset({"02_Assets", "03_Projects", "06_Skills"})
+_WORKSPACE_ROLES = {
+    "00_Inbox": "inspiration",
+    "01_Sources": "resource",
+    "raw": "resource",
+    "inbox": "inspiration",
+    "02_Assets": "asset",
+    "03_Projects": "project_context",
+    "06_Skills": "skill_candidate",
+}
 
 
 @dataclass(frozen=True)
@@ -145,6 +155,21 @@ class ObsidianPluginManifest:
         not scan Wiki, skills, review, or output folders as new evidence.
         """
         return bool(project_relative) and project_relative[0] in _SOURCE_EXPORT_ROOTS
+
+    @staticmethod
+    def is_syncable_knowledge_path(project_relative: tuple[str, ...]) -> bool:
+        """Allow declared evidence plus human-maintained knowledge work lanes.
+
+        Project context, curated assets, and candidate Skills are user-authored
+        context for BSC to evaluate. They are not plugin exports and they do not
+        become trusted facts or active methods merely because they exist.
+        """
+        return bool(project_relative) and project_relative[0] in _SYNCABLE_KNOWLEDGE_ROOTS
+
+    @staticmethod
+    def workspace_role_for(project_relative: tuple[str, ...]) -> str:
+        """Return the cognitive work-lane for a project-relative Vault file."""
+        return _WORKSPACE_ROLES.get(project_relative[0], "") if project_relative else ""
 
     @staticmethod
     def is_output_export_path(project_relative: tuple[str, ...]) -> bool:

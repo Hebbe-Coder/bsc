@@ -69,7 +69,8 @@ def test_feedback_routes_wiki_method_and_failure_with_lineage(tmp_path):
         ):
             repo.register_output(OutputAsset(
                 id=output_id, project_id="project-a", kind="report", content_hash=(output_id[7] * 64),
-                vault_path=f"outputs/2026/{output_id}/report.md", idempotency_key=output_id, status="accepted",
+                vault_path=f"outputs/2026/{output_id}/report.md", idempotency_key=output_id,
+                status="filed" if output_id in {"output-wiki", "output-method"} else "accepted",
                 source_refs=["source-a"], quality={"quality": 90}, metadata=metadata,
             ))
             feedback = repo.add_output_feedback(OutputFeedback(id=f"feedback-{output_id}", project_id="project-a", output_id=output_id,

@@ -14,6 +14,9 @@ from app.knowledge.scheduler import KnowledgeScheduler
 from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus, SourceRecord, SourceStatus
 
 
+_CUTOFF_SAFE_TIME = datetime(2026, 7, 23, tzinfo=timezone.utc)
+
+
 def _register_output(repo: GrowthRepository, output_id: str, status: str = "accepted") -> dict:
     return repo.register_output(
         OutputAsset(
@@ -27,6 +30,8 @@ def _register_output(repo: GrowthRepository, output_id: str, status: str = "acce
             status=status,
             quality={"quality": 91 if status == "accepted" else 42},
             metadata={"task_family": "weekly-review"},
+            created_at=_CUTOFF_SAFE_TIME,
+            updated_at=_CUTOFF_SAFE_TIME,
         )
     )
 

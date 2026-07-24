@@ -17,12 +17,13 @@ def test_bootstrap_creates_only_missing_managed_files_and_indexes_pages(tmp_path
         first = WikiBootstrapService(repo).initialize(project_id="project-a")
         second = WikiBootstrapService(repo).initialize(project_id="project-a")
 
-        assert set(first["created"]) == {"README.md", "wiki/overview.md", "wiki/index.md", "wiki/log.md"}
+        assert set(first["created"]) == {"README.md", "00-Workspace.md", "wiki/overview.md", "wiki/index.md", "wiki/log.md"}
         assert set(first["created_directories"]) == set(WikiBootstrapService.managed_directories())
         assert second["status"] == "already_initialized"
         assert second["created_directories"] == []
         assert (project_root / "AGENTS.md").read_text(encoding="utf-8") == user_agents
         assert "A-layer evidence" in (project_root / "README.md").read_text(encoding="utf-8")
+        assert "03_Projects/active/" in (project_root / "00-Workspace.md").read_text(encoding="utf-8")
         assert all((project_root / directory).is_dir() for directory in WikiBootstrapService.managed_directories())
         rules_page = next(page for page in repo.list_pages("project-a") if page["path"] == "AGENTS.md")
         assert rules_page["page_kind"] == "rules"
@@ -50,6 +51,10 @@ def test_bootstrap_preserves_existing_notes_while_expanding_the_operational_layo
         assert (project_root / "00_Inbox" / "web-clipper").is_dir()
         assert (project_root / "01_Sources" / "feishu").is_dir()
         assert (project_root / "04_Outputs" / "articles").is_dir()
+        assert (project_root / "02_Assets" / "curated").is_dir()
+        assert (project_root / "03_Projects" / "active").is_dir()
+        assert (project_root / "05_Archive" / "reviewed").is_dir()
+        assert (project_root / "06_Skills" / "candidates").is_dir()
         assert (project_root / "distillations" / "每周蒸馏").is_dir()
     finally:
         repo.close()

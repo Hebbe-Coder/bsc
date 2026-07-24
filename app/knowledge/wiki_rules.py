@@ -126,11 +126,14 @@ def parse_project_rules(text: str) -> ProjectRules:
 
 
 def _split_frontmatter(text: str) -> tuple[str, str]:
-    if not text.startswith("---\n"):
+    # Obsidian may preserve the Windows CRLF convention. Parse structural
+    # delimiters consistently while callers retain the original text hash.
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    if not normalized.startswith("---\n"):
         raise RuleValidationError("AGENTS.md must start with YAML frontmatter")
-    boundary = text.find("\n---", 4)
+    boundary = normalized.find("\n---", 4)
     if boundary < 0:
         raise RuleValidationError("AGENTS.md frontmatter is not closed")
-    frontmatter = text[4:boundary]
-    body = text[boundary + 4:].lstrip("\r\n")
+    frontmatter = normalized[4:boundary]
+    body = normalized[boundary + 4:].lstrip("\n")
     return frontmatter, body

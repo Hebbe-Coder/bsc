@@ -56,6 +56,9 @@ export type KnowledgeWorkspaceData = {
       duplicates: number;
       rejected: number;
       skipped: boolean;
+      outcome: 'processed' | 'empty_result' | 'no_new_artifact' | 'channel_error' | 'configuration_error' | 'failed';
+      items_observed: number;
+      failure: { category: string; code: string; retryable: boolean } | null;
     } | null;
   };
   growth?: {

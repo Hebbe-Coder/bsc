@@ -105,7 +105,7 @@ export function GrowthTrends({ trend, health, counts, state, error, onRetry }: P
     <div className="growth-metric-strip">
       <div><span>CITATION COVERAGE</span><strong>{health.citation_coverage === null ? 'n/a' : `${Math.round(health.citation_coverage * 100)}%`}</strong><small>health API</small></div>
       <div><span>METHOD PUBLISHED</span><strong>{counts ? percent(counts.published_methods, counts.methods) : 'n/a'}</strong><small>{counts?.published_methods ?? 0} persisted</small></div>
-      <div><span>OUTPUT ACCEPTANCE</span><strong>{counts ? percent(counts.accepted_outputs, counts.outputs) : 'n/a'}</strong><small>{counts?.rejected_outputs ?? 0} rejected</small></div>
+      <div><span>OUTPUT VERIFICATION</span><strong>{counts ? percent(counts.accepted_outputs, counts.outputs) : 'n/a'}</strong><small>{counts?.rejected_outputs ?? 0} rejected</small></div>
       <div><span>AUTOMATION FRESHNESS</span><strong>n/a</strong><small>not exposed by P7</small></div>
     </div>
     <div className="growth-chart-grid">

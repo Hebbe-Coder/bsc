@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
@@ -100,6 +100,7 @@ class InvalidSourceTransition(ValueError):
 class SourceTrustPolicy:
     trusted_source_types: set[str]
     trusted_origin_prefixes: tuple[str, ...] = ()
+    requires_profile_triage_source_types: set[str] = field(default_factory=set)
 
     def assess(self, payload: CapturedSourceInput, *, now: datetime | None = None) -> "SourceTrustAssessment":
         extraction = str(payload.metadata.get("extraction_status") or "complete").lower()
@@ -134,9 +135,17 @@ class SourceTrustPolicy:
             reasons.append("published_material_is_stale")
         if relevance == "low":
             reasons.append("low_relevance_score")
+        requires_profile_triage = (
+            payload.source_type in self.requires_profile_triage_source_types
+            or payload.metadata.get("admission_gate") == "project_triage"
+        )
+        if requires_profile_triage:
+            reasons.append("project_profile_triage_required")
         return SourceTrustAssessment(
             trust_level="trusted" if trusted else payload.trust_level,
-            status=SourceStatus.ELIGIBLE if trusted else SourceStatus.VALIDATED,
+            status=SourceStatus.VALIDATED if requires_profile_triage else (
+                SourceStatus.ELIGIBLE if trusted else SourceStatus.VALIDATED
+            ),
             reasons=tuple(reasons),
             freshness=freshness,
             relevance=relevance,
@@ -196,6 +205,7 @@ class SourceTrustAssessment:
 
 DEFAULT_SOURCE_TRUST_POLICY = SourceTrustPolicy(
     trusted_source_types={"manual_upload"},
+    requires_profile_triage_source_types={"horizon_signal"},
 )
 
 

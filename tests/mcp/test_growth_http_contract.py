@@ -145,6 +145,35 @@ def test_disabled_growth_and_scheduler_unavailable_have_stable_errors(monkeypatc
     assert unavailable["error"]["data"]["code"] == "dependency_unavailable"
 
 
+def test_mcp_summary_counts_filed_outputs_as_verified(monkeypatch, tmp_path):
+    client = _client(monkeypatch)
+    monkeypatch.setattr(settings, "KNOWLEDGE_GROWTH_ENABLED", True)
+    db_path = str(tmp_path / "growth-mcp-summary.db")
+    monkeypatch.setattr(growth_tools, "_repo", lambda: GrowthRepository(db_path=db_path))
+
+    seed = GrowthRepository(db_path=db_path)
+    try:
+        for output_id, status in (("accepted", "accepted"), ("filed", "filed"), ("rejected", "rejected")):
+            seed.register_output(
+                OutputAsset(
+                    id=output_id,
+                    project_id="project-a",
+                    kind="report",
+                    content_hash=(output_id[0] * 64),
+                    vault_path=f"outputs/2026/{output_id}/report.md",
+                    idempotency_key=output_id,
+                    status=status,
+                )
+            )
+    finally:
+        seed.close()
+
+    result = _call(client, "knowledge_growth_summary", {"project_id": "project-a"})
+
+    assert result["result"]["structuredContent"]["counts"]["outputs"] == 3
+    assert result["result"]["structuredContent"]["counts"]["accepted_outputs"] == 2
+
+
 def test_reader_mutation_cross_project_and_malformed_arguments_fail_closed(monkeypatch):
     monkeypatch.setattr(settings, "KNOWLEDGE_GROWTH_ENABLED", True)
     monkeypatch.setattr(settings, "KNOWLEDGE_MCP_WRITE_ENABLED", True)

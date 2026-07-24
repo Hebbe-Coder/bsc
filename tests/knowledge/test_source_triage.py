@@ -116,6 +116,60 @@ def test_triage_rerun_is_idempotent_after_source_becomes_eligible(tmp_path):
         repo.close()
 
 
+def test_triage_keeps_one_auditable_decision_per_evaluator_revision(tmp_path):
+    repo = GrowthRepository(db_path=str(tmp_path / "triage-evaluator-revision.db"))
+    try:
+        repo.save_profile(ProjectKnowledgeProfile(project_id="project-a"), actor_id="owner")
+        repo.create_source(
+            SourceRecord(
+                id="source-evaluator", project_id="project-a", source_type="article",
+                content_hash="d" * 64, raw_content="high quality evidence", status=SourceStatus.VALIDATED,
+                trust_level="trusted",
+                metadata={key: 90 for key in ("relevance", "value", "freshness", "outputability", "connectedness")},
+            )
+        )
+
+        first = SourceTriageService(repo).triage_source(
+            "project-a", "source-evaluator", evaluator_revision="deterministic-v2"
+        )
+        second = SourceTriageService(repo).triage_source(
+            "project-a", "source-evaluator", evaluator_revision="profile-aware-v2"
+        )
+
+        assert first["id"] != second["id"]
+        assert {item["evaluator_revision"] for item in repo.list_triage("project-a")} == {
+            "deterministic-v2", "profile-aware-v2"
+        }
+    finally:
+        repo.close()
+
+
+def test_unadmitted_legacy_horizon_signal_returns_to_review(tmp_path):
+    repo = GrowthRepository(db_path=str(tmp_path / "triage-horizon-review.db"))
+    try:
+        repo.save_profile(
+            ProjectKnowledgeProfile(project_id="project-a", research_domains=["agent orchestration"]),
+            actor_id="owner",
+        )
+        repo.create_source(
+            SourceRecord(
+                id="horizon-unrelated", project_id="project-a", source_type="horizon_signal",
+                content_hash="e" * 64, raw_content="OpenGL graphics rendering guide.",
+                status=SourceStatus.ELIGIBLE, trust_level="reviewed",
+                metadata={"ai_score": 8.5, "admission_gate": "project_triage"},
+            )
+        )
+
+        result = SourceTriageService(repo).triage_source("project-a", "horizon-unrelated")
+
+        assert result["disposition"] == TriageDisposition.ARCHIVE.value
+        source = repo.get_source("project-a", "horizon-unrelated")
+        assert source["status"] == SourceStatus.VALIDATED.value
+        assert source["metadata"]["admission_correction"]["reason"].endswith(":archive")
+    finally:
+        repo.close()
+
+
 def test_preeligible_source_can_record_profile_bound_triage_without_lifecycle_regression(tmp_path):
     repo = GrowthRepository(db_path=str(tmp_path / "triage-preeligible.db"))
     try:
@@ -355,5 +409,53 @@ def test_low_value_unanswered_note_is_not_promoted_to_research_topic(tmp_path):
 
         assert result["disposition"] == TriageDisposition.IGNORE.value
         assert SourceTriageService(repo).list_research_topics("project-a") == []
+    finally:
+        repo.close()
+
+
+def test_profile_terms_raise_relevance_only_for_matching_unscored_sources(tmp_path):
+    repo = GrowthRepository(db_path=str(tmp_path / "triage-profile-match.db"))
+    try:
+        repo.save_profile(
+            ProjectKnowledgeProfile(
+                project_id="project-a",
+                research_domains=["AI agents", "Obsidian knowledge workflows"],
+                primary_output_types=["project-specific PRD and SOP"],
+            ),
+            actor_id="owner",
+        )
+        for source_id, content, tags in (
+            (
+                "agent-signal",
+                "A practical guide to evaluating AI agent workflows with MCP.",
+                ["AI agents", "MCP"],
+            ),
+            (
+                "graphics-signal",
+                "A research guide to learning OpenGL graphics rendering.",
+                ["graphics", "OpenGL", "research"],
+            ),
+        ):
+            repo.create_source(
+                SourceRecord(
+                    id=source_id,
+                    project_id="project-a",
+                    source_type="horizon_signal",
+                    content_hash=("a" if source_id == "agent-signal" else "b") * 64,
+                    raw_content=content,
+                    status=SourceStatus.VALIDATED,
+                    trust_level="reviewed",
+                    metadata={"ai_score": 8.0, "ai_tags": tags},
+                )
+            )
+
+        service = SourceTriageService(repo)
+        matching = service.triage_source("project-a", "agent-signal")
+        unrelated = service.triage_source("project-a", "graphics-signal")
+
+        assert matching["relevance"] > unrelated["relevance"]
+        assert matching["priority"] > unrelated["priority"]
+        assert any(reason.startswith("profile_matches=agent") for reason in matching["reasons"])
+        assert "profile_matches=none" in unrelated["reasons"]
     finally:
         repo.close()

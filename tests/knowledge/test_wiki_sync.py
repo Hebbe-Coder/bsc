@@ -158,6 +158,36 @@ def test_obsidian_sync_accepts_the_documented_obsidian_inbox_and_source_layout(t
         repo.close()
 
 
+def test_obsidian_sync_imports_semantic_work_lanes_but_keeps_archive_outside_the_loop(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    project_root = root / "projects" / "project-a"
+    (project_root / "02_Assets" / "curated").mkdir(parents=True)
+    (project_root / "03_Projects" / "active").mkdir(parents=True)
+    (project_root / "06_Skills" / "candidates").mkdir(parents=True)
+    (project_root / "05_Archive" / "reviewed").mkdir(parents=True)
+    (project_root / "02_Assets" / "curated" / "principle.md").write_text("Curated principle", encoding="utf-8")
+    (project_root / "03_Projects" / "active" / "brief.md").write_text("Current delivery constraints", encoding="utf-8")
+    (project_root / "06_Skills" / "candidates" / "review.md").write_text("Candidate review method", encoding="utf-8")
+    (project_root / "05_Archive" / "reviewed" / "old.md").write_text("Do not re-ingest", encoding="utf-8")
+    repo = WikiRepository(db_path=str(tmp_path / "sync-semantic-layout.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    try:
+        report = ObsidianSyncService(repo, root).sync(project_id="project-a")
+        sources = {source["origin"]: source for source in repo.list_sources("project-a")}
+
+        assert report["created"] == 3
+        assert "projects/project-a/05_Archive/reviewed/old.md" not in sources
+        asset = sources["projects/project-a/02_Assets/curated/principle.md"]
+        context = sources["projects/project-a/03_Projects/active/brief.md"]
+        skill = sources["projects/project-a/06_Skills/candidates/review.md"]
+        assert (asset["source_type"], asset["metadata"]["obsidian_workspace_role"]) == ("obsidian_asset", "asset")
+        assert (context["source_type"], context["metadata"]["obsidian_workspace_role"]) == ("obsidian_project_context", "project_context")
+        assert (skill["source_type"], skill["metadata"]["obsidian_workspace_role"]) == ("obsidian_skill_candidate", "skill_candidate")
+    finally:
+        repo.close()
+
+
 def test_obsidian_sync_records_deletion_and_reappearance_without_destroying_evidence(tmp_path):
     root = tmp_path / "vault"
     root.mkdir()

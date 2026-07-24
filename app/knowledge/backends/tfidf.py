@@ -85,10 +85,16 @@ class TfidfBackend:
         else:
             # 词表不变，仅向量化本次新增/变更 chunk（增量）
             targets = chunk_records
+        upsert_sql = (
+            "INSERT INTO knowledge_tfidf (chunk_id, vector) VALUES (?, ?) "
+            "ON CONFLICT(chunk_id) DO UPDATE SET vector=excluded.vector"
+            if getattr(self.repo._get_connection(), "dialect", "sqlite") == "postgresql"
+            else "INSERT OR REPLACE INTO knowledge_tfidf (chunk_id, vector) VALUES (?, ?)"
+        )
         for rec in targets:
             vec = self._vectorize(rec["content"], vocab, idf)
             self.repo._execute(
-                "INSERT OR REPLACE INTO knowledge_tfidf (chunk_id, vector) VALUES (?, ?)",
+                upsert_sql,
                 (rec["id"], vec.tobytes()))
         self.repo._commit()
 

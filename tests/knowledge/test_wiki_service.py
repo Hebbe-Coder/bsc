@@ -23,9 +23,11 @@ def test_wiki_service_initializes_reads_and_indexes_the_authoritative_snapshot(t
         initialized = service.initialize_project("project-a", actor="owner")
 
         assert initialized["status"] == "initialized"
-        assert initialized["indexing"] == {"indexed": 5, "removed": 0, "failures": []}
+        assert initialized["indexing"] == {"indexed": 6, "removed": 0, "failures": []}
         assert index.snapshots[0][0] == "project-a"
-        assert set(index.snapshots[0][1]) == {"AGENTS.md", "README.md", "wiki/overview.md", "wiki/index.md", "wiki/log.md"}
+        assert set(index.snapshots[0][1]) == {
+            "AGENTS.md", "README.md", "00-Workspace.md", "wiki/overview.md", "wiki/index.md", "wiki/log.md",
+        }
         status = service.get_workspace_status("project-a")
         assert status["configured"] is True
         assert status["pages"] == 4

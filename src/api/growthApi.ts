@@ -1,7 +1,7 @@
 import { apiFetch, fetchWrapper } from './fetchWrapper';
 
 export type GrowthStage = 'A' | 'B' | 'C' | 'D' | 'review';
-export type GrowthAssetKind = 'source' | 'page' | 'method' | 'method_proposal' | 'output' | 'feedback' | 'proposal';
+export type GrowthAssetKind = 'source' | 'page' | 'method' | 'method_proposal' | 'output' | 'feedback' | 'proposal' | 'distillation';
 export type GrowthRequestState = 'idle' | 'loading' | 'success' | 'empty' | 'permission' | 'offline' | 'unavailable' | 'error';
 
 export type GrowthProfile = {
@@ -23,6 +23,7 @@ export type GrowthCounts = {
   methods: number;
   published_methods: number;
   outputs: number;
+  // Compatibility field name. The backend counts accepted and durably filed D-layer outputs.
   accepted_outputs: number;
   rejected_outputs: number;
   feedback: number;
@@ -87,6 +88,39 @@ export type GrowthAccess = {
   role: string;
   can_write: boolean;
   features: Record<string, boolean>;
+  access?: { role: string; can_write: boolean };
+  vault?: {
+    configured: boolean;
+    status: string;
+    connection?: { state: string; message?: string };
+  };
+  plugins?: {
+    plugins: Array<{
+      id: string;
+      status: string;
+      path_status: string;
+      captured_sources: number;
+      registered_outputs: number;
+    }>;
+  };
+  sync?: { status: string };
+  horizon?: {
+    enabled: boolean;
+    captured_sources: number;
+    artifact_store?: { configured: boolean; available: boolean; mode: string };
+    last_run?: {
+      status: string;
+      accepted: number;
+      created: number;
+      duplicates: number;
+      skipped: boolean;
+      outcome: 'processed' | 'empty_result' | 'no_new_artifact' | 'channel_error' | 'configuration_error' | 'failed';
+      items_observed: number;
+      failure: { category: string; code: string; retryable: boolean } | null;
+    } | null;
+  };
+  scheduler?: { available: boolean; mode: 'celery' | 'manual' };
+  growth?: { status: string };
 };
 
 export type GrowthHealth = {
@@ -127,6 +161,20 @@ export type GrowthRun = GrowthRecord & {
   run_id?: string;
   run_type?: 'growth_daily' | 'growth_weekly_distillation';
   status?: string;
+};
+
+export type GrowthDistillation = GrowthRecord & {
+  record_type?: 'legacy' | 'growth';
+  kind?: 'daily' | 'weekly';
+  period?: string;
+  week?: string;
+  paths?: string[];
+  source_cutoff?: string;
+};
+
+export type GrowthDistillationDetail = {
+  distillation: GrowthDistillation;
+  documents: Record<string, string>;
 };
 
 export type GrowthPageDetail = {
@@ -300,6 +348,7 @@ function referenceIds(value: unknown): string[] {
 }
 
 export function growthRecordKind(record: GrowthRecord, stage: GrowthStage): GrowthAssetKind {
+  if (record.asset_type === 'distillation') return 'distillation';
   if (record.asset_type === 'method_proposal') return 'method_proposal';
   if (record.asset_type === 'wiki_proposal' || record.asset_type === 'proposal') return 'proposal';
   if (record.asset_type === 'feedback') return 'feedback';
@@ -324,11 +373,28 @@ export async function fetchGrowthOverview(projectId: string, signal?: AbortSigna
 }
 
 export async function fetchGrowthAccess(projectId: string, signal?: AbortSignal): Promise<GrowthAccess> {
-  const workspace = await request<{ access: { role: string; can_write: boolean }; features: Record<string, boolean> }>(
+  const workspace = await request<GrowthAccess>(
     `/knowledge/workspaces/${encoded(projectId)}`,
     signal,
   );
-  return { role: workspace.access.role, can_write: workspace.access.can_write, features: workspace.features };
+  return {
+    ...workspace,
+    role: workspace.access?.role || workspace.role || '',
+    can_write: workspace.access?.can_write ?? workspace.can_write ?? false,
+    features: workspace.features || {},
+  };
+}
+
+export async function runGrowthWorkspaceJob(
+  projectId: string,
+  jobType: 'source_sync' | 'horizon_capture',
+  signal?: AbortSignal,
+): Promise<{ status: string; run_id: string; execution?: string }> {
+  return request(
+    '/knowledge/runs',
+    signal,
+    { method: 'POST', body: JSON.stringify({ project_id: projectId, job_type: jobType }) },
+  );
 }
 
 export async function fetchGrowthRuns(projectId: string, signal?: AbortSignal): Promise<GrowthRun[]> {
@@ -352,17 +418,39 @@ export async function startGrowthRun(
   return payload.run;
 }
 
+async function fetchGrowthDistillations(projectId: string, limit: number, signal?: AbortSignal): Promise<{ records: GrowthRecord[]; truncated: boolean }> {
+  const boundedLimit = Math.max(1, Math.min(limit, 500));
+  const payload = await request<{
+    distillations: GrowthDistillation[];
+    pagination?: { next_cursor?: string | null };
+  }>(`/knowledge/growth/${encoded(projectId)}/distillations?limit=${boundedLimit}`, signal);
+  return {
+    records: (payload.distillations ?? []).map((item) => ({
+      ...item,
+      asset_type: 'distillation',
+      title: item.title || `${item.kind === 'daily' ? 'Daily' : 'Weekly'} distillation ${item.period || item.week || item.id}`,
+      path: item.path || item.paths?.[0] || '',
+    })),
+    truncated: Boolean(payload.pagination?.next_cursor),
+  };
+}
+
 export async function fetchGrowthStage(projectId: string, stage: GrowthStage, limit = 40, signal?: AbortSignal): Promise<GrowthStageResult> {
   const boundedLimit = Math.max(1, Math.min(limit, 500));
-  const payload = await request<GrowthAssets>(
-    `/knowledge/growth/${encoded(projectId)}/assets?stage=${encoded(stage)}&limit=${boundedLimit}`,
-    signal,
-  );
-  const records = stageRecords(payload, stage);
+  const [payload, distillations] = await Promise.all([
+    request<GrowthAssets>(
+      `/knowledge/growth/${encoded(projectId)}/assets?stage=${encoded(stage)}&limit=${boundedLimit}`,
+      signal,
+    ),
+    stage === 'review' ? fetchGrowthDistillations(projectId, boundedLimit, signal) : Promise.resolve(null),
+  ]);
+  const records = stage === 'review'
+    ? [...stageRecords(payload, stage), ...(distillations?.records ?? [])]
+    : stageRecords(payload, stage);
   const truncated = Array.isArray(payload.items)
     ? Boolean(payload.pagination?.next_cursor)
     : stage === 'review'
-      ? (payload.feedback?.length ?? 0) >= boundedLimit || (payload.proposals?.length ?? 0) >= boundedLimit
+      ? (payload.feedback?.length ?? 0) >= boundedLimit || (payload.proposals?.length ?? 0) >= boundedLimit || Boolean(distillations?.truncated)
       : records.length >= boundedLimit;
   return { project_id: payload.project_id, stage, records, limit: boundedLimit, truncated };
 }
@@ -409,6 +497,35 @@ export async function fetchGrowthAssetDetail(
     ?? (stage === 'C' ? payload.records.find((candidate) => candidate.active_revision_id === assetId) : undefined);
   if (!record) throw new GrowthRequestError('The selected asset no longer exists in this project.', 'knowledge_growth_asset_not_found', 404);
   const kind = growthRecordKind(record, stage);
+  if (kind === 'distillation') {
+    const detail = await request<GrowthDistillationDetail>(
+      `/knowledge/distillations/${encoded(record.id)}?project_id=${encoded(projectId)}`,
+      signal,
+    );
+    const maximumPreviewCharacters = 200_000;
+    let remaining = maximumPreviewCharacters;
+    let truncated = false;
+    const blocks: string[] = [];
+    for (const [path, document] of Object.entries(detail.documents ?? {})) {
+      const heading = `# ${path.split('/').at(-1) || path}`;
+      const body = typeof document === 'string' ? document : '';
+      const block = `${heading}\n\n${body}`;
+      if (block.length > remaining) {
+        blocks.push(block.slice(0, Math.max(0, remaining)));
+        truncated = true;
+        break;
+      }
+      blocks.push(block);
+      remaining -= block.length + 2;
+    }
+    return {
+      kind,
+      record: { ...record, ...detail.distillation, asset_type: 'distillation' },
+      content: blocks.join('\n\n'),
+      detailAvailability: 'complete',
+      detailMessage: truncated ? 'The stored bundle is larger than the bounded Studio preview. Open the managed Vault files for the complete bundle.' : undefined,
+    };
+  }
   if (kind === 'page') {
     const detail = await fetchGrowthPageDetail(projectId, assetId, signal);
     return { kind, record: { ...record, ...detail.page }, content: detail.content, citations: detail.citations, revisions: detail.revisions, backlinks: detail.backlinks, detailAvailability: 'complete' };
@@ -490,6 +607,7 @@ export async function fetchGrowthAssetDetail(
     output: 'The governed output descriptor is available, but no verified inline preview was returned.',
     feedback: 'Feedback metadata is complete for this review record.',
     proposal: 'This method proposal body is available in the persisted proposal record.',
+    distillation: 'The stored distillation bundle is available in the managed Vault.',
   };
   return { kind, record, detailAvailability: kind === 'feedback' ? 'complete' : 'metadata_only', detailMessage: messages[kind] };
 }

@@ -70,6 +70,25 @@ describe('growthApi', () => {
     expect(growthRecordKind({ id: 'proposal-a', asset_type: 'wiki_proposal' }, 'review')).toBe('proposal');
   });
 
+  it('includes bounded distillations in Review and reads their managed documents', async () => {
+    const requests: string[] = [];
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      requests.push(url);
+      if (url.includes('/assets?')) return Promise.resolve(ok({ project_id: 'project-a', stage: 'review', items: [{ id: 'proposal-a', asset_type: 'wiki_proposal' }], pagination: { next_cursor: null } }));
+      if (url.includes('/growth/project-a/distillations?')) return Promise.resolve(ok({ distillations: [{ id: 'weekly-a', project_id: 'project-a', kind: 'weekly', period: '2026-W30', status: 'generated', paths: ['distillations/weekly/2026-W30/summary.md'] }], pagination: { next_cursor: null } }));
+      return Promise.resolve(ok({ distillation: { id: 'weekly-a', project_id: 'project-a', kind: 'weekly', period: '2026-W30', status: 'generated' }, documents: { 'distillations/weekly/2026-W30/summary.md': '# Evidence-backed weekly summary' } }));
+    }));
+
+    const stage = await fetchGrowthStage('project-a', 'review', 40);
+    const detail = await fetchGrowthAssetDetail('project-a', 'review', 'weekly-a');
+
+    expect(stage.records).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'weekly-a', asset_type: 'distillation', title: 'Weekly distillation 2026-W30' })]));
+    expect(detail.kind).toBe('distillation');
+    expect(detail.content).toContain('Evidence-backed weekly summary');
+    expect(requests.some((url) => url.includes('/knowledge/distillations/weekly-a?project_id=project-a'))).toBe(true);
+  });
+
   it('loads a page detail and content from the real Wiki detail endpoint', async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
@@ -197,9 +216,12 @@ describe('growthApi', () => {
   });
 
   it('surfaces proposal baseline server failures instead of claiming a partial success', async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL) => String(input).includes('/assets?')
-      ? Promise.resolve(ok({ project_id: 'project-a', stage: 'review', feedback: [], proposals: [{ id: 'proposal-a', operations: [{ path: 'wiki/page.md', content: 'next' }] }] }))
-      : Promise.resolve(failed(500, 'baseline_failed', 'baseline service failed')));
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/assets?')) return Promise.resolve(ok({ project_id: 'project-a', stage: 'review', feedback: [], proposals: [{ id: 'proposal-a', operations: [{ path: 'wiki/page.md', content: 'next' }] }] }));
+      if (url.includes('/growth/project-a/distillations?')) return Promise.resolve(ok({ distillations: [], pagination: { next_cursor: null } }));
+      return Promise.resolve(failed(500, 'baseline_failed', 'baseline service failed'));
+    });
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(fetchGrowthAssetDetail('project-a', 'review', 'proposal-a')).rejects.toMatchObject({ status: 500, code: 'baseline_failed' });

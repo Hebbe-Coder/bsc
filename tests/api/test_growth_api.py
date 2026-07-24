@@ -144,6 +144,32 @@ def test_canonical_profile_summary_and_legacy_alias(growth_api):
     assert summary.json()["data"]["counts"]["review_records"] == 0
 
 
+def test_filed_outputs_remain_verified_in_summary_and_method_proposals(growth_api):
+    client, repo = growth_api
+    accepted = _output(repo, "project-a", "accepted", status="accepted")
+    filed = _output(repo, "project-a", "filed", status="filed")
+    second_accepted = _output(repo, "project-a", "accepted-two", status="accepted")
+    _output(repo, "project-a", "rejected", status="rejected")
+
+    summary = client.get("/knowledge/projects/project-a/growth/summary", headers=_headers())
+    proposal = client.post(
+        "/knowledge/projects/project-a/methods",
+        headers=_headers(),
+        json={
+            "slug": "filed-output-method",
+            "body": "# Verified method\nUse durable evidence.",
+            "source_output_ids": [accepted["id"], filed["id"], second_accepted["id"]],
+        },
+    )
+
+    assert summary.status_code == 200
+    assert proposal.status_code == 201
+    assert summary.json()["data"]["counts"]["outputs"] == 4
+    assert summary.json()["data"]["counts"]["accepted_outputs"] == 3
+    assert summary.json()["data"]["counts"]["rejected_outputs"] == 1
+    assert filed["id"] in proposal.json()["data"]["proposal"]["source_output_ids"]
+
+
 def test_assets_are_paginated_bounded_and_redacted(growth_api):
     client, repo = growth_api
     _capture(repo, "project-a", "secret body sk-1234567890")

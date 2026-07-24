@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
+import sqlite3
 
 import pytest
 
@@ -61,6 +62,55 @@ def test_growth_records_are_project_scoped_and_profile_revisions_are_immutable(t
         row = repo.save_triage(triage)
         assert row["priority"] == 84
         assert repo.list_triage("project-b") == []
+    finally:
+        repo.close()
+
+
+def test_triage_schema_preserves_legacy_decisions_and_allows_a_new_evaluator_revision(tmp_path):
+    database = tmp_path / "legacy-triage.db"
+    connection = sqlite3.connect(database)
+    try:
+        connection.execute(
+            """CREATE TABLE knowledge_source_triage (
+                id TEXT PRIMARY KEY, project_id TEXT NOT NULL, source_id TEXT NOT NULL,
+                profile_revision INTEGER NOT NULL, relevance INTEGER NOT NULL,
+                value_score INTEGER NOT NULL, freshness INTEGER NOT NULL,
+                outputability INTEGER NOT NULL, connectedness INTEGER NOT NULL,
+                priority INTEGER NOT NULL, reliability_pass INTEGER NOT NULL,
+                disposition TEXT NOT NULL, reasons_json TEXT NOT NULL DEFAULT '[]',
+                evaluator_revision TEXT NOT NULL DEFAULT '', evaluator_status TEXT NOT NULL DEFAULT 'completed',
+                created_at TEXT NOT NULL, UNIQUE(project_id, source_id, profile_revision))"""
+        )
+        connection.execute(
+            "INSERT INTO knowledge_source_triage VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            ("legacy", "project-a", "source-a", 1, 80, 80, 80, 80, 80, 80, 1,
+             "knowledge_candidate", "[]", "deterministic-v2", "completed", "2026-07-24T00:00:00+00:00"),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    repo = GrowthRepository(db_path=str(database))
+    try:
+        repo.create_source(
+            SourceRecord(
+                id="source-a", project_id="project-a", source_type="article",
+                content_hash="a" * 64, raw_content="evidence", status=SourceStatus.VALIDATED,
+            )
+        )
+        latest = repo.save_triage(
+            SourceTriage(
+                id="profile-aware", project_id="project-a", source_id="source-a", profile_revision=1,
+                relevance=70, value=70, freshness=70, outputability=70, connectedness=70,
+                reliability_pass=True, disposition=TriageDisposition.REFERENCE,
+                evaluator_revision="profile-aware-v2",
+            )
+        )
+
+        assert latest["evaluator_revision"] == "profile-aware-v2"
+        assert {row["evaluator_revision"] for row in repo.list_triage("project-a")} == {
+            "deterministic-v2", "profile-aware-v2"
+        }
     finally:
         repo.close()
 

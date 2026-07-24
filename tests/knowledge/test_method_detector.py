@@ -29,10 +29,11 @@ def test_detector_requires_three_comparable_uses_and_collapses_retries(tmp_path)
         _output(repo, "output-2", "run-1")
         _output(repo, "output-3", "run-2")
         assert MethodDetector(repo).detect("project-a") == []
-        _output(repo, "output-4", "run-3")
+        _output(repo, "output-4", "run-3", status="filed")
         proposals = MethodDetector(repo).detect("project-a")
         assert len(proposals) == 1
         assert len(proposals[0]["source_output_ids"]) == 3
+        assert "output-4" in proposals[0]["source_output_ids"]
         assert proposals[0]["manifest"]["detector_revision"]
     finally:
         repo.close()

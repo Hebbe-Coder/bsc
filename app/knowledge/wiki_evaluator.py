@@ -55,11 +55,25 @@ class WikiEvaluator:
             )
             self._record(report, proposal_id=proposal_id, wiki_revision=wiki_revision)
             return report
+        applicable_cases = [case for case in cases if self._applies_to_candidate(case, candidate)]
+        if not applicable_cases:
+            report = WikiEvaluationReport(
+                project_id=project_id,
+                status="not_applicable",
+                score=1.0,
+                skipped_reason="no applicable evaluation cases",
+                baseline_score=baseline_score,
+                score_delta=None,
+                coverage=0.0,
+                latency_ms=(time.perf_counter() - started) * 1000.0,
+            )
+            self._record(report, proposal_id=proposal_id, wiki_revision=wiki_revision)
+            return report
         findings: list[dict[str, str]] = []
         candidate_sources = set(candidate.get("source_ids") or [])
         retrieved_sources = set(candidate.get("retrieved_source_ids") or candidate_sources)
         content = str(candidate.get("content") or "").lower()
-        for case in cases:
+        for case in applicable_cases:
             expected = case["expected"]
             if case["case_type"] in {"retrieval", "citation"}:
                 for source_id in expected.get("source_ids") or []:
@@ -73,8 +87,8 @@ class WikiEvaluator:
                         findings.append({"case_id": case["case_id"], "code": "missing_required_constraint", "detail": str(constraint)})
                 if case["case_type"] == "content" and expected.get("require_citations") and "[source:" not in content:
                     findings.append({"case_id": case["case_id"], "code": "unsupported_content_claim", "detail": "citation required"})
-        passed_cases = len(cases) - len({finding["case_id"] for finding in findings})
-        score = passed_cases / len(cases)
+        passed_cases = len(applicable_cases) - len({finding["case_id"] for finding in findings})
+        score = passed_cases / len(applicable_cases)
         latency_ms = (time.perf_counter() - started) * 1000.0
         report = WikiEvaluationReport(
             project_id=project_id,
@@ -88,6 +102,17 @@ class WikiEvaluator:
         )
         self._record(report, proposal_id=proposal_id, wiki_revision=wiki_revision)
         return report
+
+    @staticmethod
+    def _applies_to_candidate(case: dict[str, Any], candidate: dict[str, Any]) -> bool:
+        expected = case.get("expected") if isinstance(case, dict) else {}
+        scope_paths = expected.get("scope_paths") if isinstance(expected, dict) else None
+        if not scope_paths:
+            return True
+        if not isinstance(scope_paths, list):
+            return False
+        candidate_paths = {str(path) for path in candidate.get("paths") or [] if str(path)}
+        return bool(candidate_paths.intersection(str(path) for path in scope_paths if str(path)))
 
     def _record(self, report: WikiEvaluationReport, *, proposal_id: str, wiki_revision: str) -> None:
         self.repository.record_eval_run(

@@ -31,10 +31,14 @@ class KnowledgeHealthService:
             if str(page.get("path") or "") not in self._NON_SUBSTANTIVE_PATHS
         }
         source_ids = {source["id"] for source in sources}
-        cited_page_ids = {citation["wiki_page_id"] for citation in citations}
+        substantive_citations = [citation for citation in citations if citation["wiki_page_id"] in substantive_page_ids]
+        substantive_all_citations = [
+            citation for citation in all_citations if citation["wiki_page_id"] in substantive_page_ids
+        ]
+        cited_page_ids = {citation["wiki_page_id"] for citation in substantive_citations}
         linked_page_ids = {edge["to_id"] for edge in edges if edge["to_id"] in substantive_page_ids}
         eligible_sources = {source["id"] for source in sources if source["status"] == "eligible"}
-        cited_sources = {citation["source_id"] for citation in citations}
+        cited_sources = {citation["source_id"] for citation in substantive_citations}
         stale_pages = [
             page["id"]
             for page in pages
@@ -62,8 +66,12 @@ class KnowledgeHealthService:
             "citation_coverage": (len(substantive_page_ids - uncited_pages) / len(substantive_page_ids)) if substantive_page_ids else None,
             "orphan_page_ids": sorted(substantive_page_ids - linked_page_ids),
             "uncited_page_ids": sorted(uncited_pages),
-            "dangling_citation_count": sum(1 for citation in citations if citation["source_id"] not in source_ids),
-            "stale_citation_count": sum(1 for citation in all_citations if citation["status"] == "stale"),
+            "dangling_citation_count": sum(
+                1 for citation in substantive_citations if citation["source_id"] not in source_ids
+            ),
+            "stale_citation_count": sum(
+                1 for citation in substantive_all_citations if citation["status"] == "stale"
+            ),
             "stale_page_ids": sorted(stale_pages),
             "uncited_eligible_source_ids": sorted(eligible_sources - cited_sources),
             "pending_proposal_ids": sorted(pending),

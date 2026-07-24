@@ -17,6 +17,7 @@ import {
   fetchGrowthTrend,
   fileGrowthOutput,
   linkGrowthOutputEvidence,
+  runGrowthWorkspaceJob,
   setGrowthAccessKey,
   startGrowthRun,
 } from '../../api/growthApi';
@@ -40,6 +41,7 @@ vi.mock('../../api/growthApi', async (importOriginal) => {
     fileGrowthOutput: vi.fn(),
     linkGrowthOutputEvidence: vi.fn(),
     processGrowthFeedback: vi.fn(),
+    runGrowthWorkspaceJob: vi.fn(),
     setGrowthAccessKey: vi.fn(),
     startGrowthRun: vi.fn(),
     triageGrowthSource: vi.fn(),
@@ -58,6 +60,7 @@ const mockedAddFeedback = vi.mocked(addGrowthOutputFeedback);
 const mockedEvaluateOutput = vi.mocked(evaluateGrowthOutput);
 const mockedFileOutput = vi.mocked(fileGrowthOutput);
 const mockedLinkEvidence = vi.mocked(linkGrowthOutputEvidence);
+const mockedWorkspaceJob = vi.mocked(runGrowthWorkspaceJob);
 const mockedSetGrowthAccessKey = vi.mocked(setGrowthAccessKey);
 const mockedStartGrowthRun = vi.mocked(startGrowthRun);
 
@@ -86,6 +89,7 @@ function installSuccessfulProject() {
   mockedEvaluateOutput.mockResolvedValue({ id: 'evaluation-new', quality: 90, status: 'completed' });
   mockedFileOutput.mockResolvedValue({ id: 'output-a', status: 'filed' });
   mockedLinkEvidence.mockResolvedValue({ output: { id: 'output-a', status: 'registered', source_refs: [] }, evidence: { source_ids: ['source-a'], page_ids: [] } });
+  mockedWorkspaceJob.mockResolvedValue({ run_id: 'workspace-run-a', status: 'queued' });
   mockedStartGrowthRun.mockResolvedValue({ id: 'growth-run-a', run_id: 'growth-run-a', run_type: 'growth_daily', status: 'queued' });
 }
 
@@ -100,6 +104,55 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe('GrowthWorkspace', () => {
+  it('shows the connected Vault, plugin, Horizon and scheduler contract and can run a declared sync', async () => {
+    mockedAccess.mockResolvedValue({
+      role: 'project_admin',
+      can_write: true,
+      features: { wiki: true, obsidian_sync: true, horizon: true },
+      vault: { configured: true, status: 'ready', connection: { state: 'ready' } },
+      plugins: { plugins: [{ id: 'obsidian-clipper', status: 'captured', path_status: 'ready', captured_sources: 1, registered_outputs: 0 }] },
+      horizon: { enabled: true, captured_sources: 2, artifact_store: { configured: true, available: true, mode: 'host_fallback' } },
+      scheduler: { available: false, mode: 'manual' },
+      growth: { status: 'completed' },
+    });
+    render(<GrowthWorkspace onClose={vi.fn()} runtimeAccessKey="session-key" />);
+
+    expect(await screen.findByText('VAULT')).toBeInTheDocument();
+    expect(screen.getByText('ready / host_fallback')).toBeInTheDocument();
+    expect(screen.getByText('manual only')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('Sync Obsidian evidence'));
+    await waitFor(() => expect(mockedWorkspaceJob).toHaveBeenCalledWith('default', 'source_sync'));
+  });
+
+  it('shows a retryable Horizon channel failure instead of treating it as an empty result', async () => {
+    mockedAccess.mockResolvedValue({
+      role: 'project_admin',
+      can_write: true,
+      features: { wiki: true, obsidian_sync: true, horizon: true },
+      horizon: {
+        enabled: true,
+        captured_sources: 2,
+        artifact_store: { configured: true, available: true, mode: 'host_fallback' },
+        last_run: {
+          status: 'failed',
+          accepted: 0,
+          created: 0,
+          duplicates: 0,
+          skipped: false,
+          outcome: 'channel_error',
+          items_observed: 0,
+          failure: { category: 'transient_dependency', code: 'horizon_unavailable', retryable: true },
+        },
+      },
+    });
+    render(<GrowthWorkspace onClose={vi.fn()} runtimeAccessKey="session-key" />);
+
+    expect(await screen.findByText('channel unavailable')).toBeVisible();
+    expect(screen.getByText('horizon_unavailable / retryable')).toBeVisible();
+    expect(screen.getByLabelText('Import Horizon evidence')).toBeEnabled();
+  });
+
   it('uses the shared Studio session and project boundary', async () => {
     useKnowledgeWorkspaceStore.getState().setProjectId('project-shared');
     render(<GrowthWorkspace onClose={vi.fn()} runtimeAccessKey="session-key" />);
@@ -112,6 +165,17 @@ describe('GrowthWorkspace', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Growth project ID' }), { target: { value: 'project-next' } });
     fireEvent.click(screen.getByRole('button', { name: /Load/i }));
     await waitFor(() => expect(useKnowledgeWorkspaceStore.getState().projectId).toBe('project-next'));
+  });
+
+  it('labels accepted and filed totals as verified D-layer outputs', async () => {
+    mockedOverview.mockResolvedValue({
+      ...overview,
+      summary: { ...overview.summary, counts: { ...overview.summary.counts, outputs: 2, accepted_outputs: 2 } },
+    });
+    render(<GrowthWorkspace onClose={vi.fn()} />);
+
+    expect(await screen.findByText('VERIFIED D')).toBeVisible();
+    expect(screen.queryByText('ACCEPTED D')).not.toBeInTheDocument();
   });
 
   it('starts a real daily growth run and reflects its durable status in the workspace', async () => {
@@ -180,6 +244,21 @@ describe('GrowthWorkspace', () => {
     expect(await screen.findByText('Current published content')).toBeVisible();
     expect(screen.getByText('# Old content')).toBeVisible();
     expect(screen.getByText('# New content')).toBeVisible();
+  });
+
+  it('makes a persisted weekly distillation readable from Review without classifying it as a D-layer output', async () => {
+    const distillation = { id: 'weekly-a', asset_type: 'distillation', kind: 'weekly', period: '2026-W30', status: 'generated' };
+    mockedStage.mockImplementation(async (_projectId, currentStage, limit) => ({ project_id: 'default', stage: currentStage, records: currentStage === 'review' ? [distillation] : currentStage === 'A' ? [source] : [], limit, truncated: false }));
+    mockedDetail.mockImplementation(async (_projectId, currentStage) => currentStage === 'review'
+      ? { kind: 'distillation', record: distillation, content: '# summary.md\n\nEvidence-backed weekly decision summary.', detailAvailability: 'complete' }
+      : { kind: 'source', record: source, detailAvailability: 'metadata_only' });
+    render(<GrowthWorkspace onClose={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole('tab', { name: /Review/i }));
+    fireEvent.click(await screen.findByRole('option', { name: /Weekly distillation 2026-W30/i }));
+
+    expect(await screen.findByText('Evidence-backed weekly decision summary.')).toBeVisible();
+    expect(screen.getAllByText('Feedback, proposals and distillations')).not.toHaveLength(0);
   });
 
   it('opens an automatically detected method candidate from the review queue', async () => {

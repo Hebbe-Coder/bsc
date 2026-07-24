@@ -178,6 +178,7 @@ def reset_cache():
             "KNOWLEDGE_OBSIDIAN_SYNC_ENABLED",
             "KNOWLEDGE_SCHEDULES_ENABLED",
             "KNOWLEDGE_MCP_WRITE_ENABLED",
+            "KNOWLEDGE_GROWTH_SEMANTIC_DISTILLATION_ENABLED",
         )
     }
     # Local .env credentials must not alter legacy test contracts. Auth tests
@@ -188,6 +189,7 @@ def reset_cache():
     settings.KNOWLEDGE_OBSIDIAN_SYNC_ENABLED = True
     settings.KNOWLEDGE_SCHEDULES_ENABLED = True
     settings.KNOWLEDGE_MCP_WRITE_ENABLED = True
+    settings.KNOWLEDGE_GROWTH_SEMANTIC_DISTILLATION_ENABLED = False
     if hasattr(llm_service_module._thread_local, "llm_service"):
         del llm_service_module._thread_local.llm_service
     cache = get_cache_service()

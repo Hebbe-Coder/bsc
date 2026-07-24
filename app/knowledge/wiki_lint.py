@@ -10,7 +10,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict
 
 from app.knowledge.wiki_contracts import WikiOperationType, WikiProposal
-from app.knowledge.wiki_rules import ProjectRules
+from app.knowledge.wiki_rules import ProjectRules, RuleValidationError, parse_project_rules
 
 _SOURCE_REF = re.compile(r"\[source:([^\]\s]+)\]")
 _WIKI_LINK = re.compile(r"\[\[([^\]]+)\]\]")
@@ -53,7 +53,13 @@ class WikiLint:
         proposal_paths = {operation.path for operation in operations}
         existing_paths = set(existing_paths)
         known_paths = existing_paths | proposal_paths
-        substantive = [operation for operation in operations if operation.path not in {"wiki/index.md", "wiki/log.md"}]
+        substantive = [
+            operation for operation in operations
+            if operation.path not in {"AGENTS.md", "wiki/index.md", "wiki/log.md", "wiki/overview.md"}
+        ]
+        archive_only_repair = bool(substantive) and all(
+            operation.operation is WikiOperationType.ARCHIVE for operation in substantive
+        )
         if substantive and "wiki/index.md" not in proposal_paths:
             findings.append(self._finding("missing_index_update", "wiki/index.md", "Substantive changes require a Wiki index update."))
         if substantive and "wiki/log.md" not in proposal_paths:
@@ -61,6 +67,16 @@ class WikiLint:
         if substantive and "wiki/overview.md" not in proposal_paths:
             findings.append(self._finding("missing_overview_update", "wiki/overview.md", "Substantive changes require a project overview update."))
         for operation in operations:
+            if operation.path == "AGENTS.md":
+                if operation.operation is not WikiOperationType.REPLACE:
+                    findings.append(self._finding("agents_not_replace", operation.path, "AGENTS.md must be replaced as one reviewable rules document."))
+                if not operation.expected_content_hash:
+                    findings.append(self._finding("agents_missing_revision", operation.path, "AGENTS.md updates require the current content hash."))
+                try:
+                    parse_project_rules(operation.content)
+                except RuleValidationError:
+                    findings.append(self._finding("invalid_agents_rules", operation.path, "AGENTS.md must remain a valid project rules document."))
+                continue
             if not operation.path.startswith(rules.write_root):
                 findings.append(self._finding("forbidden_path", operation.path, "Operation is outside the configured Wiki root."))
                 continue
@@ -78,7 +94,15 @@ class WikiLint:
                 elif frontmatter.get("kind") not in rules.allowed_page_kinds:
                     findings.append(self._finding("invalid_page_kind", operation.path, "Frontmatter kind is not allowed by AGENTS.md."))
             citations = _SOURCE_REF.findall(operation.content)
-            if operation.path not in {"wiki/index.md", "wiki/log.md"} and not citations:
+            if (
+                operation.path not in {"wiki/index.md", "wiki/log.md"}
+                and not citations
+                and not (
+                    archive_only_repair
+                    and operation.path == "wiki/overview.md"
+                    and operation.operation is WikiOperationType.APPEND
+                )
+            ):
                 findings.append(self._finding("missing_source_citation", operation.path, "Substantive Wiki updates require an immutable source citation."))
             for source_id in citations:
                 if source_id not in source_ids:
@@ -171,6 +195,9 @@ class WikiLint:
             "missing_index_update": "Update wiki/index.md in the same proposal.",
             "missing_overview_update": "Update wiki/overview.md in the same proposal.",
             "missing_log_update": "Append an audit entry to wiki/log.md in the same proposal.",
+            "agents_not_replace": "Replace AGENTS.md as one complete, reviewable rules document.",
+            "agents_missing_revision": "Attach the current AGENTS.md SHA-256 as expected_content_hash.",
+            "invalid_agents_rules": "Keep required rule sections and valid YAML frontmatter in AGENTS.md.",
             "log_not_append": "Use an append operation for wiki/log.md.",
             "forbidden_path": "Move the operation under the configured wiki/ write root.",
             "orphan_page": "Link the page from a relevant index, overview, or concept page.",

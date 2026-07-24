@@ -28,6 +28,7 @@ def test_horizon_import_preserves_run_score_and_original_evidence(tmp_path):
         source = repo.list_sources("project-a")[0]
         assert source["status"] == "validated"
         assert source["metadata"]["horizon_run_id"] == "horizon-run-1"
+        assert source["metadata"]["admission_gate"] == "project_triage"
         assert source["metadata"]["ai_score"] == 8.4
         assert "Primary article content." in source["raw_content"]
     finally:

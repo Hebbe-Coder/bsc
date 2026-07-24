@@ -26,6 +26,7 @@ from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.wiki_source_capture import InvalidSourceTransition, SourceCaptureService
 from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
+from app.knowledge.horizon_run_store import resolve_horizon_run_store_location
 from app.knowledge.wiki_service import WikiService
 from app.core.celery_app import is_celery_broker_available, is_celery_real
 
@@ -212,18 +213,54 @@ def _horizon_run_summary(run: dict[str, Any] | None) -> dict[str, Any] | None:
         return None
     output_refs = run.get("output_refs") or {}
     report = output_refs.get("horizon") if isinstance(output_refs.get("horizon"), dict) else {}
+    raw_failure = output_refs.get("failure") if isinstance(output_refs.get("failure"), dict) else None
+    failure = (
+        {
+            "category": str(raw_failure.get("category") or ""),
+            "code": str(raw_failure.get("code") or ""),
+            "retryable": bool(raw_failure.get("retryable", False)),
+        }
+        if raw_failure
+        else None
+    )
+
+    def count(value: object) -> int:
+        try:
+            return max(0, int(value or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    accepted = count(report.get("accepted"))
+    rejected = count(report.get("rejected"))
+    items_observed = count(output_refs.get("items_observed"))
+    if "items_observed" not in output_refs:
+        items_observed = accepted + rejected
+    status = str(run.get("status") or "not_run")
+    outcome = str(output_refs.get("outcome") or "")
+    if not outcome:
+        if status == RunStatus.COMPLETED.value:
+            outcome = "no_new_artifact" if bool(report.get("skipped", False)) else "empty_result" if items_observed == 0 else "processed"
+        elif failure and failure["category"] == "configuration":
+            outcome = "configuration_error"
+        elif failure and failure["code"] == "horizon_unavailable":
+            outcome = "channel_error"
+        else:
+            outcome = "failed"
     return {
         "id": str(run.get("id") or ""),
-        "status": str(run.get("status") or "not_run"),
+        "status": status,
         "updated_at": str(run.get("updated_at") or ""),
         "horizon_run_id": str(output_refs.get("horizon_run_id") or ""),
         "stage": str(output_refs.get("stage") or ""),
         "source_mode": str(output_refs.get("source_mode") or ""),
-        "accepted": int(report.get("accepted", 0) or 0),
-        "created": int(report.get("created", 0) or 0),
-        "duplicates": int(report.get("duplicates", 0) or 0),
-        "rejected": int(report.get("rejected", 0) or 0),
+        "accepted": accepted,
+        "created": count(report.get("created")),
+        "duplicates": count(report.get("duplicates")),
+        "rejected": rejected,
         "skipped": bool(report.get("skipped", False)),
+        "outcome": outcome,
+        "items_observed": items_observed,
+        "failure": failure,
     }
 
 
@@ -261,6 +298,10 @@ def workspace_status(request: Request, project_id: str, repo: WikiRepository = D
     sync_run = repo.latest_run_for_type(project_id, "source_sync")
     horizon_run = repo.latest_run_for_type(project_id, "horizon_capture")
     growth_run = _latest_growth_run(repo, project_id)
+    horizon_store = resolve_horizon_run_store_location(
+        runs_root=settings.HORIZON_RUNS_ROOT,
+        host_path=settings.HORIZON_RUNS_HOST_PATH,
+    )
     scheduler_available = (
         settings.KNOWLEDGE_SCHEDULES_ENABLED
         and is_celery_real()
@@ -296,6 +337,11 @@ def workspace_status(request: Request, project_id: str, repo: WikiRepository = D
                 "enabled": settings.HORIZON_ENABLED,
                 "captured_sources": len(horizon_sources),
                 "last_run": _horizon_run_summary(horizon_run),
+                "artifact_store": {
+                    "configured": horizon_store.configured,
+                    "available": horizon_store.available,
+                    "mode": horizon_store.mode,
+                },
             },
             "growth": {
                 "status": growth_run["status"] if growth_run else "not_run",

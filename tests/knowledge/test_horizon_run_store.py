@@ -3,7 +3,22 @@ import json
 import pytest
 
 from app.knowledge.horizon_client import HorizonClientError
-from app.knowledge.horizon_run_store import HorizonRunStoreClient, HorizonRunStoreEmptyError
+from app.knowledge.horizon_run_store import (
+    HorizonRunStoreClient,
+    HorizonRunStoreEmptyError,
+    resolve_horizon_run_store_location,
+)
+
+
+def test_horizon_run_store_uses_host_path_when_container_mount_is_not_visible(tmp_path):
+    location = resolve_horizon_run_store_location(
+        runs_root="/horizon-runs",
+        host_path=tmp_path,
+    )
+
+    assert location.available is True
+    assert location.path == tmp_path.resolve()
+    assert location.mode == "host_fallback"
 
 
 def test_horizon_run_store_reads_native_filtered_artifact(tmp_path):

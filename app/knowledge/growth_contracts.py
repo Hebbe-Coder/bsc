@@ -75,6 +75,21 @@ class OutputStatus(str, Enum):
     SUPERSEDED = "superseded"
 
 
+# A filed output has already passed the acceptance gate. Filing makes its
+# immutable Vault artifact durable; it must not make the result disappear from
+# governed reuse, method evidence, or product reporting.
+VERIFIED_OUTPUT_STATUSES = frozenset({
+    OutputStatus.ACCEPTED.value,
+    OutputStatus.FILED.value,
+})
+
+
+def is_verified_output_status(value: OutputStatus | str | None) -> bool:
+    """Return whether an output completed evaluation and remains reusable."""
+    status = value.value if isinstance(value, OutputStatus) else str(value or "")
+    return status in VERIFIED_OUTPUT_STATUSES
+
+
 class FeedbackType(str, Enum):
     ACCEPTED = "accepted"
     REJECTED = "rejected"

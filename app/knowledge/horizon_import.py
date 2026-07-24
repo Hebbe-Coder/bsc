@@ -68,6 +68,7 @@ class HorizonImportService:
                         "ai_reason": item.ai_reason,
                         "ai_summary": item.ai_summary,
                         "ai_tags": item.ai_tags,
+                        "admission_gate": "project_triage",
                         "horizon_metadata": item.metadata,
                     },
                 )

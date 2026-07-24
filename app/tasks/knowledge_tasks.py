@@ -14,7 +14,11 @@ from app.knowledge.distillation import DistillationError, WeeklyDistillationServ
 from app.knowledge.context_pack import ContextPackBuilder
 from app.knowledge.horizon_client import HorizonClient, HorizonClientError
 from app.knowledge.horizon_import import HorizonImportService
-from app.knowledge.horizon_run_store import HorizonRunStoreClient, HorizonRunStoreEmptyError
+from app.knowledge.horizon_run_store import (
+    HorizonRunStoreClient,
+    HorizonRunStoreEmptyError,
+    resolve_horizon_run_store_location,
+)
 from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.scheduler import KnowledgeScheduler
 from app.knowledge.growth_scheduler import GrowthScheduleCoordinator
@@ -187,7 +191,11 @@ def execute_knowledge_run(
             repo.update_run_status(project_id, run_id, RunStatus.COMPLETED, output_refs={"sync": report})
             return {"status": "completed", "run_id": run_id, "sync": report}
         if run["run_type"] == "horizon_capture":
-            if not settings.HORIZON_ENABLED or not (settings.HORIZON_RUNS_ROOT or settings.HORIZON_API_BASE_URL):
+            run_store_location = resolve_horizon_run_store_location(
+                runs_root=settings.HORIZON_RUNS_ROOT,
+                host_path=settings.HORIZON_RUNS_HOST_PATH,
+            )
+            if not settings.HORIZON_ENABLED or not (run_store_location.configured or settings.HORIZON_API_BASE_URL):
                 return _record_terminal_failure(
                     repo,
                     project_id=project_id,
@@ -195,11 +203,12 @@ def execute_knowledge_run(
                     status=RunStatus.UNAVAILABLE,
                     message="Horizon artifact source is not configured",
                     failure=KnowledgeFailure("configuration", "horizon_not_configured", False),
+                    output_refs={"outcome": "configuration_error", "source_mode": "unconfigured", "items_observed": 0},
                 )
             horizon_run_id = str(run["input_refs"].get("horizon_run_id") or "").strip()
             stage = str(run["input_refs"].get("stage") or "filtered")
             discovery = not horizon_run_id
-            if discovery and not settings.HORIZON_RUNS_ROOT:
+            if discovery and not run_store_location.available:
                 return _record_terminal_failure(
                     repo,
                     project_id=project_id,
@@ -207,11 +216,13 @@ def execute_knowledge_run(
                     status=RunStatus.FAILED,
                     message="Horizon run ID is required for the HTTP compatibility source",
                     failure=KnowledgeFailure("configuration", "horizon_run_id_missing", False),
+                    output_refs={"outcome": "configuration_error", "source_mode": "http", "items_observed": 0},
                 )
+            source_mode = "run_store" if run_store_location.available else "http"
             try:
-                if settings.HORIZON_RUNS_ROOT:
+                if run_store_location.available:
                     run_store = HorizonRunStoreClient(
-                        runs_root=settings.HORIZON_RUNS_ROOT,
+                        runs_root=run_store_location.path,
                         max_response_bytes=settings.HORIZON_MAX_RESPONSE_BYTES,
                     )
                     if discovery:
@@ -222,7 +233,6 @@ def execute_knowledge_run(
                         stage = response.stage
                     else:
                         response = run_store.fetch_stage(run_id=horizon_run_id, stage=stage)
-                    source_mode = "run_store"
                 else:
                     response = HorizonClient(
                         base_url=settings.HORIZON_API_BASE_URL,
@@ -232,7 +242,6 @@ def execute_knowledge_run(
                         max_response_bytes=settings.HORIZON_MAX_RESPONSE_BYTES,
                         allow_private_network=settings.HORIZON_ALLOW_PRIVATE_NETWORK,
                     ).fetch_stage(run_id=horizon_run_id, stage=stage)
-                    source_mode = "http"
                 report = HorizonImportService(repo).import_items(
                     project_id=project_id, run_id=response.run_id, stage=response.stage, items=response.items
                 )
@@ -250,6 +259,8 @@ def execute_knowledge_run(
                     "stage": "",
                     "source_mode": "run_store",
                     "discovery": True,
+                    "outcome": "no_new_artifact",
+                    "items_observed": 0,
                 }
                 repo.update_run_status(project_id, run_id, RunStatus.COMPLETED, output_refs=output_refs)
                 return {"status": "completed", "run_id": run_id, "horizon": report, "output_refs": output_refs}
@@ -261,14 +272,27 @@ def execute_knowledge_run(
                     status=RunStatus.FAILED,
                     message=str(exc),
                     failure=classify_knowledge_failure(exc),
+                    output_refs={
+                        "outcome": "channel_error",
+                        "source_mode": source_mode,
+                        "horizon_run_id": horizon_run_id,
+                        "stage": stage,
+                        "discovery": discovery,
+                        "items_observed": 0,
+                    },
                 )
+            items_observed = len(response.items)
+            outcome = "empty_result" if items_observed == 0 else "processed"
             repo.append_run_event(
                 project_id=project_id, run_id=run_id, event_type="knowledge.horizon.capture.completed",
                 payload={
                     "horizon_run_id": horizon_run_id,
                     "stage": stage,
                     "source_mode": source_mode,
+                    "run_store_resolution": run_store_location.mode if source_mode == "run_store" else "http",
                     "discovery": discovery,
+                    "outcome": outcome,
+                    "items_observed": items_observed,
                     **report,
                 },
             )
@@ -281,7 +305,10 @@ def execute_knowledge_run(
                     "horizon_run_id": horizon_run_id,
                     "stage": stage,
                     "source_mode": source_mode,
+                    "run_store_resolution": run_store_location.mode if source_mode == "run_store" else "http",
                     "discovery": discovery,
+                    "outcome": outcome,
+                    "items_observed": items_observed,
                 },
             )
             return {"status": "completed", "run_id": run_id, "horizon": report}
@@ -478,7 +505,13 @@ def execute_knowledge_run(
                 message="knowledge executor not configured",
                 failure=KnowledgeFailure("configuration", "executor_not_configured", False),
             )
-        sources = repo.list_sources(project_id, status="eligible")
+        from app.knowledge.source_triage import source_admission_reason
+
+        sources = [
+            source
+            for source in repo.list_sources(project_id, status="eligible")
+            if not source_admission_reason(repo, project_id, source)
+        ]
         if not sources:
             return _record_terminal_failure(
                 repo,

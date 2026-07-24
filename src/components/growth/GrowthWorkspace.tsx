@@ -1,6 +1,6 @@
 import {
   AlertTriangle, BarChart3, BookOpen, FileDiff, FileText,
-  LayoutList, LoaderCircle, Network, Play, RefreshCw, ShieldAlert, Sprout, X,
+  Download, LayoutList, LoaderCircle, Network, Play, RefreshCw, ShieldAlert, Sparkles, Sprout, X,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
@@ -21,6 +21,7 @@ import {
   linkGrowthOutputEvidence,
   processGrowthFeedback,
   publishGrowthMethodProposal,
+  runGrowthWorkspaceJob,
   setGrowthAccessKey,
   triageGrowthSource,
   type GrowthAccess,
@@ -149,6 +150,10 @@ function AssetReader({ selected, detail, state, error }: { selected: GrowthRecor
   if (detail.kind === 'page' && detail.content !== undefined) return <SafeTextPreview content={detail.content} />;
   if (detail.kind === 'method' && detail.content !== undefined) return <SafeTextPreview content={detail.content} />;
   if (detail.kind === 'method_proposal' && detail.content !== undefined) return <SafeTextPreview content={detail.content} />;
+  if (detail.kind === 'distillation') return <div className="growth-output-preview">
+    {detail.content !== undefined ? <SafeTextPreview content={detail.content} /> : <div className="growth-descriptor-preview"><FileText size={20} /><h4>{growthRecordLabel(detail.record)}</h4><p>{detail.detailMessage || 'No bounded inline preview is available.'}</p></div>}
+    {detail.detailMessage && detail.content !== undefined && <p>{detail.detailMessage}</p>}
+  </div>;
   if (detail.kind === 'output') return <div className="growth-output-preview">
     {detail.content !== undefined ? <SafeTextPreview content={detail.content} /> : <div className="growth-descriptor-preview"><FileText size={20} /><h4>{growthRecordLabel(detail.record)}</h4><p>{detail.detailMessage || 'No bounded inline preview is available.'}</p><code>{String(detail.record.vault_path || '')}</code></div>}
     <section aria-label="Output evaluations"><h4>Evaluation</h4>{detail.evaluations?.length ? detail.evaluations.map((evaluation) => <dl key={evaluation.id}><div><dt>Quality</dt><dd>{String(evaluation.quality ?? 'n/a')}</dd></div><div><dt>Groundedness</dt><dd>{String(evaluation.groundedness ?? 'n/a')}</dd></div><div><dt>Status</dt><dd>{String(evaluation.status || 'recorded')}</dd></div></dl>) : <p>No persisted evaluation is attached.</p>}</section>
@@ -421,9 +426,41 @@ export function GrowthWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
       const failure = errorInfo(reason); setRequestState('action', failure.state); setRunMessage(`Run submission failed: ${failure.info.message}`);
     }
   };
+  const runWorkspaceJob = async (jobType: 'source_sync' | 'horizon_capture') => {
+    setRequestState('action', 'loading'); setRunMessage(`Submitting ${jobType}...`);
+    try {
+      const run = await runGrowthWorkspaceJob(projectId, jobType);
+      setRunMessage(`${jobType}: ${String(run.status || 'queued')}`);
+      setRequestState('action', 'success'); refresh();
+    } catch (reason) {
+      const failure = errorInfo(reason); setRequestState('action', failure.state); setRunMessage(`${jobType} failed: ${failure.info.message}`);
+    }
+  };
 
   const accessLabel = accessState === 'loading' ? 'Checking access' : access ? `${access.role || 'project role'} / ${access.can_write ? 'write' : 'read only'}` : `${accessState}${accessError?.status ? ` ${accessError.status}` : ''}`;
   const sessionLabel = runtimeAccessKey.trim() ? 'Studio session applied' : 'Studio access required';
+  const vaultLabel = access?.vault?.connection?.state || access?.vault?.status || 'not checked';
+  const pluginBridges = access?.plugins?.plugins ?? [];
+  const readyPluginBridges = pluginBridges.filter((plugin) => plugin.path_status === 'ready').length;
+  const capturedPluginBridges = pluginBridges.filter((plugin) => plugin.status === 'captured' || plugin.status === 'registered_output').length;
+  const horizonStore = access?.horizon?.artifact_store;
+  const horizonRun = access?.horizon?.last_run;
+  const horizonLabel = !access?.horizon?.enabled ? 'disabled'
+    : horizonRun?.outcome === 'channel_error' ? 'channel unavailable'
+      : horizonRun?.outcome === 'configuration_error' ? 'configuration needed'
+        : horizonRun?.outcome === 'empty_result' ? 'last run: no items'
+          : horizonRun?.outcome === 'no_new_artifact' ? 'awaiting new run'
+            : horizonStore?.available ? `ready / ${horizonStore.mode}` : horizonStore?.configured ? 'configured / unavailable' : 'unconfigured';
+  const horizonDetail = horizonRun?.outcome === 'channel_error'
+    ? `${horizonRun.failure?.code || 'horizon_unavailable'}${horizonRun.failure?.retryable ? ' / retryable' : ''}`
+    : horizonRun?.outcome === 'configuration_error'
+      ? (horizonRun.failure?.code || 'horizon_not_configured')
+      : horizonRun?.outcome === 'empty_result'
+        ? 'last source stage returned zero items'
+        : horizonRun?.outcome === 'no_new_artifact'
+          ? 'no unconsumed native run is available'
+          : `${access?.horizon?.captured_sources ?? 0} immutable signals captured`;
+  const schedulerLabel = access?.scheduler?.available ? 'Celery ready' : access?.scheduler ? 'manual only' : 'not checked';
   const viewButtons: Array<{ id: GrowthCenterView; label: string; icon: typeof LayoutList }> = [
     { id: 'assets', label: 'Assets', icon: LayoutList }, { id: 'metrics', label: 'Metrics', icon: BarChart3 }, { id: 'lineage', label: 'Lineage', icon: Network },
   ];
@@ -436,6 +473,8 @@ export function GrowthWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
           <label><span>Project</span><input value={projectInput} onChange={(event) => setProjectInput(event.target.value)} aria-label="Growth project ID" /></label>
           <button type="submit" title="Load the shared project growth state"><RefreshCw size={14} /> Load</button>
         </form>
+        <button type="button" className="growth-icon-button" disabled={access?.can_write !== true || requestStates.action === 'loading' || access?.features.obsidian_sync === false} onClick={() => void runWorkspaceJob('source_sync')} title="Capture declared Obsidian exports as immutable evidence" aria-label="Sync Obsidian evidence"><Download size={15} /></button>
+        <button type="button" className="growth-icon-button" disabled={access?.can_write !== true || requestStates.action === 'loading' || access?.features.horizon === false || horizonStore?.available === false} onClick={() => void runWorkspaceJob('horizon_capture')} title="Import the latest unconsumed Horizon run through the evidence gate" aria-label="Import Horizon evidence"><Sparkles size={15} /></button>
         <button type="button" className="growth-icon-button" disabled={access?.can_write !== true || requestStates.action === 'loading'} onClick={() => void startGrowthCycle('growth_daily')} title="Run daily growth cycle" aria-label="Run daily growth cycle"><Play size={15} /></button>
         <button type="button" className="growth-icon-button" disabled={access?.can_write !== true || requestStates.action === 'loading'} onClick={() => void startGrowthCycle('growth_weekly_distillation')} title="Run weekly growth distillation" aria-label="Run weekly growth distillation"><Sprout size={15} /></button>
         <span className={runtimeAccessKey.trim() ? 'growth-session-state is-ready' : 'growth-session-state is-pending'}>{sessionLabel}</span>
@@ -448,8 +487,12 @@ export function GrowthWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
       <div className="growth-status-strip">
         <div><span>PROFILE ROLE</span><strong>{overview.profile.user_role || 'not configured'}</strong><small>revision {overview.profile.revision || 0}</small></div>
         <div><span>API ACCESS</span><strong>{accessLabel}</strong><small>{access?.can_write ? 'permission-gated actions enabled' : `${sessionLabel}; actions stay disabled until authorized`}</small></div>
+        <div><span>VAULT</span><strong>{vaultLabel}</strong><small>{access?.vault?.configured ? 'mapped project workspace' : 'Vault mapping required'}</small></div>
+        <div><span>PLUGIN BRIDGES</span><strong>{`${readyPluginBridges}/${pluginBridges.length} ready`}</strong><small>{capturedPluginBridges} captured or registered</small></div>
+        <div><span>HORIZON</span><strong>{horizonLabel}</strong><small>{horizonDetail}</small></div>
+        <div><span>AUTOMATION</span><strong>{schedulerLabel}</strong><small>{access?.growth?.status || 'no growth run'} growth state</small></div>
         <div><span>ELIGIBLE A</span><strong>{counts?.eligible_sources ?? 0}</strong><small>of {counts?.sources ?? 0} captured</small></div>
-        <div><span>ACCEPTED D</span><strong>{counts?.accepted_outputs ?? 0}</strong><small>{counts?.rejected_outputs ?? 0} rejected</small></div>
+        <div><span>VERIFIED D</span><strong>{counts?.accepted_outputs ?? 0}</strong><small>{counts?.rejected_outputs ?? 0} rejected</small></div>
         <div><span>LATEST CYCLE</span><strong>{String(latestRun?.status || 'not run')}</strong><small>{runMessage}</small></div>
       </div>
       <div className="growth-layout">

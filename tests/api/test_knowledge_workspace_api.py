@@ -175,9 +175,78 @@ def test_workspace_status_exposes_bounded_horizon_import_evidence(tmp_path):
             "duplicates": 0,
             "rejected": 0,
             "skipped": False,
+            "outcome": "processed",
+            "items_observed": 1,
+            "failure": None,
         }
     finally:
         settings.API_KEY = previous_key
+        app.dependency_overrides.clear()
+        repo.close()
+
+
+def test_workspace_status_distinguishes_horizon_channel_failure_from_empty_result(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "workspace-horizon-channel-failure.db"))
+    run = KnowledgeRun(id="horizon-channel-failure", project_id="project-a", run_type="horizon_capture", trigger="manual")
+    repo.create_run(run)
+    repo.update_run_status(
+        "project-a",
+        run.id,
+        RunStatus.FAILED,
+        error="Horizon stage artifact was not found",
+        output_refs={
+            "outcome": "channel_error",
+            "source_mode": "run_store",
+            "failure": {"category": "transient_dependency", "code": "horizon_unavailable", "retryable": True},
+        },
+    )
+    previous_key = settings.API_KEY
+    settings.API_KEY = "workspace-admin"
+    app.dependency_overrides[get_wiki_repository] = lambda: repo
+    client = TestClient(app)
+    try:
+        response = client.get("/knowledge/workspaces/project-a", headers={"Authorization": "Bearer workspace-admin"})
+
+        assert response.status_code == 200
+        last_run = response.json()["data"]["horizon"]["last_run"]
+        assert last_run["status"] == "failed"
+        assert last_run["outcome"] == "channel_error"
+        assert last_run["items_observed"] == 0
+        assert last_run["failure"] == {
+            "category": "transient_dependency", "code": "horizon_unavailable", "retryable": True
+        }
+    finally:
+        settings.API_KEY = previous_key
+        app.dependency_overrides.clear()
+        repo.close()
+
+
+def test_workspace_status_reports_host_horizon_store_when_the_docker_mount_is_not_local(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "workspace-host-horizon-status.db"))
+    previous_key = settings.API_KEY
+    previous_root = settings.HORIZON_RUNS_ROOT
+    previous_host = settings.HORIZON_RUNS_HOST_PATH
+    previous_enabled = settings.HORIZON_ENABLED
+    settings.API_KEY = "workspace-admin"
+    settings.HORIZON_ENABLED = True
+    settings.HORIZON_RUNS_ROOT = "/horizon-runs"
+    settings.HORIZON_RUNS_HOST_PATH = str(tmp_path)
+    app.dependency_overrides[get_wiki_repository] = lambda: repo
+    client = TestClient(app)
+    try:
+        response = client.get("/knowledge/workspaces/project-a", headers={"Authorization": "Bearer workspace-admin"})
+
+        assert response.status_code == 200
+        assert response.json()["data"]["horizon"]["artifact_store"] == {
+            "configured": True,
+            "available": True,
+            "mode": "host_fallback",
+        }
+    finally:
+        settings.API_KEY = previous_key
+        settings.HORIZON_RUNS_ROOT = previous_root
+        settings.HORIZON_RUNS_HOST_PATH = previous_host
+        settings.HORIZON_ENABLED = previous_enabled
         app.dependency_overrides.clear()
         repo.close()
 

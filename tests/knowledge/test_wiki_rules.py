@@ -45,3 +45,13 @@ def test_rules_reject_invalid_page_kind_policy_and_forbidden_write_path():
     )
     with pytest.raises(RuleValidationError, match="write_root"):
         parse_project_rules(invalid_path)
+
+
+def test_rules_accept_windows_crlf_without_changing_their_revision_identity():
+    windows_text = build_default_agents_rules("project-a").replace("\n", "\r\n")
+
+    parsed = parse_project_rules(windows_text)
+
+    assert parsed.project_id == "project-a"
+    assert set(REQUIRED_RULE_SECTIONS).issubset(parsed.sections)
+    assert parsed.revision != parse_project_rules(build_default_agents_rules("project-a")).revision

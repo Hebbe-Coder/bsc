@@ -11,6 +11,7 @@ from app.knowledge.wiki_lint import WikiLint
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_rules import parse_project_rules
 from app.knowledge.wiki_index import WikiSearchIndex
+from app.knowledge.source_triage import source_admission_reason
 
 
 class ProposalGateError(ValueError):
@@ -26,10 +27,13 @@ class InMemoryWikiVault:
     def stage(self, proposal: WikiProposal) -> dict[str, str]:
         staged = deepcopy(self.contents)
         for operation in proposal.operations:
-            if not operation.path.startswith("wiki/"):
+            is_agents_rules = operation.path == "AGENTS.md"
+            if not operation.path.startswith("wiki/") and not is_agents_rules:
                 raise ProposalGateError("proposal writes are restricted to the generated wiki/ boundary")
             if operation.destination_path and not operation.destination_path.startswith("wiki/"):
                 raise ProposalGateError("proposal destinations are restricted to the generated wiki/ boundary")
+            if is_agents_rules and operation.operation is not WikiOperationType.REPLACE:
+                raise ProposalGateError("AGENTS.md may only be replaced through a governed proposal")
             current = staged.get(operation.path, "")
             if operation.expected_content_hash and self._hash(current) != operation.expected_content_hash:
                 raise ProposalGateError(f"revision conflict at {operation.path}")
@@ -101,6 +105,15 @@ class ProposalGate:
         publishable_source_states = {SourceStatus.ELIGIBLE.value, SourceStatus.PROCESSED.value}
         if any(source is None or source["status"] not in publishable_source_states for source in sources):
             raise ProposalGateError("all proposal sources must remain eligible or previously published")
+        blocked_sources = [
+            source["id"]
+            for source in sources
+            if source is not None
+            and source["status"] == SourceStatus.ELIGIBLE.value
+            and source_admission_reason(self.repository, proposal.project_id, source)
+        ]
+        if blocked_sources:
+            raise ProposalGateError("proposal sources require current project triage: " + ", ".join(sorted(blocked_sources)))
         if publication_mode == "automatic":
             mapping = self.repository.get_vault(proposal.project_id) or {}
             policy = mapping.get("metadata") or {}
@@ -142,6 +155,7 @@ class ProposalGate:
                 candidate={
                     "source_ids": sorted(proposal_source_ids),
                     "content": "\n".join(operation.content for operation in proposal.operations),
+                    "paths": [operation.path for operation in proposal.operations],
                 },
             )
         except Exception:
@@ -152,7 +166,7 @@ class ProposalGate:
                 {**proposal.eval_summary, "validation_error": "evaluation_execution_failed"},
             )
             raise
-        if evaluation.status != "passed" and not override:
+        if evaluation.status not in {"passed", "not_applicable"} and not override:
             self.repository.update_proposal_review(
                 proposal.project_id,
                 proposal.id,

@@ -11,6 +11,7 @@ from typing import Any, Protocol
 from pydantic import ValidationError
 
 from app.knowledge.context_pack import ContextPack, ContextPackBuilder
+from app.knowledge.source_triage import source_admission_reason
 from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus, SourceStatus, WikiOperation, WikiOperationType, WikiProposal
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_rules import ProjectRules, parse_project_rules
@@ -133,7 +134,11 @@ class WikiCompiler:
             raise WikiCompilationError(str(exc)) from exc
 
     def _select_sources(self, project_id: str, source_ids: list[str] | None, *, query: str = "") -> list[dict[str, Any]]:
-        eligible = self.repository.list_sources(project_id, status=SourceStatus.ELIGIBLE.value)
+        eligible = [
+            source
+            for source in self.repository.list_sources(project_id, status=SourceStatus.ELIGIBLE.value)
+            if not source_admission_reason(self.repository, project_id, source)
+        ]
         if source_ids is None:
             selected = eligible
             if query.strip():
@@ -150,7 +155,9 @@ class WikiCompiler:
             selected_ids = set(source_ids)
             selected = [source for source in eligible if source["id"] in selected_ids]
             if selected_ids != {source["id"] for source in selected}:
-                raise WikiCompilationError("all sources must exist in this project and be eligible")
+                raise WikiCompilationError(
+                    "all sources must exist in this project, be eligible, and pass current project triage"
+                )
         if not selected:
             raise WikiCompilationError("no eligible sources selected")
         return selected

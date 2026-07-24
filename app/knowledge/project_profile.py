@@ -98,6 +98,7 @@ class ProjectProfileService:
             and (
                 str(getattr(self.settings, "HORIZON_API_BASE_URL", "")).strip()
                 or str(getattr(self.settings, "HORIZON_RUNS_ROOT", "")).strip()
+                or str(getattr(self.settings, "HORIZON_RUNS_HOST_PATH", "")).strip()
             )
         )
         model_configured = bool(str(getattr(self.settings, "KNOWLEDGE_WIKI_LLM_PROVIDER", "")).strip())

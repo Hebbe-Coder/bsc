@@ -18,6 +18,9 @@ from app.knowledge.wiki_contracts import SourceRecord, SourceStatus
 from app.knowledge.wiki_rules import build_default_agents_rules
 
 
+_CUTOFF_SAFE_TIME = datetime(2026, 7, 23, tzinfo=timezone.utc)
+
+
 class _NarrativeProvider:
     def render(self, *, kind, project_id, period, context):
         if kind == "daily":
@@ -60,6 +63,22 @@ class _PartialNarrativeProvider:
                 slots[4]: "## Uncited method\n\nRevise the process.",
             }
         }
+
+
+def test_validated_markdown_normalizes_structured_list_items_before_citation_validation():
+    content = GrowthDistillationService._validated_markdown(
+        [
+            "Review the current project decision against [source:source-a].",
+            "Draft one evidence-backed content angle from [source:source-a].",
+        ],
+        {"citation_source_ids": ["source-a"]},
+    )
+
+    assert content == (
+        "- Review the current project decision against [source:source-a].\n\n"
+        "- Draft one evidence-backed content angle from [source:source-a]."
+    )
+    assert "['Review" not in content
 
 
 def test_weekly_distillation_is_idempotent_and_writes_dual_track_bundle(tmp_path):
@@ -109,6 +128,8 @@ def test_distillation_uses_validated_narrative_provider_and_records_its_mode(tmp
                 raw_content="The project must keep review gates before publication.",
                 trust_level="trusted",
                 status=SourceStatus.ELIGIBLE,
+                captured_at=_CUTOFF_SAFE_TIME,
+                updated_at=_CUTOFF_SAFE_TIME,
             )
         )
         service = GrowthDistillationService(repo, root, narrative_provider=_NarrativeProvider())
@@ -144,6 +165,8 @@ def test_distillation_rejects_uncited_narrative_and_uses_governed_fallback(tmp_p
                 raw_content="Review gates are required before publication.",
                 trust_level="trusted",
                 status=SourceStatus.ELIGIBLE,
+                captured_at=_CUTOFF_SAFE_TIME,
+                updated_at=_CUTOFF_SAFE_TIME,
             )
         )
 
@@ -183,6 +206,8 @@ def test_distillation_preserves_only_cited_llm_documents_and_records_hybrid_prov
                 raw_content="Review gates are required before publication.",
                 trust_level="trusted",
                 status=SourceStatus.ELIGIBLE,
+                captured_at=_CUTOFF_SAFE_TIME,
+                updated_at=_CUTOFF_SAFE_TIME,
             )
         )
 
@@ -202,6 +227,34 @@ def test_distillation_preserves_only_cited_llm_documents_and_records_hybrid_prov
         repo.close()
 
 
+def test_hybrid_fallback_uses_only_records_retained_in_its_bounded_context(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "distillation-hybrid-citations.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        repo.create_source(SourceRecord(
+            id="source-a", project_id="project-a", source_type="article", content_hash="a" * 64,
+            raw_content="Eligible evidence.", trust_level="trusted", status=SourceStatus.ELIGIBLE,
+            captured_at=_CUTOFF_SAFE_TIME, updated_at=_CUTOFF_SAFE_TIME,
+        ))
+        repo.create_source(SourceRecord(
+            id="source-b", project_id="project-a", source_type="article", content_hash="b" * 64,
+            raw_content="Superseded evidence.", trust_level="trusted", status=SourceStatus.SUPERSEDED,
+        ))
+
+        result = GrowthDistillationService(repo, root, narrative_provider=_PartialNarrativeProvider()).run_weekly(
+            "project-a", "2026-W30", source_cutoff="2026-07-24T09:00:00Z"
+        )
+
+        fallback_context = (root / "projects" / "project-a" / result["paths"][3]).read_text(encoding="utf-8")
+        assert "[source:source-a]" in fallback_context
+        assert "[source:source-b]" not in fallback_context
+        assert '"rendered"' not in fallback_context
+    finally:
+        repo.close()
+
+
 def test_distillation_contract_revision_participates_in_idempotency_hash(monkeypatch):
     baseline = GrowthDistillationService._input_hash([], "2026-07-24T09:00:00+00:00", "context")
     monkeypatch.setattr(
@@ -213,6 +266,39 @@ def test_distillation_contract_revision_participates_in_idempotency_hash(monkeyp
     revised = GrowthDistillationService._input_hash([], "2026-07-24T09:00:00+00:00", "context")
 
     assert revised != baseline
+
+
+def test_weekly_distillation_interprets_legacy_naive_repository_timestamps_as_shanghai_time(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "distillation-naive-timezone.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        repo.create_source(SourceRecord(
+            id="source-a",
+            project_id="project-a",
+            source_type="article",
+            content_hash="a" * 64,
+            raw_content="A captured source must remain available to the weekly review.",
+            trust_level="trusted",
+            status=SourceStatus.ELIGIBLE,
+        ))
+        # Older repository writes use local wall-clock timestamps with no
+        # offset. At 00:24Z it was already 08:24 in the schedule timezone.
+        repo._execute(
+            "UPDATE knowledge_sources SET captured_at=?, updated_at=? WHERE project_id=? AND id=?",
+            ("2026-07-24T07:13:19", "2026-07-24T07:13:19", "project-a", "source-a"),
+        )
+        repo._commit()
+
+        result = GrowthDistillationService(repo, root).run_weekly(
+            "project-a", "2026-W30", source_cutoff="2026-07-24T00:24:18.951698Z"
+        )
+
+        assert result["manifest"]["context"]["citation_source_ids"] == ["source-a"]
+        assert {item["id"] for item in result["manifest"]["inputs"]} >= {"source-a"}
+    finally:
+        repo.close()
 
 
 def test_tampered_managed_file_is_never_archived_or_overwritten(tmp_path):
@@ -393,6 +479,7 @@ def test_weekly_manifest_covers_feedback_evaluations_contradictions_and_cutoff(t
             id="output-a", project_id="project-a", kind="report", content_hash="a" * 64,
             vault_path="outputs/output-a.md", idempotency_key="output-a", status="accepted",
             source_refs=["source-a"],
+            created_at=_CUTOFF_SAFE_TIME, updated_at=_CUTOFF_SAFE_TIME,
         ))
         repo.save_output_evaluation(OutputEvaluation(
             id="eval-a", project_id="project-a", output_id="output-a",
@@ -405,6 +492,13 @@ def test_weekly_manifest_covers_feedback_evaluations_contradictions_and_cutoff(t
             feedback_type=FeedbackType.CORRECTED, correction="Clarify the approval owner.",
             created_at=datetime(2026, 7, 22, tzinfo=timezone.utc),
         ))
+        # Saving an evaluation updates the output lifecycle timestamp. Model
+        # this complete historical record as having existed before the cutoff.
+        repo._execute(
+            "UPDATE knowledge_outputs SET updated_at=? WHERE project_id=? AND id=?",
+            (_CUTOFF_SAFE_TIME.isoformat(), "project-a", "output-a"),
+        )
+        repo._commit()
         repo.add_lineage_edge(KnowledgeLineageEdge(
             id="contradiction-a", project_id="project-a",
             from_type="source", from_id="source-a", to_type="source", to_id="source-b",

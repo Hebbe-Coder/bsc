@@ -164,8 +164,9 @@ class GrowthRepository(WikiRepository):
         if not source:
             raise KeyError("source not found in project")
         existing = self._execute(
-            "SELECT * FROM knowledge_source_triage WHERE project_id=? AND source_id=? AND profile_revision=?",
-            (triage.project_id, triage.source_id, triage.profile_revision),
+            "SELECT * FROM knowledge_source_triage "
+            "WHERE project_id=? AND source_id=? AND profile_revision=? AND evaluator_revision=?",
+            (triage.project_id, triage.source_id, triage.profile_revision, triage.evaluator_revision),
         ).fetchone()
         if existing:
             return self._decode_growth(existing, ("reasons_json",)) or {}

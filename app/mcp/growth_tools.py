@@ -12,7 +12,12 @@ from app.core.celery_app import is_celery_broker_available, is_celery_real
 from app.core.config import settings
 from app.knowledge.capture_adapters import redact_secrets
 from app.knowledge.feedback_router import FeedbackRouter
-from app.knowledge.growth_contracts import OutputAsset, OutputFeedback, ProjectKnowledgeProfile
+from app.knowledge.growth_contracts import (
+    OutputAsset,
+    OutputFeedback,
+    ProjectKnowledgeProfile,
+    is_verified_output_status,
+)
 from app.knowledge.growth_distillation import GrowthDistillationService
 from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.method_detector import MethodDetector
@@ -158,13 +163,13 @@ def growth_method(
         elif action == "propose":
             output_ids = list(dict.fromkeys(str(item) for item in payload.get("source_output_ids") or [] if str(item)))
             if len(output_ids) < 3:
-                raise ValueError("method proposal requires three distinct accepted outputs")
+                raise ValueError("method proposal requires three distinct verified outputs")
             for output_id in output_ids:
                 output = repo.get_output(project_id, output_id)
                 if not output:
                     raise KeyError("source output not found in project")
-                if output.get("status") != "accepted":
-                    raise ValueError("method proposal requires accepted outputs")
+                if not is_verified_output_status(output.get("status")):
+                    raise ValueError("method proposal requires verified outputs")
             proposal = MethodDetector(repo).create_proposal(
                 project_id,
                 str(payload.get("slug") or ""),
@@ -377,7 +382,9 @@ def growth_summary(project_id: str) -> dict:
                     "methods": len(methods),
                     "published_methods": sum(item.get("status") == "published" for item in methods),
                     "outputs": len(outputs),
-                    "accepted_outputs": sum(item.get("status") == "accepted" for item in outputs),
+                    # Retain the legacy field name for MCP clients while using
+                    # the durable accepted-or-filed lifecycle semantics.
+                    "accepted_outputs": sum(is_verified_output_status(item.get("status")) for item in outputs),
                     "rejected_outputs": sum(item.get("status") == "rejected" for item in outputs),
                     "feedback": len(repo.list_feedback(project_id, limit=MAX_PAGE_SIZE)),
                 }

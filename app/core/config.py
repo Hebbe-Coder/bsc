@@ -152,6 +152,9 @@ class Settings(BaseSettings):
     HORIZON_ENABLED: bool = False
     HORIZON_API_BASE_URL: str = ""
     HORIZON_API_KEY: str = ""
+    # The host-side run-store path is used when the API is started directly on
+    # the developer machine. Docker services keep using HORIZON_RUNS_ROOT.
+    HORIZON_RUNS_HOST_PATH: str = ""
     HORIZON_RUNS_ROOT: str = ""
     HORIZON_STAGE_URL_TEMPLATE: str = "/api/runs/{run_id}/stages/{stage}"
     HORIZON_TIMEOUT_SECONDS: int = 20

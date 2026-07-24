@@ -46,6 +46,9 @@ class ObsidianSyncService:
             seen_paths.add(relative.as_posix())
             project_relative = "/".join(relative.parts[len(project_root):]) if project_root else ""
             plugin = manifest.plugin_for(project_relative) if project_relative else None
+            workspace_role = ObsidianPluginManifest.workspace_role_for(
+                tuple(relative.parts[len(project_root):]) if project_root else ()
+            )
             extension = path.suffix.lower()
             if extension not in {".md", ".txt", ".json", ".canvas"}:
                 result = self.capture_service.capture(
@@ -60,6 +63,7 @@ class ObsidianSyncService:
                         metadata={
                             "sync": "obsidian",
                             **self._plugin_metadata(plugin),
+                            **self._workspace_metadata(workspace_role),
                             "modified_at": path.stat().st_mtime_ns,
                             "extension": extension,
                             "byte_size": path.stat().st_size,
@@ -84,6 +88,7 @@ class ObsidianSyncService:
                         metadata={
                             "sync": "obsidian",
                             **self._plugin_metadata(plugin),
+                            **self._workspace_metadata(workspace_role),
                             "modified_at": path.stat().st_mtime_ns,
                             "extension": extension,
                             "byte_size": path.stat().st_size,
@@ -101,7 +106,7 @@ class ObsidianSyncService:
             result = self.capture_service.capture(
                 CapturedSourceInput(
                     project_id=project_id,
-                    source_type=(f"obsidian_plugin:{plugin.plugin_id}" if plugin else ("obsidian_markdown" if extension == ".md" else "obsidian_file")),
+                    source_type=self._source_type(plugin, workspace_role, extension),
                     origin=relative.as_posix(),
                     vault_path=relative.as_posix(),
                     raw_content=content,
@@ -109,6 +114,7 @@ class ObsidianSyncService:
                     metadata={
                         "sync": "obsidian",
                         **self._plugin_metadata(plugin),
+                        **self._workspace_metadata(workspace_role),
                         "modified_at": path.stat().st_mtime_ns,
                         "extension": extension,
                         "extraction_status": "complete",
@@ -153,6 +159,18 @@ class ObsidianSyncService:
         }
 
     @staticmethod
+    def _workspace_metadata(workspace_role: str) -> dict:
+        return {"obsidian_workspace_role": workspace_role} if workspace_role else {}
+
+    @staticmethod
+    def _source_type(plugin, workspace_role: str, extension: str) -> str:
+        if plugin is not None:
+            return f"obsidian_plugin:{plugin.plugin_id}"
+        if workspace_role:
+            return f"obsidian_{workspace_role}"
+        return "obsidian_markdown" if extension == ".md" else "obsidian_file"
+
+    @staticmethod
     def _file_hash(path: Path) -> str:
         digest = hashlib.sha256()
         with path.open("rb") as handle:
@@ -176,5 +194,5 @@ class ObsidianSyncService:
             return True
         if project_root and parts[:len(project_root)] == project_root:
             project_relative = parts[len(project_root):]
-            return not ObsidianPluginManifest.is_source_export_path(project_relative)
+            return not ObsidianPluginManifest.is_syncable_knowledge_path(project_relative)
         return any(parts[:len(root)] == root for root in managed_roots or {("projects",)})

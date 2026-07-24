@@ -18,7 +18,7 @@ from app.knowledge.obsidian_output_sync import ObsidianOutputSyncService
 from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
 from app.knowledge.source_triage import SourceTriageService
 from app.knowledge.wiki_sync import ObsidianSyncService
-from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus
+from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus, SourceStatus
 from app.knowledge.wiki_repository import WikiRepository
 
 
@@ -376,13 +376,20 @@ def _sync_declared_obsidian_exports(
         )
         project_root = (vault_root / str(mapping["vault_path"])).resolve()
         manifest = ObsidianPluginManifest.load(project_root)
+        triaged_statuses = [
+            str((repository.get_source(project_id, str(item.get("source_id") or "")) or {}).get("status") or "")
+            for item in decisions
+        ]
         report = {
             "status": "completed",
             "sources": sources,
             "triage": {
                 "evaluated": len(decisions),
-                "eligible": sum(item.get("reliability_pass") is True for item in decisions),
-                "pending_review": sum(item.get("reliability_pass") is not True for item in decisions),
+                # Reliability is necessary but not sufficient for admission.
+                # Report the persisted lifecycle state so the audit summary
+                # never claims a low-priority, reliable source entered A.
+                "eligible": sum(status in {SourceStatus.ELIGIBLE.value, SourceStatus.PROCESSED.value} for status in triaged_statuses),
+                "pending_review": sum(status == SourceStatus.VALIDATED.value for status in triaged_statuses),
             },
             "outputs": outputs,
             "plugins": manifest.public_status(

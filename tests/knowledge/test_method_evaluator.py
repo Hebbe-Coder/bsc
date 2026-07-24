@@ -15,14 +15,19 @@ def _manifest(**overrides):
     }
 
 
-def _proposal_with_outputs(repo, qualities=(90, 88, 87), groundedness=(0.95, 0.92, 0.91)):
+def _proposal_with_outputs(
+    repo,
+    qualities=(90, 88, 87),
+    groundedness=(0.95, 0.92, 0.91),
+    statuses=("accepted", "accepted", "accepted"),
+):
     ids = []
-    for index, (quality, grounding) in enumerate(zip(qualities, groundedness), 1):
+    for index, (quality, grounding, status) in enumerate(zip(qualities, groundedness, statuses), 1):
         output_id = f"output-{index}"
         ids.append(output_id)
         repo.register_output(OutputAsset(id=output_id, project_id="project-a", kind="report", content_hash=(str(index) * 64),
                                          vault_path=f"outputs/2026/{output_id}/report.md", idempotency_key=output_id,
-                                         run_id=f"run-{index}", status="accepted"))
+                                         run_id=f"run-{index}", status=status))
         repo.save_output_evaluation(OutputEvaluation(id=f"eval-{index}", project_id="project-a", output_id=output_id,
                                                       groundedness=grounding, task_fit=quality / 100, usefulness=quality / 100,
                                                       coherence=quality / 100, format_quality=quality / 100,
@@ -45,6 +50,23 @@ def test_evaluator_derives_thresholds_from_immutable_output_records(tmp_path):
         assert result["case_results"][0]["passed"] is True
         assert repo.get_method_proposal("project-a", proposal["id"])["status"] == "approved"
         assert repo.list_eval_runs("project-a")[0]["summary"]["evaluator_revision"] == "method-eval-v1"
+    finally:
+        repo.close()
+
+
+def test_evaluator_treats_durably_filed_outputs_as_verified_support(tmp_path):
+    repo = GrowthRepository(db_path=str(tmp_path / "method-filed.db"))
+    try:
+        proposal = _proposal_with_outputs(
+            repo,
+            statuses=("accepted", "filed", "accepted"),
+        )
+        result = MethodEvaluator(repo).evaluate(
+            proposal,
+            case_runner=lambda case, _proposal: {"passed": True, "actual": case["expected"]},
+        )
+        assert result["eligible"] is True
+        assert result["accepted_or_reused"] is True
     finally:
         repo.close()
 

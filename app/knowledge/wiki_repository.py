@@ -135,6 +135,35 @@ class WikiRepository(BaseRepository):
         self._commit()
         return self.get_source(project_id, source_id) or {}
 
+    def return_source_to_review(self, project_id: str, source_id: str, *, reason: str) -> dict:
+        """Revoke a pre-triage eligibility grant without deleting evidence."""
+        source = self.get_source(project_id, source_id)
+        if not source:
+            raise KeyError("source not found in project")
+        if source["status"] == SourceStatus.VALIDATED.value:
+            return source
+        if source["status"] != SourceStatus.ELIGIBLE.value:
+            raise ValueError("only eligible evidence can return to review")
+        metadata = dict(source.get("metadata") or {})
+        metadata["admission_correction"] = {
+            "reason": reason,
+            "previous_status": SourceStatus.ELIGIBLE.value,
+            "corrected_at": self._now(),
+        }
+        self._execute(
+            "UPDATE knowledge_sources SET status=?,metadata_json=?,updated_at=? WHERE project_id=? AND id=? AND status=?",
+            (
+                SourceStatus.VALIDATED.value,
+                self._json_dumps(metadata),
+                self._now(),
+                project_id,
+                source_id,
+                SourceStatus.ELIGIBLE.value,
+            ),
+        )
+        self._commit()
+        return self.get_source(project_id, source_id) or {}
+
     def mark_source_citations_stale(self, project_id: str, source_id: str) -> None:
         self._execute(
             "UPDATE knowledge_citations SET status='stale' WHERE project_id=? AND source_id=? AND status='active'",
@@ -482,6 +511,8 @@ class WikiRepository(BaseRepository):
             self._execute("DELETE FROM knowledge_citations WHERE project_id=?", (project_id,))
             source_statuses = {source["id"]: source["status"] for source in self.list_sources(project_id)}
             for page in indexed_pages:
+                if page["path"] == "AGENTS.md":
+                    continue
                 for sequence, source_id in enumerate(self._source_ids(page["content"])):
                     citation_id = hashlib.sha256(f"{page['id']}|{source_id}|{sequence}".encode("utf-8")).hexdigest()[:24]
                     self._execute(
@@ -521,6 +552,10 @@ class WikiRepository(BaseRepository):
                 target_path = target if target.endswith(".md") else f"{target}.md"
                 if target_path in by_path:
                     add(page["id"], by_path[target_path]["id"], "wiki_links_to")
+            if page["path"] == "AGENTS.md":
+                if proposal_id:
+                    add(proposal_id, page["id"], "proposal_changes_page")
+                continue
             for source_id in self._source_ids(page["content"]):
                 add(page["id"], source_id, "wiki_cites_source")
                 if page["page_kind"] == "decision":

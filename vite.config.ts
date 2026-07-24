@@ -6,7 +6,12 @@ import tsconfigPaths from "vite-tsconfig-paths";
 export default defineConfig(({ mode }) => {
   // Vite config executes before it exposes .env values to import.meta.env.
   const env = loadEnv(mode, process.cwd(), '');
-  const apiProxyTarget = env.VITE_API_PROXY_TARGET || process.env.VITE_API_PROXY_TARGET || 'http://localhost:8000';
+  // A command-line target must win over checked-in local defaults so isolated
+  // Studio instances can verify a specific backend without editing .env.
+  let apiProxyTarget = process.env.VITE_API_PROXY_TARGET || 'http://localhost:8000';
+  if (!process.env.VITE_API_PROXY_TARGET && env.VITE_API_PROXY_TARGET) {
+    apiProxyTarget = env.VITE_API_PROXY_TARGET;
+  }
 
   return {
   build: {

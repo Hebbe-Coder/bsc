@@ -307,6 +307,33 @@ def test_horizon_capture_task_imports_native_run_store_artifact(tmp_path, monkey
         repo.close()
 
 
+def test_horizon_capture_uses_host_artifacts_when_direct_api_cannot_see_container_mount(tmp_path, monkeypatch):
+    repo = WikiRepository(db_path=str(tmp_path / "tasks-horizon-host-fallback.db"))
+    runs_root = tmp_path / "mcp-runs"
+    run_dir = runs_root / "run-host-fallback"
+    run_dir.mkdir(parents=True)
+    (run_dir / "enriched_items.json").write_text(
+        json.dumps([{"id": "rss:host:1", "source_type": "rss", "title": "Host signal", "url": "https://example.com/host", "content": "Host-readable evidence.", "published_at": "2026-07-24T00:00:00Z", "ai_score": 8.4}]),
+        encoding="utf-8",
+    )
+    run = KnowledgeRun(project_id="project-a", run_type="horizon_capture", trigger="manual")
+    repo.create_run(run)
+    monkeypatch.setattr("app.tasks.knowledge_tasks.settings.HORIZON_ENABLED", True)
+    monkeypatch.setattr("app.tasks.knowledge_tasks.settings.HORIZON_RUNS_ROOT", "/horizon-runs")
+    monkeypatch.setattr("app.tasks.knowledge_tasks.settings.HORIZON_RUNS_HOST_PATH", str(runs_root))
+    monkeypatch.setattr("app.tasks.knowledge_tasks.settings.HORIZON_API_BASE_URL", "")
+    try:
+        result = execute_knowledge_run("project-a", run.id, repository=repo)
+
+        assert result["status"] == "completed"
+        persisted = repo.get_run("project-a", run.id)
+        assert persisted["output_refs"]["horizon_run_id"] == "run-host-fallback"
+        assert persisted["output_refs"]["run_store_resolution"] == "host_fallback"
+        assert len(repo.list_sources("project-a")) == 1
+    finally:
+        repo.close()
+
+
 def test_scheduled_horizon_capture_discovers_latest_run_and_skips_it_after_import(tmp_path, monkeypatch):
     repo = WikiRepository(db_path=str(tmp_path / "tasks-horizon-discovery.db"))
     runs_root = tmp_path / "mcp-runs"
@@ -341,11 +368,73 @@ def test_scheduled_horizon_capture_discovers_latest_run_and_skips_it_after_impor
         first_run = repo.get_run("project-a", first.id)
         assert first_run["output_refs"]["horizon_run_id"] == "run-horizon-auto"
         assert first_run["output_refs"]["discovery"] is True
+        assert first_run["output_refs"]["outcome"] == "processed"
+        assert first_run["output_refs"]["items_observed"] == 1
         assert second_result["horizon"]["skipped"] is True
-        assert repo.get_run("project-a", second.id)["status"] == "completed"
+        second_run = repo.get_run("project-a", second.id)
+        assert second_run["status"] == "completed"
+        assert second_run["output_refs"]["outcome"] == "no_new_artifact"
+        assert second_run["output_refs"]["items_observed"] == 0
         assert len(repo.list_sources("project-a")) == 1
         events = repo.list_run_events(project_id="project-a", run_id=second.id)
         assert any(event["event_type"] == "knowledge.horizon.capture.skipped" for event in events)
+    finally:
+        repo.close()
+
+
+def test_horizon_empty_stage_is_completed_without_being_recorded_as_a_channel_failure(tmp_path, monkeypatch):
+    repo = WikiRepository(db_path=str(tmp_path / "tasks-horizon-empty-stage.db"))
+    runs_root = tmp_path / "mcp-runs"
+    run_dir = runs_root / "run-horizon-empty"
+    run_dir.mkdir(parents=True)
+    (run_dir / "filtered_items.json").write_text("[]", encoding="utf-8")
+    run = KnowledgeRun(
+        project_id="project-a",
+        run_type="horizon_capture",
+        trigger="manual",
+        input_refs={"horizon_run_id": "run-horizon-empty", "stage": "filtered"},
+    )
+    repo.create_run(run)
+    monkeypatch.setattr("app.tasks.knowledge_tasks.settings.HORIZON_ENABLED", True)
+    monkeypatch.setattr("app.tasks.knowledge_tasks.settings.HORIZON_RUNS_ROOT", str(runs_root))
+    monkeypatch.setattr("app.tasks.knowledge_tasks.settings.HORIZON_API_BASE_URL", "")
+    try:
+        result = execute_knowledge_run("project-a", run.id, repository=repo)
+
+        assert result["status"] == "completed"
+        persisted = repo.get_run("project-a", run.id)
+        assert persisted["output_refs"]["outcome"] == "empty_result"
+        assert persisted["output_refs"]["items_observed"] == 0
+        assert "failure" not in persisted["output_refs"]
+        assert persisted["error"] == ""
+    finally:
+        repo.close()
+
+
+def test_horizon_missing_explicit_artifact_is_a_channel_error_not_an_empty_result(tmp_path, monkeypatch):
+    repo = WikiRepository(db_path=str(tmp_path / "tasks-horizon-channel-error.db"))
+    runs_root = tmp_path / "mcp-runs"
+    runs_root.mkdir()
+    run = KnowledgeRun(
+        project_id="project-a",
+        run_type="horizon_capture",
+        trigger="manual",
+        input_refs={"horizon_run_id": "run-unavailable", "stage": "filtered"},
+    )
+    repo.create_run(run)
+    monkeypatch.setattr("app.tasks.knowledge_tasks.settings.HORIZON_ENABLED", True)
+    monkeypatch.setattr("app.tasks.knowledge_tasks.settings.HORIZON_RUNS_ROOT", str(runs_root))
+    monkeypatch.setattr("app.tasks.knowledge_tasks.settings.HORIZON_API_BASE_URL", "")
+    try:
+        result = execute_knowledge_run("project-a", run.id, repository=repo)
+
+        assert result["status"] == "failed"
+        persisted = repo.get_run("project-a", run.id)
+        assert persisted["output_refs"]["outcome"] == "channel_error"
+        assert persisted["output_refs"]["failure"] == {
+            "category": "transient_dependency", "code": "horizon_unavailable", "retryable": True
+        }
+        assert "empty_result" not in persisted["output_refs"].values()
     finally:
         repo.close()
 

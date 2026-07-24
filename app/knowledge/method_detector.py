@@ -7,7 +7,7 @@ import hashlib
 import json
 from typing import Any
 
-from app.knowledge.growth_contracts import MethodProposal
+from app.knowledge.growth_contracts import MethodProposal, is_verified_output_status
 from app.knowledge.growth_repository import GrowthRepository
 
 
@@ -25,9 +25,9 @@ class MethodDetector:
         if minimum_uses < 3:
             raise ValueError("automatic method detection requires at least three uses")
         groups: dict[tuple[str, str, str, str], dict[str, dict[str, Any]]] = defaultdict(dict)
-        for output in self.repository.list_outputs(
-            project_id, status="accepted", limit=500
-        ):
+        for output in self.repository.list_outputs(project_id, limit=500):
+            if not is_verified_output_status(output.get("status")):
+                continue
             metadata = output.get("metadata") or {}
             candidate = metadata.get("method_candidate") or {}
             family = str(metadata.get("task_family") or "").strip()
@@ -109,8 +109,8 @@ class MethodDetector:
             raise ValueError("method proposal requires at least three comparable outputs")
         for output_id in unique_ids:
             output = self.repository.get_output(project_id, output_id)
-            if not output or output.get("status") != "accepted":
-                raise ValueError("automatic method proposal outputs must be accepted in one project")
+            if not output or not is_verified_output_status(output.get("status")):
+                raise ValueError("automatic method proposal outputs must be verified in one project")
         normalized_manifest = self._normalized_manifest(slug, body, manifest or {})
         return self._save_proposal(
             project_id=project_id,
@@ -118,7 +118,7 @@ class MethodDetector:
             body=body,
             output_ids=unique_ids,
             manifest=normalized_manifest,
-            rationale="Detected from comparable accepted outputs",
+            rationale="Detected from comparable verified outputs",
         )
 
     def create_user_proposal(

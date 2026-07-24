@@ -11,6 +11,7 @@ import re
 import shutil
 from typing import Any, Protocol
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from app.knowledge.generation_provenance import redact_secrets
 from app.knowledge.growth_context import GrowthContextBuilder
@@ -127,7 +128,11 @@ class GrowthDistillationService:
     OWNERSHIP_MARKER = "bsc-growth-distillation/v1"
     # Bump this whenever the semantic output contract changes. It makes a
     # previously accepted but weaker bundle a new, auditable revision.
-    DISTILLATION_CONTRACT_REVISION = 4
+    # Repository rows created before timezone-aware persistence use the local
+    # schedule timezone. Interpret those legacy timestamps consistently with
+    # the persisted Asia/Shanghai growth cadence before comparing a cutoff.
+    REPOSITORY_TIMEZONE = ZoneInfo("Asia/Shanghai")
+    DISTILLATION_CONTRACT_REVISION = 7
     WEEKLY_NARRATIVE_SLOTS = (
         "summary",
         "knowledge_actions",
@@ -196,7 +201,7 @@ class GrowthDistillationService:
             kind="daily",
             period=date,
             input_hash=input_hash,
-            body=str(narrative.get("daily") or self._daily_content(project_id, date, cutoff, inputs, changes)),
+            body=str(narrative.get("daily") or self._daily_content(project_id, date, cutoff, inputs, changes, context)),
         )
         self._atomic_write(target, content.encode("utf-8"))
         manifest = self._manifest(
@@ -531,12 +536,11 @@ class GrowthDistillationService:
             "rules_revision": pack.rules_revision,
             "source_ids": list(pack.source_ids),
             "page_ids": list(pack.page_ids),
-            "citation_source_ids": sorted(
-                str(item["id"]) for item in inputs if item.get("type") == "source" and item.get("id")
-            ),
-            "citation_page_ids": sorted(
-                str(item["id"]) for item in inputs if item.get("type") == "page" and item.get("id")
-            ),
+            # The citation ledger must be limited to records that survived
+            # bounded context selection. Input manifests remain complete for
+            # audit, but must not authorize unsupported model citations.
+            "citation_source_ids": sorted(pack.source_ids),
+            "citation_page_ids": sorted(pack.page_ids),
             "method_revision_ids": list(pack.method_revision_ids),
             "output_ids": list(pack.output_ids),
             "assumptions": list(pack.assumptions),
@@ -633,7 +637,7 @@ class GrowthDistillationService:
 
     @staticmethod
     def _validated_markdown(value: Any, context: dict[str, Any]) -> str:
-        content = str(value or "").strip()
+        content = GrowthDistillationService._coerce_markdown(value)
         if not content or len(content) > 30_000:
             return ""
         # Context sections expose immutable revisions as `id@revision`; model
@@ -655,6 +659,28 @@ class GrowthDistillationService:
             if (kind == "source" and ref not in source_ids) or (kind == "page" and ref not in page_ids):
                 return ""
         return content
+
+    @staticmethod
+    def _coerce_markdown(value: Any) -> str:
+        """Convert structured model fields to readable Markdown before validation."""
+        if isinstance(value, str):
+            return value.strip()
+        if not isinstance(value, (list, tuple)):
+            return ""
+        items: list[str] = []
+        for item in value:
+            if not isinstance(item, str):
+                return ""
+            lines = [line.rstrip() for line in item.strip().splitlines()]
+            lines = [line for line in lines if line.strip()]
+            if not lines:
+                continue
+            first, *continuation = lines
+            if re.match(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)", first):
+                items.append("\n".join([first, *continuation]))
+            else:
+                items.append("\n".join([f"- {first}", *(f"  {line}" for line in continuation)]))
+        return "\n\n".join(items).strip()
 
     @staticmethod
     def _citation_ledger(context: dict[str, Any]) -> str:
@@ -972,15 +998,24 @@ class GrowthDistillationService:
         return {"added": added, "changed": changed, "removed": removed}
 
     @staticmethod
-    def _daily_content(project_id: str, date: str, cutoff: str, inputs: list[dict[str, Any]], changes: dict[str, list[dict[str, Any]]]) -> str:
+    def _daily_content(
+        project_id: str,
+        date: str,
+        cutoff: str,
+        inputs: list[dict[str, Any]],
+        changes: dict[str, list[dict[str, Any]]],
+        context: dict[str, Any],
+    ) -> str:
+        grounding = GrowthDistillationService._fallback_grounding(context)
         return (
             "# Daily knowledge growth\n\n"
             f"- Project: `{project_id}`\n- Date: `{date}`\n- Source cutoff: `{cutoff}`\n"
             f"- Input records: `{len(inputs)}`\n"
             f"- Added: `{len(changes['added'])}`; changed: `{len(changes['changed'])}`; removed: `{len(changes['removed'])}`\n\n"
-            "- Output: this managed daily digest\n- Failures: none recorded by the deterministic distiller\n\n"
-            "## Incremental changes\n\n"
-            f"```json\n{json.dumps(changes, ensure_ascii=False, indent=2, sort_keys=True)}\n```"
+            "- Output: this managed daily digest\n- Failures: the model response was unavailable or did not pass citation validation\n\n"
+            f"## Grounding\n\n{grounding}\n\n"
+            "## Incremental change counts\n\n"
+            f"- Added: `{len(changes['added'])}`; changed: `{len(changes['changed'])}`; removed: `{len(changes['removed'])}`."
         )
 
     @staticmethod
@@ -995,14 +1030,15 @@ class GrowthDistillationService:
         by_type: dict[str, list[dict[str, Any]]] = {}
         for item in inputs:
             by_type.setdefault(str(item.get("type") or "unknown"), []).append(item)
-        source_refs = [item["id"] for item in by_type.get("source", [])]
-        page_refs = [item["id"] for item in by_type.get("page", [])]
+        source_refs = [str(item) for item in context.get("citation_source_ids") or []]
+        page_refs = [str(item) for item in context.get("citation_page_ids") or []]
         accepted_outputs = [item for item in by_type.get("output", []) if item.get("status") in {"accepted", "filed"}]
         rejected_outputs = [item for item in by_type.get("output", []) if item.get("status") == "rejected"]
         contradictions = [item for item in by_type.get("lineage", []) if item.get("relation") == "source_contradicts_source"]
         evidence = "\n".join(f"- [source:{item}]" for item in source_refs) or "- No eligible source records at the cutoff."
         pages = "\n".join(f"- [page:{item}]" for item in page_refs) or "- No published Wiki page records at the cutoff."
-        grounding = f"{evidence}\n\n{pages}"
+        grounding = GrowthDistillationService._fallback_grounding(context)
+        context_summary = {key: value for key, value in context.items() if key != "rendered"}
         return {
             "00-本周总结.md": (
                 "# 本周总结\n\n"
@@ -1028,7 +1064,7 @@ class GrowthDistillationService:
                 "# 下周上下文包\n\n"
                 f"- Project: `{project_id}`\n- Source cutoff: `{cutoff}`\n- Context ID: `{context['context_id']}`\n"
                 f"- Context hash: `{context['context_hash']}`\n\n"
-                f"```json\n{json.dumps(context, ensure_ascii=False, indent=2, sort_keys=True)}\n```"
+                f"```json\n{json.dumps(context_summary, ensure_ascii=False, indent=2, sort_keys=True)}\n```"
                 f"\n\n## Grounding\n\n{grounding}"
             ),
             "04-方法迭代.md": (
@@ -1039,6 +1075,13 @@ class GrowthDistillationService:
                 f"\n\n## Grounding\n\n{grounding}"
             ),
         }
+
+    @staticmethod
+    def _fallback_grounding(context: dict[str, Any]) -> str:
+        sources = [str(item) for item in context.get("citation_source_ids") or []]
+        pages = [str(item) for item in context.get("citation_page_ids") or []]
+        labels = [*(f"- [source:{item}]" for item in sources), *(f"- [page:{item}]" for item in pages)]
+        return "\n".join(labels) or "- No eligible source or published page was retained in the bounded context."
 
     @staticmethod
     def _week(date: str) -> str:
@@ -1065,7 +1108,7 @@ class GrowthDistillationService:
         try:
             parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
             if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=timezone.utc)
+                parsed = parsed.replace(tzinfo=GrowthDistillationService.REPOSITORY_TIMEZONE)
             return parsed.astimezone(timezone.utc)
         except (TypeError, ValueError):
             return None

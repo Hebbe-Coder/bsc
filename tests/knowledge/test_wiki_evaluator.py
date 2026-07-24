@@ -51,3 +51,32 @@ def test_evaluator_truthfully_reports_missing_baseline(tmp_path):
         assert repo.list_eval_runs("project-a")[0]["status"] == "unavailable"
     finally:
         repo.close()
+
+
+def test_evaluator_reports_scoped_cases_as_not_applicable_for_other_wiki_paths(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "wiki-eval-scoped.db"))
+    evaluator = WikiEvaluator(repo)
+    try:
+        evaluator.save_case(
+            project_id="project-a",
+            case_id="workbench-citation",
+            case_type="citation",
+            expected={"source_ids": ["source-workbench"], "scope_paths": ["wiki/concepts/workbench.md"]},
+        )
+
+        unrelated = evaluator.evaluate(
+            project_id="project-a",
+            candidate={"paths": ["wiki/reviews/provenance-repair.md"], "content": "Repair record."},
+        )
+        scoped = evaluator.evaluate(
+            project_id="project-a",
+            candidate={"paths": ["wiki/concepts/workbench.md"], "source_ids": ["source-workbench"], "content": "Cited workbench."},
+        )
+
+        assert unrelated.status == "not_applicable"
+        assert unrelated.coverage == 0.0
+        assert unrelated.skipped_reason == "no applicable evaluation cases"
+        assert scoped.status == "passed"
+        assert scoped.score == 1.0
+    finally:
+        repo.close()

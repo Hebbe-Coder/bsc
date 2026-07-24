@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,52 @@ _STAGE_FILES = {
     "filtered": "filtered_items.json",
     "enriched": "enriched_items.json",
 }
+
+
+@dataclass(frozen=True)
+class HorizonRunStoreLocation:
+    """The usable local artifact store, without exposing its filesystem path."""
+
+    path: Path | None
+    mode: str
+    configured: bool
+
+    @property
+    def available(self) -> bool:
+        return self.path is not None
+
+
+def resolve_horizon_run_store_location(*, runs_root: str | Path, host_path: str | Path = "") -> HorizonRunStoreLocation:
+    """Prefer the configured runtime mount and fall back to a local host path.
+
+    Compose mounts the producer store at ``/horizon-runs``. A directly started
+    Windows API cannot see that container path, but it can safely consume the
+    same read-only producer artifacts from ``HORIZON_RUNS_HOST_PATH``.
+    """
+    candidates = (("run_store", runs_root), ("host_fallback", host_path))
+    configured = False
+    seen: set[str] = set()
+    for mode, value in candidates:
+        raw_path = str(value or "").strip()
+        if not raw_path:
+            continue
+        configured = True
+        candidate = Path(raw_path).expanduser()
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        if candidate.is_dir():
+            return HorizonRunStoreLocation(
+                path=candidate.resolve(),
+                mode=mode,
+                configured=True,
+            )
+    return HorizonRunStoreLocation(
+        path=None,
+        mode="unavailable" if configured else "unconfigured",
+        configured=configured,
+    )
 
 
 class HorizonRunStoreEmptyError(HorizonClientError):

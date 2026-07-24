@@ -1,4 +1,9 @@
-from app.knowledge.growth_context import GrowthContextBuilder
+from app.knowledge.growth_context import GrowthContextBuilder, GrowthContextService
+from app.knowledge.growth_contracts import ProjectKnowledgeProfile
+from app.knowledge.growth_repository import GrowthRepository
+from app.knowledge.wiki_contracts import SourceRecord, SourceStatus
+from app.knowledge.wiki_rules import build_default_agents_rules
+from app.knowledge.wiki_source_capture import CapturedSourceInput, SourceCaptureService
 import pytest
 
 
@@ -30,6 +35,40 @@ def test_growth_context_rejects_cross_project_records():
         assert "project scoped" in str(exc)
     else:
         raise AssertionError("cross-project context must fail")
+
+
+def test_growth_context_accounts_for_required_section_separators_at_budget_limit():
+    pack = GrowthContextBuilder(max_characters=512).build(
+        project_id="project-a",
+        profile={"revision": 1, "user_role": "researcher"},
+        rules="Rules that are intentionally long enough to force the mandatory sections to use the exact budget. " * 40,
+        task="Prepare a cited daily distillation.",
+    )
+
+    assert pack.character_count == len(pack.rendered)
+    assert pack.character_count <= pack.character_budget
+    assert "## [profile:1]" in pack.rendered
+    assert "## [rules:" in pack.rendered
+    assert "## [task:request]" in pack.rendered
+
+
+def test_growth_context_reserves_a_layer_evidence_when_rules_are_long():
+    pack = GrowthContextBuilder(max_characters=4_000).build(
+        project_id="project-a",
+        profile={"revision": 1, "user_role": "knowledge-system builder"},
+        rules="Strict project rule. " * 1_000,
+        task="Create an evidence-backed daily distillation.",
+        sources=[{
+            "id": "source-a",
+            "project_id": "project-a",
+            "status": "processed",
+            "raw_content": "The evidence that must remain in the model context. " * 100,
+        }],
+    )
+
+    assert pack.character_count <= pack.character_budget
+    assert pack.source_ids == ("source-a",)
+    assert "source:source-a" in pack.rendered
 
 
 def test_growth_context_is_deterministic_deduplicated_redacted_and_uses_index_fallback():
@@ -206,3 +245,73 @@ def test_assumptions_and_research_gaps_are_bound_into_context_hash():
     first = GrowthContextBuilder().build(**base, assumptions=["Audience is technical"])
     second = GrowthContextBuilder().build(**base, assumptions=["Audience is non-technical"])
     assert first.context_hash != second.context_hash
+
+
+def test_user_project_context_is_available_without_becoming_factual_evidence(tmp_path):
+    vault_root = tmp_path / "vault"
+    project_root = vault_root / "projects" / "project-a"
+    project_root.mkdir(parents=True)
+    (project_root / "AGENTS.md").write_text(
+        build_default_agents_rules("project-a"),
+        encoding="utf-8",
+    )
+    repository = GrowthRepository(db_path=str(tmp_path / "growth-context.db"))
+    repository.configure_vault("project-a", "projects/project-a")
+    try:
+        context_source = SourceCaptureService(repository).capture(
+            CapturedSourceInput(
+                project_id="project-a",
+                source_type="obsidian_project_context",
+                origin="projects/project-a/03_Projects/active/release-brief.md",
+                vault_path="projects/project-a/03_Projects/active/release-brief.md",
+                raw_content="This SOP is for a Chinese-first research team and must preserve review gates.",
+                trust_level="untrusted",
+                metadata={
+                    "obsidian_workspace_role": "project_context",
+                    "source_present": True,
+                },
+            )
+        ).source
+
+        pack = GrowthContextService(repository, vault_root).build_context(
+            project_id="project-a",
+            task="Create a project-specific SOP",
+        )
+
+        assert pack.project_context_source_ids == (context_source["id"],)
+        assert pack.source_ids == ()
+        assert f"project_context:{context_source['id']}" in pack.provenance
+        assert "PROJECT_CONTEXT_NOT_FACTUAL_EVIDENCE" in pack.rendered
+        assert "Chinese-first research team" in pack.rendered
+    finally:
+        repository.close()
+
+
+def test_growth_context_excludes_horizon_signal_until_current_project_triage_exists(tmp_path):
+    vault_root = tmp_path / "vault"
+    project_root = vault_root / "projects" / "project-a"
+    project_root.mkdir(parents=True)
+    (project_root / "AGENTS.md").write_text(
+        build_default_agents_rules("project-a"), encoding="utf-8"
+    )
+    repository = GrowthRepository(db_path=str(tmp_path / "growth-context-horizon.db"))
+    repository.configure_vault("project-a", "projects/project-a")
+    try:
+        repository.save_profile(ProjectKnowledgeProfile(project_id="project-a"), actor_id="owner")
+        repository.create_source(
+            SourceRecord(
+                id="horizon-pending", project_id="project-a", source_type="horizon_signal",
+                content_hash="f" * 64, raw_content="Unreviewed discovery signal.",
+                status=SourceStatus.ELIGIBLE, trust_level="reviewed",
+                metadata={"admission_gate": "project_triage"},
+            )
+        )
+
+        pack = GrowthContextService(repository, vault_root).build_context(
+            project_id="project-a", task="Create a project-specific SOP"
+        )
+
+        assert pack.source_ids == ()
+        assert "Unreviewed discovery signal." not in pack.rendered
+    finally:
+        repository.close()

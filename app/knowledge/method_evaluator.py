@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from app.knowledge.growth_contracts import is_verified_output_status
 from app.knowledge.growth_repository import GrowthRepository
 
 
@@ -56,7 +57,7 @@ class MethodEvaluator:
         actual_quality = sum(qualities) / len(qualities) if qualities else 0.0
         actual_groundedness = sum(groundings) / len(groundings) if groundings else 0.0
 
-        accepted_or_reused = any(output.get("status") == "accepted" for output in outputs)
+        accepted_or_reused = any(is_verified_output_status(output.get("status")) for output in outputs)
         if not accepted_or_reused:
             accepted_or_reused = any(
                 feedback.get("feedback_type") in {"accepted", "reused"}
@@ -136,7 +137,7 @@ class MethodEvaluator:
         if actual_groundedness < 0.90:
             findings.append("average groundedness is below 0.90")
         if not accepted_or_reused:
-            findings.append("no supporting output was accepted or reused")
+            findings.append("no supporting output was verified or reused")
         if actual_security_failures:
             findings.append("security or permission regression detected")
         if actual_regression_failures:

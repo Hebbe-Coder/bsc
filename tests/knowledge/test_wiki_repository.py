@@ -144,3 +144,31 @@ def test_publication_expected_hash_conflict_rolls_back_database_snapshot(tmp_pat
         assert len(repo.list_page_revisions("project-a", page["id"])) == 1
     finally:
         repo.close()
+
+
+def test_publication_excludes_agents_rule_examples_from_citation_and_evidence_graph(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "agents-rules-projection.db"))
+    try:
+        repo.record_publication(
+            project_id="project-a",
+            contents={
+                "AGENTS.md": "# Rules\nUse `[source:<id>]` for a resolvable factual claim.\n",
+                "wiki/overview.md": "# Overview\nEvidence-backed claim. [source:source-a]\n",
+            },
+            source_ids=[],
+        )
+        pages = {page["path"]: page for page in repo.list_pages("project-a")}
+        agents_citations = repo.list_citations("project-a", pages["AGENTS.md"]["id"])
+        graph = repo.list_graph_edges("project-a")
+
+        assert agents_citations == []
+        assert not any(
+            edge["edge_type"] == "wiki_cites_source" and edge["to_id"] == "<id>"
+            for edge in graph
+        )
+        assert any(
+            edge["edge_type"] == "wiki_cites_source" and edge["to_id"] == "source-a"
+            for edge in graph
+        )
+    finally:
+        repo.close()

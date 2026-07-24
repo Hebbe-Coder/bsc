@@ -1,7 +1,10 @@
 from datetime import datetime, timezone
 
+from app.knowledge.growth_contracts import ProjectKnowledgeProfile
+from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.knowledge_graph import KnowledgeGraphService
 from app.knowledge.proposal_gate import ProposalGate
+from app.knowledge.source_triage import SourceTriageService
 from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.wiki_bootstrap import WikiBootstrapService
 from app.knowledge.wiki_compiler import WikiCompiler
@@ -43,25 +46,50 @@ def test_filesystem_wiki_lifecycle_is_source_backed_and_atomic(tmp_path, monkeyp
     monkeypatch.setattr("app.knowledge.wiki_bootstrap.settings.OBSIDIAN_VAULT_ROOT", str(root))
     try:
         repository.configure_vault(project_id, "clients/acme")
+        growth_repository = GrowthRepository.borrow(repository)
+        growth_repository.save_profile(
+            ProjectKnowledgeProfile(project_id=project_id, research_domains=["approval controls"]),
+            actor_id="project-admin",
+        )
         bootstrap = WikiBootstrapService(repository).initialize(project_id=project_id)
-        assert set(bootstrap["created"]) == {"README.md", "wiki/overview.md", "wiki/index.md", "wiki/log.md"}
+        assert set(bootstrap["created"]) == {
+            "README.md",
+            "00-Workspace.md",
+            "wiki/overview.md",
+            "wiki/index.md",
+            "wiki/log.md",
+        }
         assert (project_root / "AGENTS.md").read_text(encoding="utf-8") == user_rules
+        assert WikiBootstrapService(repository).initialize(project_id=project_id)["status"] == "already_initialized"
 
         sync_report = ObsidianSyncService(repository, root).sync(project_id=project_id)
         note = repository.list_sources(project_id)[0]
+        horizon_input = HorizonSignal(
+            project_id=project_id,
+            url="https://news.example.com/radar/42",
+            title="Approval controls mature",
+            summary="Human approval remains a required control.",
+            published_at=datetime(2026, 7, 21, tzinfo=timezone.utc),
+            tags=["governance"],
+        ).to_source_input()
         horizon = SourceCaptureService(repository).capture(
-            HorizonSignal(
-                project_id=project_id,
-                url="https://news.example.com/radar/42",
-                title="Approval controls mature",
-                summary="Human approval remains a required control.",
-                published_at=datetime(2026, 7, 21, tzinfo=timezone.utc),
-                tags=["governance"],
-            ).to_source_input()
+            horizon_input.model_copy(update={
+                "trust_level": "reviewed",
+                "metadata": {
+                    **horizon_input.metadata,
+                    "relevance": 90,
+                    "value": 90,
+                    "freshness": 90,
+                    "outputability": 90,
+                    "connectedness": 90,
+                },
+            })
         ).source
         capture = SourceCaptureService(repository)
         capture.transition_source(project_id, note["id"], target=SourceStatus.ELIGIBLE)
-        capture.transition_source(project_id, horizon["id"], target=SourceStatus.ELIGIBLE)
+        horizon_triage = SourceTriageService(growth_repository).triage_source(project_id, horizon["id"])
+        assert horizon_triage["profile_revision"] == 1
+        assert repository.get_source(project_id, horizon["id"])["status"] == SourceStatus.ELIGIBLE.value
 
         provider = FakeCompilerProvider(
             {

@@ -26,6 +26,7 @@ from app.knowledge.growth_contracts import (
     OutputAsset,
     OutputFeedback,
     ProjectKnowledgeProfile,
+    is_verified_output_status,
 )
 from app.knowledge.growth_distillation import GrowthDistillationService
 from app.knowledge.growth_repository import GrowthRepository
@@ -395,8 +396,8 @@ def propose_method(
         output = _guard(lambda output_id=output_id: repo.get_output(project_id, output_id))
         if not output:
             raise _http_error(404, "growth_resource_not_found", "source output not found in project")
-        if output.get("status") != "accepted":
-            raise _http_error(409, "growth_gate_not_satisfied", "method proposals require accepted outputs")
+        if not is_verified_output_status(output.get("status")):
+            raise _http_error(409, "growth_gate_not_satisfied", "method proposals require verified outputs")
     proposal = _guard(
         lambda: MethodDetector(repo).create_proposal(
             project_id,
@@ -1177,7 +1178,9 @@ def _summary(repo: GrowthRepository, project_id: str) -> dict[str, Any]:
             "methods": len(methods),
             "published_methods": sum(item.get("status") == "published" for item in methods),
             "outputs": len(outputs),
-            "accepted_outputs": sum(item.get("status") == "accepted" for item in outputs),
+            # Kept as a compatibility field; it represents accepted and filed
+            # outputs, both of which are verified and eligible for reuse.
+            "accepted_outputs": sum(is_verified_output_status(item.get("status")) for item in outputs),
             "rejected_outputs": sum(item.get("status") == "rejected" for item in outputs),
             "feedback": len(feedback),
             "wiki_proposals": len(proposals),

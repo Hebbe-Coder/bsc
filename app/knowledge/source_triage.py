@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import re
 from time import perf_counter
 from typing import Any, Literal, Protocol
 
@@ -17,6 +19,47 @@ from app.knowledge.growth_contracts import (
 )
 from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.wiki_contracts import SourceStatus
+
+
+_ADMITTED_DISPOSITIONS = frozenset({
+    TriageDisposition.KNOWLEDGE_CANDIDATE,
+    TriageDisposition.REFERENCE,
+})
+
+
+def requires_project_triage(source: dict[str, Any]) -> bool:
+    """Return whether discovery evidence needs current project-specific admission."""
+    metadata = source.get("metadata") or {}
+    return (
+        source.get("source_type") == "horizon_signal"
+        or metadata.get("admission_gate") == "project_triage"
+    )
+
+
+def source_admission_reason(repository: Any, project_id: str, source: dict[str, Any]) -> str:
+    """Explain why an otherwise eligible discovery source cannot be used yet."""
+    if not requires_project_triage(source) or source.get("status") == SourceStatus.PROCESSED.value:
+        return ""
+    triage_repository = repository
+    if not hasattr(triage_repository, "list_triage"):
+        triage_repository = GrowthRepository.borrow(repository)
+    profile = triage_repository.get_profile(project_id) or {"revision": 0}
+    profile_revision = int(profile.get("revision", 0) or 0)
+    decisions = [
+        item for item in triage_repository.list_triage(project_id, limit=500)
+        if item.get("source_id") == source.get("id")
+        and int(item.get("profile_revision", -1)) == profile_revision
+    ]
+    if not decisions:
+        return "current_project_triage_missing"
+    decision = max(decisions, key=lambda item: (str(item.get("created_at") or ""), str(item.get("id") or "")))
+    if decision.get("evaluator_status") != "completed":
+        return "project_triage_unavailable"
+    if not bool(decision.get("reliability_pass")):
+        return "project_triage_reliability_failed"
+    if decision.get("disposition") not in {item.value for item in _ADMITTED_DISPOSITIONS}:
+        return "project_triage_not_admitted"
+    return ""
 
 
 class TriageEvaluation(BaseModel):
@@ -50,19 +93,116 @@ class SourceTriageEvaluator(Protocol):
 class MetadataTriageEvaluator:
     """Deterministic policy evaluator for explicit normalized source signals."""
 
-    revision = "deterministic-v2"
+    revision = "profile-aware-v2"
+    _PROFILE_STOPWORDS = frozenset({
+        "and", "for", "from", "into", "project", "projects", "specific",
+        "system", "systems", "the", "this", "with", "workflow", "workflows",
+    })
 
     def evaluate(self, *, source: dict[str, Any], profile: ProjectKnowledgeProfile) -> TriageEvaluation:
         metadata = source.get("metadata") or {}
+        relevance, profile_reasons = self._relevance(source=source, metadata=metadata, profile=profile)
         return TriageEvaluation(
-            relevance=self._component(metadata, "relevance", fallback=metadata.get("ai_score"), fallback_scale=10),
+            relevance=relevance,
             value=self._component(metadata, "value", fallback=metadata.get("value_score")),
             freshness=self._component(metadata, "freshness", fallback=metadata.get("freshness_score")),
             outputability=self._component(metadata, "outputability", fallback=metadata.get("outputability_score")),
             connectedness=self._component(metadata, "connectedness", fallback=metadata.get("connectedness_score")),
             evaluator_revision=self.revision,
-            reasons=[f"profile_domains={len(profile.research_domains)}"],
+            reasons=[f"profile_domains={len(profile.research_domains)}", *profile_reasons],
         )
+
+    @classmethod
+    def _relevance(
+        cls,
+        *,
+        source: dict[str, Any],
+        metadata: dict[str, Any],
+        profile: ProjectKnowledgeProfile,
+    ) -> tuple[int, list[str]]:
+        if "relevance" in metadata:
+            return cls._component(metadata, "relevance"), ["profile_relevance=explicit"]
+
+        horizon_signal = cls._component(
+            metadata,
+            "relevance",
+            fallback=metadata.get("ai_score"),
+            fallback_scale=10,
+        )
+        signals = cls._profile_signals(profile)
+        searchable = cls._searchable_text(source, metadata)
+        matched = [
+            label
+            for label, terms in signals
+            if all(term in searchable[1] for term in terms)
+        ]
+        if not matched:
+            # A generic model importance score is not project relevance. Keep
+            # unaligned discoveries reviewable, but stop them from dominating
+            # a project-specific SOP or weekly context.
+            return max(20, min(55, horizon_signal - 30)), ["profile_matches=none"]
+
+        # One concrete domain match restores the discovery score; additional
+        # independent matches reward material that connects multiple current
+        # project concerns without exceeding the normalized 0-100 range.
+        relevance = min(100, max(75, horizon_signal) + min(20, (len(matched) - 1) * 10))
+        return relevance, [f"profile_matches={','.join(matched[:5])}"]
+
+    @classmethod
+    def _profile_signals(cls, profile: ProjectKnowledgeProfile) -> tuple[tuple[str, tuple[str, ...]], ...]:
+        signals: dict[str, tuple[str, ...]] = {}
+        for value in profile.research_domains:
+            normalized = cls._normalize(value)
+            chinese = tuple(chunk for chunk in re.findall(r"[\u4e00-\u9fff]{2,}", normalized) if len(chunk) >= 2)
+            if chinese:
+                signals["-".join(chinese)] = chinese
+                continue
+            tokens = [
+                token[:-1] if token.endswith("s") and len(token) > 4 else token
+                for token in re.findall(r"[a-z0-9]+", normalized)
+            ]
+            terms = tuple(
+                token
+                for token in tokens
+                if token not in cls._PROFILE_STOPWORDS and token not in {"ai", "research"}
+            )
+            if not terms:
+                continue
+            # Obsidian is a named tool boundary, while multi-word domains need
+            # all meaningful words to avoid matching unrelated generic prose.
+            if "obsidian" in terms:
+                signals["obsidian"] = ("obsidian",)
+            else:
+                signals["-".join(terms)] = terms
+
+        output_terms = {
+            token[:-1] if token.endswith("s") and len(token) > 4 else token
+            for value in profile.primary_output_types
+            for token in re.findall(r"[a-z0-9]+", cls._normalize(value))
+        }
+        for token in sorted(output_terms & {"prd", "sop", "distillation", "workbench", "playbook"}):
+            signals[token] = (token,)
+        return tuple(sorted(signals.items()))
+
+    @classmethod
+    def _searchable_text(cls, source: dict[str, Any], metadata: dict[str, Any]) -> tuple[str, frozenset[str]]:
+        text = "\n".join(
+            (
+                str(source.get("raw_content") or ""),
+                str(source.get("origin") or ""),
+                json.dumps(metadata, ensure_ascii=False, sort_keys=True, default=str),
+            )
+        )
+        normalized = cls._normalize(text)
+        tokens = frozenset(
+            token[:-1] if token.endswith("s") and len(token) > 4 else token
+            for token in re.findall(r"[a-z0-9]+", normalized)
+        )
+        return normalized, tokens
+
+    @staticmethod
+    def _normalize(value: Any) -> str:
+        return re.sub(r"[-_/]+", " ", str(value or "").lower())
 
     @staticmethod
     def _component(
@@ -169,13 +309,23 @@ class SourceTriageService:
             )
             if result is None:
                 raise
-        if (
+        admitted = (
             evaluation.status == "completed"
             and reliable
-            and disposition in {TriageDisposition.KNOWLEDGE_CANDIDATE, TriageDisposition.REFERENCE}
-            and source["status"] != SourceStatus.ELIGIBLE.value
-        ):
+            and disposition in _ADMITTED_DISPOSITIONS
+        )
+        if admitted and source["status"] != SourceStatus.ELIGIBLE.value:
             self.repository.update_source_status(project_id, source_id, SourceStatus.ELIGIBLE)
+        elif (
+            not admitted
+            and requires_project_triage(source)
+            and source["status"] == SourceStatus.ELIGIBLE.value
+        ):
+            self.repository.return_source_to_review(
+                project_id,
+                source_id,
+                reason=f"triage:{evaluation.evaluator_revision}:{disposition.value}",
+            )
         return result
 
     def _evaluate(
@@ -204,6 +354,10 @@ class SourceTriageService:
 
     def triage_project(self, project_id: str, *, limit: int = 100) -> list[dict[str, Any]]:
         sources = self.repository.list_sources(project_id, status=SourceStatus.VALIDATED.value)
+        sources.extend(
+            source for source in self.repository.list_sources(project_id, status=SourceStatus.ELIGIBLE.value)
+            if requires_project_triage(source)
+        )
         bounded = max(1, min(limit, 500))
         return [self.triage_source(project_id, source["id"]) for source in sources[:bounded]]
 

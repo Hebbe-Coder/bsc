@@ -1,6 +1,7 @@
 import pytest
 
 from app.knowledge.wiki_compiler import WikiCompilationError, WikiCompiler
+from app.knowledge.wiki_contracts import SourceRecord, SourceStatus
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_rules import build_default_agents_rules
 from app.knowledge.wiki_source_capture import CapturedSourceInput, SourceCaptureService
@@ -59,6 +60,28 @@ def test_compiler_persists_draft_proposal_without_mutating_evidence(tmp_path):
         assert "wiki/log.md" in [item["path"] for item in result.proposal["operations"]]
         assert {"wiki/overview.md", "wiki/index.md", "wiki/log.md"} <= {item["path"] for item in result.proposal["operations"]}
         assert provider.prompts
+    finally:
+        repo.close()
+
+
+def test_compiler_rejects_horizon_signal_without_current_project_triage(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "compiler-horizon-admission.db"))
+    repo.create_source(
+        SourceRecord(
+            id="horizon-pending", project_id="project-a", source_type="horizon_signal",
+            content_hash="f" * 64, raw_content="Discovery signal pending project triage.",
+            status=SourceStatus.ELIGIBLE, trust_level="reviewed",
+            metadata={"admission_gate": "project_triage"},
+        )
+    )
+    try:
+        with pytest.raises(WikiCompilationError, match="current project triage"):
+            WikiCompiler(repo, FakeCompilerProvider({})).compile_maintenance(
+                project_id="project-a",
+                source_ids=["horizon-pending"],
+                trigger="manual",
+                rules_text=build_default_agents_rules("project-a"),
+            )
     finally:
         repo.close()
 

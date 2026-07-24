@@ -4,7 +4,7 @@ import pytest
 
 from app.core.config import settings
 from app.knowledge.growth_repository import GrowthRepository
-from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus
+from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus, SourceRecord, SourceStatus
 from app.tasks.growth_tasks import (
     execute_growth_run,
     growth_execute,
@@ -65,6 +65,32 @@ def test_growth_daily_syncs_declared_obsidian_exports_before_distillation(tmp_pa
     )
     repo = GrowthRepository(db_path=str(tmp_path / "growth-plugin-daily.db"))
     repo.configure_vault("project-a", "projects/project-a")
+    repo.create_source(
+        SourceRecord(
+            id="trusted-preexisting",
+            project_id="project-a",
+            source_type="horizon_signal",
+            content_hash="a" * 64,
+            raw_content="Reviewed signal that should enter the eligible context queue.",
+            trust_level="reviewed",
+            status=SourceStatus.VALIDATED,
+            # Generic model importance is not project relevance. This fixture
+            # models a signal already assessed as relevant to this project.
+            metadata={"relevance": 90},
+        )
+    )
+    repo.create_source(
+        SourceRecord(
+            id="trusted-low-priority",
+            project_id="project-a",
+            source_type="horizon_signal",
+            content_hash="b" * 64,
+            raw_content="Reviewed but low-priority signal that remains pending human review.",
+            trust_level="reviewed",
+            status=SourceStatus.VALIDATED,
+            metadata={"relevance": 0, "value": 0, "freshness": 0, "outputability": 0, "connectedness": 0},
+        )
+    )
     run = _queued_run(repo, run_id="plugin-daily")
     monkeypatch.setattr(settings, "KNOWLEDGE_GROWTH_ENABLED", True)
     monkeypatch.setattr(settings, "KNOWLEDGE_OBSIDIAN_SYNC_ENABLED", True)
@@ -75,7 +101,11 @@ def test_growth_daily_syncs_declared_obsidian_exports_before_distillation(tmp_pa
         assert result["status"] == "completed"
         assert result["sync"]["status"] == "completed"
         assert result["sync"]["sources"]["created"] == 1
+        assert result["sync"]["triage"] == {"evaluated": 3, "eligible": 1, "pending_review": 2}
         assert result["sync"]["outputs"]["registered"] == 1
+        plugin_source = next(
+            source for source in repo.list_sources("project-a") if source["vault_path"].endswith("research.md")
+        )
         assert result["sync"]["plugins"]["plugins"] == [
             {
                 "id": "readwise",
@@ -86,7 +116,7 @@ def test_growth_daily_syncs_declared_obsidian_exports_before_distillation(tmp_pa
                 "status": "captured",
                 "captured_sources": 1,
                 "registered_outputs": 0,
-                "last_captured_at": repo.list_sources("project-a")[0]["captured_at"],
+                "last_captured_at": plugin_source["captured_at"],
                 "last_registered_at": "",
             },
             {
@@ -102,7 +132,9 @@ def test_growth_daily_syncs_declared_obsidian_exports_before_distillation(tmp_pa
                 "last_registered_at": repo.list_outputs("project-a")[0]["created_at"],
             },
         ]
-        assert repo.list_sources("project-a")[0]["status"] == "validated"
+        assert repo.get_source("project-a", "trusted-preexisting")["status"] == "eligible"
+        assert repo.get_source("project-a", "trusted-low-priority")["status"] == "validated"
+        assert plugin_source["status"] == "validated"
         assert repo.list_outputs("project-a")[0]["status"] == "registered"
         events = repo.list_run_events(project_id="project-a", run_id=run.id)
         assert any(event["event_type"] == "knowledge.growth.obsidian_sync.completed" for event in events)
