@@ -1259,6 +1259,27 @@ body .knowledge-runtime-state{align-self:center;border:1px solid #3a5060;padding
   .growth-stage-rail__copy { display: none; }
 }
 
+/* Revisioned project profile stays an operational configuration surface, not a template gallery. */
+.growth-profile-editor { display: grid; max-width: 1720px; grid-template-columns: minmax(210px, .72fr) minmax(0, 2.28fr); gap: 18px; width: 100%; margin: 12px auto 0; border: 1px solid var(--studio-line-strong); padding: 15px; background: #0e181f; }
+.growth-profile-editor__header { display: grid; align-content: start; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
+.growth-profile-editor__header p { margin: 0; color: var(--studio-text-muted); font: 700 9px var(--font-mono); letter-spacing: 0; }
+.growth-profile-editor__header h3 { margin: 5px 0; color: var(--studio-text); font-size: 15px; font-weight: 650; }
+.growth-profile-editor__header span { color: var(--studio-text-muted); font: 10px var(--font-mono); }
+.growth-profile-editor form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; min-width: 0; }
+.growth-profile-editor label { display: grid; gap: 6px; min-width: 0; color: var(--studio-text-muted); font: 9px var(--font-mono); }
+.growth-profile-editor input,
+.growth-profile-editor textarea,
+.growth-profile-editor select { width: 100%; min-width: 0; border: 1px solid var(--studio-line-strong); border-radius: 4px; padding: 8px; color: var(--studio-text); background: #091118; font: 11px/1.4 var(--font-mono); }
+.growth-profile-editor textarea { min-height: 68px; resize: vertical; }
+.growth-profile-editor__range input { padding: 0; accent-color: var(--studio-cyan); }
+.growth-profile-editor__range span { display: flex; justify-content: space-between; gap: 8px; }
+.growth-profile-editor output { color: var(--studio-cyan); font: inherit; }
+.growth-profile-editor footer { display: flex; grid-column: 1 / -1; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid var(--studio-line); padding-top: 11px; color: var(--studio-text-muted); font: 10px/1.45 var(--font-mono); }
+.growth-profile-editor footer button { display: inline-flex; min-height: 34px; flex: 0 0 auto; align-items: center; gap: 7px; border: 1px solid rgba(185, 221, 116, .5); border-radius: 4px; padding: 0 10px; color: #15200b; background: var(--studio-lime); font: 700 10px var(--font-mono); }
+.growth-profile-editor footer button:disabled { cursor: not-allowed; opacity: .45; }
+@media (max-width: 820px) { .growth-profile-editor { grid-template-columns: 1fr; } }
+@media (max-width: 560px) { .growth-profile-editor { padding: 12px; } .growth-profile-editor form { grid-template-columns: 1fr; } .growth-profile-editor footer { align-items: stretch; flex-direction: column; } .growth-profile-editor footer button { justify-content: center; width: 100%; } }
+
 @keyframes growth-drawer-in { from { transform: translateY(16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .growth-inspector--drawer { animation: none; } }
 

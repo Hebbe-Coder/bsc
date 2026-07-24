@@ -12,6 +12,7 @@ import {
   fileGrowthOutput,
   growthRecordKind,
   linkGrowthOutputEvidence,
+  updateGrowthProfile,
 } from './growthApi';
 
 const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data }), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -34,6 +35,34 @@ describe('growthApi', () => {
     expect(overview.summary.counts.sources).toBe(2);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls.every(([url]) => String(url).includes('project-a'))).toBe(true);
+  });
+
+  it('updates the project profile through the revisioned PATCH contract', async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ url: String(input), init });
+      return Promise.resolve(ok({ profile: { project_id: 'project-a', revision: 8, user_role: 'research lead' } }));
+    }));
+
+    const saved = await updateGrowthProfile('project-a', {
+      expected_revision: 7,
+      user_role: 'research lead',
+      research_domains: ['agent systems'],
+      primary_output_types: ['research brief'],
+      target_audiences: ['product team'],
+      preferred_channels: ['Obsidian'],
+      language: 'zh-CN',
+      content_voice: 'evidence-backed',
+      evidence_threshold: 85,
+      automatic_publication_policy: 'review',
+      method_promotion_policy: 'gated',
+    });
+
+    expect(saved.revision).toBe(8);
+    expect(requests).toHaveLength(1);
+    expect(requests[0].url).toContain('/knowledge/growth/project-a/profile');
+    expect(requests[0].init?.method).toBe('PATCH');
+    expect(JSON.parse(String(requests[0].init?.body))).toMatchObject({ expected_revision: 7, research_domains: ['agent systems'] });
   });
 
   it('uses stage and bounded limit parameters for incremental pagination', async () => {

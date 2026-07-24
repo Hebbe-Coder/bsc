@@ -1,6 +1,6 @@
 import {
   AlertTriangle, BarChart3, BookOpen, FileDiff, FileText,
-  Download, LayoutList, LoaderCircle, Network, Play, RefreshCw, ShieldAlert, Sparkles, Sprout, X,
+  Download, LayoutList, LoaderCircle, Network, Play, RefreshCw, Settings2, ShieldAlert, Sparkles, Sprout, X,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
@@ -24,6 +24,7 @@ import {
   runGrowthWorkspaceJob,
   setGrowthAccessKey,
   triageGrowthSource,
+  updateGrowthProfile,
   type GrowthAccess,
   type GrowthAssetDetail,
   type GrowthAssetKind,
@@ -33,6 +34,7 @@ import {
   type GrowthOutputEvaluationInput,
   type GrowthOutputEvidenceInput,
   type GrowthOverview,
+  type GrowthProfileUpdate,
   type GrowthRecord,
   type GrowthRequestState,
   type GrowthRun,
@@ -46,6 +48,7 @@ import { GrowthAssetList } from './GrowthAssetList';
 import { GrowthFunnel } from './GrowthFunnel';
 import { GrowthInspector } from './GrowthInspector';
 import { GrowthLineageGraph } from './GrowthLineageGraph';
+import { GrowthProfileEditor } from './GrowthProfileEditor';
 import { GrowthStageRail } from './GrowthStageRail';
 import { GrowthTrends } from './GrowthTrends';
 import { GROWTH_STAGES, growthRecordLabel, normalizeGrowthNodeType } from './growthModel';
@@ -200,6 +203,8 @@ export function GrowthWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
   const [graphSelection, setGraphSelection] = useState<GraphSelection | null>(null);
   const [latestRun, setLatestRun] = useState<GrowthRun | null>(null);
   const [runMessage, setRunMessage] = useState('No growth cycle has been recorded yet.');
+  const [profileEditorOpen, setProfileEditorOpen] = useState(false);
+  const [profileMessage, setProfileMessage] = useState('');
 
   useEffect(() => {
     document.documentElement.classList.add('growth-workspace-open');
@@ -436,6 +441,21 @@ export function GrowthWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
       const failure = errorInfo(reason); setRequestState('action', failure.state); setRunMessage(`${jobType} failed: ${failure.info.message}`);
     }
   };
+  const saveProfile = async (profile: GrowthProfileUpdate) => {
+    setRequestState('action', 'loading');
+    setProfileMessage('');
+    try {
+      const saved = await updateGrowthProfile(projectId, profile);
+      setOverview((current) => current ? { ...current, profile: saved } : current);
+      setRequestState('action', 'success');
+      setProfileMessage(`Saved revision ${saved.revision ?? 0}. Future triage and context packs will use this project profile.`);
+      refresh();
+    } catch (reason) {
+      const failure = errorInfo(reason);
+      setRequestState('action', failure.state);
+      setProfileMessage(`Profile was not saved: ${failure.info.message}`);
+    }
+  };
 
   const accessLabel = accessState === 'loading' ? 'Checking access' : access ? `${access.role || 'project role'} / ${access.can_write ? 'write' : 'read only'}` : `${accessState}${accessError?.status ? ` ${accessError.status}` : ''}`;
   const sessionLabel = runtimeAccessKey.trim() ? 'Studio session applied' : 'Studio access required';
@@ -478,6 +498,7 @@ export function GrowthWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
         <button type="button" className="growth-icon-button" disabled={access?.can_write !== true || requestStates.action === 'loading'} onClick={() => void startGrowthCycle('growth_daily')} title="Run daily growth cycle" aria-label="Run daily growth cycle"><Play size={15} /></button>
         <button type="button" className="growth-icon-button" disabled={access?.can_write !== true || requestStates.action === 'loading'} onClick={() => void startGrowthCycle('growth_weekly_distillation')} title="Run weekly growth distillation" aria-label="Run weekly growth distillation"><Sprout size={15} /></button>
         <span className={runtimeAccessKey.trim() ? 'growth-session-state is-ready' : 'growth-session-state is-pending'}>{sessionLabel}</span>
+        <button type="button" className="growth-icon-button" disabled={access?.can_write !== true} onClick={() => { setProfileMessage(''); setProfileEditorOpen(true); }} title="Configure the project knowledge profile" aria-label="Configure project profile"><Settings2 size={16} /></button>
         <button type="button" className="growth-icon-button" onClick={refresh} title="Refresh project growth state" aria-label="Refresh growth workspace"><RefreshCw size={16} className={requestStates.overview === 'loading' ? 'spin' : ''} /></button>
         <button type="button" className="growth-icon-button" onClick={onClose} title="Close growth workspace" aria-label="Close growth workspace"><X size={18} /></button>
       </div>
@@ -495,6 +516,14 @@ export function GrowthWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
         <div><span>VERIFIED D</span><strong>{counts?.accepted_outputs ?? 0}</strong><small>{counts?.rejected_outputs ?? 0} rejected</small></div>
         <div><span>LATEST CYCLE</span><strong>{String(latestRun?.status || 'not run')}</strong><small>{runMessage}</small></div>
       </div>
+      {profileEditorOpen && <GrowthProfileEditor
+        profile={overview.profile}
+        canWrite={access?.can_write === true}
+        busy={requestStates.action === 'loading'}
+        message={profileMessage}
+        onSave={(profile) => void saveProfile(profile)}
+        onClose={() => { setProfileEditorOpen(false); setProfileMessage(''); }}
+      />}
       <div className="growth-layout">
         <GrowthStageRail projectId={projectId} stage={stage} counts={stageCounts} truncated={stageBounds} onChange={(next) => { setGraphSelection(null); setStage(next); setCenterView('assets'); }} />
         <main className="growth-main" id="growth-stage-panel" role="tabpanel" aria-labelledby={`growth-stage-${stage}`}>

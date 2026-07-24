@@ -20,6 +20,7 @@ import {
   runGrowthWorkspaceJob,
   setGrowthAccessKey,
   startGrowthRun,
+  updateGrowthProfile,
 } from '../../api/growthApi';
 import { useGrowthWorkspaceStore, useKnowledgeWorkspaceStore } from '../../store/knowledgeWorkspaceStore';
 import { GrowthWorkspace } from './GrowthWorkspace';
@@ -45,6 +46,7 @@ vi.mock('../../api/growthApi', async (importOriginal) => {
     setGrowthAccessKey: vi.fn(),
     startGrowthRun: vi.fn(),
     triageGrowthSource: vi.fn(),
+    updateGrowthProfile: vi.fn(),
   };
 });
 
@@ -63,6 +65,7 @@ const mockedLinkEvidence = vi.mocked(linkGrowthOutputEvidence);
 const mockedWorkspaceJob = vi.mocked(runGrowthWorkspaceJob);
 const mockedSetGrowthAccessKey = vi.mocked(setGrowthAccessKey);
 const mockedStartGrowthRun = vi.mocked(startGrowthRun);
+const mockedUpdateGrowthProfile = vi.mocked(updateGrowthProfile);
 
 const overview = {
   profile: { project_id: 'default', user_role: 'researcher', revision: 3 },
@@ -91,6 +94,7 @@ function installSuccessfulProject() {
   mockedLinkEvidence.mockResolvedValue({ output: { id: 'output-a', status: 'registered', source_refs: [] }, evidence: { source_ids: ['source-a'], page_ids: [] } });
   mockedWorkspaceJob.mockResolvedValue({ run_id: 'workspace-run-a', status: 'queued' });
   mockedStartGrowthRun.mockResolvedValue({ id: 'growth-run-a', run_id: 'growth-run-a', run_type: 'growth_daily', status: 'queued' });
+  mockedUpdateGrowthProfile.mockResolvedValue({ ...overview.profile, revision: 4, research_domains: ['agent systems'] });
 }
 
 beforeEach(() => {
@@ -176,6 +180,23 @@ describe('GrowthWorkspace', () => {
 
     expect(await screen.findByText('VERIFIED D')).toBeVisible();
     expect(screen.queryByText('ACCEPTED D')).not.toBeInTheDocument();
+  });
+
+  it('persists a revisioned project profile and reloads the governed workspace state', async () => {
+    render(<GrowthWorkspace onClose={vi.fn()} />);
+
+    fireEvent.click(await screen.findByLabelText('Configure project profile'));
+    fireEvent.change(screen.getByLabelText('Research domains'), { target: { value: 'agent systems\nknowledge operations' } });
+    fireEvent.change(screen.getByLabelText('Primary outputs'), { target: { value: 'research brief\noperational decision' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
+
+    await waitFor(() => expect(mockedUpdateGrowthProfile).toHaveBeenCalledWith('default', expect.objectContaining({
+      expected_revision: 3,
+      research_domains: ['agent systems', 'knowledge operations'],
+      primary_output_types: ['research brief', 'operational decision'],
+    })));
+    expect(await screen.findByText(/Saved revision 4/)).toBeVisible();
+    await waitFor(() => expect(mockedOverview.mock.calls.length).toBeGreaterThan(1));
   });
 
   it('starts a real daily growth run and reflects its durable status in the workspace', async () => {

@@ -9,12 +9,30 @@ export type GrowthProfile = {
   revision?: number;
   user_role?: string;
   research_domains?: string[];
+  primary_output_types?: string[];
+  target_audiences?: string[];
+  preferred_channels?: string[];
+  language?: string;
   content_voice?: string;
   evidence_threshold?: number;
   automatic_publication_policy?: string;
   method_promotion_policy?: string;
   [key: string]: unknown;
 };
+
+export type GrowthProfileUpdate = Pick<
+  GrowthProfile,
+  | 'user_role'
+  | 'research_domains'
+  | 'primary_output_types'
+  | 'target_audiences'
+  | 'preferred_channels'
+  | 'language'
+  | 'content_voice'
+  | 'evidence_threshold'
+  | 'automatic_publication_policy'
+  | 'method_promotion_policy'
+> & { expected_revision: number };
 
 export type GrowthCounts = {
   sources: number;
@@ -378,6 +396,15 @@ export async function fetchGrowthOverview(projectId: string, signal?: AbortSigna
     request<GrowthSummary>(`/knowledge/growth/${project}/summary`, signal),
   ]);
   return { profile: profile.profile, summary };
+}
+
+export async function updateGrowthProfile(projectId: string, profile: GrowthProfileUpdate, signal?: AbortSignal): Promise<GrowthProfile> {
+  const payload = await request<{ profile: GrowthProfile }>(
+    `/knowledge/growth/${encoded(projectId)}/profile`,
+    signal,
+    { method: 'PATCH', body: JSON.stringify(profile) },
+  );
+  return payload.profile;
 }
 
 export async function fetchGrowthAccess(projectId: string, signal?: AbortSignal): Promise<GrowthAccess> {
