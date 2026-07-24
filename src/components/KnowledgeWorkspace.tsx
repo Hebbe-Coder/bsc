@@ -20,6 +20,7 @@ import {
 } from '../api/knowledgeWorkspaceApi';
 import { useKnowledgeWorkspaceStore, type KnowledgeProposalBaselines } from '../store/knowledgeWorkspaceStore';
 import { resolveStudioAccessStatus } from './knowledgeWorkspaceAccess';
+import { describeKnowledgeSource, selectDefaultKnowledgePage } from './knowledgePresentation';
 
 type Props = { onClose: () => void; runtimeAccessKey?: string };
 type GraphNodeData = { record: KnowledgeGraphNode; label: string };
@@ -108,6 +109,16 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
   useEffect(() => {
     if (workspace?.vault.vault_path) setVaultPath(workspace.vault.vault_path);
   }, [workspace?.vault.vault_path]);
+  useEffect(() => {
+    if (loading || selectedPage || !pages.length) return undefined;
+    const page = selectDefaultKnowledgePage(pages);
+    if (!page) return undefined;
+    let active = true;
+    void fetchKnowledgePage(projectId, page.id)
+      .then((detail) => { if (active) setSelectedPage(detail); })
+      .catch((reason: unknown) => { if (active) setError(reason instanceof Error ? reason.message : 'Published page failed to load'); });
+    return () => { active = false; };
+  }, [loading, pages, projectId, selectedPage, setError, setSelectedPage]);
   useEffect(() => {
     const query = window.matchMedia('(max-width: 780px)');
     const sync = () => setIsCompactViewport(query.matches);
@@ -423,7 +434,12 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
         <div><span className="eyebrow">PROJECT VAULT</span><h3>{vaultConnectionLabel}</h3><p>{vaultConnection?.message || 'Use a folder inside the configured Obsidian Vault. BSC will only manage this project boundary.'}</p>{vaultConnection?.missing_managed_files?.length ? <small>Missing files: {vaultConnection.missing_managed_files.join(', ')}</small> : null}{vaultConnection?.missing_managed_directories?.length ? <small>Missing workspace layout: {vaultConnection.missing_managed_directories.length} folders, including {vaultConnection.missing_managed_directories.slice(0, 4).join(', ')}{vaultConnection.missing_managed_directories.length > 4 ? ', ...' : ''}</small> : null}</div>
         <div className="knowledge-vault-setup__actions"><label>Vault folder<input value={vaultPath} onChange={(event) => setVaultPath(event.target.value)} placeholder="projects/your-project" aria-label="Project Vault folder" disabled={actionBusy} /></label><button type="button" onClick={() => void mapVault()} disabled={actionBusy || !canWrite || !vaultPath.trim()} title="Map this project to the typed Vault folder"><Link2 size={15} /> {workspace?.vault.configured ? 'Update map' : 'Map Vault'}</button>{workspace?.vault.configured && !initialized && <button type="button" onClick={() => void initializeVault()} disabled={actionBusy || !canWrite} title="Create the full A/B/C/D project layout, rules, and initial Wiki pages"><BookOpen size={15} /> Initialize workspace</button>}</div>
       </section>
-      {workspace?.vault.configured && <section className="knowledge-plugin-setup" aria-label="Obsidian plugin export bridge">
+      {workspace?.vault.configured && <details className="knowledge-plugin-setup" aria-label="Obsidian plugin export bridge" open={pluginCount === 0}>
+        <summary>
+          <span className="eyebrow"><Link2 size={14} /> OBSIDIAN PLUGIN EXPORTS</span>
+          <strong>{pluginCount} configured</strong>
+          <small>{connectedPluginCount ? `${connectedPluginCount} bridge${connectedPluginCount === 1 ? '' : 's'} active` : readyPluginRouteCount ? `${readyPluginRouteCount} folders ready, awaiting export` : 'Declare an export bridge'}</small>
+        </summary>
         <div><span className="eyebrow">OBSIDIAN PLUGIN EXPORTS</span><h3>Connect exported notes and output feedback.</h3><p>Evidence bridges read only declared <code>00_Inbox/</code>, <code>01_Sources/</code>, <code>raw/</code>, or <code>inbox/</code> folders. Output bridges copy only declared <code>04_Outputs/</code> or <code>outputs/</code> files into pending D-layer review. BSC does not inspect or execute <code>.obsidian</code> plugin code.</p><small>Horizon uses the native radar channel below, not a plugin-folder bridge. Claudian is an Obsidian-to-Codex companion. Markdown formatter and HyperFrames use an output bridge; their files never become reusable context until evaluation and feedback accept them.</small></div>
         <div className="knowledge-plugin-setup__actions">
           <label>Preset<select value={pluginPreset} onChange={(event) => selectPluginPreset(event.target.value)} aria-label="Plugin export preset" disabled={actionBusy}>{OBSIDIAN_PLUGIN_PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}</select></label>
@@ -434,7 +450,7 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
           <button type="button" onClick={() => void registerPluginBridge()} disabled={actionBusy || !canWrite || !pluginId.trim() || !pluginPaths.trim()} title="Register a governed filesystem export bridge"><Link2 size={15} /> Register bridge</button>
         </div>
         <PluginBridgeTable plugins={workspace.plugins.plugins} busy={actionBusy} canWrite={canWrite} onEdit={editPluginBridge} onRemove={removePluginBridge} />
-      </section>}
+      </details>}
       <section className="knowledge-connection-path" aria-label="Knowledge connection path">
         <ConnectionStep label="Studio access" detail={accessStatus.detail} ready={accessStatus.verified} />
         <ConnectionStep label="Vault boundary" detail={vaultConnectionLabel} ready={vaultConnectionState === 'ready'} />
@@ -461,7 +477,7 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
           <div className="knowledge-vault-state"><span className={connectedPluginCount ? 'is-ready' : 'is-warning'}>{connectedPluginCount ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}</span><span>{pluginCount ? (connectedPluginCount ? `${connectedPluginCount}/${pluginCount} bridge${pluginCount === 1 ? '' : 's'} active: ${capturedPluginSources} evidence source${capturedPluginSources === 1 ? '' : 's'}, ${registeredPluginOutputs} pending output${registeredPluginOutputs === 1 ? '' : 's'}` : readyPluginRouteCount ? `${readyPluginRouteCount}/${pluginCount} export folders ready; awaiting real plugin output` : `${pluginCount} bridge route${pluginCount === 1 ? '' : 's'} need a valid export folder`) : (workspace?.plugins.configured ? 'Plugin manifest has no supported adapters' : 'No BSC plugin manifest configured')}</span></div>
           <VaultTree pages={pages} selectedPageId={selectedPage?.page.id ?? ''} onSelect={inspectPage} />
           <PaneHeader title="Evidence" detail={`${sources.length} records`} />
-          <div className="knowledge-list knowledge-list--tree">{sources.length ? sources.map((source) => <button className={`knowledge-record ${selectedSource?.id === source.id ? 'is-selected' : ''}`} key={source.id} onClick={() => setSelectedSource(source)}><span className={`source-status source-status--${source.status}`}>{source.status}</span><strong>{source.origin || source.id}</strong><small>{source.source_type}</small></button>) : <Empty text="No evidence has been captured for this project." />}</div>
+          <div className="knowledge-list knowledge-list--tree">{sources.length ? sources.map((source) => <EvidenceRecord source={source} selected={selectedSource?.id === source.id} key={source.id} onSelect={setSelectedSource} />) : <Empty text="No evidence has been captured for this project." />}</div>
           <PaneHeader title="Review queue" detail={`${proposals.length}`} />
           <div className="knowledge-list knowledge-list--tree">{proposals.length ? proposals.map((proposal) => <button className={`knowledge-record ${selectedProposal?.id === proposal.id ? 'is-selected' : ''}`} key={proposal.id} onClick={() => inspectProposal(proposal)}><span className="record-kind">{proposal.status}</span><strong>{proposal.rationale || proposal.id}</strong><small>{proposal.operations.length} operations</small></button>) : <Empty text="No reviewable proposal has been recorded." />}</div>
         </aside>
@@ -631,10 +647,20 @@ export function DistillationReader({ records, selected, onSelect }: { records: W
   return <section className="distillation-reader"><header className="knowledge-content-header"><div><span className="eyebrow">KNOWLEDGE DISTILLATION</span><h3>{selectedPeriod || 'Choose a governed bundle'}</h3><p>{selected ? `${selected.distillation.kind || 'weekly'} / source cutoff ${selected.distillation.source_cutoff}` : 'Daily and weekly bundles are generated from governed project evidence.'}</p></div><FileClock size={20} /></header><div className="distillation-reader__body"><nav>{records.length ? records.map((item) => <button key={item.id} className={selected?.distillation.id === item.id ? 'is-selected' : ''} onClick={() => onSelect(item)}><span>{item.kind || 'weekly'} / {item.status}</span><strong>{item.period || item.week}</strong><small>{formatTimestamp(item.created_at)}</small></button>) : <Empty text="No source-backed knowledge distillation has been generated." />}</nav><section>{documentEntries.length ? documentEntries.map(([path, content]) => <article key={path}><h4>{path.split('/').at(-1)}</h4><pre>{content}</pre></article>) : <Empty text="Select a bundle to read its stored evidence-backed documents." />}</section></div></section>;
 }
 
+export function EvidenceRecord({ source, selected, onSelect }: { source: KnowledgeSource; selected: boolean; onSelect: (source: KnowledgeSource) => void }) {
+  const presentation = describeKnowledgeSource(source);
+  return <button className={`knowledge-record knowledge-record--source ${selected ? 'is-selected' : ''}`} onClick={() => onSelect(source)} title={presentation.origin}>
+    <span className={`source-status source-status--${source.status}`}>{source.status}</span>
+    <span className="knowledge-record__body"><strong>{presentation.headline}</strong><small>{presentation.provenance}</small></span>
+    {presentation.score && <span className="knowledge-signal-score" aria-label={`Signal score ${presentation.score}`}>{presentation.score}</span>}
+  </button>;
+}
+
 export function SourceInspector({ source, busy, canWrite, onApprove }: { source: KnowledgeSource; busy: boolean; canWrite: boolean; onApprove: (source: KnowledgeSource) => void }) {
+  const presentation = describeKnowledgeSource(source);
   const curated = Boolean(source.metadata.curated || source.metadata.user_annotation || source.metadata.annotation);
   const pluginName = typeof source.metadata.plugin_name === 'string' ? source.metadata.plugin_name : source.metadata.obsidian_plugin;
-  return <section className="source-inspector"><span className={`source-status source-status--${source.status}`}>{source.status}</span><h3>{source.origin || source.id}</h3><dl><div><dt>Type</dt><dd>{source.source_type}</dd></div>{pluginName ? <div><dt>Plugin export</dt><dd>{String(pluginName)}</dd></div> : null}<div><dt>Trust</dt><dd>{source.trust_level}</dd></div><div><dt>Captured</dt><dd>{formatTimestamp(source.captured_at)}</dd></div><div><dt>SHA-256</dt><dd>{source.content_hash}</dd></div><div><dt>Vault path</dt><dd>{source.vault_path || 'external or API import'}</dd></div><div><dt>Interpretation</dt><dd>{curated ? 'Curated opinion or user annotation' : 'Immutable evidence record'}</dd></div></dl>{source.supersedes_id && <p className="source-supersedes">Supersedes source {source.supersedes_id}</p>}{source.status === 'validated' && <button disabled={busy || !canWrite} onClick={() => onApprove(source)}><CheckCircle2 size={14} /> Approve for synthesis</button>}</section>;
+  return <section className="source-inspector"><span className={`source-status source-status--${source.status}`}>{source.status}</span><h3>{presentation.headline}</h3><p className="source-inspector__provenance">{presentation.provenance}{presentation.score ? ` / signal ${presentation.score}` : ''}</p><dl><div><dt>Type</dt><dd>{presentation.typeLabel}</dd></div>{pluginName ? <div><dt>Plugin export</dt><dd>{String(pluginName)}</dd></div> : null}<div><dt>Origin</dt><dd>{presentation.origin}</dd></div><div><dt>Trust</dt><dd>{source.trust_level}</dd></div><div><dt>Captured</dt><dd>{formatTimestamp(source.captured_at)}</dd></div><div><dt>SHA-256</dt><dd>{source.content_hash}</dd></div><div><dt>Vault path</dt><dd>{source.vault_path || 'external or API import'}</dd></div><div><dt>Interpretation</dt><dd>{curated ? 'Curated opinion or user annotation' : 'Immutable evidence record'}</dd></div></dl>{source.supersedes_id && <p className="source-supersedes">Supersedes source {source.supersedes_id}</p>}{source.status === 'validated' && <button disabled={busy || !canWrite} onClick={() => onApprove(source)}><CheckCircle2 size={14} /> Approve for synthesis</button>}</section>;
 }
 
 function HealthInspector({ health }: { health: KnowledgeHealth | null }) { if (!health) return <Empty text="Health records are unavailable until the workspace loads." />; return <div className="health-inspector"><HealthRow label="Dangling citations" value={health.dangling_citation_count} /><HealthRow label="Stale citations" value={health.stale_citation_count} /><HealthRow label="Stale pages" value={health.stale_page_ids.length} /><HealthRow label="Orphan pages" value={health.orphan_page_ids.length} /><HealthRow label="Uncited eligible evidence" value={health.uncited_eligible_source_ids.length} /><HealthRow label="Pending proposals" value={health.pending_proposal_ids.length} /><HealthRow label="Contradictions" value={health.contradiction_count} /></div>; }

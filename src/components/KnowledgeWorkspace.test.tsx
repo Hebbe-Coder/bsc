@@ -3,15 +3,17 @@ import '@testing-library/jest-dom/vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { KnowledgeProposal, KnowledgeSource, WeeklyDistillation, WeeklyDistillationDetail } from '../api/knowledgeWorkspaceApi';
+import type { KnowledgePage, KnowledgeProposal, KnowledgeSource, WeeklyDistillation, WeeklyDistillationDetail } from '../api/knowledgeWorkspaceApi';
 import {
   DistillationReader,
+  EvidenceRecord,
   KNOWLEDGE_JOB_OPTIONS,
   OBSIDIAN_PLUGIN_PRESETS,
   ProposalReview,
   SourceInspector,
   WikiReader,
 } from './KnowledgeWorkspace';
+import { describeKnowledgeSource, selectDefaultKnowledgePage } from './knowledgePresentation';
 
 const proposal: KnowledgeProposal = {
   id: 'proposal-a',
@@ -82,6 +84,16 @@ describe('KnowledgeWorkspace focused components', () => {
     expect(screen.getByRole('heading', { name: 'Choose a published page' })).toBeVisible();
   });
 
+  it('opens a project overview before secondary Wiki pages', () => {
+    const pages: KnowledgePage[] = [
+      { id: 'index', path: 'wiki/index.md', title: 'Index', page_kind: 'index', version: 1, status: 'published', metadata: {} },
+      { id: 'concept', path: 'wiki/concepts/loop.md', title: 'Loop', page_kind: 'concept', version: 1, status: 'published', metadata: {} },
+      { id: 'overview', path: 'wiki/overview.md', title: 'Overview', page_kind: 'overview', version: 1, status: 'published', metadata: {} },
+    ];
+
+    expect(selectDefaultKnowledgePage(pages)?.id).toBe('overview');
+  });
+
   it('renders a persisted growth bundle with its governed documents', () => {
     render(<DistillationReader records={[growthDistillation]} selected={growthDistillationDetail} onSelect={vi.fn()} />);
 
@@ -119,5 +131,29 @@ describe('KnowledgeWorkspace focused components', () => {
     expect(screen.getByRole('button', { name: /approve for synthesis/i })).toBeDisabled();
     expect(screen.getByText(source.content_hash)).toBeVisible();
     expect(screen.getByText('Readwise Export')).toBeVisible();
+  });
+
+  it('makes long Horizon evidence scannable while retaining its original origin only for inspection', () => {
+    const horizonSource: KnowledgeSource = {
+      ...source,
+      source_type: 'horizon_signal',
+      origin: 'https://news.example.com/rss/articles/a-very-long-opaque-article-reference-that-is-not-a-useful-working-title',
+      metadata: {
+        ai_summary: 'A concise research signal about a multimodal robotics model and its operational implications.',
+        ai_score: 0.92,
+        horizon_metadata: { source_name: 'Example News' },
+      },
+    };
+    const presentation = describeKnowledgeSource(horizonSource);
+
+    expect(presentation.headline).toContain('multimodal robotics model');
+    expect(presentation.provenance).toContain('Example News / Horizon radar');
+    expect(presentation.score).toBe('92/100');
+    expect(describeKnowledgeSource({ ...horizonSource, metadata: { ...horizonSource.metadata, ai_score: 7 } }).score).toBe('7/10');
+
+    render(<EvidenceRecord source={horizonSource} selected={false} onSelect={vi.fn()} />);
+    expect(screen.getByText('92/100')).toBeVisible();
+    expect(screen.getByText('Example News / Horizon radar', { exact: false })).toBeVisible();
+    expect(screen.queryByText(horizonSource.origin)).toBeNull();
   });
 });
