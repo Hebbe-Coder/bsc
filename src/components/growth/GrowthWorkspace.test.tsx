@@ -206,6 +206,24 @@ describe('GrowthWorkspace', () => {
     expect(screen.getByText('Evidence-backed paragraph.')).toBeVisible();
   });
 
+  it('uses the lineage projection for readable upstream and downstream inspector links', async () => {
+    mockedLineage.mockResolvedValue({
+      project_id: 'default',
+      edges: [{ id: 'edge-a', from_id: 'source-a', to_id: 'page-a', from_type: 'source', to_type: 'page', edge_type: 'source_supports_page' }],
+      nodes: [
+        { id: 'source-a', type: 'source', label: 'Robotics research signal', status: 'processed' },
+        { id: 'page-a', type: 'page', label: 'Embodied AI overview', status: 'published' },
+      ],
+      limit: 200,
+      truncated: false,
+    });
+    render(<GrowthWorkspace onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('option', { name: /Source brief/i }));
+
+    expect(await screen.findByText('Embodied AI overview')).toBeVisible();
+    expect(screen.getByText('page-a')).toBeVisible();
+  });
+
   it('requests a larger real server slice for the next page', async () => {
     mockedStage.mockImplementation(async (_projectId, stage, limit) => {
       const count = Math.min(limit, 25);

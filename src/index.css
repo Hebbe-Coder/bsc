@@ -1102,6 +1102,8 @@ body .knowledge-runtime-state{align-self:center;border:1px solid #3a5060;padding
 .growth-inspector__section button { display: flex; width: 100%; min-height: 34px; align-items: center; justify-content: space-between; gap: 8px; border: 0; border-bottom: 1px solid var(--studio-line); padding: 5px 2px; color: var(--studio-text-muted); background: transparent; text-align: left; }
 .growth-inspector__section button span { display: grid; min-width: 0; gap: 2px; overflow: hidden; font: 9px var(--font-mono); text-overflow: ellipsis; }
 .growth-inspector__section button b { color: var(--studio-cyan); font-size: 8px; }
+.growth-inspector__section button strong { overflow: hidden; color: var(--studio-text-soft); font: 10px/1.35 var(--font-body); text-overflow: ellipsis; white-space: nowrap; }
+.growth-inspector__section button small { overflow: hidden; color: var(--studio-text-muted); font: 8px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
 .growth-inspector__section button svg { flex: 0 0 auto; }
 .growth-inspector__actions { display: grid; gap: 6px; border-top: 1px solid var(--studio-line); padding: 12px; }
 .growth-inspector__actions button { display: inline-flex; min-height: 34px; align-items: center; justify-content: center; gap: 6px; border: 1px solid rgba(168, 207, 116, .35); border-radius: 4px; color: var(--studio-lime); background: rgba(168, 207, 116, .08); font: 10px var(--font-mono); }

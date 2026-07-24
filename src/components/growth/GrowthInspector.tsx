@@ -5,6 +5,7 @@ import type {
   GrowthAssetDetail,
   GrowthFeedbackInput,
   GrowthLineageEdge,
+  GrowthLineageNode,
   GrowthOutputEvaluationInput,
   GrowthOutputEvidenceInput,
   GrowthRecord,
@@ -18,6 +19,7 @@ type Props = {
   state: GrowthRequestState;
   error?: string;
   edges: GrowthLineageEdge[];
+  nodes?: GrowthLineageNode[];
   canWrite: boolean | null;
   compact: boolean;
   open: boolean;
@@ -89,7 +91,7 @@ function requiresEvidence(detail: GrowthAssetDetail): boolean {
 
 export function GrowthInspector(props: Props) {
   const {
-    selected, detail, state, error, edges, canWrite, compact, open, actionState, actionMessage,
+    selected, detail, state, error, edges, nodes = [], canWrite, compact, open, actionState, actionMessage,
     evidenceSources, evidenceState, onClose, onAction, onEvaluate, onEvaluateMethod, onPublishMethod, onLinkEvidence, onFeedback, onFollow,
   } = props;
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -110,6 +112,7 @@ export function GrowthInspector(props: Props) {
     typeof detail?.record.active_revision_id === 'string' ? detail.record.active_revision_id : '',
   ].filter(Boolean)), [detail?.record.active_revision_id, selected?.id]);
   const related = useMemo(() => edges.filter((edge) => relatedIds.has(edge.from_id) || relatedIds.has(edge.to_id)), [edges, relatedIds]);
+  const nodesById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
 
   useEffect(() => {
     if (!compact || !open) return undefined;
@@ -162,7 +165,9 @@ export function GrowthInspector(props: Props) {
           const outgoing = relatedIds.has(edge.from_id);
           const target = outgoing ? edge.to_id : edge.from_id;
           const type = outgoing ? edge.to_type : edge.from_type;
-          return <button key={edge.id} type="button" onClick={() => onFollow(target, type)}><span><b>{edge.edge_type}</b>{target}</span><ExternalLink size={12} /></button>;
+          const targetNode = nodesById.get(target);
+          const label = targetNode?.label || target;
+          return <button key={edge.id} type="button" onClick={() => onFollow(target, type)}><span><b>{edge.edge_type}</b><strong>{label}</strong>{targetNode && <small>{target}</small>}</span><ExternalLink size={12} /></button>;
         }) : <p>No relationship in the current bounded graph slice.</p>}</section>
         {command ? <div className="growth-inspector__actions">
           <button type="button" disabled={actionDisabled} title={permissionMessage || command} onClick={() => onAction(detail)}>{actionState === 'loading' ? <LoaderCircle size={14} className="spin" /> : canWrite ? <CheckCircle2 size={14} /> : <KeyRound size={14} />}{command}</button>
