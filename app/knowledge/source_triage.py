@@ -36,23 +36,45 @@ def requires_project_triage(source: dict[str, Any]) -> bool:
     )
 
 
-def source_admission_reason(repository: Any, project_id: str, source: dict[str, Any]) -> str:
-    """Explain why an otherwise eligible discovery source cannot be used yet."""
-    if not requires_project_triage(source) or source.get("status") == SourceStatus.PROCESSED.value:
-        return ""
+def current_project_triage_decisions(repository: Any, project_id: str) -> dict[str, dict[str, Any]]:
+    """Return the latest evaluator decision for each source under the active profile."""
     triage_repository = repository
     if not hasattr(triage_repository, "list_triage"):
         triage_repository = GrowthRepository.borrow(repository)
     profile = triage_repository.get_profile(project_id) or {"revision": 0}
     profile_revision = int(profile.get("revision", 0) or 0)
-    decisions = [
-        item for item in triage_repository.list_triage(project_id, limit=500)
-        if item.get("source_id") == source.get("id")
-        and int(item.get("profile_revision", -1)) == profile_revision
-    ]
-    if not decisions:
+    decisions: dict[str, dict[str, Any]] = {}
+    for item in triage_repository.list_triage(project_id, limit=500):
+        if int(item.get("profile_revision", -1)) != profile_revision:
+            continue
+        source_id = str(item.get("source_id") or "")
+        if not source_id:
+            continue
+        previous = decisions.get(source_id)
+        if previous is None or (
+            str(item.get("created_at") or ""), str(item.get("id") or "")
+        ) > (
+            str(previous.get("created_at") or ""), str(previous.get("id") or "")
+        ):
+            decisions[source_id] = item
+    return decisions
+
+
+def source_admission_reason(
+    repository: Any,
+    project_id: str,
+    source: dict[str, Any],
+    *,
+    current_decisions: dict[str, dict[str, Any]] | None = None,
+) -> str:
+    """Explain why an otherwise eligible discovery source cannot be used yet."""
+    if not requires_project_triage(source) or source.get("status") == SourceStatus.PROCESSED.value:
+        return ""
+    decision = (current_decisions or current_project_triage_decisions(repository, project_id)).get(
+        str(source.get("id") or "")
+    )
+    if decision is None:
         return "current_project_triage_missing"
-    decision = max(decisions, key=lambda item: (str(item.get("created_at") or ""), str(item.get("id") or "")))
     if decision.get("evaluator_status") != "completed":
         return "project_triage_unavailable"
     if not bool(decision.get("reliability_pass")):

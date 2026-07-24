@@ -71,6 +71,81 @@ def test_growth_context_reserves_a_layer_evidence_when_rules_are_long():
     assert "source:source-a" in pack.rendered
 
 
+def test_growth_context_prefers_admitted_triage_evidence_when_budget_is_tight():
+    pack = GrowthContextBuilder(max_characters=4_000).build(
+        project_id="project-a",
+        profile={"revision": 1},
+        rules="Keep citations grounded.",
+        task="Prepare a project-specific distillation.",
+        pages=[
+            {
+                "id": "authority-page",
+                "project_id": "project-a",
+                "status": "published",
+                "path": "wiki/concepts/authority.md",
+                "content": "B" * 1_200,
+            }
+        ],
+        sources=[
+            {
+                "id": "legacy-source",
+                "project_id": "project-a",
+                "status": "eligible",
+                "raw_content": "Legacy evidence. " * 100,
+            },
+            {
+                "id": "current-triage-source",
+                "project_id": "project-a",
+                "status": "eligible",
+                "context_priority": 85,
+                "raw_content": "Current admitted evidence. " * 300,
+            },
+        ],
+    )
+
+    assert pack.source_ids == ("current-triage-source",)
+    assert "source:legacy-source" in pack.omitted_refs
+
+
+def test_growth_context_breaks_equal_triage_scores_by_persisted_source_recency():
+    pack = GrowthContextBuilder(max_characters=4_000).build(
+        project_id="project-a",
+        profile={"revision": 1},
+        rules="Keep citations grounded.",
+        task="Prepare a project-specific distillation.",
+        pages=[
+            {
+                "id": "authority-page",
+                "project_id": "project-a",
+                "status": "published",
+                "path": "wiki/concepts/authority.md",
+                "content": "B" * 1_200,
+            }
+        ],
+        sources=[
+            {
+                "id": "a-legacy-evidence",
+                "project_id": "project-a",
+                "status": "eligible",
+                "context_priority": 65,
+                "updated_at": "2026-07-23T12:00:00+00:00",
+                "raw_content": "Legacy evidence. " * 100,
+            },
+            {
+                "id": "z-current-evidence",
+                "project_id": "project-a",
+                "status": "eligible",
+                "context_priority": 65,
+                "updated_at": "2026-07-24T15:00:00+00:00",
+                "raw_content": "Current evidence. " * 300,
+            },
+        ],
+    )
+
+    assert pack.source_ids == ("z-current-evidence",)
+    assert "source:a-legacy-evidence" in pack.omitted_refs
+
+
 def test_growth_context_is_deterministic_deduplicated_redacted_and_uses_index_fallback():
     secret = "sk-" + "c" * 32
     builder = GrowthContextBuilder(max_characters=1_600)

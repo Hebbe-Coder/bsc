@@ -7,12 +7,14 @@ import pytest
 
 from app.knowledge.growth_distillation import GrowthDistillationService, ManagedContentConflictError
 from app.knowledge.growth_repository import GrowthRepository
+from app.knowledge.source_triage import SourceTriageService
 from app.knowledge.growth_contracts import (
     FeedbackType,
     KnowledgeLineageEdge,
     OutputAsset,
     OutputEvaluation,
     OutputFeedback,
+    ProjectKnowledgeProfile,
 )
 from app.knowledge.wiki_contracts import SourceRecord, SourceStatus
 from app.knowledge.wiki_rules import build_default_agents_rules
@@ -146,6 +148,66 @@ def test_distillation_uses_validated_narrative_provider_and_records_its_mode(tmp
         assert daily["manifest"]["generation"]["mode"] == "llm"
         assert weekly["manifest"]["generation"]["mode"] == "llm"
         assert weekly["manifest"]["distillation_contract_revision"] == GrowthDistillationService.DISTILLATION_CONTRACT_REVISION
+    finally:
+        repo.close()
+
+
+def test_daily_distillation_prefers_current_admitted_horizon_evidence_when_budget_is_tight(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "distillation-triage-priority.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        repo.save_profile(ProjectKnowledgeProfile(project_id="project-a"), actor_id="owner")
+        repo.create_source(
+            SourceRecord(
+                id="legacy-source",
+                project_id="project-a",
+                source_type="article",
+                content_hash="a" * 64,
+                raw_content="Legacy evidence that should not crowd out current triage. " * 40,
+                trust_level="trusted",
+                status=SourceStatus.ELIGIBLE,
+                captured_at=_CUTOFF_SAFE_TIME,
+                updated_at=_CUTOFF_SAFE_TIME,
+            )
+        )
+        repo.create_source(
+            SourceRecord(
+                id="horizon-current",
+                project_id="project-a",
+                source_type="horizon_signal",
+                content_hash="b" * 64,
+                raw_content="Current Horizon evidence selected for this project. " * 300,
+                trust_level="reviewed",
+                status=SourceStatus.VALIDATED,
+                metadata={
+                    "admission_gate": "project_triage",
+                    "relevance": 100,
+                    "value": 100,
+                    "freshness": 100,
+                    "outputability": 100,
+                    "connectedness": 100,
+                },
+                captured_at=_CUTOFF_SAFE_TIME,
+                updated_at=_CUTOFF_SAFE_TIME,
+            )
+        )
+        SourceTriageService(repo).triage_source("project-a", "horizon-current")
+
+        result = GrowthDistillationService(
+            repo,
+            root,
+            narrative_provider=_UncitedNarrativeProvider(),
+        ).run_daily(
+            "project-a",
+            "2026-07-24",
+            source_cutoff="2026-08-01T00:00:00Z",
+        )
+
+        assert repo.get_source("project-a", "horizon-current")["status"] == SourceStatus.ELIGIBLE.value
+        assert "horizon-current" in result["manifest"]["context"]["source_ids"]
+        assert "horizon-current" in result["manifest"]["context"]["citation_source_ids"]
     finally:
         repo.close()
 

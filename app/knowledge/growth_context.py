@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import hashlib
 import json
 import math
@@ -12,7 +13,7 @@ from typing import Any, Iterable
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.knowledge.generation_provenance import redact_secrets, sanitize_untrusted_text
-from app.knowledge.source_triage import source_admission_reason
+from app.knowledge.source_triage import current_project_triage_decisions, source_admission_reason
 
 
 class ContextOmission(BaseModel):
@@ -64,10 +65,11 @@ class _Candidate:
     ref: str
     revision: str
     content: str
+    recency_epoch: int = 0
 
     @property
-    def key(self) -> tuple[int, str, str, str]:
-        return (self.priority, self.kind, self.ref, self.revision)
+    def key(self) -> tuple[int, str, int, str, str]:
+        return (self.priority, self.kind, -self.recency_epoch, self.ref, self.revision)
 
 
 class GrowthContextBuilder:
@@ -157,6 +159,8 @@ class GrowthContextBuilder:
                     candidate_priority = 80
                 elif kind == "page":
                     candidate_priority = self._published_page_priority(record, default=priority)
+                elif kind == "source":
+                    candidate_priority = self._source_priority(record, default=priority)
                 ref_key = (candidate_kind, ref)
                 if ref_key in seen:
                     omissions.append(ContextOmission(ref=f"{candidate_kind}:{ref}", reason="duplicate"))
@@ -193,7 +197,16 @@ class GrowthContextBuilder:
                     continue
                 if kind in {"source", "page"}:
                     seen_revisions.add(revision_key)
-                candidates.append(_Candidate(candidate_priority, candidate_kind, ref, revision, content))
+                candidates.append(
+                    _Candidate(
+                        candidate_priority,
+                        candidate_kind,
+                        ref,
+                        revision,
+                        content,
+                        self._source_recency(record) if candidate_kind == "source" else 0,
+                    )
+                )
 
         requested_refs = {str(item) for item in retrieval_refs if str(item)}
         if requested_refs:
@@ -238,8 +251,19 @@ class GrowthContextBuilder:
             included_candidates.append(item)
 
         source_candidates = [item for item in sorted(candidates, key=lambda candidate: candidate.key) if item.kind == "source"]
-        if source_candidates and not any(item.kind == "source" for item in included_candidates):
+        if source_candidates:
+            # A short, unranked legacy source must not displace the strongest
+            # current project-triaged evidence simply because it fits first.
             source = source_candidates[0]
+            preferred_source_included = any(
+                item.kind == source.kind and item.ref == source.ref and item.revision == source.revision
+                for item in included_candidates
+            )
+            if preferred_source_included:
+                source = None
+        else:
+            source = None
+        if source is not None:
             while included_candidates and self._remaining_budget(rendered_sections) < self.MINIMUM_SOURCE_EXCERPT_CHARACTERS:
                 evictable = [
                     (index, candidate)
@@ -434,6 +458,35 @@ class GrowthContextBuilder:
         return default
 
     @staticmethod
+    def _source_priority(record: dict[str, Any], *, default: int) -> int:
+        """Prefer current, admitted triage evidence without elevating it above Wiki authority."""
+        try:
+            triage_priority = int(record.get("context_priority"))
+        except (TypeError, ValueError):
+            return default
+        if not 60 <= triage_priority <= 100:
+            return default
+        # A reference (60+) precedes unranked evidence; a knowledge candidate
+        # (80+) remains below the published B-layer priority of 10.
+        return max(11, 26 - (triage_priority // 5))
+
+    @staticmethod
+    def _source_recency(record: dict[str, Any]) -> int:
+        """Return a persisted timestamp used only to break equal source ranks."""
+        for field in ("updated_at", "captured_at", "created_at"):
+            raw = str(record.get(field) or "").strip()
+            if not raw:
+                continue
+            try:
+                parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return int(parsed.timestamp())
+        return 0
+
+    @staticmethod
     def _fit(section: str, available: int) -> str:
         if available <= 0:
             return ""
@@ -474,6 +527,7 @@ class GrowthContextService:
         project_root = self._project_root(project_id)
         rules, rules_revision, rule_gaps = self._rules(project_id, project_root)
         pages = self._pages(project_id)
+        current_decisions = current_project_triage_decisions(self.repository, project_id)
         sources: list[dict[str, Any]] = []
         project_contexts: list[dict[str, Any]] = []
         for source in self.repository.list_sources(project_id):
@@ -491,9 +545,20 @@ class GrowthContextService:
                 continue
             if (
                 source.get("status") in {"eligible", "processed"}
-                and not source_admission_reason(self.repository, project_id, source)
+                and not source_admission_reason(
+                    self.repository,
+                    project_id,
+                    source,
+                    current_decisions=current_decisions,
+                )
             ):
-                sources.append(source)
+                decision = current_decisions.get(str(source.get("id") or ""))
+                sources.append(
+                    {
+                        **source,
+                        "context_priority": int(decision.get("priority") or 0) if decision else 0,
+                    }
+                )
         sources = sources[: self.MAX_RECORDS]
         project_contexts = project_contexts[: self.MAX_RECORDS]
         methods = self._methods(project_id)

@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 from app.knowledge.generation_provenance import redact_secrets
 from app.knowledge.growth_context import GrowthContextBuilder
 from app.knowledge.growth_repository import GrowthRepository
+from app.knowledge.source_triage import current_project_triage_decisions, source_admission_reason
 from app.knowledge.vault import FilesystemWikiVault
 
 
@@ -461,10 +462,23 @@ class GrowthDistillationService:
                     "content": content.get("content", ""),
                 })
         source_ids = {item["id"] for item in inputs if item.get("type") == "source"}
+        current_decisions = current_project_triage_decisions(self.repository, project_id)
         sources = [
-            {**source, "revision": source.get("content_hash", "")}
+            {
+                **source,
+                "revision": source.get("content_hash", ""),
+                "context_priority": int(
+                    (current_decisions.get(str(source.get("id") or "")) or {}).get("priority") or 0
+                ),
+            }
             for source in self.repository.list_sources(project_id)
             if source.get("id") in source_ids
+            and not source_admission_reason(
+                self.repository,
+                project_id,
+                source,
+                current_decisions=current_decisions,
+            )
         ]
         selected_methods = {
             item["id"]: str(item.get("revision") or "")
