@@ -447,6 +447,43 @@ def test_external_output_must_link_eligible_project_evidence_before_quality_revi
     assert any(edge["from_id"] == source["id"] and edge["to_id"] == output["id"] for edge in edges)
 
 
+def test_lineage_response_projects_readable_typed_nodes_without_evidence_bodies(growth_api):
+    client, repo = growth_api
+    source = _capture(repo, "project-a", "private immutable evidence body")
+    repo.update_source_status("project-a", source["id"], SourceStatus.ELIGIBLE)
+    output = _output(repo, "project-a", "lineage-node", status="registered")
+    linked = client.post(
+        f"/knowledge/projects/project-a/outputs/{output['id']}/evidence",
+        headers=_headers(),
+        json={"source_ids": [source["id"]], "page_ids": []},
+    )
+    assert linked.status_code == 200, linked.text
+
+    response = client.get("/knowledge/growth/project-a/lineage", headers=_headers())
+
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    nodes = {node["id"]: node for node in data["nodes"]}
+    assert nodes[source["id"]] == {
+        "id": source["id"],
+        "type": "source",
+        "label": "example.test signal",
+        "status": "eligible",
+    }
+    assert nodes[output["id"]]["type"] == "output"
+    assert nodes[output["id"]]["label"].endswith("/lineage-node.md")
+    assert any(
+        edge["from_id"] == source["id"]
+        and edge["to_id"] == output["id"]
+        and edge["from_type"] == "source"
+        and edge["to_type"] == "output"
+        for edge in data["edges"]
+    )
+    serialized = str(data)
+    assert "private immutable evidence body" not in serialized
+    assert "must-not-leak" not in serialized
+
+
 def test_method_revisions_are_paginated_readable_and_project_scoped(growth_api):
     client, repo = growth_api
     method, revisions = _method(repo, "project-a", "revision-history")

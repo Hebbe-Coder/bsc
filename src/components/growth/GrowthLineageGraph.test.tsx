@@ -13,6 +13,13 @@ import { GrowthLineageGraph } from './GrowthLineageGraph';
 
 const lineage = {
   project_id: 'project-a', limit: 200, truncated: true,
+  nodes: [
+    { id: 'source-a', type: 'source', label: 'Robotics research signal', status: 'processed' },
+    { id: 'page-a', type: 'page', label: 'Embodied AI overview', status: 'published' },
+    { id: 'method-a', type: 'method', label: 'Research synthesis', status: 'published' },
+    { id: 'feedback-a', type: 'feedback', label: 'accepted', status: 'processed' },
+    { id: 'output-a', type: 'output', label: 'Client research brief', status: 'accepted' },
+  ],
   edges: [
     { id: 'edge-a', from_id: 'source-a', to_id: 'page-a', from_type: 'source', to_type: 'page', edge_type: 'source_supports_page' },
     { id: 'edge-b', from_id: 'page-a', to_id: 'method-a', from_type: 'page', to_type: 'method', edge_type: 'page_informs_method' },
@@ -30,6 +37,7 @@ describe('GrowthLineageGraph', () => {
     expect(screen.getByText(/first 200 server-returned edges/)).toBeVisible();
     expect(screen.getByTestId('flow')).toHaveAttribute('data-edge-count', '3');
     expect(screen.getByTestId('flow')).toHaveAttribute('data-edge-label-count', '3');
+    expect(screen.getByRole('button', { name: 'Graph node source-a' })).toHaveTextContent('Robotics research signal');
     fireEvent.click(screen.getByRole('button', { name: 'Graph node source-a' }));
     expect(select).toHaveBeenCalledWith('source-a', 'source');
   });

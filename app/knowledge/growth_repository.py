@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import hashlib
 from typing import Any
+from urllib.parse import urlparse
 
 from app.knowledge.growth_contracts import (
     KnowledgeLineageEdge,
@@ -37,6 +38,33 @@ class LifecycleConflictError(ValueError):
 
 def _iso(value: datetime | None) -> str:
     return value.astimezone(timezone.utc).isoformat() if value else ""
+
+
+def _bounded_lineage_label(value: object, fallback: str) -> str:
+    """Return a compact, non-body label suitable for a graph node."""
+    normalized = " ".join(str(value or "").split())
+    if not normalized:
+        normalized = fallback
+    return f"{normalized[:95].rstrip()}..." if len(normalized) > 96 else normalized
+
+
+def _source_lineage_label(record: dict[str, Any]) -> str:
+    metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+    horizon = metadata.get("horizon_metadata") if isinstance(metadata.get("horizon_metadata"), dict) else {}
+    for value in (
+        metadata.get("title"),
+        metadata.get("headline"),
+        horizon.get("title"),
+        metadata.get("ai_summary"),
+    ):
+        if isinstance(value, str) and value.strip():
+            return _bounded_lineage_label(value, "Captured evidence")
+
+    origin = str(record.get("origin") or record.get("vault_path") or "")
+    parsed = urlparse(origin)
+    if parsed.scheme in {"http", "https"} and parsed.hostname:
+        return _bounded_lineage_label(f"{parsed.hostname.removeprefix('www.')} signal", "Captured evidence")
+    return _bounded_lineage_label(origin.rsplit("/", 1)[-1], "Captured evidence")
 
 
 class GrowthRepository(WikiRepository):
@@ -942,24 +970,71 @@ class GrowthRepository(WikiRepository):
         params.append(max(1, min(limit, 500)))
         return [self._decode_growth(row, ("metadata_json",)) or {} for row in self._execute(query, tuple(params)).fetchall()]
 
-    def lineage_endpoint_types(
+    def lineage_endpoints(
         self, project_id: str, endpoint_ids: list[str] | set[str]
-    ) -> dict[str, str]:
-        """Resolve graph endpoint types in bounded batches for transport clients."""
+    ) -> dict[str, dict[str, str]]:
+        """Resolve bounded, non-body endpoint projections for graph clients."""
         remaining = {str(value) for value in endpoint_ids if str(value)}
-        resolved: dict[str, str] = {}
-        tables = (
-            ("source", "knowledge_sources"),
-            ("page", "knowledge_wiki_pages"),
-            ("method", "knowledge_methods"),
-            ("method_revision", "knowledge_method_revisions"),
-            ("method_proposal", "knowledge_method_proposals"),
-            ("output", "knowledge_outputs"),
-            ("feedback", "knowledge_output_feedback"),
-            ("run", "knowledge_runs"),
-            ("proposal", "knowledge_proposals"),
+        resolved: dict[str, dict[str, str]] = {}
+        endpoints = (
+            (
+                "source",
+                "SELECT id,source_type,origin,vault_path,status,metadata_json "
+                "FROM knowledge_sources WHERE project_id=? AND id IN ({placeholders})",
+                ("metadata_json",),
+            ),
+            (
+                "page",
+                "SELECT id,title,path,status FROM knowledge_wiki_pages "
+                "WHERE project_id=? AND id IN ({placeholders})",
+                (),
+            ),
+            (
+                "method",
+                "SELECT id,name,slug,status FROM knowledge_methods "
+                "WHERE project_id=? AND id IN ({placeholders})",
+                (),
+            ),
+            (
+                "method_revision",
+                "SELECT revision.id,revision.version,revision.status,method.name AS method_name,method.slug AS method_slug "
+                "FROM knowledge_method_revisions AS revision "
+                "LEFT JOIN knowledge_methods AS method ON method.id=revision.method_id AND method.project_id=revision.project_id "
+                "WHERE revision.project_id=? AND revision.id IN ({placeholders})",
+                (),
+            ),
+            (
+                "method_proposal",
+                "SELECT id,operation,rationale,status FROM knowledge_method_proposals "
+                "WHERE project_id=? AND id IN ({placeholders})",
+                (),
+            ),
+            (
+                "output",
+                "SELECT id,title,kind,vault_path,status FROM knowledge_outputs "
+                "WHERE project_id=? AND id IN ({placeholders})",
+                (),
+            ),
+            (
+                "feedback",
+                "SELECT id,feedback_type,status,correction,comment FROM knowledge_output_feedback "
+                "WHERE project_id=? AND id IN ({placeholders})",
+                (),
+            ),
+            (
+                "run",
+                "SELECT id,run_type,status FROM knowledge_runs "
+                "WHERE project_id=? AND id IN ({placeholders})",
+                (),
+            ),
+            (
+                "proposal",
+                "SELECT id,rationale,status FROM knowledge_proposals "
+                "WHERE project_id=? AND id IN ({placeholders})",
+                (),
+            ),
         )
-        for endpoint_type, table in tables:
+        for endpoint_type, query, json_fields in endpoints:
             candidates = sorted(remaining)
             for offset in range(0, len(candidates), 400):
                 chunk = candidates[offset : offset + 400]
@@ -967,16 +1042,58 @@ class GrowthRepository(WikiRepository):
                     continue
                 placeholders = ",".join("?" for _ in chunk)
                 rows = self._execute(
-                    f"SELECT id FROM {table} WHERE project_id=? AND id IN ({placeholders})",
+                    query.format(placeholders=placeholders),
                     (project_id, *chunk),
                 ).fetchall()
                 for row in rows:
-                    endpoint_id = str(self._row_to_dict(row)["id"])
-                    resolved[endpoint_id] = endpoint_type
+                    record = self._decode_growth(row, json_fields) or {}
+                    endpoint_id = str(record.get("id") or "")
+                    if not endpoint_id:
+                        continue
+                    label = self._lineage_endpoint_label(endpoint_type, record)
+                    resolved[endpoint_id] = {
+                        "id": endpoint_id,
+                        "type": endpoint_type,
+                        "label": label,
+                        "status": str(record.get("status") or "recorded"),
+                    }
                     remaining.discard(endpoint_id)
             if not remaining:
                 break
         return resolved
+
+    @staticmethod
+    def _lineage_endpoint_label(endpoint_type: str, record: dict[str, Any]) -> str:
+        if endpoint_type == "source":
+            return _source_lineage_label(record)
+        if endpoint_type == "page":
+            return _bounded_lineage_label(record.get("title") or record.get("path"), "Published Wiki page")
+        if endpoint_type == "method":
+            return _bounded_lineage_label(record.get("name") or record.get("slug"), "Method")
+        if endpoint_type == "method_revision":
+            method = record.get("method_name") or record.get("method_slug") or "Method"
+            version = record.get("version")
+            return _bounded_lineage_label(f"{method} v{version}" if version else method, "Method revision")
+        if endpoint_type == "method_proposal":
+            return _bounded_lineage_label(record.get("rationale") or record.get("operation"), "Method proposal")
+        if endpoint_type == "output":
+            return _bounded_lineage_label(record.get("title") or record.get("vault_path") or record.get("kind"), "Output")
+        if endpoint_type == "feedback":
+            return _bounded_lineage_label(record.get("feedback_type"), "Feedback")
+        if endpoint_type == "run":
+            return _bounded_lineage_label(record.get("run_type"), "Knowledge run")
+        if endpoint_type == "proposal":
+            return _bounded_lineage_label(record.get("rationale"), "Wiki proposal")
+        return "Recorded knowledge asset"
+
+    def lineage_endpoint_types(
+        self, project_id: str, endpoint_ids: list[str] | set[str]
+    ) -> dict[str, str]:
+        """Compatibility projection for callers that only need endpoint types."""
+        return {
+            endpoint_id: endpoint["type"]
+            for endpoint_id, endpoint in self.lineage_endpoints(project_id, endpoint_ids).items()
+        }
 
     # ---- dual-track distillation ---------------------------------------
 

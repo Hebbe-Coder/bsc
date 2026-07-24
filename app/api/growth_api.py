@@ -771,8 +771,8 @@ def list_lineage(
 ):
     project_id = _enforce_growth_access(request, project_id)
     records = _guard(lambda: repo.list_lineage(project_id, relation=relation, limit=MAX_PAGE_SIZE))
-    endpoint_types = _guard(
-        lambda: repo.lineage_endpoint_types(
+    endpoints = _guard(
+        lambda: repo.lineage_endpoints(
             project_id,
             {
                 endpoint_id
@@ -786,14 +786,30 @@ def list_lineage(
         _public_record(
             {
                 **item,
-                "from_type": endpoint_types.get(str(item.get("from_id") or ""), "unknown"),
-                "to_type": endpoint_types.get(str(item.get("to_id") or ""), "unknown"),
+                "from_type": endpoints.get(str(item.get("from_id") or ""), {}).get("type", "unknown"),
+                "to_type": endpoints.get(str(item.get("to_id") or ""), {}).get("type", "unknown"),
             }
         )
         for item in records
     ]
     page, pagination = _paginate(values, limit=limit, cursor=cursor)
-    return _ok(request, repo, project_id, {"project_id": project_id, "edges": page, "pagination": pagination})
+    visible_ids = {
+        endpoint_id
+        for edge in page
+        for endpoint_id in (str(edge.get("from_id") or ""), str(edge.get("to_id") or ""))
+        if endpoint_id
+    }
+    nodes = [
+        _public_record(endpoints[endpoint_id])
+        for endpoint_id in sorted(visible_ids)
+        if endpoint_id in endpoints
+    ]
+    return _ok(
+        request,
+        repo,
+        project_id,
+        {"project_id": project_id, "edges": page, "nodes": nodes, "pagination": pagination},
+    )
 
 
 @project_router.get("/growth/summary")

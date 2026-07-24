@@ -77,9 +77,17 @@ export type GrowthLineageEdge = {
   metadata?: Record<string, unknown>;
 };
 
+export type GrowthLineageNode = {
+  id: string;
+  type: string;
+  label: string;
+  status: string;
+};
+
 export type GrowthLineage = {
   project_id: string;
   edges: GrowthLineageEdge[];
+  nodes?: GrowthLineageNode[];
   limit: number;
   truncated: boolean;
 };
@@ -458,11 +466,11 @@ export async function fetchGrowthStage(projectId: string, stage: GrowthStage, li
 export async function fetchGrowthLineage(projectId: string, relation = '', limit = 200, signal?: AbortSignal): Promise<GrowthLineage> {
   const boundedLimit = Math.max(1, Math.min(limit, 500));
   const suffix = relation ? `&relation=${encoded(relation)}` : '';
-  const payload = await request<{ project_id: string; edges: GrowthLineageEdge[] }>(
+  const payload = await request<{ project_id: string; edges: GrowthLineageEdge[]; nodes?: GrowthLineageNode[] }>(
     `/knowledge/growth/${encoded(projectId)}/lineage?limit=${boundedLimit}${suffix}`,
     signal,
   );
-  return { ...payload, limit: boundedLimit, truncated: payload.edges.length >= boundedLimit };
+  return { ...payload, nodes: payload.nodes ?? [], limit: boundedLimit, truncated: payload.edges.length >= boundedLimit };
 }
 
 export const fetchGrowthHealth = (projectId: string, signal?: AbortSignal) => request<GrowthHealth>(`/knowledge/health?project_id=${encoded(projectId)}`, signal);

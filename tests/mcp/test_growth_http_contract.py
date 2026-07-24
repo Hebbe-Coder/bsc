@@ -373,6 +373,39 @@ def test_every_growth_domain_tool_executes_against_persisted_project_state(monke
         assert result["availability"]["growth"] is True
 
 
+def test_mcp_lineage_returns_the_same_bounded_node_projection(monkeypatch, tmp_path):
+    client = _client(monkeypatch)
+    monkeypatch.setattr(settings, "KNOWLEDGE_GROWTH_ENABLED", True)
+    monkeypatch.setattr(settings, "KNOWLEDGE_MCP_WRITE_ENABLED", True)
+    monkeypatch.setattr(settings, "OBSIDIAN_VAULT_ROOT", str(tmp_path / "vault"))
+    (tmp_path / "vault").mkdir()
+    db_path = str(tmp_path / "growth-mcp-lineage.db")
+    monkeypatch.setattr(growth_tools, "_repo", lambda: GrowthRepository(db_path=db_path))
+    repo = GrowthRepository(db_path=db_path)
+    source = SourceCaptureService(repo).capture(
+        CapturedSourceInput(
+            project_id="project-a",
+            source_type="web",
+            origin="https://example.test/mcp-lineage",
+            raw_content="private MCP evidence body",
+            trust_level="trusted",
+        )
+    ).source
+    repo.update_source_status("project-a", source["id"], SourceStatus.ELIGIBLE)
+    output = _output(repo, "project-a", "mcp-lineage", status="registered")
+    repo.attach_output_evidence_references("project-a", output["id"], source_ids=[source["id"]], page_ids=[])
+
+    response = _call(client, "knowledge_growth_lineage", {"project_id": "project-a"})
+
+    result = response["result"]["structuredContent"]
+    nodes = {node["id"]: node for node in result["nodes"]}
+    assert nodes[source["id"]]["label"] == "example.test signal"
+    assert nodes[output["id"]]["type"] == "output"
+    assert result["edges"][0]["from_type"] == "source"
+    assert "private MCP evidence body" not in str(result)
+    repo.close()
+
+
 def test_mcp_profile_cas_and_run_idempotency_are_durable(monkeypatch, tmp_path):
     client = _client(monkeypatch)
     monkeypatch.setattr(settings, "KNOWLEDGE_GROWTH_ENABLED", True)

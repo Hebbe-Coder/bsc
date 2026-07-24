@@ -405,8 +405,36 @@ def growth_lineage(
     repo = _repo()
     try:
         records = repo.list_lineage(project_id, relation=relation, limit=MAX_PAGE_SIZE)
-        page, pagination = _paginate([_public(item) for item in records], limit, cursor)
-        return _result(repo, project_id, {"edges": page, "pagination": pagination})
+        endpoints = repo.lineage_endpoints(
+            project_id,
+            {
+                endpoint_id
+                for item in records
+                for endpoint_id in (str(item.get("from_id") or ""), str(item.get("to_id") or ""))
+                if endpoint_id
+            },
+        )
+        values = [
+            _public({
+                **item,
+                "from_type": endpoints.get(str(item.get("from_id") or ""), {}).get("type", "unknown"),
+                "to_type": endpoints.get(str(item.get("to_id") or ""), {}).get("type", "unknown"),
+            })
+            for item in records
+        ]
+        page, pagination = _paginate(values, limit, cursor)
+        visible_ids = {
+            endpoint_id
+            for edge in page
+            for endpoint_id in (str(edge.get("from_id") or ""), str(edge.get("to_id") or ""))
+            if endpoint_id
+        }
+        nodes = [
+            _public(endpoints[endpoint_id])
+            for endpoint_id in sorted(visible_ids)
+            if endpoint_id in endpoints
+        ]
+        return _result(repo, project_id, {"edges": page, "nodes": nodes, "pagination": pagination})
     finally:
         repo.close()
 

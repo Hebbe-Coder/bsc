@@ -14,6 +14,11 @@ function compactId(id: string): string {
   return id.length > 18 ? `${id.slice(0, 10)}...${id.slice(-4)}` : id;
 }
 
+function compactLabel(value: string): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  return normalized.length > 54 ? `${normalized.slice(0, 53).trimEnd()}...` : normalized;
+}
+
 function inferEndpointType(edge: GrowthLineageEdge, endpoint: 'from' | 'to'): string {
   const explicit = endpoint === 'from' ? edge.from_type : edge.to_type;
   if (explicit) return explicit;
@@ -47,12 +52,23 @@ type Props = {
 export function GrowthLineageGraph({ lineage, state, error, relation, onRelationChange, onSelect, onRetry }: Props) {
   const [enabledTypes, setEnabledTypes] = useState<Set<GrowthGraphNodeType>>(() => new Set(FILTER_TYPES));
   const graph = useMemo(() => {
-    const endpoints = new Map<string, { type: string; kind: GrowthGraphNodeType }>();
+    const descriptors = new Map((lineage?.nodes ?? []).map((node) => [node.id, node]));
+    const endpoints = new Map<string, { type: string; kind: GrowthGraphNodeType; label: string }>();
     for (const edge of lineage?.edges ?? []) {
       const fromType = inferEndpointType(edge, 'from');
       const toType = inferEndpointType(edge, 'to');
-      endpoints.set(edge.from_id, { type: fromType, kind: normalizeGrowthNodeType(fromType) });
-      endpoints.set(edge.to_id, { type: toType, kind: normalizeGrowthNodeType(toType) });
+      const fromDescriptor = descriptors.get(edge.from_id);
+      const toDescriptor = descriptors.get(edge.to_id);
+      endpoints.set(edge.from_id, {
+        type: fromDescriptor?.type || fromType,
+        kind: normalizeGrowthNodeType(fromDescriptor?.type || fromType),
+        label: compactLabel(fromDescriptor?.label || compactId(edge.from_id)),
+      });
+      endpoints.set(edge.to_id, {
+        type: toDescriptor?.type || toType,
+        kind: normalizeGrowthNodeType(toDescriptor?.type || toType),
+        label: compactLabel(toDescriptor?.label || compactId(edge.to_id)),
+      });
     }
     const visibleIds = new Set([...endpoints.entries()].filter(([, endpoint]) => endpoint.kind === 'other' || enabledTypes.has(endpoint.kind)).map(([id]) => id));
     const records = [...endpoints.entries()].filter(([id]) => visibleIds.has(id));
@@ -63,10 +79,10 @@ export function GrowthLineageGraph({ lineage, state, error, relation, onRelation
       const offset = ((tallestLane - lane.length) * 106) / 2;
       return lane.map(([id, endpoint], index) => ({
         id,
-        data: { label: compactId(id), kind: endpoint.kind, endpointType: endpoint.type },
+        data: { label: endpoint.label, kind: endpoint.kind, endpointType: endpoint.type },
         position: { x: 30 + laneIndex * 220, y: 28 + offset + index * 106 },
         className: `growth-flow-node growth-flow-node--${endpoint.kind}`,
-        ariaLabel: `${endpoint.kind} ${id}`,
+        ariaLabel: `${endpoint.kind} ${endpoint.label} (${id})`,
       }));
     });
     const visibleEdges = (lineage?.edges ?? []).filter((edge) => visibleIds.has(edge.from_id) && visibleIds.has(edge.to_id));
