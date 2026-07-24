@@ -98,6 +98,11 @@ const LOG_COLORS: Record<LogType, string> = {
   stage: 'text-[#58a6ff]',
 };
 let logCounter = 0;
+// This is a non-secret marker for Vite's local-only authorized proxy. The
+// actual API key remains in the Vite process and overwrites this sentinel.
+const LOCAL_PROXY_SENTINEL = import.meta.env.DEV && import.meta.env.VITE_BSC_LOCAL_PROXY_AUTH === 'true'
+  ? 'local-proxy'
+  : '';
 
 // The rail renders actual runtime capability events, not a parallel UI-only plan.
 const PIPELINE_STAGES = [
@@ -142,7 +147,7 @@ export function UnifiedWorkspace() {
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const [growthOpen, setGrowthOpen] = useState(false);
-  const [runtimeAccessKey, setRuntimeAccessKey] = useState('');
+  const [runtimeAccessKey, setRuntimeAccessKey] = useState(LOCAL_PROXY_SENTINEL);
   const [knowledgeContext, setKnowledgeContext] = useState<KnowledgeContextMetadata | null>(null);
   const [knowledgeOutputRegistration, setKnowledgeOutputRegistration] = useState<KnowledgeOutputRegistration | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
@@ -166,6 +171,10 @@ export function UnifiedWorkspace() {
   }, []);
 
   useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [logs]);
+
+  useEffect(() => {
+    fetchWrapper.setAuthToken(runtimeAccessKey.trim() || undefined);
+  }, [runtimeAccessKey]);
 
   // Keyboard shortcut
   useEffect(() => {
@@ -378,18 +387,17 @@ export function UnifiedWorkspace() {
           </section>
 
           <section className="rail-section runtime-access">
-            <div className="rail-section__heading"><p className="rail-label">RUNTIME ACCESS</p><span>{runtimeAccessKey ? 'ready' : 'required'}</span></div>
+            <div className="rail-section__heading"><p className="rail-label">RUNTIME ACCESS</p><span>{runtimeAccessKey ? (runtimeAccessKey === LOCAL_PROXY_SENTINEL ? 'local proxy' : 'ready') : 'required'}</span></div>
             <label className="runtime-access__field">
-              <span>API key</span>
+              <span>{runtimeAccessKey === LOCAL_PROXY_SENTINEL ? 'Local proxy authentication' : 'API key'}</span>
               <input
                 type="password"
-                value={runtimeAccessKey}
+                value={runtimeAccessKey === LOCAL_PROXY_SENTINEL ? '' : runtimeAccessKey}
                 onChange={(event) => {
                   const value = event.target.value;
-                  setRuntimeAccessKey(value);
-                  fetchWrapper.setAuthToken(value.trim() || undefined);
+                  setRuntimeAccessKey(value || LOCAL_PROXY_SENTINEL);
                 }}
-                placeholder="Runtime access key"
+                placeholder={runtimeAccessKey === LOCAL_PROXY_SENTINEL ? 'Authenticated locally' : 'Runtime access key'}
                 aria-label="Runtime access key"
                 autoComplete="off"
               />
