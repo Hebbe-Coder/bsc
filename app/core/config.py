@@ -34,7 +34,7 @@ class Settings(BaseSettings):
 
     DEEPSEEK_API_KEY: str = ""
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com/v1"
-    DEEPSEEK_MODEL: str = "deepseek-chat"
+    DEEPSEEK_MODEL: str = "deepseek-v4-flash"
 
     DOUBAO_API_KEY: str = ""
     DOUBAO_BASE_URL: str = "https://ark.cn-beijing.volces.com/api/v3"
@@ -161,6 +161,7 @@ class Settings(BaseSettings):
     HORIZON_MAX_RESPONSE_BYTES: int = 2_000_000
     HORIZON_ALLOW_PRIVATE_NETWORK: bool = False
     KNOWLEDGE_WIKI_LLM_PROVIDER: str = ""
+    KNOWLEDGE_GROWTH_LLM_MODEL: str = ""
 
     CELERY_ENABLED: bool = False
     CELERY_BROKER_URL: str = "redis://localhost:6379/0"

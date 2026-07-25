@@ -6,6 +6,7 @@ from app.services.sop_llm_client import (
     SOPLLMClient,
     SOPLLMError,
     _parse_json,
+    _request_rejection_category,
 )
 
 
@@ -64,7 +65,12 @@ def test_request_construction_deepseek():
         captured["body"] = body
         return _FakeResp({"choices": [{"message": {"content": '{"executive_summary":"ok","key_findings":[],"recommendations":[],"risk_highlights":[]}'}}]})
 
-    c = SOPLLMClient(provider="deepseek", api_key="sk-test", http_client=_FakeClient(handler))
+    c = SOPLLMClient(
+        provider="deepseek",
+        api_key="sk-test",
+        model="deepseek-chat",
+        http_client=_FakeClient(handler),
+    )
     out = c.chat_structured("你是分析师", "数据")
     assert captured["url"].endswith("/chat/completions")
     assert captured["headers"]["Authorization"] == "Bearer sk-test"
@@ -73,9 +79,60 @@ def test_request_construction_deepseek():
     assert out["executive_summary"] == "ok"
 
 
+def test_structured_chat_retries_without_json_mode_when_provider_rejects_it():
+    bodies = []
+
+    def handler(n, url, headers, body):
+        bodies.append(body)
+        if n == 1:
+            return _FakeResp(
+                {"error": {"message": "response_format json_object is not supported"}},
+                status=400,
+            )
+        return _FakeResp({"choices": [{"message": {"content": '{"answer":"ok"}'}}]})
+
+    client = SOPLLMClient(provider="deepseek", api_key="sk", http_client=_FakeClient(handler))
+
+    assert client.chat_structured("return JSON", "data") == {"answer": "ok"}
+    assert bodies[0]["response_format"] == {"type": "json_object"}
+    assert "response_format" not in bodies[1]
+    assert client.last_structured_failure == ""
+
+
+def test_structured_chat_accepts_segmented_text_content():
+    def handler(n, url, headers, body):
+        return _FakeResp(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": [
+                                {"type": "text", "text": '{"answer":'},
+                                {"type": "text", "text": '"segmented"}'},
+                            ]
+                        }
+                    }
+                ]
+            }
+        )
+
+    client = SOPLLMClient(provider="deepseek", api_key="sk", http_client=_FakeClient(handler))
+
+    assert client.chat_structured("return JSON", "data") == {"answer": "segmented"}
+
+
 def test_parse_strips_code_fence():
     content = '```json\n{"a": 1}\n```'
     assert _parse_json(content) == {"a": 1}
+
+
+def test_request_rejection_category_is_safe_and_actionable():
+    response = httpx.Response(
+        400,
+        json={"error": {"message": "maximum context length exceeded"}},
+    )
+
+    assert _request_rejection_category(response) == "request_too_large"
 
 
 def test_parse_extracts_embedded_json():

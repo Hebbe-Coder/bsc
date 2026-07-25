@@ -20,6 +20,10 @@ export default defineConfig(({ mode, command }) => {
   const authorizedProxy = {
     target: apiProxyTarget,
     changeOrigin: true,
+    // `headers` covers every proxied request before its body is streamed.
+    // The event hook below remains as a defensive override for callers that
+    // attach their own non-secret placeholder Authorization value.
+    headers: localRuntimeApiKey ? { Authorization: `Bearer ${localRuntimeApiKey}` } : undefined,
     configure(proxy: { on: (event: string, handler: (request: { setHeader: (name: string, value: string) => void }) => void) => void }) {
       if (!localRuntimeApiKey) return;
       proxy.on('proxyReq', (request) => {

@@ -62,7 +62,10 @@ class ConfiguredDistillationNarrativeProvider:
             self.unavailable_reason = "real_provider_not_configured"
             return None
         try:
-            client = SOPLLMClient(provider=selected)
+            client = SOPLLMClient(
+                provider=selected,
+                model=(settings.KNOWLEDGE_GROWTH_LLM_MODEL or None),
+            )
         except SOPLLMError:
             self.unavailable_reason = "provider_credentials_unavailable"
             return None
@@ -84,7 +87,10 @@ class ConfiguredDistillationNarrativeProvider:
             self.unavailable_reason = "provider_request_failed"
             return None
         if not isinstance(response, dict):
-            self.unavailable_reason = "provider_response_invalid"
+            self.unavailable_reason = (
+                getattr(client, "last_structured_failure", "")
+                or "provider_response_invalid"
+            )
             return None
         return response
 

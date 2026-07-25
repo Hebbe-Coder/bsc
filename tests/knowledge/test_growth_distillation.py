@@ -5,7 +5,12 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.knowledge.growth_distillation import GrowthDistillationService, ManagedContentConflictError
+from app.core.config import settings
+from app.knowledge.growth_distillation import (
+    ConfiguredDistillationNarrativeProvider,
+    GrowthDistillationService,
+    ManagedContentConflictError,
+)
 from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.source_triage import SourceTriageService
 from app.knowledge.growth_contracts import (
@@ -65,6 +70,32 @@ class _PartialNarrativeProvider:
                 slots[4]: "## Uncited method\n\nRevise the process.",
             }
         }
+
+
+def test_configured_narrative_provider_prefers_growth_model_override(monkeypatch):
+    captured = {}
+
+    class _Client:
+        def __init__(self, *, provider, model):
+            captured["provider"] = provider
+            captured["model"] = model
+            self.model = model
+            self.last_structured_failure = ""
+
+        def chat_structured(self, **kwargs):
+            return {"daily": "[source:source-a] is retained for review."}
+
+    monkeypatch.setattr(settings, "KNOWLEDGE_GROWTH_SEMANTIC_DISTILLATION_ENABLED", True)
+    monkeypatch.setattr(settings, "KNOWLEDGE_WIKI_LLM_PROVIDER", "deepseek")
+    monkeypatch.setattr(settings, "SOP_LLM_PROVIDER", "mock")
+    monkeypatch.setattr(settings, "KNOWLEDGE_GROWTH_LLM_MODEL", "growth-specific-model")
+    monkeypatch.setattr("app.services.sop_llm_client.SOPLLMClient", _Client)
+
+    provider = ConfiguredDistillationNarrativeProvider()
+    result = provider.render(kind="daily", project_id="project-a", period="2026-07-25", context="[source:source-a]")
+
+    assert result == {"daily": "[source:source-a] is retained for review."}
+    assert captured == {"provider": "deepseek", "model": "growth-specific-model"}
 
 
 def test_validated_markdown_normalizes_structured_list_items_before_citation_validation():

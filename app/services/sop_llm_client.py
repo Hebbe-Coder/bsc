@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 PROVIDER_REGISTRY: Dict[str, Dict[str, str]] = {
-    "deepseek": {"base_url": "https://api.deepseek.com/v1", "model": "deepseek-chat"},
+    "deepseek": {"base_url": "https://api.deepseek.com/v1", "model": "deepseek-v4-flash"},
     "doubao": {"base_url": "https://ark.cn-beijing.volces.com/api/v3", "model": "doubao-pro-32k"},
     "qwen": {"base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "model": "qwen-plus"},
     "kimi": {"base_url": "https://api.moonshot.cn/v1", "model": "moonshot-v1-8k"},
@@ -37,7 +37,11 @@ PROVIDER_KEY_MAP = {
 
 
 class SOPLLMError(Exception):
-    """LLM 调用失败(网络/HTTP/超时),由调用方决定兜底。"""
+    """LLM request failure with a safe category for callers and run manifests."""
+
+    def __init__(self, message: str, *, category: str = "request_failed") -> None:
+        super().__init__(message)
+        self.category = category
 
 
 def _strip_code_fence(text: str) -> str:
@@ -66,6 +70,78 @@ def _parse_json(content: str) -> Optional[dict]:
     return None
 
 
+def _message_content(message: Any) -> str:
+    """Normalize OpenAI-compatible string and segmented text message payloads."""
+    if not isinstance(message, dict):
+        return ""
+    content = message.get("content")
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+
+    parts: list[str] = []
+    for item in content:
+        if isinstance(item, str):
+            parts.append(item)
+            continue
+        if not isinstance(item, dict):
+            continue
+        text = item.get("text")
+        if isinstance(text, str):
+            parts.append(text)
+            continue
+        if isinstance(text, dict):
+            value = text.get("value") or text.get("content")
+            if isinstance(value, str):
+                parts.append(value)
+                continue
+        value = item.get("content")
+        if isinstance(value, str):
+            parts.append(value)
+    return "".join(parts)
+
+
+def _response_format_rejected(response: httpx.Response) -> bool:
+    """Detect a JSON-mode-only rejection without exposing provider response text."""
+    try:
+        payload = response.json()
+    except ValueError:
+        return False
+    error = payload.get("error", payload) if isinstance(payload, dict) else ""
+    if isinstance(error, dict):
+        error = error.get("message", "")
+    if not isinstance(error, str):
+        return False
+    lowered = error.lower()
+    return any(marker in lowered for marker in ("response_format", "json_object", "json mode"))
+
+
+def _request_rejection_category(response: Any) -> str:
+    """Classify provider 4xx errors without retaining or exposing their text."""
+    if not isinstance(response, httpx.Response):
+        return "request_rejected"
+    if _response_format_rejected(response):
+        return "response_format_rejected"
+    try:
+        payload = response.json()
+    except ValueError:
+        return "request_rejected"
+    error = payload.get("error", payload) if isinstance(payload, dict) else ""
+    if isinstance(error, dict):
+        error = error.get("message", "")
+    if not isinstance(error, str):
+        return "request_rejected"
+    lowered = error.lower()
+    if any(marker in lowered for marker in ("context length", "input length", "too many tokens", "token limit", "maximum context", "request too large")):
+        return "request_too_large"
+    if any(marker in lowered for marker in ("model not found", "model does not exist", "unknown model")):
+        return "model_unavailable"
+    if any(marker in lowered for marker in ("unsupported parameter", "invalid parameter", "not supported")):
+        return "unsupported_request_parameter"
+    return "request_rejected"
+
+
 class SOPLLMClient:
     def __init__(
         self,
@@ -80,6 +156,7 @@ class SOPLLMClient:
         self.provider = (provider or settings.SOP_LLM_PROVIDER or "mock").lower()
         self.timeout = timeout
         self._http = http_client
+        self.last_structured_failure = ""
 
         if self.provider == "mock":
             ensure_mock_allowed("SOP")
@@ -158,10 +235,27 @@ class SOPLLMClient:
                         logger.warning("LLM 服务端错误(%s),尝试下一 key", resp.status_code)
                         continue
                     # 其余 4xx(如 400/403/404/422)为不可重试的客户端错误,直接上报,不切换 key
+                    if (
+                        use_json_mode
+                        and resp.status_code == 400
+                        and _response_format_rejected(resp)
+                    ):
+                        raise SOPLLMError(
+                            "LLM provider rejected JSON response mode",
+                            category="response_format_rejected",
+                        )
                     resp.raise_for_status()
                     data = resp.json()
+                    choices = data.get("choices") if isinstance(data, dict) else None
+                    message = choices[0].get("message") if isinstance(choices, list) and choices else None
+                    content = _message_content(message)
+                    if not content:
+                        raise SOPLLMError(
+                            "LLM returned an unsupported completion payload",
+                            category="response_payload_invalid",
+                        )
                     return {
-                        "content": data["choices"][0]["message"]["content"],
+                        "content": content,
                         "_meta": {
                             "usage": extract_model_usage(
                                 data, provider=self.provider, model=self.model
@@ -174,8 +268,10 @@ class SOPLLMClient:
             except httpx.HTTPError as e:
                 status = getattr(getattr(e, "response", None), "status_code", None)
                 if status is not None and 400 <= status < 500 and status not in (401, 402, 429):
+                    safe_category = _request_rejection_category(getattr(e, "response", None))
                     raise SOPLLMError(
-                        f"LLM 请求被拒(不可重试的客户端错误 {status}): {e}"
+                        f"LLM request rejected (HTTP {status})",
+                        category=safe_category,
                     ) from e
                 # 网络/超时等瞬时异常,尝试下一 key
                 last_err = e
@@ -196,13 +292,26 @@ class SOPLLMClient:
                 return json.loads(self._mock_content(system_prompt))
             except (json.JSONDecodeError, ValueError):
                 return None
-        for t in (temperature, temperature * 0.5):
+        attempts = (
+            (temperature, True),
+            (temperature * 0.5, False),
+        )
+        self.last_structured_failure = ""
+        for t, use_json_mode in attempts:
             try:
-                raw = self.chat(system_prompt, user_prompt, temperature=t, max_tokens=max_tokens)
+                raw = self.chat(
+                    system_prompt,
+                    user_prompt,
+                    temperature=t,
+                    max_tokens=max_tokens,
+                    use_json_mode=use_json_mode,
+                )
                 parsed = _parse_json(raw.get("content", ""))
                 if parsed is not None:
+                    self.last_structured_failure = ""
                     return parsed
-            except (SOPLLMError, KeyError, IndexError) as e:
+            except SOPLLMError as e:
+                self.last_structured_failure = e.category
                 logger.warning("SOP LLM 解析失败(retry): %s", e)
         logger.warning("SOP LLM 结构化解析最终失败,返回 None")
         return None
