@@ -17,9 +17,11 @@ from app.artifacts import (
     ExecutionResultArtifact,
     ExternalWorkerRunArtifact,
     GapArtifact,
+    GapCategory,
     MemoryArtifact,
     MissionArtifact,
     RiskArtifact,
+    Severity,
     RuntimeContextArtifact,
     SOPRoutingEvaluationArtifact,
     TaskVerificationArtifact,
@@ -41,6 +43,8 @@ from .execution import (
     UnauthorizedCapabilityError,
 )
 from .memory import DBOSMemoryService, KnowledgeMemoryAdapter
+from .intake import IntakeError, IntakeService
+from .intake_evidence import IntakeEvidenceService
 from .runtime import RuntimeContextBuilder, recover_interrupted_runs
 
 
@@ -80,6 +84,111 @@ class DBOSService:
         self._knowledge_repository_factory = knowledge_repository_factory
         self.memory_service = DBOSMemoryService()
         self.runtime_context_builder = RuntimeContextBuilder()
+        self.intake_service = IntakeService(store)
+
+    def create_intake(self, project_id: str, request_text: str, *, context: dict[str, Any] | None = None):
+        """Classify and persist one governed intake without creating a Mission."""
+        return self.intake_service.create_session(project_id, request_text, context=context)
+
+    def get_intake(self, session_id: str):
+        return self.intake_service.get_session(session_id)
+
+    def resolve_intake_uncertainty(self, session_id: str, action: str):
+        return self.intake_service.resolve_uncertain(session_id, action)
+
+    def next_intake_question(self, session_id: str) -> dict[str, Any] | None:
+        return self.intake_service.next_question(session_id)
+
+    def answer_intake(self, session_id: str, question_id: str, answer: str = "", *, skipped: bool = False):
+        return self.intake_service.answer(session_id, question_id, answer, skipped=skipped)
+
+    def revert_intake_answer(self, session_id: str, revision_id: str):
+        return self.intake_service.revert(session_id, revision_id)
+
+    def select_intake_tier(self, session_id: str, tier: str):
+        return self.intake_service.select_tier(session_id, tier)
+
+    def recommend_intake(self, session_id: str):
+        return self._with_intake_evidence(lambda service, session: service.recommend(session), session_id)
+
+    def export_intake_handoff(self, session_id: str, *, actor_id: str, approved: bool):
+        return self._with_intake_evidence(
+            lambda service, session: service.export_handoff(session, actor_id=actor_id, approved=approved), session_id
+        )
+
+    def _with_intake_evidence(self, operation, session_id: str):
+        session = self.intake_service.get_session(session_id)
+        repository = self._knowledge_repository
+        owned = False
+        if repository is None and self._knowledge_repository_factory is not None:
+            repository = self._knowledge_repository_factory()
+            owned = True
+        try:
+            return operation(IntakeEvidenceService(self.store, repository), session)
+        finally:
+            if owned and hasattr(repository, "close"):
+                repository.close()
+
+    def convert_intake(self, session_id: str, *, title: str = "") -> DBOSFlow:
+        """Create exactly one review-gated Mission from a ready Intake session."""
+        session = self.intake_service.get_session(session_id)
+        if session.linked_mission_id:
+            mission = self._mission(session.linked_mission_id)
+            return self.diagnose_and_compile(mission.artifact_id)
+        if session.phase != "ready_for_review":
+            raise IntakeError("intake must be ready for review before conversion")
+
+        context = dict(session.declared_context)
+        context.update({
+            "intake_session_id": session.artifact_id,
+            "intake_domain": session.domain,
+            "intake_tier": session.tier,
+            "intake_unresolved_fields": list(session.unresolved_fields),
+            "sop_generation_mode": "adaptive",
+        })
+        mission = self.create_mission(
+            project_id=session.project_id,
+            title=(title.strip() or f"Intake mission: {session.original_request[:240]}")[:300],
+            intake_mode="career" if session.domain == "career" else "business",
+            intent=session.original_request,
+            context=context,
+        )
+        mission.parent_ids = [session.artifact_id]
+        self.store.update(mission)
+        flow = self.diagnose_and_compile(mission.artifact_id)
+        self._persist_unresolved_intake_gaps(session, flow.diagnosis.artifact_id)
+        session.linked_mission_id = mission.artifact_id
+        session.phase = "converted"
+        self.store.update(session)
+        return self.diagnose_and_compile(mission.artifact_id)
+
+    def _persist_unresolved_intake_gaps(self, session, diagnosis_id: str) -> None:
+        """Keep skips explicit rather than silently substituting a default fact."""
+        for field in session.unresolved_fields:
+            self.store.add(AssumptionArtifact(
+                project_id=session.project_id,
+                label=f"Unanswered intake: {field}",
+                statement=f"No value was supplied for intake field '{field}'; it must not be inferred.",
+                category="intake_gap",
+                criticality=Severity.MEDIUM,
+                validation_method="owner confirmation",
+                counterfactual=f"If {field} changes, review the Mission context and recompile the SOP.",
+                parent_ids=[diagnosis_id, session.artifact_id],
+                source_agent="dbos_blindspot_intake",
+                tags=["dbos", "blindspot_intake", "unanswered"],
+            ))
+            self.store.add(GapArtifact(
+                project_id=session.project_id,
+                label=f"Unanswered intake: {field}",
+                gap_statement=f"The intake owner skipped '{field}', so it remains an explicit gap.",
+                category=GapCategory.EVIDENCE_MISSING,
+                severity=Severity.MEDIUM,
+                affected_artifact_ids=[diagnosis_id, session.artifact_id],
+                resolution=f"Capture and approve a declared value for {field} before widening execution scope.",
+                parent_ids=[diagnosis_id, session.artifact_id],
+                source_agent="dbos_blindspot_intake",
+                tags=["dbos", "blindspot_intake", "unanswered"],
+            ))
 
     def create_mission(self, **values: Any) -> MissionArtifact:
         payload = MissionInput(**values)

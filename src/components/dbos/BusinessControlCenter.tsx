@@ -19,6 +19,7 @@ import {
   type DBOSControlCenter,
   type DbosMission,
 } from '../../api/dbosApi';
+import { BlindspotIntakePanel } from './BlindspotIntakePanel';
 
 type Props = {
   onClose: () => void;
@@ -87,6 +88,7 @@ export function BusinessControlCenter({ onClose, initialProjectId = 'default', i
   const [feedback, setFeedback] = useState('');
   const [decision, setDecision] = useState({ taskId: '', statement: '', rationale: '' });
   const [inspectedTaskId, setInspectedTaskId] = useState('');
+  const [activeIntakeSessionId, setActiveIntakeSessionId] = useState('');
   const [draft, setDraft] = useState<MissionDraft>({
     title: '', intent: '', intake_mode: 'business', role: '', industry: '', organization_stage: '', goal: '', time_horizon: '',
     constraints: '', stakeholders: '', decision_rights: '', success_metrics: '', evidence: '',
@@ -235,6 +237,9 @@ export function BusinessControlCenter({ onClose, initialProjectId = 'default', i
   const risks = center?.risks ?? [];
   const adaptive = adaptiveCompilation(center?.dynamic_sop?.metadata?.adaptive_compilation);
   const adaptiveModelRun = adaptive?.model_run;
+  const missionIntakeSessionId = typeof center?.mission.context?.intake_session_id === 'string'
+    ? center.mission.context.intake_session_id : '';
+  const visibleIntakeSessionId = activeIntakeSessionId || missionIntakeSessionId;
   const adaptiveStatus = adaptive?.status === 'completed'
     ? `PROJECT CONTEXT REFINED${adaptive.context_available ? '' : ' (MISSION EVIDENCE ONLY)'}`
     : adaptive?.reason === 'model_output_not_grounded'
@@ -254,7 +259,7 @@ export function BusinessControlCenter({ onClose, initialProjectId = 'default', i
 
     {error && <div className="dbos-alert" role="alert"><AlertTriangle size={16} /><span>{error}</span></div>}
 
-    {!center ? <form className="dbos-intake" aria-busy={busy} onSubmit={(event) => { event.preventDefault(); void createAndDiagnose(); }}>
+    {!center ? <><BlindspotIntakePanel projectId={projectId.trim()} disabled={busy} onMissionConverted={(nextMissionId) => { setActiveIntakeSessionId(''); setMissionId(nextMissionId); void refresh(nextMissionId); }} /><details className="dbos-manual-intake"><summary>Manual Mission</summary><form className="dbos-intake" aria-busy={busy} onSubmit={(event) => { event.preventDefault(); void createAndDiagnose(); }}>
       <div className="dbos-intake__intro"><ShieldCheck size={22} /><div><strong>Start with a diagnosis, not an SOP title.</strong><span>The Mission stays non-executable until its capability grants are reviewed and confirmed.</span></div></div>
       {busyLabel && <div className="dbos-intake__status" role="status" aria-live="polite"><RefreshCw size={15} /><span>{busyLabel}</span></div>}
       <label>Mission title<input required value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label>
@@ -271,7 +276,8 @@ export function BusinessControlCenter({ onClose, initialProjectId = 'default', i
       <label>Success metrics<textarea value={draft.success_metrics} onChange={(event) => setDraft({ ...draft, success_metrics: event.target.value })} placeholder="One measurable outcome per line" /></label>
       <label className="dbos-intake__evidence">Observed evidence<textarea aria-label="Observed evidence" value={draft.evidence} onChange={(event) => setDraft({ ...draft, evidence: event.target.value })} placeholder={'Source | finding | strength\nWeekly dashboard | Cart conversion fell 12% | high'} /></label>
       <button type="submit" disabled={busy || !projectId.trim()}><Network size={16} />{busyLabel || 'Create diagnosis'}</button>
-    </form> : <>
+    </form></details></> : <>
+      {visibleIntakeSessionId && <BlindspotIntakePanel projectId={projectId.trim()} sessionId={visibleIntakeSessionId} disabled={busy} onMissionConverted={(nextMissionId) => { setActiveIntakeSessionId(visibleIntakeSessionId); setMissionId(nextMissionId); void refresh(nextMissionId); }} />}
       <div className="dbos-metrics">
         <div><small>MISSION</small><strong>{String(center.mission.status || center.mission.mission_status || 'draft')}</strong></div>
         <div><small>CAPABILITIES</small><strong>{center.selection?.selected?.length ?? 0}</strong></div>

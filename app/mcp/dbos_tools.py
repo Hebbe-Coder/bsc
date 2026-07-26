@@ -268,6 +268,50 @@ def dbos_feedback(
     return dbos_record_feedback(project_id, mission_id, statement, source_refs)
 
 
+def dbos_intake(
+    project_id: str,
+    action: str = "get",
+    session_id: str = "",
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Unified governed-intake facade with no execution or external side effects."""
+    _project(project_id)
+    values = payload or {}
+    service = dbos_service_for(project_id)
+    if action == "create":
+        intake = service.create_intake(project_id, str(values.get("request_text") or ""), context=values.get("context") if isinstance(values.get("context"), dict) else {})
+        return {"intake": intake.model_dump(mode="json")}
+    if not session_id.strip():
+        raise ValueError("session_id is required")
+    if action == "get":
+        return {"intake": service.get_intake(session_id).model_dump(mode="json")}
+    if action == "resolve_uncertain":
+        intake = service.resolve_intake_uncertainty(session_id, str(values.get("action") or ""))
+        return {"intake": intake.model_dump(mode="json")}
+    if action == "next_question":
+        question = service.next_intake_question(session_id)
+        return {"intake": service.get_intake(session_id).model_dump(mode="json"), "question": question}
+    if action == "answer":
+        intake = service.answer_intake(session_id, str(values.get("question_id") or ""), str(values.get("answer") or ""), skipped=bool(values.get("skipped")))
+        return {"intake": intake.model_dump(mode="json")}
+    if action == "revert":
+        intake = service.revert_intake_answer(session_id, str(values.get("revision_id") or ""))
+        return {"intake": intake.model_dump(mode="json")}
+    if action == "select_tier":
+        intake = service.select_intake_tier(session_id, str(values.get("tier") or ""))
+        return {"intake": intake.model_dump(mode="json")}
+    if action == "convert":
+        flow = service.convert_intake(session_id, title=str(values.get("title") or ""))
+        return {"intake": service.get_intake(session_id).model_dump(mode="json"), "mission": flow.mission.model_dump(mode="json")}
+    if action == "recommend":
+        intake = service.recommend_intake(session_id)
+        return {"intake": intake.model_dump(mode="json")}
+    if action == "export_handoff":
+        handoff = service.export_intake_handoff(session_id, actor_id=str(values.get("actor_id") or "mcp"), approved=bool(values.get("approved")))
+        return {"intake": service.get_intake(session_id).model_dump(mode="json"), "handoff": handoff.model_dump(mode="json")}
+    raise ValueError("unsupported intake action")
+
+
 def _project(project_id: str) -> None:
     if not project_id or not project_id.strip():
         raise ValueError("project_id is required")
@@ -283,6 +327,7 @@ __all__ = [
     "dbos_execute",
     "dbos_execute_mission",
     "dbos_feedback",
+    "dbos_intake",
     "dbos_mission",
     "dbos_record_feedback",
     "dbos_record_decision",
