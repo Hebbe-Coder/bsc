@@ -1,26 +1,34 @@
 import {
   AlertTriangle, BarChart3, BookOpen, FileDiff, FileText,
-  Download, LayoutList, LoaderCircle, Network, Play, RefreshCw, Settings2, ShieldAlert, Sparkles, Sprout, X,
+  Download, LayoutList, ListChecks, LoaderCircle, Network, Play, RefreshCw, Settings2, ShieldAlert, Sparkles, Sprout, X,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import {
   classifyGrowthError,
   addGrowthOutputFeedback,
+  distillGrowthSourceMethods,
+  extractGrowthSourceCandidates,
   evaluateGrowthOutput,
   evaluateGrowthMethodProposal,
   fetchGrowthAccess,
   fetchGrowthAssetDetail,
+  fetchGrowthCaptureAttempts,
+  fetchGrowthFailures,
   fetchGrowthHealth,
+  fetchLatestGrowthDistillation,
   fetchGrowthLineage,
   fetchGrowthOverview,
   fetchGrowthRuns,
+  fetchGrowthRunEvents,
   fetchGrowthStage,
   fetchGrowthTrend,
   fileGrowthOutput,
   linkGrowthOutputEvidence,
   processGrowthFeedback,
   publishGrowthMethodProposal,
+  reviewGrowthCandidate,
+  resolveGrowthFailure,
   runGrowthWorkspaceJob,
   setGrowthAccessKey,
   triageGrowthSource,
@@ -28,8 +36,11 @@ import {
   type GrowthAccess,
   type GrowthAssetDetail,
   type GrowthAssetKind,
+  type GrowthCaptureAttempt,
   type GrowthFeedbackInput,
+  type GrowthFailure,
   type GrowthHealth,
+  type GrowthDistillation,
   type GrowthLineage,
   type GrowthOutputEvaluationInput,
   type GrowthOutputEvidenceInput,
@@ -38,6 +49,7 @@ import {
   type GrowthRecord,
   type GrowthRequestState,
   type GrowthRun,
+  type GrowthRunEvent,
   type GrowthStage,
   type GrowthStageResult,
   type GrowthTrend,
@@ -49,6 +61,7 @@ import { GrowthFunnel } from './GrowthFunnel';
 import { GrowthInspector } from './GrowthInspector';
 import { GrowthLineageGraph } from './GrowthLineageGraph';
 import { GrowthProfileEditor } from './GrowthProfileEditor';
+import { GrowthRunLedger } from './GrowthRunLedger';
 import { GrowthStageRail } from './GrowthStageRail';
 import { GrowthTrends } from './GrowthTrends';
 import { GROWTH_STAGES, growthRecordLabel, normalizeGrowthNodeType } from './growthModel';
@@ -73,6 +86,7 @@ function stageTotal(overview: GrowthOverview | null, stage: GrowthStage): number
 
 function stageForEndpoint(type: string): GrowthStage {
   if (type === 'method_proposal') return 'review';
+  if (type === 'candidate') return 'review';
   const normalized = normalizeGrowthNodeType(type);
   if (normalized === 'source') return 'A';
   if (normalized === 'page') return 'B';
@@ -83,6 +97,7 @@ function stageForEndpoint(type: string): GrowthStage {
 
 function kindForEndpoint(type: string): GrowthAssetKind {
   if (type === 'method_proposal') return 'method_proposal';
+  if (type === 'candidate') return 'candidate';
   const normalized = normalizeGrowthNodeType(type);
   if (normalized === 'source') return 'source';
   if (normalized === 'page') return 'page';
@@ -98,6 +113,26 @@ function outputNeedsEvidence(detail: GrowthAssetDetail | null): boolean {
   const metadata = detail.record.metadata;
   const requiresEvidence = !(metadata && typeof metadata === 'object' && (metadata as Record<string, unknown>).requires_evidence === false);
   return requiresEvidence && sourceRefs.length === 0 && pageRefs.length === 0;
+}
+
+function distillationProvenance(distillation: GrowthDistillation | null, state: 'loading' | 'available' | 'unavailable'): { label: string; detail: string } {
+  if (state === 'loading') return { label: 'checking', detail: 'reading persisted generation metadata' };
+  if (state === 'unavailable') return { label: 'unavailable', detail: 'generation metadata could not be read' };
+  if (!distillation) return { label: 'not recorded', detail: 'no managed daily or weekly bundle exists' };
+  const generation = distillation.generation;
+  const mode = String(generation?.mode || 'deterministic').toUpperCase();
+  const model = String(generation?.model || generation?.provider || 'no model recorded');
+  const period = String(distillation.period || distillation.week || 'unknown period');
+  const kind = String(distillation.kind || 'distillation');
+  const llmDocuments = Array.isArray(generation?.llm_documents) ? generation.llm_documents.length : 0;
+  const fallbackDocuments = Array.isArray(generation?.fallback_documents) ? generation.fallback_documents.length : 0;
+  if (String(generation?.mode || '') === 'llm') {
+    return { label: `LLM / ${model}`, detail: `${kind} ${period} / ${llmDocuments || (distillation.paths?.length ?? 0)} LLM documents` };
+  }
+  if (String(generation?.mode || '') === 'hybrid') {
+    return { label: `HYBRID / ${model}`, detail: `${kind} ${period} / ${llmDocuments} LLM, ${fallbackDocuments} cited fallback` };
+  }
+  return { label: mode, detail: `${kind} ${period} / ${generation?.reason || 'cited deterministic generation'}` };
 }
 
 function WorkspaceBoundary({ state, error, onRetry }: { state: GrowthRequestState; error: ErrorInfo | null; onRetry: () => void }) {
@@ -202,7 +237,15 @@ export function GrowthWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
   const [actionMessage, setActionMessage] = useState('');
   const [graphSelection, setGraphSelection] = useState<GraphSelection | null>(null);
   const [latestRun, setLatestRun] = useState<GrowthRun | null>(null);
+  const [runs, setRuns] = useState<GrowthRun[]>([]);
+  const [selectedRunId, setSelectedRunId] = useState('');
+  const [runEvents, setRunEvents] = useState<GrowthRunEvent[]>([]);
+  const [runCaptureAttempts, setRunCaptureAttempts] = useState<GrowthCaptureAttempt[]>([]);
+  const [runFailures, setRunFailures] = useState<GrowthFailure[]>([]);
+  const [runsError, setRunsError] = useState<ErrorInfo | null>(null);
   const [runMessage, setRunMessage] = useState('No growth cycle has been recorded yet.');
+  const [latestDistillation, setLatestDistillation] = useState<GrowthDistillation | null>(null);
+  const [latestDistillationState, setLatestDistillationState] = useState<'loading' | 'available' | 'unavailable'>('loading');
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
   const [profileMessage, setProfileMessage] = useState('');
 
@@ -248,14 +291,56 @@ export function GrowthWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
     void fetchGrowthRuns(projectId, controller.signal).then((runs) => {
       if (controller.signal.aborted) return;
       const latest = runs[0] ?? null;
+      setRuns(runs); setRunsError(null);
+      setSelectedRunId((current) => runs.some((run) => run.id === current) ? current : (latest?.id || ''));
       setLatestRun(latest);
       setRunMessage(latest ? `${String(latest.run_type || 'growth cycle')}: ${String(latest.status || 'recorded')}` : 'No growth cycle has been recorded yet.');
     }).catch((reason: unknown) => {
       if (controller.signal.aborted) return;
-      const failure = errorInfo(reason); setLatestRun(null); setRunMessage(`Run status unavailable: ${failure.info.message}`);
+      const failure = errorInfo(reason); setRuns([]); setSelectedRunId(''); setRunsError(failure.info); setLatestRun(null); setRunMessage(`Run status unavailable: ${failure.info.message}`);
+    });
+    setLatestDistillation(null); setLatestDistillationState('loading');
+    void fetchLatestGrowthDistillation(projectId, controller.signal).then((next) => {
+      if (controller.signal.aborted) return;
+      setLatestDistillation(next); setLatestDistillationState('available');
+    }).catch(() => {
+      if (controller.signal.aborted) return;
+      setLatestDistillation(null); setLatestDistillationState('unavailable');
     });
     return () => controller.abort();
   }, [projectId, reloadEpoch, setRequestState]);
+
+  useEffect(() => {
+    if (!selectedRunId) {
+      setRunEvents([]); setRunCaptureAttempts([]); setRunFailures([]); setRequestState('runs', 'empty');
+      return undefined;
+    }
+    const controller = new AbortController();
+    setRunEvents([]); setRunCaptureAttempts([]); setRunFailures([]); setRunsError(null); setRequestState('runs', 'loading');
+    void Promise.all([
+      fetchGrowthRunEvents(projectId, selectedRunId, controller.signal),
+      fetchGrowthCaptureAttempts(projectId, { runId: selectedRunId }, controller.signal),
+      fetchGrowthFailures(projectId, { runId: selectedRunId }, controller.signal),
+    ]).then(([timeline, captureAttempts, failures]) => {
+      if (controller.signal.aborted) return;
+      setRunEvents(timeline.events); setRunCaptureAttempts(captureAttempts); setRunFailures(failures);
+      setRequestState('runs', 'success');
+    }).catch((reason: unknown) => {
+      if (controller.signal.aborted) return;
+      const failure = errorInfo(reason); setRunEvents([]); setRunCaptureAttempts([]); setRunFailures([]); setRunsError(failure.info); setRequestState('runs', failure.state);
+    });
+    return () => controller.abort();
+  }, [projectId, reloadEpoch, selectedRunId, setRequestState]);
+
+  useEffect(() => {
+    const pendingMethodRun = runs.some((run) => (
+      ['source_method_distillation', 'cangjie_candidate_extraction'].includes(String(run.run_type || ''))
+      && ['queued', 'running'].includes(String(run.status || ''))
+    ));
+    if (!pendingMethodRun) return undefined;
+    const timer = window.setTimeout(() => setReloadEpoch((value) => value + 1), 1_500);
+    return () => window.clearTimeout(timer);
+  }, [runs]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -376,6 +461,65 @@ export function GrowthWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
       const failure = errorInfo(reason); setRequestState('action', failure.state); setActionMessage(failure.info.message);
     }
   };
+  const distillSourceMethods = async (current: GrowthAssetDetail) => {
+    setRequestState('action', 'loading'); setActionMessage('');
+    try {
+      const result = await distillGrowthSourceMethods(projectId, current.record.id);
+      setLatestRun(result.run); setSelectedRunId(result.run.id); setCenterView('runs'); setInspectorOpen(false);
+      setRequestState('action', 'success');
+      const execution = result.execution.execution === 'celery' ? 'the durable worker queue' : 'the local API process';
+      setRunMessage(`source_method_distillation: ${String(result.run.status || 'queued')} / ${result.execution.execution}`);
+      setActionMessage(`Method proposal generation was submitted to ${execution}. This request can now close safely; inspect the persisted run ledger and review queue after it reaches a terminal state.`);
+      refresh();
+    } catch (reason) {
+      const failure = errorInfo(reason); setRequestState('action', failure.state); setActionMessage(failure.info.message);
+    }
+  };
+  const distillAcceptedCandidate = async (current: GrowthAssetDetail) => {
+    const sourceId = String(current.record.source_id || '').trim();
+    if (!sourceId) {
+      setRequestState('action', 'error');
+      setActionMessage('The accepted candidate has no persisted immutable source reference. No method draft was submitted.');
+      return;
+    }
+    setRequestState('action', 'loading'); setActionMessage('');
+    try {
+      const result = await distillGrowthSourceMethods(projectId, sourceId, [current.record.id]);
+      setLatestRun(result.run); setSelectedRunId(result.run.id); setCenterView('runs'); setInspectorOpen(false);
+      setRequestState('action', 'success');
+      const execution = result.execution.execution === 'celery' ? 'the durable worker queue' : 'the local API process';
+      setRunMessage(`source_method_distillation: ${String(result.run.status || 'queued')} / ${result.execution.execution}`);
+      setActionMessage(`The accepted ${String(current.record.candidate_type || 'evidence')} selection was submitted to ${execution}. The resulting method remains a review-only proposal and must pass evaluation before publication.`);
+      refresh();
+    } catch (reason) {
+      const failure = errorInfo(reason); setRequestState('action', failure.state); setActionMessage(failure.info.message);
+    }
+  };
+  const extractSourceCandidates = async (current: GrowthAssetDetail) => {
+    setRequestState('action', 'loading'); setActionMessage('');
+    try {
+      const result = await extractGrowthSourceCandidates(projectId, current.record.id);
+      setLatestRun(result.run); setSelectedRunId(result.run.id); setCenterView('runs'); setInspectorOpen(false);
+      setRequestState('action', 'success');
+      const execution = result.execution.execution === 'celery' ? 'the durable worker queue' : 'the local API process';
+      setRunMessage(`cangjie_candidate_extraction: ${String(result.run.status || 'queued')} / ${result.execution.execution}`);
+      setActionMessage(`Five independent evidence extractors were submitted to ${execution}. Their output will remain in the review queue; no Wiki page, method, or Skill can be published by this run.`);
+      refresh();
+    } catch (reason) {
+      const failure = errorInfo(reason); setRequestState('action', failure.state); setActionMessage(failure.info.message);
+    }
+  };
+  const reviewCandidate = async (current: GrowthAssetDetail, review: { decision: 'accepted' | 'rejected'; review_note?: string }) => {
+    setRequestState('action', 'loading'); setActionMessage('');
+    try {
+      await reviewGrowthCandidate(projectId, current.record.id, review);
+      setRequestState('action', 'success');
+      setActionMessage(`Candidate ${review.decision}. This decision records review state only; it does not publish a method or Wiki page.`);
+      refresh();
+    } catch (reason) {
+      const failure = errorInfo(reason); setRequestState('action', failure.state); setActionMessage(failure.info.message);
+    }
+  };
   const submitFeedback = async (current: GrowthAssetDetail, payload: GrowthFeedbackInput) => {
     setRequestState('action', 'loading'); setActionMessage('');
     try {
@@ -441,6 +585,18 @@ export function GrowthWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
       const failure = errorInfo(reason); setRequestState('action', failure.state); setRunMessage(`${jobType} failed: ${failure.info.message}`);
     }
   };
+  const resolveFailure = async (failure: GrowthFailure) => {
+    const note = window.prompt(`Resolution note for ${failure.code}:`);
+    if (!note?.trim()) return;
+    setRequestState('action', 'loading'); setActionMessage('');
+    try {
+      const resolved = await resolveGrowthFailure(projectId, failure.id, { resolution_note: note.trim() });
+      setRunFailures((current) => current.map((item) => item.id === resolved.id ? resolved : item));
+      setRequestState('action', 'success'); setActionMessage(`Failure ${resolved.code} was resolved and remains in the audit ledger.`); refresh();
+    } catch (reason) {
+      const failureInfo = errorInfo(reason); setRequestState('action', failureInfo.state); setActionMessage(failureInfo.info.message);
+    }
+  };
   const saveProfile = async (profile: GrowthProfileUpdate) => {
     setRequestState('action', 'loading');
     setProfileMessage('');
@@ -481,8 +637,9 @@ export function GrowthWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
           ? 'no unconsumed native run is available'
           : `${access?.horizon?.captured_sources ?? 0} immutable signals captured`;
   const schedulerLabel = access?.scheduler?.available ? 'Celery ready' : access?.scheduler ? 'manual only' : 'not checked';
+  const latestDistillationProvenance = distillationProvenance(latestDistillation, latestDistillationState);
   const viewButtons: Array<{ id: GrowthCenterView; label: string; icon: typeof LayoutList }> = [
-    { id: 'assets', label: 'Assets', icon: LayoutList }, { id: 'metrics', label: 'Metrics', icon: BarChart3 }, { id: 'lineage', label: 'Lineage', icon: Network },
+    { id: 'assets', label: 'Assets', icon: LayoutList }, { id: 'runs', label: 'Runs', icon: ListChecks }, { id: 'metrics', label: 'Metrics', icon: BarChart3 }, { id: 'lineage', label: 'Lineage', icon: Network },
   ];
 
   return <section className="growth-workspace" aria-label="Knowledge growth workspace">
@@ -514,6 +671,8 @@ export function GrowthWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
         <div><span>AUTOMATION</span><strong>{schedulerLabel}</strong><small>{access?.growth?.status || 'no growth run'} growth state</small></div>
         <div><span>ELIGIBLE A</span><strong>{counts?.eligible_sources ?? 0}</strong><small>of {counts?.sources ?? 0} captured</small></div>
         <div><span>VERIFIED D</span><strong>{counts?.accepted_outputs ?? 0}</strong><small>{counts?.rejected_outputs ?? 0} rejected</small></div>
+        <div><span>OPEN FAILURES</span><strong>{counts?.open_failures ?? 0}</strong><small>reviewed in the run ledger</small></div>
+        <div><span>LATEST DISTILLATION</span><strong>{latestDistillationProvenance.label}</strong><small>{latestDistillationProvenance.detail}</small></div>
         <div><span>LATEST CYCLE</span><strong>{String(latestRun?.status || 'not run')}</strong><small>{runMessage}</small></div>
       </div>
       {profileEditorOpen && <GrowthProfileEditor
@@ -536,9 +695,10 @@ export function GrowthWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
             </div>
           </>}
           {centerView === 'metrics' && <section className="growth-panel"><div className="growth-panel__heading"><div><p>QUALITY & TRENDS</p><h3>Persisted health observations</h3></div><BarChart3 size={18} /></div><GrowthTrends trend={trend} health={health} counts={counts} state={requestStates.metrics} error={metricsError?.message} onRetry={refresh} /></section>}
+          {centerView === 'runs' && <section className="growth-panel"><div className="growth-panel__heading"><div><p>RUN LEDGER</p><h3>Inputs, sources, events, outputs and failure diagnostics</h3></div><span>{runs.length} durable runs</span></div><GrowthRunLedger runs={runs} selectedRunId={selectedRunId} events={runEvents} captureAttempts={runCaptureAttempts} failures={runFailures} state={requestStates.runs} error={runsError?.message} canWrite={access?.can_write === true} busy={requestStates.action === 'loading'} onSelect={setSelectedRunId} onResolveFailure={(failure) => void resolveFailure(failure)} onRetry={refresh} /></section>}
           {centerView === 'lineage' && <section className="growth-panel"><div className="growth-panel__heading"><div><p>LINEAGE</p><h3>Bounded evidence relationships</h3></div><span>{lineage ? `${lineage.edges.length}${lineage.truncated ? '+' : ''} edges` : 'not loaded'}</span></div><GrowthLineageGraph lineage={lineage} state={requestStates.lineage} error={lineageError?.message} relation={relation} onRelationChange={setRelation} onSelect={followAsset} onRetry={refresh} /></section>}
         </main>
-        <GrowthInspector selected={selected} detail={detail} state={requestStates.detail} error={detailError?.message} edges={relevantEdges} nodes={lineage?.nodes} canWrite={access?.can_write ?? null} compact={compact} open={inspectorOpen} actionState={requestStates.action} actionMessage={actionMessage} evidenceSources={evidenceSources} evidenceState={evidenceState} onClose={() => setInspectorOpen(false)} onAction={(current) => void runAction(current)} onEvaluate={(current, payload) => void submitEvaluation(current, payload)} onEvaluateMethod={(current) => void evaluateMethodCandidate(current)} onPublishMethod={(current) => void publishMethodCandidate(current)} onLinkEvidence={(current, payload) => void submitEvidence(current, payload)} onFeedback={(current, payload) => void submitFeedback(current, payload)} onFollow={followAsset} />
+        <GrowthInspector selected={selected} detail={detail} state={requestStates.detail} error={detailError?.message} edges={relevantEdges} nodes={lineage?.nodes} canWrite={access?.can_write ?? null} compact={compact} open={inspectorOpen} actionState={requestStates.action} actionMessage={actionMessage} evidenceSources={evidenceSources} evidenceState={evidenceState} onClose={() => setInspectorOpen(false)} onAction={(current) => void runAction(current)} onDistillSourceMethods={(current) => void distillSourceMethods(current)} onDistillAcceptedCandidate={(current) => void distillAcceptedCandidate(current)} onExtractSourceCandidates={(current) => void extractSourceCandidates(current)} onReviewCandidate={(current, review) => void reviewCandidate(current, review)} onEvaluate={(current, payload) => void submitEvaluation(current, payload)} onEvaluateMethod={(current) => void evaluateMethodCandidate(current)} onPublishMethod={(current) => void publishMethodCandidate(current)} onLinkEvidence={(current, payload) => void submitEvidence(current, payload)} onFeedback={(current, payload) => void submitFeedback(current, payload)} onFollow={followAsset} />
       </div>
     </>}
   </section>;

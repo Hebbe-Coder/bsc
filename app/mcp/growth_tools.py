@@ -13,6 +13,9 @@ from app.core.config import settings
 from app.knowledge.capture_adapters import redact_secrets
 from app.knowledge.feedback_router import FeedbackRouter
 from app.knowledge.growth_contracts import (
+    KnowledgeFailureCode,
+    KnowledgeFailurePattern,
+    KnowledgeFailureRecord,
     OutputAsset,
     OutputFeedback,
     ProjectKnowledgeProfile,
@@ -20,8 +23,10 @@ from app.knowledge.growth_contracts import (
 )
 from app.knowledge.growth_distillation import GrowthDistillationService
 from app.knowledge.growth_repository import GrowthRepository
+from app.knowledge.method_distillation import SourceMethodDistillationService
 from app.knowledge.method_detector import MethodDetector
 from app.knowledge.method_evaluator import MethodEvaluator
+from app.knowledge.method_evolution import MethodEvolutionService
 from app.knowledge.method_gate import MethodGate
 from app.knowledge.method_registry import MethodRegistry
 from app.knowledge.output_evaluator import OutputEvaluator
@@ -150,7 +155,7 @@ def growth_method(
 ) -> dict:
     _require_enabled()
     project_id = _project(project_id)
-    action = _action(action, {"list", "get", "propose", "review", "publish", "resolve", "revisions", "deprecate"})
+    action = _action(action, {"list", "get", "propose", "distill", "review", "publish", "resolve", "revisions", "deprecate", "experiments", "experiment", "evolve"})
     payload = payload or {}
     repo = _repo()
     try:
@@ -178,6 +183,23 @@ def growth_method(
                 dict(payload.get("manifest") or {}),
             )
             data = {"proposal": _public(proposal), "publication_status": "proposal_only"}
+        elif action == "distill":
+            source_id = str(payload.get("source_id") or "").strip()
+            if not source_id:
+                raise ValueError("source_id is required for method distillation")
+            candidate_ids = [str(item).strip() for item in payload.get("candidate_ids") or [] if str(item).strip()]
+            result = SourceMethodDistillationService(repo).distill(
+                project_id=project_id,
+                source_id=source_id,
+                actor_id="mcp",
+                candidate_ids=candidate_ids,
+            )
+            data = {
+                "run_id": result["run_id"],
+                "proposals": [_method_proposal(item) for item in result["proposals"]],
+                "provider": _public(result["provider"]),
+                "publication_status": "proposal_only",
+            }
         elif action == "review":
             proposal = _required(repo.get_method_proposal(project_id, proposal_id), "method proposal")
             evaluation = MethodEvaluator(repo).evaluate(
@@ -227,6 +249,45 @@ def growth_method(
                 "method_id": method_id,
                 "revisions": page,
                 "pagination": pagination,
+            }
+        elif action == "experiments":
+            _required(repo.get_method(project_id, method_id), "method")
+            records = repo.list_method_evolution_runs(
+                project_id,
+                method_id=method_id,
+                status=status,
+                limit=MAX_PAGE_SIZE,
+            )
+            page, pagination = _paginate([_public(item) for item in records], limit, cursor)
+            data = {"method_id": method_id, "experiments": page, "pagination": pagination}
+        elif action == "experiment":
+            experiment_id = str(payload.get("experiment_id") or "").strip()
+            if not experiment_id:
+                raise ValueError("experiment_id is required")
+            data = {
+                "experiment": _required(
+                    repo.get_method_evolution_run(project_id, experiment_id),
+                    "method evolution experiment",
+                )
+            }
+        elif action == "evolve":
+            experiment, idempotent = MethodEvolutionService(repo).start(
+                project_id=project_id,
+                method_id=method_id,
+                candidate_body=str(payload.get("candidate_body") or ""),
+                candidate_manifest=dict(payload.get("candidate_manifest") or {}),
+                supporting_output_ids=list(payload.get("supporting_output_ids") or []),
+                mutation_dimension=str(payload.get("mutation_dimension") or ""),
+                rationale=str(payload.get("rationale") or ""),
+                idempotency_key=str(payload.get("idempotency_key") or ""),
+                actor_id="mcp",
+            )
+            data = {
+                "experiment": _public(experiment),
+                "idempotent": idempotent,
+                "publication_status": "review_required"
+                if experiment.get("decision") == "retain"
+                else "not_publishable",
             }
         else:
             reason = _reason(payload)
@@ -569,6 +630,77 @@ def growth_run(
         repo.close()
 
 
+def growth_failure(
+    project_id: str,
+    action: str = "list",
+    failure_id: str = "",
+    status: str = "",
+    run_id: str = "",
+    diagnostic_pattern: str = "",
+    limit: int = 100,
+    cursor: str = "",
+    payload: dict[str, Any] | None = None,
+) -> dict:
+    """Read and resolve durable failure diagnostics without exposing raw evidence."""
+    _require_enabled()
+    project_id = _project(project_id)
+    action = _action(action, {"list", "get", "create", "resolve"})
+    payload = payload or {}
+    repo = _repo()
+    try:
+        if action == "list":
+            pattern = KnowledgeFailurePattern(diagnostic_pattern).value if diagnostic_pattern else ""
+            records = repo.list_failure_records(
+                project_id,
+                status=status,
+                run_id=run_id,
+                diagnostic_pattern=pattern,
+                limit=MAX_PAGE_SIZE,
+            )
+            page, pagination = _paginate([_public(item) for item in records], limit, cursor)
+            data = {"failures": page, "pagination": pagination}
+        elif action == "get":
+            data = {"failure": _required(repo.get_failure_record(project_id, failure_id), "failure record")}
+        elif action == "create":
+            code = KnowledgeFailureCode(str(payload.get("code") or ""))
+            failure = repo.create_failure_record(
+                KnowledgeFailureRecord(
+                    project_id=project_id,
+                    code=code,
+                    diagnostic_pattern=(
+                        KnowledgeFailurePattern(str(payload["diagnostic_pattern"]))
+                        if payload.get("diagnostic_pattern")
+                        else None
+                    ),
+                    secondary_diagnostic_patterns=[
+                        KnowledgeFailurePattern(str(item))
+                        for item in payload.get("secondary_diagnostic_patterns") or []
+                    ],
+                    severity=str(payload.get("severity") or "error"),
+                    summary=str(payload.get("summary") or "").strip(),
+                    run_id=str(payload.get("run_id") or "").strip(),
+                    event_sequence=payload.get("event_sequence"),
+                    evidence_refs=[str(item) for item in payload.get("evidence_refs") or [] if str(item)],
+                    root_cause=str(payload.get("root_cause") or ""),
+                    minimal_structural_fix=str(payload.get("minimal_structural_fix") or ""),
+                    retryable=bool(payload.get("retryable", False)),
+                )
+            )
+            data = {"failure": _public(failure)}
+        else:
+            failure = repo.resolve_failure_record(
+                project_id,
+                failure_id,
+                actor_id="mcp",
+                resolution_note=str(payload.get("resolution_note") or "").strip(),
+                retry_scheduled=bool(payload.get("retry_scheduled", False)),
+            )
+            data = {"failure": _public(failure)}
+        return _result(repo, project_id, data)
+    finally:
+        repo.close()
+
+
 def growth_distillation(
     project_id: str,
     action: str = "list",
@@ -661,6 +793,15 @@ def _start_run(
     if not claim["claimed"]:
         return {"status": "duplicate", "run_id": claim["run_id"], "duplicate": True}
     run_id = claim["run_id"]
+    if not settings.KNOWLEDGE_SCHEDULES_ENABLED:
+        repo.update_run_status(
+            project_id,
+            run_id,
+            RunStatus.UNAVAILABLE,
+            error="durable scheduler unavailable because the knowledge schedules feature is disabled",
+            output_refs={"failure": {"code": "scheduler_disabled", "retryable": True}},
+        )
+        return {"status": "unavailable", "run_id": run_id}
     if not is_celery_real():
         from app.tasks.knowledge_tasks import execute_knowledge_run
 
@@ -802,6 +943,13 @@ def _assert_output_immutable(before: dict[str, Any], after: dict[str, Any]) -> N
 def _source(value: dict[str, Any]) -> dict[str, Any]:
     item = _public(value)
     item.pop("raw_content", None)
+    return item
+
+
+def _method_proposal(value: dict[str, Any]) -> dict[str, Any]:
+    """Keep source-derived candidate bodies behind the proposal detail boundary."""
+    item = _public(value)
+    item.pop("body", None)
     return item
 
 

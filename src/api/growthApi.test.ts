@@ -5,13 +5,18 @@ import {
   GrowthRequestError,
   classifyGrowthError,
   fetchGrowthAssetDetail,
+  fetchGrowthFailures,
+  fetchLatestGrowthDistillation,
   fetchGrowthLineage,
+  fetchGrowthRunEvents,
   fetchGrowthOverview,
   fetchGrowthStage,
   evaluateGrowthOutput,
   fileGrowthOutput,
+  distillGrowthSourceMethods,
   growthRecordKind,
   linkGrowthOutputEvidence,
+  resolveGrowthFailure,
   updateGrowthProfile,
 } from './growthApi';
 
@@ -63,6 +68,46 @@ describe('growthApi', () => {
     expect(requests[0].url).toContain('/knowledge/growth/project-a/profile');
     expect(requests[0].init?.method).toBe('PATCH');
     expect(JSON.parse(String(requests[0].init?.body))).toMatchObject({ expected_revision: 7, research_domains: ['agent systems'] });
+  });
+
+  it('reads and resolves only project-scoped run failure diagnostics', async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      requests.push({ url, init });
+      if (url.includes('/events?')) return Promise.resolve(ok({ run: { id: 'run-a' }, events: [{ id: 'event-a', run_id: 'run-a', sequence: 1, event_type: 'knowledge.capture.failed' }] }));
+      if (init?.method === 'POST') return Promise.resolve(ok({ failure: { id: 'failure-a', code: 'source_capture_failure', severity: 'error', summary: 'Capture timed out', status: 'resolved' } }));
+      return Promise.resolve(ok({ failures: [{ id: 'failure-a', code: 'source_capture_failure', severity: 'error', summary: 'Capture timed out', run_id: 'run-a', status: 'open' }] }));
+    }));
+
+    const timeline = await fetchGrowthRunEvents('project-a', 'run-a');
+    const failures = await fetchGrowthFailures('project-a', { runId: 'run-a' });
+    const resolved = await resolveGrowthFailure('project-a', 'failure-a', { resolution_note: 'Channel restored.' });
+
+    expect(timeline.events[0].run_id).toBe('run-a');
+    expect(failures[0].run_id).toBe('run-a');
+    expect(resolved.status).toBe('resolved');
+    expect(requests.every((request) => request.url.includes('project-a'))).toBe(true);
+    expect(requests.find((request) => request.init?.method === 'POST')?.url).toContain('/failures/failure-a/resolve');
+  });
+
+  it('reads only the latest persisted distillation provenance metadata', async () => {
+    const requests: string[] = [];
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      requests.push(String(input));
+      return Promise.resolve(ok({
+        distillations: [{
+          id: 'weekly-a', project_id: 'project-a', kind: 'weekly', period: '2026-W30', status: 'generated',
+          manifest: { generation: { mode: 'llm', provider: 'deepseek', model: 'deepseek-v4-pro', llm_documents: ['summary.md'] } },
+        }],
+      }));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const latest = await fetchLatestGrowthDistillation('project-a');
+
+    expect(latest).toMatchObject({ id: 'weekly-a', generation: { mode: 'llm', model: 'deepseek-v4-pro' } });
+    expect(requests[0]).toContain('/knowledge/growth/project-a/distillations?limit=1');
   });
 
   it('uses stage and bounded limit parameters for incremental pagination', async () => {
@@ -137,7 +182,7 @@ describe('growthApi', () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes('/assets?')) return Promise.resolve(ok({ project_id: 'project-a', stage: 'C', items: [{ id: 'method-a', active_revision_id: 'revision-a', asset_type: 'method' }], pagination: { next_cursor: null } }));
-      return Promise.resolve(ok({ method: { id: 'method-a', status: 'published', active_revision_id: 'revision-a' }, revision: { id: 'revision-a', body: '# Exact method revision', version: 1 }, resolution_status: 'available' }));
+      return Promise.resolve(ok({ method: { id: 'method-a', status: 'published', active_revision_id: 'revision-a' }, revision: { id: 'revision-a', body: '# Exact method revision', version: 1 }, evolution_experiments: [{ id: 'experiment-a', decision: 'retain', mutation_dimension: 'body' }], resolution_status: 'available' }));
     });
     vi.stubGlobal('fetch', fetchMock);
 
@@ -146,6 +191,7 @@ describe('growthApi', () => {
     expect(detail.record.id).toBe('method-a');
     expect(detail.content).toBe('# Exact method revision');
     expect(detail.revisions?.[0].id).toBe('revision-a');
+    expect(detail.record.evolution_experiments).toEqual([{ id: 'experiment-a', decision: 'retain', mutation_dimension: 'body' }]);
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/methods/method-a/resolve'))).toBe(true);
   });
 
@@ -199,6 +245,19 @@ describe('growthApi', () => {
       expect.stringContaining('/project-a/outputs/output-a/file'),
     ]);
     expect(requests.every((item) => item.init?.method === 'POST')).toBe(true);
+  });
+
+  it('submits accepted candidate ids only as a review-guided source distillation selection', async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ url: String(input), init });
+      return Promise.resolve(ok({ run: { id: 'run-a', status: 'queued' }, proposals: [], publication_status: 'proposal_only', execution: { execution: 'in_process', task_id: 'in-process:run-a' } }));
+    }));
+
+    await distillGrowthSourceMethods('project-a', 'source-a', ['candidate-a']);
+
+    expect(requests[0].url).toContain('/knowledge/growth/project-a/methods/distill');
+    expect(JSON.parse(String(requests[0].init?.body))).toEqual({ source_id: 'source-a', candidate_ids: ['candidate-a'] });
   });
 
   it('links captured evidence before persisting an output quality review', async () => {

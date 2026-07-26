@@ -26,6 +26,7 @@ class RAGAnswerGenerator:
         provider: Optional[str] = None,
         service=None,
         llm_client=None,
+        promptops=None,
         keys: Optional[List[str]] = None,
         two_phase: bool = False,
         enable_agent_router: bool = True,
@@ -34,6 +35,9 @@ class RAGAnswerGenerator:
         self.provider = (provider or settings.RAG_LLM_PROVIDER or "mock").lower()
         self.service = service
         self._llm_client = llm_client
+        # A supplied client remains a deterministic/offline seam. Production
+        # requests without one are routed through PromptOps below.
+        self.promptops = promptops
         self.keys = keys or list(getattr(settings, "RAG_LLM_KEYS", []) or [])
         self.two_phase = two_phase or bool(getattr(settings, "RAG_TWO_PHASE", False))
         self.enable_agent_router = enable_agent_router
@@ -141,6 +145,103 @@ class RAGAnswerGenerator:
         
         return {"answer": cleaned, "citations": citations, "metrics": {"citation_rate": rate}}
 
+    def _answer_with_promptops(
+        self,
+        *,
+        question: str,
+        project_id: Optional[str],
+        context: str,
+        citations: List[dict],
+        rewrite_result: Optional[dict],
+        route_result: Optional[dict],
+        self_rag_result: Optional[dict],
+    ) -> dict:
+        """Generate a RAG answer through the audited, project-scoped model boundary."""
+        from app.promptops import PromptOps, PromptRequest, PromptTask
+
+        scope = project_id or "default"
+        promptops = self.promptops or PromptOps()
+        common = {
+            "project_id": scope,
+            "provider": self.provider,
+            "provider_keys": tuple(self.keys),
+        }
+        try:
+            if self.two_phase:
+                plan = promptops.run_structured(
+                    PromptRequest(
+                        **common,
+                        task=PromptTask.RETRIEVAL_SUFFICIENCY,
+                        revision="rag-citation-plan-v1",
+                        system_prompt=(
+                            "Return one JSON object with a cite_ids array. Select only "
+                            "the numbered knowledge blocks that support the answer."
+                        ),
+                        user_prompt=build_citation_plan_prompt(question, context),
+                        temperature=0.0,
+                        max_tokens=800,
+                    )
+                ).output or {}
+                valid_ids = {citation["index"] for citation in citations}
+                cite_ids = [
+                    cite_id for cite_id in plan.get("cite_ids", [])
+                    if isinstance(cite_id, int) and cite_id in valid_ids
+                ] if isinstance(plan, dict) else []
+                data = promptops.run_structured(
+                    PromptRequest(
+                        **common,
+                        task=PromptTask.RAG_ANSWER,
+                        revision="rag-answer-v1",
+                        system_prompt=build_system_prompt(),
+                        user_prompt=build_answer_prompt(question, context, cite_ids),
+                        temperature=0.2,
+                        max_tokens=2_000,
+                    )
+                ).output or {}
+            else:
+                data = promptops.run_structured(
+                    PromptRequest(
+                        **common,
+                        task=PromptTask.RAG_ANSWER,
+                        revision="rag-answer-v1",
+                        system_prompt=build_system_prompt(),
+                        user_prompt=build_user_prompt(question, context),
+                        temperature=0.2,
+                        max_tokens=2_000,
+                    )
+                ).output or {}
+            answer_text = data.get("answer", "") if isinstance(data, dict) else ""
+            if not answer_text:
+                return {
+                    "answer": "",
+                    "citations": citations,
+                    "degraded": True,
+                    "note": "Model returned no answer",
+                    "rewrite": rewrite_result,
+                    "route": route_result,
+                    "self_rag": self_rag_result,
+                }
+            cleaned, rate = self.validate_citations(answer_text, citations)
+            return {
+                "answer": cleaned,
+                "citations": citations,
+                "metrics": {"citation_rate": rate},
+                "rewrite": rewrite_result,
+                "route": route_result,
+                "self_rag": self_rag_result,
+            }
+        except Exception as exc:
+            logger.warning("PromptOps RAG generation failed, degrading: %s", exc)
+            return {
+                "answer": "",
+                "citations": citations,
+                "degraded": True,
+                "note": "Generation failed; returning retrieval context only",
+                "rewrite": rewrite_result,
+                "route": route_result,
+                "self_rag": self_rag_result,
+            }
+
     def answer(self, question: str, project_id: Optional[str] = None, top_k: int = 5,
                 rerank: Optional[bool] = None, rerank_top_n: Optional[int] = None,
                 enable_rewrite: bool = True, user_id: Optional[str] = None) -> dict:
@@ -198,6 +299,17 @@ class RAGAnswerGenerator:
                 "self_rag": self_rag_result,
             }
         
+        if self._llm_client is None:
+            return self._answer_with_promptops(
+                question=question,
+                project_id=project_id,
+                context=context,
+                citations=citations,
+                rewrite_result=rewrite_result,
+                route_result=route_result,
+                self_rag_result=self_rag_result,
+            )
+
         try:
             llm = self._get_llm()
         except Exception as e:

@@ -102,6 +102,41 @@ def test_command_service_reports_unavailable_when_the_real_celery_broker_is_down
         repo.close()
 
 
+def test_command_service_persists_celery_assignment_for_a_queued_run(tmp_path, monkeypatch):
+    repo = WikiRepository(db_path=str(tmp_path / "commands-celery-assignment.db"))
+    dispatched: list[list[str]] = []
+
+    class QueuedTask:
+        id = "celery-task-123"
+
+    monkeypatch.setattr("app.knowledge.wiki_commands.is_celery_real", lambda: True)
+    monkeypatch.setattr("app.knowledge.wiki_commands.is_celery_broker_available", lambda: True)
+    monkeypatch.setattr(
+        "app.tasks.knowledge_tasks.knowledge_execute.apply_async",
+        lambda args: dispatched.append(args) or QueuedTask(),
+    )
+    try:
+        result = WikiCommandService(repo).start_run(
+            project_id="project-a", job_type="source_sync", trigger="http"
+        )
+
+        assert result["status"] == "queued"
+        assert result["task_id"] == "celery-task-123"
+        assert dispatched == [["project-a", result["run_id"]]]
+        events = repo.list_run_events(project_id="project-a", run_id=result["run_id"])
+        assert [event["event_type"] for event in events] == [
+            "knowledge.run.queued",
+            "knowledge.run.execution_assigned",
+        ]
+        assert events[-1]["payload"] == {
+            "execution": "celery",
+            "task_name": "knowledge.execute",
+            "task_id": "celery-task-123",
+        }
+    finally:
+        repo.close()
+
+
 def test_command_service_restores_a_prior_revision_through_a_new_gated_proposal(tmp_path, monkeypatch):
     vault_root = tmp_path / "vault"
     vault_root.mkdir()

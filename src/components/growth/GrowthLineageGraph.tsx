@@ -7,8 +7,8 @@ import type { GrowthLineage, GrowthLineageEdge, GrowthRequestState } from '../..
 import { GROWTH_RELATIONS, normalizeGrowthNodeType, type GrowthGraphNodeType } from './growthModel';
 type NodeData = { label: string; kind: GrowthGraphNodeType; endpointType: string };
 
-const FILTER_TYPES: Array<Exclude<GrowthGraphNodeType, 'other'>> = ['source', 'page', 'method', 'output', 'feedback'];
-const LANE_ORDER: GrowthGraphNodeType[] = ['source', 'page', 'method', 'output', 'feedback', 'other'];
+const FILTER_TYPES: Array<Exclude<GrowthGraphNodeType, 'other'>> = ['source', 'page', 'method', 'candidate', 'output', 'feedback'];
+const LANE_ORDER: GrowthGraphNodeType[] = ['source', 'page', 'method', 'candidate', 'output', 'feedback', 'other'];
 
 function compactId(id: string): string {
   return id.length > 18 ? `${id.slice(0, 10)}...${id.slice(-4)}` : id;

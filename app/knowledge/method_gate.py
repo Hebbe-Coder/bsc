@@ -9,6 +9,7 @@ from uuid import uuid4
 from app.core.config import settings
 from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.method_registry import MethodRegistry
+from app.knowledge.method_package_audit import MethodPackageAuditor
 from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus
 
 
@@ -81,6 +82,17 @@ class MethodGate:
             evaluation = proposal.get("eval_summary") or {}
             if not evaluation.get("eligible"):
                 raise ValueError("method proposal has not passed promotion gates")
+            if str(proposal.get("operation") or "") == "update" and not bool(
+                (evaluation.get("evolution") or {}).get("passed")
+            ):
+                raise ValueError("updated method proposal requires a passing isolated holdout and non-regression evaluation")
+
+            package_audit = MethodPackageAuditor().audit(
+                body=str(proposal.get("body") or ""),
+                manifest=dict(proposal.get("manifest") or {}),
+            )
+            if package_audit["blocking"]:
+                raise ValueError("method proposal is blocked by static package audit")
 
             manifest = proposal.get("manifest") or {}
             privileged = self._is_privileged(manifest)
@@ -125,6 +137,7 @@ class MethodGate:
                 "system_admin_approved": system_admin_approved,
                 "approval_reason": approval_reason,
                 "findings": list(evaluation.get("findings") or []),
+                "package_audit": package_audit,
                 "audit_run_id": audit["id"],
             }
             published = self.registry.publish_proposal(

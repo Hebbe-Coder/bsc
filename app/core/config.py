@@ -148,6 +148,7 @@ class Settings(BaseSettings):
     KNOWLEDGE_WIKI_AUTO_PUBLISH_ENABLED: bool = False
     KNOWLEDGE_GROWTH_ENABLED: bool = False
     KNOWLEDGE_GROWTH_SEMANTIC_DISTILLATION_ENABLED: bool = False
+    DYNAMIC_BUSINESS_OS_ENABLED: bool = True
     OBSIDIAN_VAULT_ROOT: str = ""
     HORIZON_ENABLED: bool = False
     HORIZON_API_BASE_URL: str = ""
@@ -166,6 +167,10 @@ class Settings(BaseSettings):
     CELERY_ENABLED: bool = False
     CELERY_BROKER_URL: str = "redis://localhost:6379/0"
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/1"
+    # A runtime owns its knowledge ledger, Vault mount, and worker queue as one
+    # unit. This prevents host and Docker workers from consuming each other's
+    # jobs when they intentionally share Redis during local development.
+    CELERY_KNOWLEDGE_QUEUE: str = "bsc_knowledge"
     CELERY_TASK_TIMEOUT: int = 3600
     CELERY_TASK_SOFT_TIMEOUT: int = 3000
 

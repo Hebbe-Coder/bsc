@@ -110,13 +110,25 @@ class WikiCommandService:
         self.repository.create_run(run)
         self.repository.update_run_status(source_input.project_id, run.id, RunStatus.RUNNING)
         try:
+            source_input = source_input.model_copy(update={"capture_run_id": run.id})
             result = SourceCaptureService(self.repository).capture(source_input)
             source = result.source
+            attempt = self.repository.list_source_capture_attempts(
+                source_input.project_id,
+                run_id=run.id,
+                limit=1,
+            )
             self.repository.append_run_event(
                 project_id=source_input.project_id,
                 run_id=run.id,
                 event_type="knowledge.source.captured",
-                payload={"source_id": source["id"], "created": result.created, "status": source["status"]},
+                payload={
+                    "source_id": source["id"],
+                    "created": result.created,
+                    "status": source["status"],
+                    "capture_attempt_id": attempt[0]["id"] if attempt else "",
+                    "capture_outcome": attempt[0]["outcome"] if attempt else "",
+                },
             )
             if source["status"] == "eligible":
                 self.repository.append_run_event(
@@ -127,7 +139,11 @@ class WikiCommandService:
                 )
             self.repository.update_run_status(
                 source_input.project_id, run.id, RunStatus.COMPLETED,
-                output_refs={"source_id": source["id"], "created": result.created},
+                output_refs={
+                    "source_id": source["id"],
+                    "created": result.created,
+                    "capture_attempt_id": attempt[0]["id"] if attempt else "",
+                },
             )
             return {"source": source, "created": result.created, "run_id": run.id}
         except Exception as exc:
@@ -376,6 +392,7 @@ class WikiCommandService:
             from app.tasks.knowledge_tasks import knowledge_execute
 
             task = knowledge_execute.apply_async(args=[project_id, run.id])
+            self._record_celery_assignment(run, task.id)
             return {"status": "queued", "run_id": run.id, "task_id": task.id}
         except Exception as exc:
             self.repository.update_run_status(project_id, run.id, RunStatus.FAILED, error=f"queue submission failed: {exc}")
@@ -444,10 +461,24 @@ class WikiCommandService:
             from app.tasks.knowledge_tasks import knowledge_execute
 
             task = knowledge_execute.apply_async(args=[project_id, run.id])
+            self._record_celery_assignment(run, task.id)
             return {"status": "queued", "run_id": run.id, "task_id": task.id}
         except Exception as exc:
             self.repository.update_run_status(project_id, run.id, RunStatus.FAILED, error=f"queue submission failed: {exc}")
             raise WikiCommandError(f"queue submission failed: {exc}") from exc
+
+    def _record_celery_assignment(self, run: KnowledgeRun, task_id: object) -> None:
+        """Persist the broker handoff so a queued run remains auditable after reconnect."""
+        self.repository.append_run_event(
+            project_id=run.project_id,
+            run_id=run.id,
+            event_type="knowledge.run.execution_assigned",
+            payload={
+                "execution": "celery",
+                "task_name": "knowledge.execute",
+                "task_id": str(task_id),
+            },
+        )
 
     def _record_broker_unavailable(self, run: KnowledgeRun) -> dict:
         if not self.repository.get_run(run.project_id, run.id):

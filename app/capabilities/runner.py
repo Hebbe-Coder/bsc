@@ -140,6 +140,7 @@ async def run_business_runtime(
         artifact_scope=artifact_scope,
         board=board_payload,
         context_usage=context_packet.usage.model_dump(mode="json"),
+        context_manifest=context_packet.manifest.model_dump(mode="json"),
         knowledge_context=_public_knowledge_context(knowledge_context),
         knowledge_output_registration=output_registration,
     )
@@ -299,6 +300,7 @@ def _runtime_result_to_agent_response(
     artifact_scope: str,
     board: dict[str, Any] | None,
     context_usage: dict[str, Any] | None = None,
+    context_manifest: dict[str, Any] | None = None,
     knowledge_context: dict[str, Any] | None = None,
     knowledge_output_registration: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -330,6 +332,9 @@ def _runtime_result_to_agent_response(
             "degraded": any(mode == "fallback" for mode in result.stage_modes.values()),
             "capability_executions": result.capability_executions,
             "context": context_usage or {},
+            # This is a redacted composition record. Prompt/source bodies stay
+            # in their authoritative stores rather than in the runtime event.
+            "context_manifest": context_manifest or {},
             "knowledge_context": knowledge_context or _empty_knowledge_context(),
             "knowledge_output_registration": (
                 knowledge_output_registration or _empty_output_registration()

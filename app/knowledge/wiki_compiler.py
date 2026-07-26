@@ -111,7 +111,11 @@ class WikiCompiler:
         )
         persisted_run = self.repository.create_run(run)
         try:
-            response = self.provider.compile_wiki(self._build_prompt(rules, context_pack, contradictions))
+            prompt = self._build_prompt(rules, context_pack, contradictions)
+            if getattr(self.provider, "project_scoped", False):
+                response = self.provider.compile_wiki(prompt, project_id=project_id)
+            else:
+                response = self.provider.compile_wiki(prompt)
             proposal = self._validate_response(
                 project_id, sources, response, context_pack, self._snapshot_revision(page_snapshots or []), contradictions
             )

@@ -114,14 +114,15 @@ def test_workspace_status_distinguishes_missing_plugin_folder_from_ready_export_
         assert missing.status_code == 200
         missing_plugin = missing.json()["data"]["plugins"]["plugins"][0]
         assert missing_plugin["path_status"] == "missing"
-        assert missing_plugin["status"] == "awaiting_export"
+        assert missing_plugin["status"] == "awaiting_trust"
+        assert missing_plugin["trust_state"] == "untrusted"
 
         (project_root / "00_Inbox" / "web-clipper").mkdir(parents=True)
         ready = client.get("/knowledge/workspaces/project-a", headers=headers)
         assert ready.status_code == 200
         ready_plugin = ready.json()["data"]["plugins"]["plugins"][0]
         assert ready_plugin["path_status"] == "ready"
-        assert ready_plugin["status"] == "awaiting_export"
+        assert ready_plugin["status"] == "awaiting_trust"
     finally:
         settings.API_KEY = previous_key
         settings.OBSIDIAN_VAULT_ROOT = previous_root
@@ -595,9 +596,11 @@ def test_workspace_admin_operations_are_scoped_and_read_distillation_files(tmp_p
         )
         assert plugin_bridge.status_code == 200
         assert plugin_bridge.json()["data"]["plugins"][0]["status"] == "awaiting_export"
+        assert plugin_bridge.json()["data"]["plugins"][0]["trust_state"] == "trusted"
         manifest = vault_root / "clients" / "acme" / "bsc-plugins.json"
         assert manifest.is_file()
         assert '"id": "readwise"' in manifest.read_text(encoding="utf-8")
+        assert (vault_root / "clients" / "acme" / "bsc-plugin-trust.json").is_file()
         plugin_export = vault_root / "clients" / "acme" / "raw" / "readwise" / "highlights.md"
         plugin_export.parent.mkdir(parents=True, exist_ok=True)
         plugin_export.write_text("A verified plugin export", encoding="utf-8")
@@ -606,6 +609,15 @@ def test_workspace_admin_operations_are_scoped_and_read_distillation_files(tmp_p
         assert report["created"] == 1
         assert captured_source["source_type"] == "obsidian_plugin:readwise"
         assert captured_source["metadata"]["obsidian_plugin"] == "readwise"
+
+        revoked = client.put(
+            "/knowledge/workspaces/project-a/plugins/trust",
+            headers=headers,
+            json={"plugin_ids": ["readwise"], "trusted": False, "reason": "fixture revocation"},
+        )
+        assert revoked.status_code == 200
+        assert revoked.json()["data"]["plugins"][0]["status"] == "awaiting_trust"
+        assert ObsidianSyncService(repo, vault_root).sync(project_id="project-a")["blocked"] == 1
 
         invalid_plugin = client.put(
             "/knowledge/workspaces/project-a/plugins",

@@ -1,8 +1,7 @@
-import pytest
-
-from app.knowledge.growth_contracts import FeedbackType, MethodProposal, OutputAsset, OutputEvaluation, OutputFeedback
+from app.knowledge.growth_contracts import FeedbackType, MethodAsset, MethodProposal, MethodRevision, MethodStatus, OutputAsset, OutputEvaluation, OutputFeedback
 from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.method_evaluator import MethodEvaluator
+from app.knowledge.method_routing import MethodRouter
 
 
 def _manifest(**overrides):
@@ -10,7 +9,15 @@ def _manifest(**overrides):
         "task_family": "weekly-report", "prompt_only": True, "applicability": ["weekly reporting"], "exclusions": [],
         "inputs": [{"name": "evidence"}], "outputs": [{"name": "report"}], "steps": ["Review evidence"],
         "evidence_rules": ["cite sources"], "failure_handling": ["stop on missing evidence"],
-        "eval_cases": [{"id": "case-positive", "input": "evidence", "expected": "grounded report"}],
+        "trigger_contract": {"positive_signals": ["weekly reporting"], "negative_signals": ["quick social post"]},
+        "eval_cases": [
+            {"id": "case-positive-1", "type": "should_trigger", "prompt": "weekly reporting", "expected_method": "weekly-report"},
+            {"id": "case-positive-2", "type": "should_trigger", "prompt": "Need weekly reporting now", "expected_method": "weekly-report"},
+            {"id": "case-positive-3", "type": "should_trigger", "prompt": "Prepare the weekly reporting review", "expected_method": "weekly-report"},
+            {"id": "case-negative-1", "type": "should_not_trigger", "prompt": "quick social post", "expected_method": ""},
+            {"id": "case-negative-2", "type": "should_not_trigger", "prompt": "quick social post for a sale", "expected_method": ""},
+            {"id": "case-edge", "type": "edge_case", "prompt": "weekly reporting but quick social post", "expected_method": ""},
+        ],
         **overrides,
     }
 
@@ -43,11 +50,12 @@ def test_evaluator_derives_thresholds_from_immutable_output_records(tmp_path):
         proposal = _proposal_with_outputs(repo)
         result = MethodEvaluator(repo).evaluate(proposal, case_runner=lambda case, _proposal: {"passed": True, "actual": case["expected"]},
                                                 evaluator_revision="method-eval-v1", model_revision="deterministic", latency_ms=12)
-        assert result["eligible"] is True
+        assert not [item for item in result["routing"]["cases"] if not item["passed"]], result["routing"]["cases"]
+        assert result["eligible"] is True, result["routing"]
         assert result["comparable_uses"] == 3
         assert result["average_quality"] >= 85
         assert result["groundedness"] >= 0.90
-        assert result["case_results"][0]["passed"] is True
+        assert all(item["passed"] for item in result["routing"]["cases"])
         assert repo.get_method_proposal("project-a", proposal["id"])["status"] == "approved"
         assert repo.list_eval_runs("project-a")[0]["summary"]["evaluator_revision"] == "method-eval-v1"
     finally:
@@ -86,14 +94,97 @@ def test_evaluator_blocks_regression_security_and_unavailable_replay(tmp_path):
         repo.close()
 
 
-def test_evaluator_rejects_manifest_schema_mismatch_and_low_grounding(tmp_path):
+def test_evaluator_uses_persisted_manifest_and_blocks_schema_mismatch(tmp_path):
     repo = GrowthRepository(db_path=str(tmp_path / "method-schema.db"))
     try:
         proposal = _proposal_with_outputs(repo, groundedness=(0.7, 0.8, 0.85))
-        with pytest.raises(ValueError, match="manifest"):
-            MethodEvaluator(repo).evaluate({**proposal, "manifest": {"task_family": "weekly-report"}}, case_runner=lambda *_args: True)
-        result = MethodEvaluator(repo).evaluate(proposal, case_runner=lambda *_args: True)
+        # An API caller cannot replace the persisted candidate package with an
+        # incomplete manifest just by changing the request payload.
+        result = MethodEvaluator(repo).evaluate(
+            {**proposal, "manifest": {"task_family": "weekly-report"}},
+            case_runner=lambda *_args: True,
+        )
         assert result["eligible"] is False
         assert result["groundedness"] < 0.90
+
+        # A malformed persisted candidate is rejected and auditable before any
+        # runtime evaluation, instead of raising a transient validation error.
+        repo._execute(
+            "UPDATE knowledge_method_proposals SET manifest_json=? WHERE project_id=? AND id=?",
+            (repo._json_dumps({"task_family": "weekly-report"}), "project-a", proposal["id"]),
+        )
+        repo._commit()
+        blocked = MethodEvaluator(repo).evaluate(proposal, case_runner=lambda *_args: True)
+        assert blocked["eligible"] is False
+        assert blocked["evaluator_status"] == "blocked"
+        assert blocked["package_audit"]["blocking"] is True
+        assert any(item["rule"] == "PKG004" for item in blocked["package_audit"]["findings"])
     finally:
         repo.close()
+
+
+def test_evaluator_uses_real_router_for_sibling_confusion_without_callback(tmp_path):
+    repo = GrowthRepository(db_path=str(tmp_path / "method-routing-eval.db"))
+    try:
+        proposal = _proposal_with_outputs(
+            repo,
+            statuses=("accepted", "accepted", "accepted"),
+        )
+        social = repo.create_method(MethodAsset(
+            id="social-method", project_id="project-a", slug="social-calendar",
+            name="Social calendar", status=MethodStatus.PUBLISHED,
+            active_revision_id="social-revision",
+        ))
+        repo.save_method_revision(MethodRevision(
+            id="social-revision", method_id=social["id"], project_id="project-a", version=1,
+            body="# Social", status=MethodStatus.PUBLISHED,
+            manifest={"trigger_contract": {"positive_signals": ["quick social post"], "negative_signals": []}},
+        ))
+        manifest = proposal["manifest"]
+        manifest["eval_cases"][3] = {
+            "id": "case-unrelated", "type": "should_not_trigger", "prompt": "book a lunch meeting", "expected_method": "",
+        }
+        manifest["eval_cases"][4] = {
+            "id": "case-sibling", "type": "should_not_trigger", "prompt": "quick social post", "expected_method": "social-calendar",
+        }
+        manifest["eval_cases"][5]["expected_method"] = "social-calendar"
+        repo._execute(
+            "UPDATE knowledge_method_proposals SET manifest_json=? WHERE project_id=? AND id=?",
+            (repo._json_dumps(manifest), "project-a", proposal["id"]),
+        )
+        repo._commit()
+        persisted = repo.get_method_proposal("project-a", proposal["id"])
+
+        result = MethodEvaluator(repo).evaluate(persisted)
+
+        assert result["eligible"] is True, result["routing"]
+        sibling = next(item for item in result["routing"]["cases"] if item["id"] == "case-sibling")
+        assert sibling["selected_method"] == "social-calendar"
+        assert sibling["passed"] is True
+    finally:
+        repo.close()
+
+
+def test_evaluator_routes_source_distillation_from_nested_trigger_contract():
+    proposal = {
+        "manifest": {
+            "task_family": "intent-quality-product-inspection-loop",
+            "applicability": ["generic documentation work"],
+            "exclusions": ["unrelated creative writing"],
+            "distillation": {
+                "trigger_contract": {
+                    "positive_signals": ["product inspection", "intent quality"],
+                    "negative_signals": ["unrelated creative writing"],
+                }
+            },
+        }
+    }
+
+    routed = MethodEvaluator._routing_method(proposal)
+    decision = MethodRouter().select([routed], "Run a product inspection focused on intent quality")
+
+    assert decision.selected_slug == "intent-quality-product-inspection-loop"
+    assert routed["manifest"]["trigger_contract"]["positive_signals"] == [
+        "product inspection",
+        "intent quality",
+    ]

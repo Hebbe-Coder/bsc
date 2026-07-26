@@ -34,10 +34,26 @@ class KnowledgeGraphService:
                 target_page = page_by_path.get(target_path)
                 if target_page:
                     edges.append(self._edge(project_id, page_id, str(target_page["id"]), "wiki_links_to"))
-            for source_id in _SOURCE_REF.findall(content):
-                edges.append(self._edge(project_id, page_id, source_id, "wiki_cites_source"))
+            for sequence, source_id in enumerate(dict.fromkeys(_SOURCE_REF.findall(content))):
+                source = self.repository.get_source(project_id, source_id)
+                evidence = self._evidence_metadata(page, source_id, sequence, source)
+                edges.append(self._edge(
+                    project_id,
+                    page_id,
+                    source_id,
+                    "wiki_cites_source",
+                    metadata={"evidence": evidence},
+                    revision=evidence["page_content_hash"],
+                ))
                 if page.get("page_kind") == "decision":
-                    edges.append(self._edge(project_id, page_id, source_id, "decision_uses_evidence"))
+                    edges.append(self._edge(
+                        project_id,
+                        page_id,
+                        source_id,
+                        "decision_uses_evidence",
+                        metadata={"evidence": evidence},
+                        revision=evidence["page_content_hash"],
+                    ))
             if proposal_id:
                 edges.append(self._edge(project_id, proposal_id, page_id, "proposal_changes_page"))
         return self.repository.replace_graph_edges(project_id, edges)
@@ -92,6 +108,44 @@ class KnowledgeGraphService:
         }
 
     @staticmethod
-    def _edge(project_id: str, from_id: str, to_id: str, edge_type: str) -> KnowledgeGraphEdge:
+    def _edge(
+        project_id: str,
+        from_id: str,
+        to_id: str,
+        edge_type: str,
+        *,
+        metadata: dict[str, Any] | None = None,
+        revision: str = "",
+    ) -> KnowledgeGraphEdge:
         edge_id = hashlib.sha256(f"{project_id}|{from_id}|{to_id}|{edge_type}".encode("utf-8")).hexdigest()[:24]
-        return KnowledgeGraphEdge(id=edge_id, project_id=project_id, from_id=from_id, to_id=to_id, edge_type=edge_type)
+        return KnowledgeGraphEdge(
+            id=edge_id,
+            project_id=project_id,
+            from_id=from_id,
+            to_id=to_id,
+            edge_type=edge_type,
+            metadata=metadata or {},
+            revision=revision,
+        )
+
+    @staticmethod
+    def _evidence_metadata(
+        page: dict[str, Any],
+        source_id: str,
+        sequence: int,
+        source: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        page_content = str(page.get("content") or "")
+        page_hash = str(page.get("content_hash") or hashlib.sha256(page_content.encode("utf-8")).hexdigest())
+        page_version = int(page.get("version") or 0)
+        citation_id = hashlib.sha256(f"{page['id']}|{source_id}|{sequence}".encode("utf-8")).hexdigest()[:24]
+        return {
+            "citation_id": citation_id,
+            "source_id": source_id,
+            "source_content_hash": str((source or {}).get("content_hash") or ""),
+            "source_status": str((source or {}).get("status") or "missing"),
+            "source_revision_available": bool(source),
+            "page_content_hash": page_hash,
+            "page_version": page_version,
+            "extraction_method": "explicit_source_marker_v1",
+        }

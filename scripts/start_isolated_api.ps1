@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [int]$Port = 8003
+    [int]$Port = 8003,
+    [string]$DatabaseUrl = $env:BSC_DATABASE_URL
 )
 
 $ErrorActionPreference = "Stop"
@@ -14,6 +15,15 @@ if (Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyCon
     throw "port $Port is already listening"
 }
 
+# Give a one-off host process the same database target as Docker without
+# changing tracked or long-lived environment configuration.
+$previousDatabaseUrl = $env:DB_URL
+$previousDatabaseType = $env:DB_TYPE
+if ($DatabaseUrl) {
+    $env:DB_URL = $DatabaseUrl
+    $env:DB_TYPE = "postgresql"
+}
+
 $startInfo = @{
     FilePath = $python
     ArgumentList = @("-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "$Port")
@@ -21,7 +31,20 @@ $startInfo = @{
     WindowStyle = "Hidden"
     PassThru = $true
 }
-$process = Start-Process @startInfo
+try {
+    $process = Start-Process @startInfo
+} finally {
+    if ($null -eq $previousDatabaseUrl) {
+        Remove-Item Env:DB_URL -ErrorAction SilentlyContinue
+    } else {
+        $env:DB_URL = $previousDatabaseUrl
+    }
+    if ($null -eq $previousDatabaseType) {
+        Remove-Item Env:DB_TYPE -ErrorAction SilentlyContinue
+    } else {
+        $env:DB_TYPE = $previousDatabaseType
+    }
+}
 
 $ready = $false
 for ($attempt = 0; $attempt -lt 30; $attempt++) {

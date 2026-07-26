@@ -11,7 +11,7 @@ import {
   fetchKnowledgePage, fetchKnowledgePages, fetchKnowledgeProposals, fetchKnowledgeRunEvents,
   fetchKnowledgeRuns, fetchKnowledgeSchedules, fetchKnowledgeSources, fetchKnowledgeWorkspace, importFeishuKnowledgeExport, initializeKnowledgeWorkspace,
   fetchWeeklyDistillation, fetchWeeklyDistillations, lintKnowledgeProposal, publishKnowledgeProposal,
-  rejectKnowledgeProposal, restoreKnowledgePageRevision, retryKnowledgeRun, runKnowledgeJob, saveKnowledgeEvaluationCase, setKnowledgeScheduleState,
+  rejectKnowledgeProposal, restoreKnowledgePageRevision, retryKnowledgeRun, runKnowledgeJob, saveKnowledgeEvaluationCase, setKnowledgePluginTrust, setKnowledgeScheduleState,
   streamKnowledgeRunEvents, transitionKnowledgeSource,
   type FeishuKnowledgeExport, type KnowledgeEvaluationCaseInput, type KnowledgeGraphNode, type KnowledgeHealth, type KnowledgeWorkspaceData,
   type KnowledgePage, type KnowledgePageDetail, type KnowledgePluginBridge, type KnowledgeProposal, type KnowledgeRun,
@@ -350,6 +350,13 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
     showMessage(`Plugin bridge ${id} removed. Existing captured evidence remains immutable and reviewable.`);
     await load();
   });
+  const setPluginTrust = (plugin: KnowledgeWorkspaceData['plugins']['plugins'][number], trusted: boolean) => withAction(async () => {
+    await setKnowledgePluginTrust(projectId, [plugin.id], trusted, trusted ? 'Approved from the knowledge workspace' : 'Revoked from the knowledge workspace');
+    showMessage(trusted
+      ? `${plugin.name} is approved for its declared read-only export paths.`
+      : `${plugin.name} access is revoked. Existing captured records remain immutable.`);
+    await load();
+  });
 
   const maxNodes = 160;
   const filteredGraphNodes = graph.nodes.filter((record) => (
@@ -388,6 +395,7 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
   const pluginCount = workspace?.plugins.plugins.length ?? 0;
   const connectedPluginCount = workspace?.plugins.plugins.filter((plugin) => plugin.captured_sources > 0 || plugin.registered_outputs > 0).length ?? 0;
   const readyPluginRouteCount = workspace?.plugins.plugins.filter((plugin) => plugin.path_status === 'ready').length ?? 0;
+  const pluginRoutesVerified = pluginCount > 0 && readyPluginRouteCount === pluginCount;
   const capturedPluginSources = workspace?.plugins.plugins.reduce((total, plugin) => total + plugin.captured_sources, 0) ?? 0;
   const registeredPluginOutputs = workspace?.plugins.plugins.reduce((total, plugin) => total + plugin.registered_outputs, 0) ?? 0;
   const evaluationDetail = !health ? 'Health unavailable' : health.evaluation.status === 'unavailable' ? 'Evaluation baseline missing' : `Evaluation ${health.evaluation.status}`;
@@ -449,13 +457,13 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
           <label>Export folders<input value={pluginPaths} onChange={(event) => setPluginPaths(event.target.value)} placeholder={pluginAdapter === 'filesystem_output' ? '04_Outputs/articles' : '00_Inbox/web-clipper, 01_Sources/importer'} aria-label="Plugin export folders" disabled={actionBusy} /></label>
           <button type="button" onClick={() => void registerPluginBridge()} disabled={actionBusy || !canWrite || !pluginId.trim() || !pluginPaths.trim()} title="Register a governed filesystem export bridge"><Link2 size={15} /> Register bridge</button>
         </div>
-        <PluginBridgeTable plugins={workspace.plugins.plugins} busy={actionBusy} canWrite={canWrite} onEdit={editPluginBridge} onRemove={removePluginBridge} />
+        <PluginBridgeTable plugins={workspace.plugins.plugins} busy={actionBusy} canWrite={canWrite} onEdit={editPluginBridge} onRemove={removePluginBridge} onTrust={setPluginTrust} />
       </details>}
       <section className="knowledge-connection-path" aria-label="Knowledge connection path">
         <ConnectionStep label="Studio access" detail={accessStatus.detail} ready={accessStatus.verified} />
         <ConnectionStep label="Vault boundary" detail={vaultConnectionLabel} ready={vaultConnectionState === 'ready'} />
         <ConnectionStep label="Horizon radar" detail={horizonDetail} ready={Boolean(horizon?.last_run && horizon.last_run.status === 'completed')} />
-        <ConnectionStep label="Plugin bridges" detail={pluginCount ? (connectedPluginCount ? `${capturedPluginSources} evidence source${capturedPluginSources === 1 ? '' : 's'}, ${registeredPluginOutputs} pending output${registeredPluginOutputs === 1 ? '' : 's'}` : readyPluginRouteCount ? `${readyPluginRouteCount}/${pluginCount} export folders ready; awaiting first real export` : 'Export folder setup is incomplete') : 'No plugin bridge registered'} ready={connectedPluginCount > 0} />
+        <ConnectionStep label="Plugin bridges" detail={pluginCount ? (connectedPluginCount ? `${capturedPluginSources} evidence source${capturedPluginSources === 1 ? '' : 's'}, ${registeredPluginOutputs} pending output${registeredPluginOutputs === 1 ? '' : 's'}` : pluginRoutesVerified ? `${readyPluginRouteCount}/${pluginCount} routes verified; no external plugin export captured yet` : readyPluginRouteCount ? `${readyPluginRouteCount}/${pluginCount} export folders ready; remaining routes need setup` : 'Export folder setup is incomplete') : 'No plugin bridge registered'} ready={pluginRoutesVerified} />
         <ConnectionStep label="Growth cycle" detail={growthCycleDetail} ready={growth?.status === 'completed'} />
         <ConnectionStep label="Governed use" detail={pages.length ? `${pages.length} published Wiki page${pages.length === 1 ? '' : 's'}` : 'No published knowledge context'} ready={pages.length > 0} />
       </section>
@@ -474,7 +482,7 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
         <aside className="knowledge-pane knowledge-pane--tree" aria-label="Vault tree">
           <PaneHeader title="Vault" detail={workspace?.vault.configured ? `${vaultConnectionState} / sync ${workspace.sync.status}` : 'unconfigured'} />
           <div className="knowledge-vault-state"><span className={vaultConnectionState === 'ready' ? 'is-ready' : 'is-warning'}>{vaultConnectionState === 'ready' ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}</span><span>{vaultConnectionLabel}</span></div>
-          <div className="knowledge-vault-state"><span className={connectedPluginCount ? 'is-ready' : 'is-warning'}>{connectedPluginCount ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}</span><span>{pluginCount ? (connectedPluginCount ? `${connectedPluginCount}/${pluginCount} bridge${pluginCount === 1 ? '' : 's'} active: ${capturedPluginSources} evidence source${capturedPluginSources === 1 ? '' : 's'}, ${registeredPluginOutputs} pending output${registeredPluginOutputs === 1 ? '' : 's'}` : readyPluginRouteCount ? `${readyPluginRouteCount}/${pluginCount} export folders ready; awaiting real plugin output` : `${pluginCount} bridge route${pluginCount === 1 ? '' : 's'} need a valid export folder`) : (workspace?.plugins.configured ? 'Plugin manifest has no supported adapters' : 'No BSC plugin manifest configured')}</span></div>
+          <div className="knowledge-vault-state"><span className={pluginRoutesVerified ? 'is-ready' : 'is-warning'}>{pluginRoutesVerified ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}</span><span>{pluginCount ? (connectedPluginCount ? `${connectedPluginCount}/${pluginCount} bridge${pluginCount === 1 ? '' : 's'} active: ${capturedPluginSources} evidence source${capturedPluginSources === 1 ? '' : 's'}, ${registeredPluginOutputs} pending output${registeredPluginOutputs === 1 ? '' : 's'}` : pluginRoutesVerified ? `${readyPluginRouteCount}/${pluginCount} bridge routes verified; no external plugin output has been captured yet` : readyPluginRouteCount ? `${readyPluginRouteCount}/${pluginCount} export folders ready; remaining routes need a valid export folder` : `${pluginCount} bridge route${pluginCount === 1 ? '' : 's'} need a valid export folder`) : (workspace?.plugins.configured ? 'Plugin manifest has no supported adapters' : 'No BSC plugin manifest configured')}</span></div>
           <VaultTree pages={pages} selectedPageId={selectedPage?.page.id ?? ''} onSelect={inspectPage} />
           <PaneHeader title="Evidence" detail={`${sources.length} records`} />
           <div className="knowledge-list knowledge-list--tree">{sources.length ? sources.map((source) => <EvidenceRecord source={source} selected={selectedSource?.id === source.id} key={source.id} onSelect={setSelectedSource} />) : <Empty text="No evidence has been captured for this project." />}</div>
@@ -541,17 +549,28 @@ function Empty({ text }: { text: string }) { return <p className="knowledge-empt
 function ViewTab({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) { return <button className={active ? 'is-active' : ''} onClick={onClick}>{icon}{label}</button>; }
 function StatusMetric({ icon, label, value, detail }: { icon: React.ReactNode; label: string; value: number | string; detail: string }) { return <div className="knowledge-status-metric"><span>{icon}</span><div><small>{label}</small><strong>{value}</strong><p>{detail}</p></div></div>; }
 function ConnectionStep({ label, detail, ready }: { label: string; detail: string; ready: boolean }) { return <div className={ready ? 'is-ready' : 'is-pending'}><span>{ready ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}</span><div><strong>{label}</strong><small>{detail}</small></div></div>; }
-function PluginBridgeTable({ plugins, busy, canWrite, onEdit, onRemove }: { plugins: KnowledgeWorkspaceData['plugins']['plugins']; busy: boolean; canWrite: boolean; onEdit: (plugin: KnowledgeWorkspaceData['plugins']['plugins'][number]) => void; onRemove: (id: string) => void }) {
+function pluginRuntimeDetail(plugin: KnowledgeWorkspaceData['plugins']['plugins'][number]): string {
+  switch (plugin.runtime_configuration?.state) {
+    case 'configured': return 'Plugin destination matches this governed bridge.';
+    case 'interactive_destination': return 'Choose this declared folder in the plugin import dialog before importing.';
+    case 'mismatch': return 'Plugin destination differs from this bridge; correct the plugin setting before Sync.';
+    case 'unavailable': return 'Plugin settings could not be verified from the Vault.';
+    case 'unverified': return 'Plugin settings cannot be checked until the Vault is available.';
+    default: return 'No settings probe is defined; BSC will read only the declared export folder.';
+  }
+}
+function PluginBridgeTable({ plugins, busy, canWrite, onEdit, onRemove, onTrust }: { plugins: KnowledgeWorkspaceData['plugins']['plugins']; busy: boolean; canWrite: boolean; onEdit: (plugin: KnowledgeWorkspaceData['plugins']['plugins'][number]) => void; onRemove: (id: string) => void; onTrust: (plugin: KnowledgeWorkspaceData['plugins']['plugins'][number], trusted: boolean) => void }) {
   if (!plugins.length) return <p className="knowledge-plugin-empty">No plugin export bridge is registered. A bridge is only considered connected after Sync captures an exported source.</p>;
   return <div className="knowledge-plugin-table" role="list" aria-label="Registered plugin export bridges">{plugins.map((plugin) => {
     const outputBridge = plugin.adapter === 'filesystem_output';
-    const connected = outputBridge ? plugin.status === 'registered_output' : plugin.status === 'captured';
+    const trusted = plugin.trust_state === 'trusted';
+    const connected = trusted && (outputBridge ? plugin.status === 'registered_output' : plugin.status === 'captured');
     const count = outputBridge ? plugin.registered_outputs : plugin.captured_sources;
     const timestamp = outputBridge ? plugin.last_registered_at : plugin.last_captured_at;
     const pathReady = plugin.path_status === 'ready';
-    const waitingLabel = pathReady ? (outputBridge ? 'folder ready; awaiting output' : 'folder ready; awaiting export') : plugin.path_status === 'missing' ? 'export folder missing' : 'folder unavailable';
-    const waitingDetail = pathReady ? (outputBridge ? 'Folder ready; no output registered yet' : 'Folder ready; no captured export yet') : `Folder status: ${plugin.path_status}`;
-    return <div key={plugin.id} role="listitem"><div><strong>{plugin.name}</strong><small>{plugin.id} / {outputBridge ? 'output feedback' : 'evidence import'} / {plugin.input_paths.join(', ')}</small></div><span className={connected ? 'is-ready' : 'is-pending'}>{connected ? (outputBridge ? `${count} pending output${count === 1 ? '' : 's'}` : `${count} captured`) : waitingLabel}</span><small>{timestamp ? `Last ${formatTimestamp(timestamp)}` : waitingDetail}</small><div className="knowledge-plugin-table__actions"><button type="button" className="icon-button" disabled={busy || !canWrite} title={`Edit ${plugin.name} bridge`} aria-label={`Edit ${plugin.name} bridge`} onClick={() => onEdit(plugin)}><Pencil size={14} /></button><button type="button" className="icon-button is-danger" disabled={busy || !canWrite} title={`Remove ${plugin.name} bridge`} aria-label={`Remove ${plugin.name} bridge`} onClick={() => void onRemove(plugin.id)}><Trash2 size={14} /></button></div></div>;
+    const waitingLabel = !trusted ? (plugin.trust_state === 'configuration_changed' ? 'bridge changed; trust again' : plugin.trust_state === 'unavailable' ? 'trust record unavailable' : 'awaiting read approval') : pathReady ? (outputBridge ? 'bridge verified; awaiting output' : 'bridge verified; awaiting external export') : plugin.path_status === 'missing' ? 'export folder missing' : 'folder unavailable';
+    const waitingDetail = !trusted ? 'BSC will not read this declared path until the exact configuration is approved.' : pathReady ? `${pluginRuntimeDetail(plugin)} No ${outputBridge ? 'output has been registered' : 'export has been captured'} yet.` : `Folder status: ${plugin.path_status}`;
+    return <div key={plugin.id} role="listitem"><div><strong>{plugin.name}</strong><small>{plugin.id} / {outputBridge ? 'output feedback' : 'evidence import'} / {plugin.input_paths.join(', ')}</small></div><span className={connected ? 'is-ready' : 'is-pending'}>{connected ? (outputBridge ? `${count} pending output${count === 1 ? '' : 's'}` : `${count} captured`) : waitingLabel}</span><small>{timestamp ? `Last ${formatTimestamp(timestamp)}` : waitingDetail}</small><div className="knowledge-plugin-table__actions"><button type="button" className="icon-button" disabled={busy || !canWrite} title={trusted ? `Revoke ${plugin.name} read approval` : `Approve ${plugin.name} declared paths`} aria-label={trusted ? `Revoke ${plugin.name} read approval` : `Approve ${plugin.name} declared paths`} onClick={() => void onTrust(plugin, !trusted)}>{trusted ? <ShieldCheck size={14} /> : <ShieldCheck size={14} />}</button><button type="button" className="icon-button" disabled={busy || !canWrite} title={`Edit ${plugin.name} bridge`} aria-label={`Edit ${plugin.name} bridge`} onClick={() => onEdit(plugin)}><Pencil size={14} /></button><button type="button" className="icon-button is-danger" disabled={busy || !canWrite} title={`Remove ${plugin.name} bridge`} aria-label={`Remove ${plugin.name} bridge`} onClick={() => void onRemove(plugin.id)}><Trash2 size={14} /></button></div></div>;
   })}</div>;
 }
 

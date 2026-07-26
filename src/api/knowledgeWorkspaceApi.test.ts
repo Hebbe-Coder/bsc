@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { configureKnowledgePlugins, configureKnowledgeVault, fetchKnowledgeWorkspace, importFeishuKnowledgeExport, initializeKnowledgeWorkspace, KnowledgeRequestError, saveKnowledgeEvaluationCase } from './knowledgeWorkspaceApi';
+import { configureKnowledgePlugins, configureKnowledgeVault, fetchKnowledgeWorkspace, importFeishuKnowledgeExport, initializeKnowledgeWorkspace, KnowledgeRequestError, saveKnowledgeEvaluationCase, setKnowledgePluginTrust } from './knowledgeWorkspaceApi';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -60,6 +60,22 @@ describe('knowledge workspace API', () => {
     expect(String(fetchMock.mock.calls[3][0])).toContain('/knowledge/eval-cases');
     expect(fetchMock.mock.calls[3][1]).toMatchObject({
       method: 'POST', body: JSON.stringify({ project_id: 'project a', case_id: 'release-content', case_type: 'content', expected: { constraints: ['named owner'], require_citations: true } }),
+    });
+  });
+
+  it('records plugin read approval through the separate trust endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      success: true,
+      data: { configured: true, supported_adapters: ['filesystem_drop'], plugins: [], errors: [] },
+    }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await setKnowledgePluginTrust('project a', ['obsidian-clipper'], true, 'approved export path');
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/knowledge/workspaces/project%20a/plugins/trust');
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'PUT',
+      body: JSON.stringify({ plugin_ids: ['obsidian-clipper'], trusted: true, reason: 'approved export path' }),
     });
   });
 

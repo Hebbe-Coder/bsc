@@ -12,4 +12,5 @@ tests/
 output/
 data/
 *.log
+celerybeat-schedule*
 .DS_Store

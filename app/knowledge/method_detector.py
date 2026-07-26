@@ -24,6 +24,11 @@ class MethodDetector:
     ) -> list[dict[str, Any]]:
         if minimum_uses < 3:
             raise ValueError("automatic method detection requires at least three uses")
+        active_methods_by_revision = {
+            str(method.get("active_revision_id") or ""): method
+            for method in self.repository.list_methods(project_id, status="published", limit=500)
+            if str(method.get("active_revision_id") or "")
+        }
         groups: dict[tuple[str, str, str, str], dict[str, dict[str, Any]]] = defaultdict(dict)
         for output in self.repository.list_outputs(project_id, limit=500):
             if not is_verified_output_status(output.get("status")):
@@ -85,6 +90,7 @@ class MethodDetector:
                 },
                 "inferred_fields_require_review": True,
             }
+            active_method = active_methods_by_revision.get(key[3])
             proposals.append(
                 self.create_proposal(
                     project_id,
@@ -92,6 +98,8 @@ class MethodDetector:
                     str(candidate["body"]),
                     [item["id"] for item in selected],
                     manifest,
+                    method_id=str((active_method or {}).get("id") or ""),
+                    operation="update" if active_method else "create",
                 )
             )
         return proposals
@@ -103,6 +111,9 @@ class MethodDetector:
         body: str,
         output_ids: list[str],
         manifest: dict[str, Any] | None = None,
+        *,
+        method_id: str = "",
+        operation: str = "create",
     ) -> dict[str, Any]:
         unique_ids = list(dict.fromkeys(output_ids))
         if len(unique_ids) < 3:
@@ -119,6 +130,8 @@ class MethodDetector:
             output_ids=unique_ids,
             manifest=normalized_manifest,
             rationale="Detected from comparable verified outputs",
+            method_id=method_id,
+            operation=operation,
         )
 
     def create_user_proposal(
@@ -161,6 +174,8 @@ class MethodDetector:
         output_ids: list[str],
         manifest: dict[str, Any],
         rationale: str,
+        method_id: str = "",
+        operation: str = "create",
     ) -> dict[str, Any]:
         if not slug.strip() or not body.strip():
             raise ValueError("method slug and body are required")
@@ -168,6 +183,8 @@ class MethodDetector:
             {
                 "project_id": project_id,
                 "slug": slug,
+                "method_id": method_id,
+                "operation": operation,
                 "body": body,
                 "outputs": output_ids,
                 "manifest": manifest,
@@ -183,7 +200,8 @@ class MethodDetector:
         proposal = MethodProposal(
             id=proposal_id,
             project_id=project_id,
-            operation="create",
+            method_id=method_id,
+            operation=operation,
             body=body,
             manifest=manifest,
             source_output_ids=output_ids,

@@ -23,15 +23,24 @@ from app.knowledge.capture_adapters import CaptureAdapter, redact_secrets
 from app.knowledge.feedback_router import FeedbackRouter
 from app.knowledge.growth_contracts import (
     FeedbackType,
+    KnowledgeCandidateStatus,
+    KnowledgeFailureCode,
+    KnowledgeFailurePattern,
+    KnowledgeFailureRecord,
     OutputAsset,
     OutputFeedback,
     ProjectKnowledgeProfile,
+    ProjectSourcePolicy,
+    ExternalWorkerPolicy,
     is_verified_output_status,
 )
+from app.knowledge.candidate_extraction import CANDIDATE_EXTRACTION_RUN_TYPE, SourceCandidateExtractionService
 from app.knowledge.growth_distillation import GrowthDistillationService
 from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.method_detector import MethodDetector
+from app.knowledge.method_distillation import SOURCE_METHOD_DISTILLATION_RUN_TYPE, SourceMethodDistillationService
 from app.knowledge.method_evaluator import MethodEvaluator
+from app.knowledge.method_evolution import METHOD_EVOLUTION_RUN_TYPE, MethodEvolutionService
 from app.knowledge.method_gate import MethodGate
 from app.knowledge.method_registry import MethodRegistry
 from app.knowledge.output_evaluator import OutputEvaluator
@@ -47,6 +56,15 @@ MAX_PAGE_SIZE = 500
 MAX_METADATA_BYTES = 64 * 1024
 PROJECT_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 GROWTH_JOB_TYPES = {"growth_daily", "growth_weekly_distillation"}
+# These runs are part of the evidence supply chain and need to be auditable in
+# the same workspace as the daily and weekly growth cycles.
+GROWTH_WORKSPACE_RUN_TYPES = GROWTH_JOB_TYPES | {
+    "source_sync",
+    "horizon_capture",
+    SOURCE_METHOD_DISTILLATION_RUN_TYPE,
+    CANDIDATE_EXTRACTION_RUN_TYPE,
+    METHOD_EVOLUTION_RUN_TYPE,
+}
 
 
 def require_growth_enabled() -> None:
@@ -69,6 +87,20 @@ def get_growth_repository() -> GrowthRepository:
     return GrowthRepository()
 
 
+def dispatch_source_method_distillation(project_id: str, run_id: str, *, repository: GrowthRepository) -> dict[str, str]:
+    """Load the worker adapter only when an HTTP request actually submits work."""
+    from app.tasks.method_distillation_tasks import dispatch_source_method_distillation as dispatch
+
+    return dispatch(project_id, run_id, repository=repository)
+
+
+def dispatch_source_candidate_extraction(project_id: str, run_id: str, *, repository: GrowthRepository) -> dict[str, str]:
+    """Load the detached five-way extractor only when it is explicitly requested."""
+    from app.tasks.candidate_extraction_tasks import dispatch_source_candidate_extraction as dispatch
+
+    return dispatch(project_id, run_id, repository=repository)
+
+
 class GrowthRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -85,6 +117,8 @@ class ProfilePatch(GrowthRequest):
     evidence_threshold: int | None = Field(default=None, ge=0, le=100)
     automatic_publication_policy: str | None = Field(default=None, max_length=100)
     method_promotion_policy: str | None = Field(default=None, max_length=100)
+    source_policy: ProjectSourcePolicy | None = None
+    external_worker_policy: ExternalWorkerPolicy | None = None
 
 
 class SourceCreateRequest(GrowthRequest):
@@ -121,6 +155,59 @@ class MethodReviewRequest(GrowthRequest):
     groundedness: float = Field(default=0, ge=0, le=1)
     security_failures: int = Field(default=0, ge=0, le=10_000)
     regression_failures: int = Field(default=0, ge=0, le=10_000)
+
+
+class MethodEvolutionRequest(GrowthRequest):
+    candidate_body: str = Field(min_length=1, max_length=100_000)
+    candidate_manifest: dict[str, Any] = Field(default_factory=dict)
+    supporting_output_ids: list[str] = Field(min_length=3, max_length=100)
+    mutation_dimension: Literal[
+        "body",
+        "trigger_contract",
+        "applicability",
+        "exclusions",
+        "steps",
+        "evidence_rules",
+        "failure_handling",
+    ]
+    rationale: str = Field(min_length=24, max_length=4_000)
+    idempotency_key: str = Field(min_length=1, max_length=200)
+
+    @model_validator(mode="after")
+    def bound_experiment(self) -> "MethodEvolutionRequest":
+        _validate_metadata_size(self.candidate_manifest)
+        self.supporting_output_ids = list(
+            dict.fromkeys(value.strip() for value in self.supporting_output_ids if value.strip())
+        )
+        if len(self.supporting_output_ids) < 3:
+            raise ValueError("supporting_output_ids must contain three distinct non-empty values")
+        self.rationale = self.rationale.strip()
+        if len(self.rationale) < 24:
+            raise ValueError("rationale must explain the mutation in at least 24 characters")
+        return self
+
+
+class SourceMethodDistillationRequest(GrowthRequest):
+    source_id: str = Field(min_length=1, max_length=128)
+    candidate_ids: list[str] = Field(default_factory=list, max_length=5)
+
+    @model_validator(mode="after")
+    def bound_candidate_selection(self) -> "SourceMethodDistillationRequest":
+        self.candidate_ids = [item.strip() for item in self.candidate_ids]
+        if any(not item for item in self.candidate_ids):
+            raise ValueError("candidate_ids must not contain blank values")
+        if len(self.candidate_ids) != len(set(self.candidate_ids)):
+            raise ValueError("candidate_ids must be distinct")
+        return self
+
+
+class SourceCandidateExtractionRequest(GrowthRequest):
+    source_id: str = Field(min_length=1, max_length=128)
+
+
+class CandidateReviewRequest(GrowthRequest):
+    decision: Literal["accepted", "rejected"]
+    review_note: str = Field(default="", max_length=2_000)
 
 
 class MethodPublishRequest(GrowthRequest):
@@ -209,6 +296,32 @@ class RunRequest(GrowthRequest):
     source_cutoff: str = Field(default="", max_length=64)
 
 
+class FailureCreateRequest(GrowthRequest):
+    code: KnowledgeFailureCode
+    diagnostic_pattern: KnowledgeFailurePattern | None = None
+    secondary_diagnostic_patterns: list[KnowledgeFailurePattern] = Field(default_factory=list, max_length=2)
+    severity: Literal["info", "warning", "error", "critical"] = "error"
+    summary: str = Field(min_length=1, max_length=2_000)
+    run_id: str = Field(default="", max_length=128)
+    event_sequence: int | None = Field(default=None, ge=1)
+    evidence_refs: list[str] = Field(default_factory=list, max_length=100)
+    root_cause: str = Field(default="", max_length=8_000)
+    minimal_structural_fix: str = Field(default="", max_length=8_000)
+    retryable: bool = False
+
+
+class FailureResolveRequest(GrowthRequest):
+    resolution_note: str = Field(min_length=1, max_length=2_000)
+    retry_scheduled: bool = False
+
+    @model_validator(mode="after")
+    def normalize_resolution_note(self) -> "FailureResolveRequest":
+        self.resolution_note = self.resolution_note.strip()
+        if not self.resolution_note:
+            raise ValueError("resolution_note must not be blank")
+        return self
+
+
 @project_router.get("/profile")
 def read_profile(
     project_id: str,
@@ -266,6 +379,7 @@ def list_assets(
     if stage in {None, "D"}:
         items.extend({**_public_record(item), "stage": "D", "asset_type": "output"} for item in _guard(lambda: repo.list_outputs(project_id, limit=MAX_PAGE_SIZE)))
     if stage in {None, "review"}:
+        items.extend({**_public_candidate(item), "stage": "review", "asset_type": "candidate"} for item in _guard(lambda: repo.list_candidates(project_id, limit=MAX_PAGE_SIZE)))
         items.extend({**_public_record(item), "stage": "review", "asset_type": "feedback"} for item in _guard(lambda: repo.list_feedback(project_id, limit=MAX_PAGE_SIZE)))
         items.extend({**_public_proposal(item), "stage": "review", "asset_type": "wiki_proposal"} for item in _guard(lambda: repo.list_proposals(project_id, limit=MAX_PAGE_SIZE)))
         items.extend({**_public_method_proposal(item), "stage": "review", "asset_type": "method_proposal"} for item in _guard(lambda: repo.list_method_proposals(project_id, limit=MAX_PAGE_SIZE)))
@@ -381,6 +495,89 @@ def read_method_proposal(
     return _ok(request, repo, project_id, {"proposal": _public_record(proposal)})
 
 
+@project_router.get("/methods/{method_id}/experiments")
+def list_method_evolution_experiments(
+    project_id: str,
+    method_id: str,
+    request: Request,
+    status: str = Query(default="", max_length=32),
+    limit: int = Query(default=100, ge=1, le=MAX_PAGE_SIZE),
+    cursor: str | None = Query(default=None, max_length=16),
+    repo: GrowthRepository = Depends(get_growth_repository),
+):
+    project_id = _enforce_growth_access(request, project_id)
+    if not _guard(lambda: repo.get_method(project_id, method_id)):
+        raise _http_error(404, "growth_resource_not_found", "method not found in project")
+    records = _guard(
+        lambda: repo.list_method_evolution_runs(
+            project_id, method_id=method_id, status=status, limit=MAX_PAGE_SIZE
+        )
+    )
+    page, pagination = _paginate(
+        [_public_record(item) for item in records], limit=limit, cursor=cursor
+    )
+    return _ok(
+        request,
+        repo,
+        project_id,
+        {"method_id": method_id, "experiments": page, "pagination": pagination},
+    )
+
+
+@project_router.get("/methods/experiments/{experiment_id}")
+def read_method_evolution_experiment(
+    project_id: str,
+    experiment_id: str,
+    request: Request,
+    repo: GrowthRepository = Depends(get_growth_repository),
+):
+    project_id = _enforce_growth_access(request, project_id)
+    experiment = _guard(lambda: repo.get_method_evolution_run(project_id, experiment_id))
+    if not experiment:
+        raise _http_error(
+            404,
+            "growth_resource_not_found",
+            "method evolution experiment not found in project",
+        )
+    return _ok(request, repo, project_id, {"experiment": _public_record(experiment)})
+
+
+@project_router.post("/methods/{method_id}/experiments", status_code=201)
+def start_method_evolution_experiment(
+    project_id: str,
+    method_id: str,
+    payload: MethodEvolutionRequest,
+    request: Request,
+    repo: GrowthRepository = Depends(get_growth_repository),
+):
+    project_id = _enforce_growth_access(request, project_id, write=True)
+    experiment, idempotent = _guard(
+        lambda: MethodEvolutionService(repo).start(
+            project_id=project_id,
+            method_id=method_id,
+            candidate_body=payload.candidate_body,
+            candidate_manifest=payload.candidate_manifest,
+            supporting_output_ids=payload.supporting_output_ids,
+            mutation_dimension=payload.mutation_dimension,
+            rationale=payload.rationale,
+            idempotency_key=payload.idempotency_key,
+            actor_id=_actor(request),
+        )
+    )
+    return _ok(
+        request,
+        repo,
+        project_id,
+        {
+            "experiment": _public_record(experiment),
+            "idempotent": idempotent,
+            "publication_status": "review_required"
+            if experiment.get("decision") == "retain"
+            else "not_publishable",
+        },
+    )
+
+
 @project_router.post("/methods", status_code=201)
 def propose_method(
     project_id: str,
@@ -408,6 +605,170 @@ def propose_method(
         )
     )
     return _ok(request, repo, project_id, {"proposal": _public_record(proposal), "publication_status": "proposal_only"})
+
+
+@project_router.post("/methods/distill", status_code=202)
+def distill_source_methods(
+    project_id: str,
+    payload: SourceMethodDistillationRequest,
+    request: Request,
+    repo: GrowthRepository = Depends(get_growth_repository),
+):
+    """Submit review-only RIA-TV++ proposal generation from one admitted source."""
+    project_id = _enforce_growth_access(request, project_id, write=True)
+    run = _guard(
+        lambda: SourceMethodDistillationService(repo).submit(
+            project_id=project_id,
+            source_id=payload.source_id,
+            actor_id=_actor(request),
+            trigger="http",
+            candidate_ids=payload.candidate_ids,
+        )
+    )
+    try:
+        execution = dispatch_source_method_distillation(project_id, str(run["id"]), repository=repo)
+    except Exception as exc:
+        repo.update_run_status(
+            project_id,
+            str(run["id"]),
+            RunStatus.FAILED,
+            error=str(exc)[:2_000],
+            output_refs={
+                "failure": {
+                    "category": "transient_dependency",
+                    "code": "source_method_distillation_dispatch_failed",
+                    "retryable": True,
+                }
+            },
+        )
+        raise _translate_error(exc) from exc
+    persisted = _guard(lambda: repo.get_run(project_id, str(run["id"])))
+    return _ok(
+        request,
+        repo,
+        project_id,
+        {
+            "run": _public_record(persisted),
+            "proposals": [],
+            "publication_status": "proposal_only",
+            "execution": execution,
+        },
+    )
+
+
+@project_router.get("/candidates")
+def list_candidates(
+    project_id: str,
+    request: Request,
+    status: str = Query(default="", max_length=32),
+    source_id: str = Query(default="", max_length=128),
+    run_id: str = Query(default="", max_length=128),
+    limit: int = Query(default=100, ge=1, le=MAX_PAGE_SIZE),
+    cursor: str | None = Query(default=None, max_length=16),
+    repo: GrowthRepository = Depends(get_growth_repository),
+):
+    project_id = _enforce_growth_access(request, project_id)
+    records = _guard(
+        lambda: repo.list_candidates(
+            project_id,
+            status=status,
+            source_id=source_id,
+            extraction_run_id=run_id,
+            limit=MAX_PAGE_SIZE,
+        )
+    )
+    page, pagination = _paginate([_public_candidate(item) for item in records], limit=limit, cursor=cursor)
+    return _ok(request, repo, project_id, {"candidates": page, "pagination": pagination})
+
+
+@project_router.get("/candidates/{candidate_id}")
+def read_candidate(
+    project_id: str,
+    candidate_id: str,
+    request: Request,
+    repo: GrowthRepository = Depends(get_growth_repository),
+):
+    project_id = _enforce_growth_access(request, project_id)
+    candidate = _guard(lambda: repo.get_candidate(project_id, candidate_id))
+    if not candidate:
+        raise _http_error(404, "growth_resource_not_found", "candidate not found in project")
+    return _ok(request, repo, project_id, {"candidate": _public_record(candidate)})
+
+
+@project_router.post("/candidates/extract", status_code=202)
+def extract_source_candidates(
+    project_id: str,
+    payload: SourceCandidateExtractionRequest,
+    request: Request,
+    repo: GrowthRepository = Depends(get_growth_repository),
+):
+    """Submit five independent, review-only candidate extractors for one source."""
+    project_id = _enforce_growth_access(request, project_id, write=True)
+    run = _guard(
+        lambda: SourceCandidateExtractionService(repo).submit(
+            project_id=project_id,
+            source_id=payload.source_id,
+            actor_id=_actor(request),
+            trigger="http",
+        )
+    )
+    try:
+        execution = dispatch_source_candidate_extraction(project_id, str(run["id"]), repository=repo)
+    except Exception as exc:
+        repo.update_run_status(
+            project_id,
+            str(run["id"]),
+            RunStatus.FAILED,
+            error=str(exc)[:2_000],
+            output_refs={
+                "failure": {
+                    "category": "transient_dependency",
+                    "code": "candidate_extraction_dispatch_failed",
+                    "retryable": True,
+                },
+                "publication_status": "review_only",
+            },
+        )
+        raise _translate_error(exc) from exc
+    persisted = _guard(lambda: repo.get_run(project_id, str(run["id"])))
+    return _ok(
+        request,
+        repo,
+        project_id,
+        {
+            "run": _public_record(persisted),
+            "candidates": [],
+            "publication_status": "review_only",
+            "execution": execution,
+        },
+    )
+
+
+@project_router.post("/candidates/{candidate_id}/review")
+def review_candidate(
+    project_id: str,
+    candidate_id: str,
+    payload: CandidateReviewRequest,
+    request: Request,
+    repo: GrowthRepository = Depends(get_growth_repository),
+):
+    project_id = _enforce_growth_access(request, project_id, write=True)
+    candidate = _guard_state_transition(
+        lambda: repo.review_candidate(
+            project_id,
+            candidate_id,
+            decision=KnowledgeCandidateStatus(payload.decision),
+            actor_id=_actor(request),
+            review_note=payload.review_note,
+        ),
+        "candidate review state conflict",
+    )
+    return _ok(
+        request,
+        repo,
+        project_id,
+        {"candidate": _public_record(candidate), "publication_status": "review_only"},
+    )
 
 
 @project_router.get("/methods/{method_id}/revisions")
@@ -538,6 +899,11 @@ def resolve_method(
     revision = None
     if method.get("status") == "published" and method.get("active_revision_id"):
         revision = _guard(lambda: repo.get_method_revision(project_id, method["active_revision_id"]))
+    experiments = _guard(
+        lambda: repo.list_method_evolution_runs(
+            project_id, method_id=method_id, limit=20
+        )
+    )
     return _ok(
         request,
         repo,
@@ -545,6 +911,7 @@ def resolve_method(
         {
             "method": _public_record(method),
             "revision": _public_record(revision) if revision else None,
+            "evolution_experiments": [_public_record(item) for item in experiments],
             "resolution_status": "available" if revision else "unavailable",
         },
     )
@@ -899,9 +1266,122 @@ def list_runs(
     repo: GrowthRepository = Depends(get_growth_repository),
 ):
     project_id = _enforce_growth_access(request, project_id)
-    records = [item for item in _guard(lambda: repo.list_runs(project_id, limit=MAX_PAGE_SIZE)) if item.get("run_type") in GROWTH_JOB_TYPES]
+    records = [
+        item
+        for item in _guard(lambda: repo.list_runs(project_id, limit=MAX_PAGE_SIZE))
+        if item.get("run_type") in GROWTH_WORKSPACE_RUN_TYPES
+    ]
     page, pagination = _paginate([_public_record(item) for item in records], limit=limit, cursor=cursor)
     return _ok(request, repo, project_id, {"runs": page, "pagination": pagination})
+
+
+@project_router.get("/capture-attempts")
+def list_capture_attempts(
+    project_id: str,
+    request: Request,
+    run_id: str = Query(default="", max_length=128),
+    source_id: str = Query(default="", max_length=128),
+    limit: int = Query(default=100, ge=1, le=MAX_PAGE_SIZE),
+    cursor: str | None = Query(default=None, max_length=16),
+    repo: GrowthRepository = Depends(get_growth_repository),
+):
+    """Expose the privacy-bounded evidence capture ledger for one project."""
+    project_id = _enforce_growth_access(request, project_id)
+    records = _guard(
+        lambda: repo.list_source_capture_attempts(
+            project_id,
+            run_id=run_id,
+            source_id=source_id,
+            limit=MAX_PAGE_SIZE,
+        )
+    )
+    page, pagination = _paginate([_public_record(item) for item in records], limit=limit, cursor=cursor)
+    return _ok(
+        request,
+        repo,
+        project_id,
+        {
+            "capture_attempts": page,
+            "pagination": pagination,
+        },
+    )
+
+
+@project_router.get("/failures")
+def list_failures(
+    project_id: str,
+    request: Request,
+    status: str = Query(default="", max_length=32),
+    run_id: str = Query(default="", max_length=128),
+    diagnostic_pattern: KnowledgeFailurePattern | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=MAX_PAGE_SIZE),
+    cursor: str | None = Query(default=None, max_length=16),
+    repo: GrowthRepository = Depends(get_growth_repository),
+):
+    project_id = _enforce_growth_access(request, project_id)
+    records = _guard(
+        lambda: repo.list_failure_records(
+            project_id,
+            status=status,
+            run_id=run_id,
+            diagnostic_pattern=diagnostic_pattern.value if diagnostic_pattern else "",
+            limit=MAX_PAGE_SIZE,
+        )
+    )
+    page, pagination = _paginate([_public_record(item) for item in records], limit=limit, cursor=cursor)
+    return _ok(request, repo, project_id, {"failures": page, "pagination": pagination})
+
+
+@project_router.get("/failures/{failure_id}")
+def read_failure(
+    project_id: str,
+    failure_id: str,
+    request: Request,
+    repo: GrowthRepository = Depends(get_growth_repository),
+):
+    project_id = _enforce_growth_access(request, project_id)
+    failure = _guard(lambda: repo.get_failure_record(project_id, failure_id))
+    if not failure:
+        raise _http_error(404, "growth_resource_not_found", "failure record not found in project")
+    return _ok(request, repo, project_id, {"failure": _public_record(failure)})
+
+
+@project_router.post("/failures", status_code=201)
+def create_failure(
+    project_id: str,
+    payload: FailureCreateRequest,
+    request: Request,
+    repo: GrowthRepository = Depends(get_growth_repository),
+):
+    project_id = _enforce_growth_access(request, project_id, write=True)
+    failure = _guard(
+        lambda: repo.create_failure_record(
+            KnowledgeFailureRecord(project_id=project_id, **payload.model_dump())
+        )
+    )
+    return _ok(request, repo, project_id, {"failure": _public_record(failure)})
+
+
+@project_router.post("/failures/{failure_id}/resolve")
+def resolve_failure(
+    project_id: str,
+    failure_id: str,
+    payload: FailureResolveRequest,
+    request: Request,
+    repo: GrowthRepository = Depends(get_growth_repository),
+):
+    project_id = _enforce_growth_access(request, project_id, write=True)
+    failure = _guard_state_transition(
+        lambda: repo.resolve_failure_record(
+            project_id,
+            failure_id,
+            actor_id=_actor(request),
+            resolution_note=payload.resolution_note,
+            retry_scheduled=payload.retry_scheduled,
+        ),
+        "failure resolution state conflict",
+    )
+    return _ok(request, repo, project_id, {"failure": _public_record(failure)})
 
 
 @project_router.post("/runs")
@@ -1172,6 +1652,15 @@ def _public_method_proposal(record: dict[str, Any]) -> dict[str, Any]:
     return value
 
 
+def _public_candidate(record: dict[str, Any]) -> dict[str, Any]:
+    """Keep source excerpts out of high-volume review lists until selected."""
+    value = _public_record(record)
+    value.pop("evidence", None)
+    value.pop("fingerprint", None)
+    value.pop("explanation", None)
+    return value
+
+
 def _public_record(record: dict[str, Any] | None) -> dict[str, Any] | None:
     if record is None:
         return None
@@ -1185,6 +1674,8 @@ def _summary(repo: GrowthRepository, project_id: str) -> dict[str, Any]:
     feedback = repo.list_feedback(project_id, limit=MAX_PAGE_SIZE)
     proposals = repo.list_proposals(project_id, limit=MAX_PAGE_SIZE)
     method_proposals = repo.list_method_proposals(project_id, limit=MAX_PAGE_SIZE)
+    candidates = repo.list_candidates(project_id, limit=MAX_PAGE_SIZE)
+    failures = repo.list_failure_records(project_id, limit=MAX_PAGE_SIZE)
     return {
         "project_id": project_id,
         "counts": {
@@ -1201,7 +1692,10 @@ def _summary(repo: GrowthRepository, project_id: str) -> dict[str, Any]:
             "feedback": len(feedback),
             "wiki_proposals": len(proposals),
             "method_proposals": len(method_proposals),
-            "review_records": len(feedback) + len(proposals) + len(method_proposals),
+            "candidates": len(candidates),
+            "pending_candidates": sum(item.get("status") == "pending_review" for item in candidates),
+            "review_records": len(feedback) + len(proposals) + len(method_proposals) + len(candidates),
+            "open_failures": sum(item.get("status") != "resolved" for item in failures),
         },
         "bounded": {
             "methods": len(methods) == MAX_PAGE_SIZE,
@@ -1210,6 +1704,7 @@ def _summary(repo: GrowthRepository, project_id: str) -> dict[str, Any]:
                 len(feedback) == MAX_PAGE_SIZE
                 or len(proposals) == MAX_PAGE_SIZE
                 or len(method_proposals) == MAX_PAGE_SIZE
+                or len(candidates) == MAX_PAGE_SIZE
             ),
         },
     }
@@ -1245,6 +1740,15 @@ def _start_run(
     if not claim["claimed"]:
         return {"status": "duplicate", "run_id": claim["run_id"], "duplicate": True}
     run_id = claim["run_id"]
+    if not settings.KNOWLEDGE_SCHEDULES_ENABLED:
+        repo.update_run_status(
+            project_id,
+            run_id,
+            RunStatus.UNAVAILABLE,
+            error="durable scheduler unavailable because the knowledge schedules feature is disabled",
+            output_refs={"failure": {"code": "scheduler_disabled", "retryable": True}},
+        )
+        return {"status": "unavailable", "run_id": run_id}
     if not is_celery_real():
         from app.tasks.knowledge_tasks import execute_knowledge_run
 
@@ -1262,6 +1766,16 @@ def _start_run(
     from app.tasks.knowledge_tasks import knowledge_execute
 
     task = knowledge_execute.apply_async(args=[project_id, run_id])
+    repo.append_run_event(
+        project_id=project_id,
+        run_id=run_id,
+        event_type="knowledge.run.execution_assigned",
+        payload={
+            "execution": "celery",
+            "task_name": "knowledge.execute",
+            "task_id": str(task.id),
+        },
+    )
     return {"status": "queued", "run_id": run_id, "task_id": task.id}
 
 

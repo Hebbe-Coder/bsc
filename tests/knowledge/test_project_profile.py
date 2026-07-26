@@ -181,3 +181,44 @@ def test_profile_compare_and_swap_is_enforced_across_repository_instances(tmp_pa
     finally:
         first.close()
         second.close()
+
+
+def test_project_source_policy_is_revisioned_with_the_profile_and_validates_retention(tmp_path):
+    repo = GrowthRepository(db_path=str(tmp_path / "profile-source-policy.db"))
+    service = ProjectProfileService(repo, settings_obj=_settings())
+    try:
+        profile = service.update_profile(
+            "project-a",
+            {
+                "source_policy": {
+                    "primary_origin_prefixes": ["https://research.example/"],
+                    "trusted_origin_prefixes": ["https://news.example/"],
+                    "community_origin_prefixes": ["https://community.example/"],
+                    "blocked_origin_prefixes": ["https://blocked.example/"],
+                    "trusted_source_types": ["manual_upload", "web_clip"],
+                    "require_triage_source_types": ["horizon_signal"],
+                    "primary_retention_days": 730,
+                    "trusted_retention_days": 365,
+                    "community_retention_days": 30,
+                    "untrusted_retention_days": 14,
+                }
+            },
+            expected_revision=0,
+            actor_id="owner-a",
+        )
+
+        assert profile.revision == 1
+        assert profile.source_policy.primary_origin_prefixes == ["https://research.example/"]
+        assert profile.source_policy.community_retention_days == 30
+        assert repo.get_profile("project-a")["source_policy"]["blocked_origin_prefixes"] == ["https://blocked.example/"]
+        assert repo.list_profile_revisions("project-a")[0]["profile"]["source_policy"]["primary_retention_days"] == 730
+
+        with pytest.raises(ValueError, match="retention"):
+            service.update_profile(
+                "project-a",
+                {"source_policy": {"untrusted_retention_days": 0}},
+                expected_revision=1,
+                actor_id="owner-a",
+            )
+    finally:
+        repo.close()

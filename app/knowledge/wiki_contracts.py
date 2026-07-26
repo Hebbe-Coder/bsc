@@ -40,6 +40,15 @@ class SourceStatus(str, Enum):
     SUPERSEDED = "superseded"
 
 
+class SourceCaptureOutcome(str, Enum):
+    """The immutable result of one source-capture attempt."""
+
+    CAPTURED = "captured"
+    DUPLICATE = "duplicate"
+    REJECTED_BY_POLICY = "rejected_by_policy"
+    PROJECTION_FAILED = "projection_failed"
+
+
 class ProposalStatus(str, Enum):
     DRAFT = "draft"
     VALIDATING = "validating"
@@ -119,6 +128,30 @@ class SourceRecord(WikiModel):
     @classmethod
     def validate_optional_vault_path(cls, value: str) -> str:
         return _normalize_vault_path(value) if value else ""
+
+
+class SourceCaptureAttempt(WikiModel):
+    """A privacy-bounded ledger entry for one evidence-capture decision."""
+
+    id: str = Field(default_factory=_new_id, min_length=1)
+    project_id: str = Field(min_length=1)
+    source_type: str = Field(min_length=1)
+    origin: str = Field(default="", max_length=2_000)
+    content_hash: str = Field(default="", max_length=128)
+    run_id: str = Field(default="", max_length=128)
+    source_id: str = Field(default="", max_length=128)
+    outcome: SourceCaptureOutcome
+    policy: dict[str, Any] = Field(default_factory=dict)
+    projection: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=_utc_now)
+
+    @field_validator("content_hash")
+    @classmethod
+    def validate_optional_content_hash(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized and (len(normalized) != 64 or any(character not in "0123456789abcdef" for character in normalized)):
+            raise ValueError("content_hash must be a SHA-256 hexadecimal digest")
+        return normalized
 
 
 class WikiOperation(WikiModel):

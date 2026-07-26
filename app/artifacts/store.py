@@ -25,6 +25,12 @@ from .types import (
     CoverageArtifact,
     DecisionArtifact,
     DeliverableArtifact,
+    MissionArtifact,
+    DiagnosisArtifact,
+    CapabilitySelectionArtifact,
+    DynamicSOPArtifact,
+    ExecutionResultArtifact,
+    MemoryArtifact,
     EvidenceArtifact,
     GapArtifact,
     GapCategory,
@@ -297,6 +303,18 @@ class ArtifactGraphStore:
         coverages = [a for a in artifacts if a.artifact_type == ArtifactType.COVERAGE]
         gaps = [a for a in artifacts if a.artifact_type == ArtifactType.GAP]
         decisions = [a for a in artifacts if a.artifact_type == ArtifactType.DECISION]
+        missions = [a for a in artifacts if a.artifact_type == ArtifactType.MISSION]
+        diagnoses = [a for a in artifacts if a.artifact_type == ArtifactType.DIAGNOSIS]
+        selections = [a for a in artifacts if a.artifact_type == ArtifactType.CAPABILITY_SELECTION]
+        dynamic_sops = [a for a in artifacts if a.artifact_type == ArtifactType.DYNAMIC_SOP]
+        sop_routing_evaluations = [a for a in artifacts if a.artifact_type == ArtifactType.SOP_ROUTING_EVALUATION]
+        execution_results = [a for a in artifacts if a.artifact_type == ArtifactType.EXECUTION_RESULT]
+        memories = [a for a in artifacts if a.artifact_type == ArtifactType.MEMORY]
+        runtime_contexts = [a for a in artifacts if a.artifact_type == ArtifactType.CONTEXT_SNAPSHOT]
+        run_checkpoints = [a for a in artifacts if a.artifact_type == ArtifactType.RUN_CHECKPOINT]
+        task_verifications = [a for a in artifacts if a.artifact_type == ArtifactType.TASK_VERIFICATION]
+        external_worker_runs = [a for a in artifacts if a.artifact_type == ArtifactType.EXTERNAL_WORKER_RUN]
+        advisor_reviews = [a for a in artifacts if a.artifact_type == ArtifactType.ADVISOR_REVIEW]
         # ``created_at`` has second precision for compatibility. Preserve the
         # index insertion order so same-second deliverables do not shuffle in
         # an exported project report.
@@ -357,6 +375,20 @@ class ArtifactGraphStore:
                 "gaps": [a.model_dump() for a in gaps],
                 "decisions": [a.model_dump() for a in decisions],
                 "deliverables": [a.model_dump() for a in deliverables],
+                "dbos": {
+                    "missions": [a.model_dump() for a in missions],
+                    "diagnoses": [a.model_dump() for a in diagnoses],
+                    "capability_selections": [a.model_dump() for a in selections],
+                    "dynamic_sops": [a.model_dump() for a in dynamic_sops],
+                    "sop_routing_evaluations": [a.model_dump() for a in sop_routing_evaluations],
+                    "execution_results": [a.model_dump() for a in execution_results],
+                    "memories": [a.model_dump() for a in memories],
+                    "runtime_contexts": [a.model_dump() for a in runtime_contexts],
+                    "run_checkpoints": [a.model_dump() for a in run_checkpoints],
+                    "task_verifications": [a.model_dump() for a in task_verifications],
+                    "external_worker_runs": [a.model_dump() for a in external_worker_runs],
+                    "advisor_reviews": [a.model_dump() for a in advisor_reviews],
+                },
             },
         }
         return result

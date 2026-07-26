@@ -1,8 +1,28 @@
-from app.core.celery_app import SyncCelery, celery, get_celery_app, is_celery_broker_available
+from importlib.util import find_spec
+
+from app.core.celery_app import (
+    CELERY_TASK_MODULES,
+    SyncCelery,
+    celery,
+    get_celery_app,
+    is_celery_broker_available,
+)
 
 
 def test_celery_cli_entrypoint_reuses_the_configured_application():
     assert celery is get_celery_app()
+
+
+def test_worker_import_contract_lists_concrete_existing_task_modules():
+    assert CELERY_TASK_MODULES == (
+        "app.tasks.bsc_tasks",
+        "app.tasks.document_tasks",
+        "app.tasks.export_tasks",
+        "app.tasks.knowledge_tasks",
+        "app.tasks.growth_tasks",
+        "app.tasks.method_distillation_tasks",
+    )
+    assert all(find_spec(module_name) is not None for module_name in CELERY_TASK_MODULES)
 
 
 def test_broker_availability_is_false_for_sync_or_failed_real_connection(monkeypatch):

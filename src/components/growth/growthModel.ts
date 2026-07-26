@@ -1,6 +1,6 @@
 import type { GrowthRecord, GrowthStage } from '../../api/growthApi';
 
-export type GrowthGraphNodeType = 'source' | 'page' | 'method' | 'output' | 'feedback' | 'other';
+export type GrowthGraphNodeType = 'source' | 'page' | 'method' | 'candidate' | 'output' | 'feedback' | 'other';
 
 export const GROWTH_STAGES: Array<{ id: GrowthStage; index: string; label: string; detail: string }> = [
   { id: 'A', index: 'A', label: 'Evidence', detail: 'Immutable captured material' },
@@ -15,6 +15,7 @@ export const GROWTH_RELATIONS = [
   'source_supports_page', 'source_contradicts_source', 'page_informs_method', 'output_used_source',
   'output_used_page', 'output_used_method_revision', 'output_produced_by_run', 'feedback_evaluates_output',
   'output_proposes_page', 'output_proposes_method', 'method_supersedes_method',
+  'source_extracts_candidate', 'run_produces_candidate', 'candidate_guides_method_proposal',
 ];
 
 export function growthRecordLabel(record: GrowthRecord): string {
@@ -34,6 +35,10 @@ export function growthRecordLabel(record: GrowthRecord): string {
   if (record.asset_type === 'method_proposal') {
     return String(record.rationale || record.task_family || `Method candidate ${record.id}`);
   }
+  if (record.asset_type === 'candidate') {
+    const type = String(record.candidate_type || 'candidate').replace(/_/g, ' ');
+    return `${type}: ${String(record.title || record.claim || record.id)}`;
+  }
   return String(record.title || record.name || record.origin || record.path || record.slug || record.id);
 }
 
@@ -48,6 +53,7 @@ export function normalizeGrowthNodeType(value: string | undefined): GrowthGraphN
   if (value === 'source') return 'source';
   if (value === 'page' || value === 'wiki_page') return 'page';
   if (value === 'method' || value === 'method_revision' || value === 'method_proposal') return 'method';
+  if (value === 'candidate') return 'candidate';
   if (value === 'output') return 'output';
   if (value === 'feedback') return 'feedback';
   if (value === 'proposal' || value === 'wiki_proposal') return 'feedback';

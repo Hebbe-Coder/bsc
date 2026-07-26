@@ -23,8 +23,9 @@ services:
       - DB_PATH=/data/bsc_cloud.db
       - DB_URL=postgresql://${POSTGRES_USER:-bsc}:${POSTGRES_PASSWORD:-bsc}@postgres:5432/${POSTGRES_DB:-bsc}
       - CELERY_ENABLED=${CELERY_ENABLED:-false}
-      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/0}
-      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      - CELERY_KNOWLEDGE_QUEUE=bsc_docker_knowledge
+      - CELERY_BROKER_URL=${COMPOSE_CELERY_BROKER_URL:-redis://redis:6379/2}
+      - CELERY_RESULT_BACKEND=${COMPOSE_CELERY_RESULT_BACKEND:-redis://redis:6379/3}
       - KNOWLEDGE_WIKI_ENABLED=${KNOWLEDGE_WIKI_ENABLED:-false}
       - KNOWLEDGE_OBSIDIAN_SYNC_ENABLED=${KNOWLEDGE_OBSIDIAN_SYNC_ENABLED:-false}
       - KNOWLEDGE_SCHEDULES_ENABLED=${KNOWLEDGE_SCHEDULES_ENABLED:-false}
@@ -136,11 +137,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: celery -A app.core.celery_app worker --loglevel=info --concurrency=4
+    command: celery -A app.core.celery_app worker --loglevel=info --concurrency=4 --queues=bsc_docker_knowledge
     environment:
       - CELERY_ENABLED=true
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - CELERY_KNOWLEDGE_QUEUE=bsc_docker_knowledge
+      - CELERY_BROKER_URL=${COMPOSE_CELERY_BROKER_URL:-redis://redis:6379/2}
+      - CELERY_RESULT_BACKEND=${COMPOSE_CELERY_RESULT_BACKEND:-redis://redis:6379/3}
       - CACHE_TYPE=redis
       - REDIS_URL=redis://redis:6379/0
       - EVENT_BACKEND=redis
@@ -196,11 +198,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: celery -A app.core.celery_app beat --loglevel=info
+    command: celery -A app.core.celery_app beat --loglevel=info --schedule=/tmp/celerybeat-schedule
     environment:
       - CELERY_ENABLED=true
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - CELERY_KNOWLEDGE_QUEUE=bsc_docker_knowledge
+      - CELERY_BROKER_URL=${COMPOSE_CELERY_BROKER_URL:-redis://redis:6379/2}
+      - CELERY_RESULT_BACKEND=${COMPOSE_CELERY_RESULT_BACKEND:-redis://redis:6379/3}
       - CACHE_TYPE=redis
       - REDIS_URL=redis://redis:6379/0
       - EVENT_BACKEND=redis

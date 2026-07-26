@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Optional
 from app.agents.base_agent import BaseAgent
+from app.core.config import settings
 from app.orchestrator.methodology import (
     derive_methodology_query,
     validate_source_refs,
@@ -10,10 +11,41 @@ from app.orchestrator.methodology import (
 
 
 class SopBuilderAgent(BaseAgent):
-    def __init__(self, llm_service=None, bridge=None):
+    def __init__(self, llm_service=None, bridge=None, promptops=None):
         """构造 SOP Builder Agent，可注入 MethodologyBridge 以检索方法论依据。"""
         super().__init__(llm_service)
         self._bridge = bridge
+        # Tests and offline integrations can inject a deterministic client.
+        # The default production path below must pass through PromptOps.
+        self._injected_llm_service = llm_service is not None
+        self._promptops = promptops
+
+    def _compose_sop(
+        self,
+        user_prompt: str,
+        project_id: Optional[str],
+        *,
+        context_refs: tuple[str, ...] = (),
+    ) -> dict:
+        if self._injected_llm_service:
+            return self.llm_service.chat(self.system_prompt, user_prompt, temperature=0.1)
+
+        from app.promptops import PromptOps, PromptRequest, PromptTask
+
+        run = (self._promptops or PromptOps()).run_structured(
+            PromptRequest(
+                project_id=project_id or "default",
+                task=PromptTask.SOP_COMPOSITION,
+                revision="sop-builder-v1",
+                provider=(settings.SOP_LLM_PROVIDER or "mock").lower(),
+                system_prompt=self.system_prompt,
+                user_prompt=user_prompt,
+                context_refs=context_refs,
+                temperature=0.1,
+                max_tokens=6_000,
+            )
+        )
+        return run.output
 
     def _get_bridge(self):
         """惰性获取 MethodologyBridge（未注入时自动构建默认实例）。"""
@@ -76,6 +108,7 @@ class SopBuilderAgent(BaseAgent):
             "availability": "disabled",
             "context_block": "",
         }
+        selected_context = {}
         if project_id:
             bridge = self._get_bridge()
             out = bridge.retrieve(
@@ -115,7 +148,13 @@ class SopBuilderAgent(BaseAgent):
                 )
 
         user_prompt = "\n".join(parts)
-        result = self.llm_service.chat(self.system_prompt, user_prompt, temperature=0.1)
+        context_refs = tuple(dict.fromkeys(
+            str(reference)
+            for key in ("source_ids", "page_ids", "method_revision_ids", "output_ids")
+            for reference in (selected_context.get(key) or [])
+            if str(reference).strip()
+        ))
+        result = self._compose_sop(user_prompt, project_id, context_refs=context_refs)
         # 仅当发生检索时附加溯源覆盖率指标，无 project_id 路径行为保持不变
         if citations:
             items = (result.get("sop") or {}).get("sops") or []

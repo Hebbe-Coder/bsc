@@ -29,8 +29,12 @@ class BaseRepository:
         return self._connection
 
     def _close_connection(self) -> None:
-        if self._owns_connection:
-            self._connection.close()
+        # ``__del__`` can run after an exception interrupts ``__init__``.
+        # Cleanup must never mask that original initialization failure.
+        if getattr(self, "_owns_connection", False):
+            connection = getattr(self, "_connection", None)
+            if connection is not None:
+                connection.close()
 
     def _execute(self, sql: str, params: tuple = ()) -> Any:
         return self._get_connection().execute(sql, params)

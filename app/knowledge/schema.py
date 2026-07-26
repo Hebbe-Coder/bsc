@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.knowledge.growth_contracts import FAILURE_PATTERN_BY_CODE
+
 
 _COMMON_SCHEMA = [
     """CREATE TABLE IF NOT EXISTS knowledge_docs (
@@ -43,6 +45,11 @@ _WIKI_SCHEMA = [
         trust_level TEXT NOT NULL DEFAULT 'untrusted', status TEXT NOT NULL,
         metadata_json TEXT DEFAULT '{}', supersedes_id TEXT,
         captured_at TEXT NOT NULL, updated_at TEXT NOT NULL)""",
+    """CREATE TABLE IF NOT EXISTS knowledge_source_capture_attempts (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL, source_type TEXT NOT NULL,
+        origin TEXT DEFAULT '', content_hash TEXT DEFAULT '', run_id TEXT DEFAULT '',
+        source_id TEXT DEFAULT '', outcome TEXT NOT NULL, policy_json TEXT NOT NULL DEFAULT '{}',
+        projection_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL)""",
     """CREATE TABLE IF NOT EXISTS knowledge_wiki_pages (
         id TEXT PRIMARY KEY, project_id TEXT NOT NULL, path TEXT NOT NULL,
         title TEXT DEFAULT '', page_kind TEXT DEFAULT 'general', content_hash TEXT DEFAULT '',
@@ -125,6 +132,15 @@ _WIKI_SCHEMA = [
         evaluator_revision TEXT NOT NULL DEFAULT '', evaluator_status TEXT NOT NULL DEFAULT 'completed',
         created_at TEXT NOT NULL,
         UNIQUE(project_id, source_id, profile_revision, evaluator_revision))""",
+    """CREATE TABLE IF NOT EXISTS knowledge_candidates (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL, source_id TEXT NOT NULL,
+        source_content_hash TEXT NOT NULL, extraction_run_id TEXT NOT NULL,
+        candidate_type TEXT NOT NULL, title TEXT NOT NULL, claim TEXT NOT NULL,
+        explanation TEXT NOT NULL DEFAULT '', evidence_json TEXT NOT NULL DEFAULT '[]',
+        fingerprint TEXT NOT NULL, status TEXT NOT NULL, reviewer_id TEXT NOT NULL DEFAULT '',
+        review_note TEXT NOT NULL DEFAULT '', reviewed_at TEXT, metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        UNIQUE(project_id, fingerprint))""",
     """CREATE TABLE IF NOT EXISTS knowledge_methods (
         id TEXT PRIMARY KEY, project_id TEXT NOT NULL, slug TEXT NOT NULL,
         name TEXT NOT NULL, applicability_json TEXT NOT NULL DEFAULT '[]',
@@ -140,8 +156,18 @@ _WIKI_SCHEMA = [
         id TEXT PRIMARY KEY, project_id TEXT NOT NULL, method_id TEXT DEFAULT '',
         operation TEXT NOT NULL, body TEXT NOT NULL, manifest_json TEXT NOT NULL DEFAULT '{}',
         source_output_ids_json TEXT NOT NULL DEFAULT '[]', rationale TEXT DEFAULT '',
-        status TEXT NOT NULL, eval_summary_json TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL, package_audit_json TEXT NOT NULL DEFAULT '{}', eval_summary_json TEXT NOT NULL DEFAULT '{}',
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL)""",
+    """CREATE TABLE IF NOT EXISTS knowledge_method_evolution_runs (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL, method_id TEXT NOT NULL,
+        baseline_revision_id TEXT NOT NULL, mutation_dimension TEXT NOT NULL,
+        rationale TEXT NOT NULL, supporting_output_ids_json TEXT NOT NULL DEFAULT '[]',
+        candidate_proposal_id TEXT NOT NULL, input_fingerprint TEXT NOT NULL,
+        evaluation_summary_json TEXT NOT NULL DEFAULT '{}', decision TEXT NOT NULL,
+        rollback_revision_id TEXT NOT NULL, status TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL, actor_id TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        UNIQUE(project_id, idempotency_key))""",
     """CREATE TABLE IF NOT EXISTS knowledge_outputs (
         id TEXT PRIMARY KEY, project_id TEXT NOT NULL, kind TEXT NOT NULL, title TEXT DEFAULT '',
         mime_type TEXT NOT NULL DEFAULT 'text/markdown', content_hash TEXT NOT NULL,
@@ -168,6 +194,15 @@ _WIKI_SCHEMA = [
         kind TEXT NOT NULL, input_hash TEXT NOT NULL, paths_json TEXT NOT NULL DEFAULT '[]',
         manifest_json TEXT NOT NULL DEFAULT '{}', status TEXT NOT NULL,
         created_at TEXT NOT NULL, UNIQUE(project_id,kind,period,input_hash))""",
+    """CREATE TABLE IF NOT EXISTS knowledge_failure_records (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL, code TEXT NOT NULL,
+        diagnostic_pattern TEXT NOT NULL DEFAULT '',
+        secondary_diagnostic_patterns_json TEXT NOT NULL DEFAULT '[]',
+        severity TEXT NOT NULL, summary TEXT NOT NULL, run_id TEXT DEFAULT '',
+        event_sequence INTEGER, evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+        root_cause TEXT DEFAULT '', minimal_structural_fix TEXT DEFAULT '', retryable INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL, resolution_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL)""",
 ]
 
 
@@ -227,6 +262,21 @@ def ensure_schema(repo: Any) -> None:
     )
     _ensure_columns(
         repo,
+        "knowledge_failure_records",
+        (
+            "ALTER TABLE knowledge_failure_records ADD COLUMN diagnostic_pattern TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE knowledge_failure_records ADD COLUMN secondary_diagnostic_patterns_json TEXT NOT NULL DEFAULT '[]'",
+            "ALTER TABLE knowledge_failure_records ADD COLUMN minimal_structural_fix TEXT NOT NULL DEFAULT ''",
+        ),
+    )
+    _ensure_columns(
+        repo,
+        "knowledge_method_proposals",
+        ("ALTER TABLE knowledge_method_proposals ADD COLUMN package_audit_json TEXT NOT NULL DEFAULT '{}'",),
+    )
+    _backfill_failure_patterns(repo)
+    _ensure_columns(
+        repo,
         "knowledge_source_triage",
         (
             "ALTER TABLE knowledge_source_triage ADD COLUMN evaluator_revision TEXT NOT NULL DEFAULT ''",
@@ -243,6 +293,9 @@ def ensure_schema(repo: Any) -> None:
         "CREATE INDEX IF NOT EXISTS idx_chunks_access ON knowledge_chunks(access_level)",
         "CREATE INDEX IF NOT EXISTS idx_kw_sources_project_status ON knowledge_sources(project_id,status,captured_at)",
         "CREATE INDEX IF NOT EXISTS idx_kw_sources_project_hash ON knowledge_sources(project_id,content_hash)",
+        "CREATE INDEX IF NOT EXISTS idx_kw_capture_attempts_project_created ON knowledge_source_capture_attempts(project_id,created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_kw_capture_attempts_project_run ON knowledge_source_capture_attempts(project_id,run_id,created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_kw_capture_attempts_project_source ON knowledge_source_capture_attempts(project_id,source_id,created_at)",
         "CREATE INDEX IF NOT EXISTS idx_kw_pages_project_path ON knowledge_wiki_pages(project_id,path)",
         "CREATE INDEX IF NOT EXISTS idx_kw_page_revisions_page_version ON knowledge_wiki_page_revisions(wiki_page_id,version)",
         "CREATE INDEX IF NOT EXISTS idx_kw_proposals_project_status ON knowledge_proposals(project_id,status,created_at)",
@@ -253,18 +306,36 @@ def ensure_schema(repo: Any) -> None:
         "CREATE INDEX IF NOT EXISTS idx_kw_eval_cases_project ON knowledge_eval_cases(project_id,case_type)",
         "CREATE INDEX IF NOT EXISTS idx_kw_profiles_revision ON knowledge_project_profiles(project_id,revision)",
         "CREATE INDEX IF NOT EXISTS idx_kw_triage_project_score ON knowledge_source_triage(project_id,priority,created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_kw_candidates_project_status ON knowledge_candidates(project_id,status,created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_kw_candidates_project_source ON knowledge_candidates(project_id,source_id,created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_kw_candidates_project_run ON knowledge_candidates(project_id,extraction_run_id,created_at)",
         "CREATE INDEX IF NOT EXISTS idx_kw_methods_project_status ON knowledge_methods(project_id,status)",
         "CREATE INDEX IF NOT EXISTS idx_kw_method_revisions_project ON knowledge_method_revisions(project_id,method_id,version)",
         "CREATE INDEX IF NOT EXISTS idx_kw_method_proposals_project ON knowledge_method_proposals(project_id,status,created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_kw_method_evolution_project ON knowledge_method_evolution_runs(project_id,method_id,created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_kw_method_evolution_proposal ON knowledge_method_evolution_runs(project_id,candidate_proposal_id)",
         "CREATE INDEX IF NOT EXISTS idx_kw_outputs_project_status ON knowledge_outputs(project_id,status,created_at)",
         "CREATE INDEX IF NOT EXISTS idx_kw_output_hash ON knowledge_outputs(project_id,content_hash)",
         "CREATE INDEX IF NOT EXISTS idx_kw_evaluations_output ON knowledge_output_evaluations(project_id,output_id,created_at)",
         "CREATE INDEX IF NOT EXISTS idx_kw_feedback_output ON knowledge_output_feedback(project_id,output_id,created_at)",
         "CREATE INDEX IF NOT EXISTS idx_kw_growth_distillations_project ON knowledge_growth_distillations(project_id,kind,period)",
+        "CREATE INDEX IF NOT EXISTS idx_kw_failures_project_status ON knowledge_failure_records(project_id,status,created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_kw_failures_project_run ON knowledge_failure_records(project_id,run_id,event_sequence)",
+        "CREATE INDEX IF NOT EXISTS idx_kw_failures_project_pattern ON knowledge_failure_records(project_id,diagnostic_pattern,created_at)",
         "CREATE INDEX IF NOT EXISTS idx_kw_lineage_edge ON knowledge_graph_edges(project_id,from_id,to_id,edge_type)",
     ):
         repo._execute(idx_sql)
     repo._commit()
+
+
+def _backfill_failure_patterns(repo: Any) -> None:
+    """Give legacy diagnostic records the same stable P01-P12 primary pattern."""
+    for code, pattern in FAILURE_PATTERN_BY_CODE.items():
+        repo._execute(
+            "UPDATE knowledge_failure_records SET diagnostic_pattern=? "
+            "WHERE code=? AND (diagnostic_pattern IS NULL OR diagnostic_pattern='')",
+            (pattern.value, code.value),
+        )
 
 
 def _ensure_columns(repo: Any, table: str, statements: tuple[str, ...]) -> None:

@@ -104,6 +104,26 @@ export interface KnowledgeOutputRegistration {
   errors: string[];
 }
 
+export interface AgentContextSegment {
+  role: string;
+  source_session_id: string;
+  priority: number;
+  fingerprint: string;
+  estimated_tokens: number;
+  disposition: string;
+}
+
+export interface AgentContextManifest {
+  revision: string;
+  manifest_id: string;
+  policy: string;
+  compaction_mode: string;
+  current_input_fingerprint: string;
+  source_session_ids: string[];
+  inherited: AgentContextSegment[];
+  persistent: AgentContextSegment[];
+}
+
 export interface AgentRuntimeMetadata {
   status: string;
   execution_id: string;
@@ -115,6 +135,7 @@ export interface AgentRuntimeMetadata {
   degraded: boolean;
   capability_executions: CapabilityExecutionMetadata[];
   context: Record<string, unknown>;
+  context_manifest: AgentContextManifest | null;
   knowledge_context: KnowledgeContextMetadata;
   knowledge_output_registration: KnowledgeOutputRegistration;
 }

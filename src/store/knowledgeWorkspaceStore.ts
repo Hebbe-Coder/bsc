@@ -188,8 +188,8 @@ export const useKnowledgeWorkspaceStore = create<KnowledgeWorkspaceState>((set, 
   setActionBusy: (actionBusy) => set({ actionBusy }),
 }));
 
-export type GrowthCenterView = 'assets' | 'metrics' | 'lineage';
-export type GrowthRequestKey = 'overview' | 'stage' | 'detail' | 'metrics' | 'lineage' | 'action';
+export type GrowthCenterView = 'assets' | 'metrics' | 'lineage' | 'runs';
+export type GrowthRequestKey = 'overview' | 'stage' | 'detail' | 'metrics' | 'lineage' | 'runs' | 'action';
 
 type GrowthWorkspaceState = {
   projectId: string;
@@ -220,6 +220,7 @@ const growthRequestStates: GrowthWorkspaceState['requestStates'] = {
   detail: 'idle',
   metrics: 'idle',
   lineage: 'idle',
+  runs: 'idle',
   action: 'idle',
 };
 

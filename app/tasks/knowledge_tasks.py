@@ -29,6 +29,7 @@ from app.knowledge.wiki_compiler import WikiCompilationError, WikiCompiler
 from app.knowledge.proposal_gate import ProposalGateError
 from app.knowledge.wiki_index import WikiSearchIndex
 from app.knowledge.wiki_llm_provider import SOPWikiCompilerProvider
+from app.knowledge.growth_contracts import KnowledgeFailureCode, KnowledgeFailureRecord
 from app.knowledge.wiki_contracts import RunStatus
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_rules import parse_project_rules, RuleValidationError
@@ -79,7 +80,39 @@ def _record_terminal_failure(
     failure: KnowledgeFailure,
     output_refs: dict | None = None,
 ) -> dict:
-    refs = {**(output_refs or {}), "failure": failure.__dict__}
+    event = repo.append_run_event(
+        project_id=project_id,
+        run_id=run_id,
+        event_type="knowledge.run.failure_recorded",
+        payload={"failure": failure.__dict__, "message": message[:2_000]},
+    )
+    failure_code = _failure_record_code(failure)
+    failure_id = ""
+    try:
+        growth_repo = repo if isinstance(repo, GrowthRepository) else GrowthRepository.borrow(repo)
+        stored = growth_repo.create_failure_record(
+            KnowledgeFailureRecord(
+                project_id=project_id,
+                code=failure_code,
+                severity="warning" if status is RunStatus.UNAVAILABLE else "error",
+                summary=message,
+                run_id=run_id,
+                event_sequence=event["sequence"],
+                evidence_refs=[f"run:{run_id}", f"event:{event['id']}"],
+                root_cause=f"{failure.category}:{failure.code}",
+                retryable=failure.retryable,
+            )
+        )
+        failure_id = str(stored["id"])
+    except Exception:
+        # A terminal run must still record its original failure when an additive
+        # diagnostics table is unavailable during recovery or migration.
+        failure_id = ""
+    refs = {
+        **(output_refs or {}),
+        "failure": failure.__dict__,
+        "failure_record_id": failure_id,
+    }
     repo.update_run_status(project_id, run_id, status, error=message, output_refs=refs)
     return {
         "status": status.value,
@@ -87,6 +120,22 @@ def _record_terminal_failure(
         "error": message,
         "failure": failure.__dict__,
     }
+
+
+def _failure_record_code(failure: KnowledgeFailure) -> KnowledgeFailureCode:
+    if failure.code.startswith("horizon_"):
+        return KnowledgeFailureCode.SOURCE_CAPTURE_FAILURE
+    if failure.category == "configuration":
+        return KnowledgeFailureCode.CONFIGURATION_DRIFT
+    if failure.category == "extraction":
+        return KnowledgeFailureCode.CHUNK_SEGMENTATION
+    if failure.category == "policy":
+        return KnowledgeFailureCode.TOOL_MISUSE
+    if failure.category == "write_conflict":
+        return KnowledgeFailureCode.PROJECT_SCOPE_INTERFERENCE
+    if failure.category == "gate":
+        return KnowledgeFailureCode.EVALUATION_BLIND_SPOT
+    return KnowledgeFailureCode.DEPENDENCY_UNREADY
 
 
 def _imported_horizon_run_ids(repository: WikiRepository, project_id: str) -> set[str]:
@@ -243,7 +292,11 @@ def execute_knowledge_run(
                         allow_private_network=settings.HORIZON_ALLOW_PRIVATE_NETWORK,
                     ).fetch_stage(run_id=horizon_run_id, stage=stage)
                 report = HorizonImportService(repo).import_items(
-                    project_id=project_id, run_id=response.run_id, stage=response.stage, items=response.items
+                    project_id=project_id,
+                    run_id=response.run_id,
+                    stage=response.stage,
+                    items=response.items,
+                    capture_run_id=run_id,
                 )
             except HorizonRunStoreEmptyError:
                 report = {"accepted": 0, "created": 0, "duplicates": 0, "rejected": 0, "skipped": True}
@@ -712,19 +765,44 @@ def reconcile_knowledge_schedules(now: datetime | None = None) -> dict:
                 )
             if not claim["claimed"]:
                 duplicates += 1
-                if growth_job and _run_was_dispatched(repo, schedule["project_id"], claim["run_id"]):
+                if _run_was_dispatched(repo, schedule["project_id"], claim["run_id"]):
                     _advance_claimed_schedule(repo, scheduler, schedule, due_at, current)
+                    continue
+                # A broker can acknowledge a task to the wrong runtime when
+                # two deployments shared the default queue. No dispatch event
+                # means this durable claim has no proof it reached the owner,
+                # so re-submit it through the current runtime's routed queue.
+                try:
+                    selected_task = growth_execute if growth_job else knowledge_execute
+                    _submit_task(selected_task, [schedule["project_id"], claim["run_id"], schedule["id"]])
+                    _record_dispatched_run(
+                        repo,
+                        schedule["project_id"],
+                        claim["run_id"],
+                        schedule_id=schedule["id"],
+                        due_at=due_at,
+                        growth_job=growth_job,
+                    )
+                    if _advance_claimed_schedule(repo, scheduler, schedule, due_at, current):
+                        queued += 1
+                    else:
+                        duplicates += 1
+                except Exception as exc:
+                    failures += 1
+                    if not growth_job:
+                        repo.update_run_status(schedule["project_id"], claim["run_id"], RunStatus.FAILED, error=f"queue recovery failed: {exc}")
                 continue
             try:
                 selected_task = growth_execute if growth_job else knowledge_execute
                 _submit_task(selected_task, [schedule["project_id"], claim["run_id"], schedule["id"]])
-                if growth_job:
-                    repo.append_run_event(
-                        project_id=schedule["project_id"],
-                        run_id=claim["run_id"],
-                        event_type="knowledge.growth.dispatched",
-                        payload={"schedule_id": schedule["id"], "due_at": due_at},
-                    )
+                _record_dispatched_run(
+                    repo,
+                    schedule["project_id"],
+                    claim["run_id"],
+                    schedule_id=schedule["id"],
+                    due_at=due_at,
+                    growth_job=growth_job,
+                )
                 advanced = _advance_claimed_schedule(repo, scheduler, schedule, due_at, current)
                 if advanced:
                     queued += 1
@@ -756,9 +834,34 @@ def _submit_task(task, args: list[str]):
 
 def _run_was_dispatched(repository: WikiRepository, project_id: str, run_id: str) -> bool:
     return any(
-        event["event_type"] == "knowledge.growth.dispatched"
+        event["event_type"] in {"knowledge.run.execution_dispatched", "knowledge.growth.dispatched"}
         for event in repository.list_run_events(project_id=project_id, run_id=run_id)
     )
+
+
+def _record_dispatched_run(
+    repository: WikiRepository,
+    project_id: str,
+    run_id: str,
+    *,
+    schedule_id: str,
+    due_at: str,
+    growth_job: bool,
+) -> None:
+    payload = {"schedule_id": schedule_id, "due_at": due_at}
+    repository.append_run_event(
+        project_id=project_id,
+        run_id=run_id,
+        event_type="knowledge.run.execution_dispatched",
+        payload=payload,
+    )
+    if growth_job:
+        repository.append_run_event(
+            project_id=project_id,
+            run_id=run_id,
+            event_type="knowledge.growth.dispatched",
+            payload=payload,
+        )
 
 
 def _advance_claimed_schedule(

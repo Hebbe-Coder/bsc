@@ -2,10 +2,12 @@ import hashlib
 import json
 import os
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
 from app.core.config import settings
+from app.promptops import PromptTask, PromptUsage
 from app.knowledge.growth_distillation import (
     ConfiguredDistillationNarrativeProvider,
     GrowthDistillationService,
@@ -31,7 +33,15 @@ _CUTOFF_SAFE_TIME = datetime(2026, 7, 23, tzinfo=timezone.utc)
 class _NarrativeProvider:
     def render(self, *, kind, project_id, period, context):
         if kind == "daily":
-            return {"daily": "## Grounded daily synthesis\n\n[source:source-a@revision-a] changes the project decision context."}
+            return {
+                "daily": {
+                    "headline": "Review-gate evidence changes the project decision context",
+                    "signal": "[source:source-a@revision-a] shows that review gates remain a required control.",
+                    "project_implication": "The project should keep the review gate explicit in its publication flow [source:source-a].",
+                    "next_review": "Verify the owner and escalation path before the next publication [source:source-a].",
+                    "open_question": "The evidence does not identify whether the current owner can meet the required review SLA [source:source-a].",
+                }
+            }
         names = GrowthDistillationService.WEEKLY_NARRATIVE_SLOTS
         return {
             "weekly": {
@@ -44,6 +54,36 @@ class _NarrativeProvider:
         }
 
 
+class _CorrelatedNarrativeProvider(_NarrativeProvider):
+    supports_run_correlation = True
+    provider = "deepseek"
+    model = "deepseek-v4-pro"
+
+    def __init__(self) -> None:
+        self.knowledge_run_ids: list[str] = []
+        self.last_prompt_run = SimpleNamespace(
+            run_id="prompt-growth-a",
+            task=PromptTask.KNOWLEDGE_DISTILLATION,
+            revision="growth-distillation-v9",
+            provider=self.provider,
+            model=self.model,
+            agent_manifest=SimpleNamespace(manifest_fingerprint="a" * 64),
+            usage=PromptUsage(
+                provider_calls=1,
+                reported_calls=1,
+                complete=True,
+                latency_ms=250,
+                prompt_tokens=91,
+                completion_tokens=32,
+                total_tokens=123,
+            ),
+        )
+
+    def render(self, *, kind, project_id, period, context, knowledge_run_id=""):
+        self.knowledge_run_ids.append(knowledge_run_id)
+        return super().render(kind=kind, project_id=project_id, period=period, context=context)
+
+
 class _UncitedNarrativeProvider:
     def render(self, *, kind, project_id, period, context):
         if kind == "daily":
@@ -54,6 +94,23 @@ class _UncitedNarrativeProvider:
                 for name in GrowthDistillationService.WEEKLY_NARRATIVE_SLOTS
             }
         }
+
+
+class _ThinCitedDailyProvider:
+    def render(self, *, kind, project_id, period, context):
+        if kind == "daily":
+            return {
+                "daily": (
+                    "## One-line evidence update\n\n"
+                    "[source:source-a] is important to the project."
+                )
+            }
+        return _NarrativeProvider().render(
+            kind=kind,
+            project_id=project_id,
+            period=period,
+            context=context,
+        )
 
 
 class _PartialNarrativeProvider:
@@ -83,7 +140,15 @@ def test_configured_narrative_provider_prefers_growth_model_override(monkeypatch
             self.last_structured_failure = ""
 
         def chat_structured(self, **kwargs):
-            return {"daily": "[source:source-a] is retained for review."}
+            return {
+                "daily": {
+                    "headline": "Evidence retained for review",
+                    "signal": "[source:source-a] is retained for review.",
+                    "project_implication": "The project must assess its relevance [source:source-a].",
+                    "next_review": "Confirm the evidence owner [source:source-a].",
+                    "open_question": "The operational impact is not yet known [source:source-a].",
+                }
+            }
 
     monkeypatch.setattr(settings, "KNOWLEDGE_GROWTH_SEMANTIC_DISTILLATION_ENABLED", True)
     monkeypatch.setattr(settings, "KNOWLEDGE_WIKI_LLM_PROVIDER", "deepseek")
@@ -92,10 +157,17 @@ def test_configured_narrative_provider_prefers_growth_model_override(monkeypatch
     monkeypatch.setattr("app.services.sop_llm_client.SOPLLMClient", _Client)
 
     provider = ConfiguredDistillationNarrativeProvider()
-    result = provider.render(kind="daily", project_id="project-a", period="2026-07-25", context="[source:source-a]")
+    result = provider.render(
+        kind="daily",
+        project_id="project-a",
+        period="2026-07-25",
+        context="[source:source-a]",
+        knowledge_run_id="growth-run-a",
+    )
 
-    assert result == {"daily": "[source:source-a] is retained for review."}
+    assert result["daily"]["headline"] == "Evidence retained for review"
     assert captured == {"provider": "deepseek", "model": "growth-specific-model"}
+    assert provider.last_prompt_run.agent_manifest.context_refs == ("knowledge_run:growth-run-a",)
 
 
 def test_validated_markdown_normalizes_structured_list_items_before_citation_validation():
@@ -112,6 +184,21 @@ def test_validated_markdown_normalizes_structured_list_items_before_citation_val
         "- Draft one evidence-backed content angle from [source:source-a]."
     )
     assert "['Review" not in content
+
+
+def test_daily_narrative_requires_a_citation_in_every_evidence_section():
+    daily = GrowthDistillationService._validated_daily_narrative(
+        {
+            "headline": "A grounded daily card",
+            "signal": "The signal is supported [source:source-a].",
+            "project_implication": "The impact has not been cited.",
+            "next_review": "Review the source before acting [source:source-a].",
+            "open_question": "The unresolved question still cites its evidence [source:source-a].",
+        },
+        {"citation_source_ids": ["source-a"]},
+    )
+
+    assert daily == ""
 
 
 def test_weekly_distillation_is_idempotent_and_writes_dual_track_bundle(tmp_path):
@@ -172,13 +259,112 @@ def test_distillation_uses_validated_narrative_provider_and_records_its_mode(tmp
 
         daily_path = root / "projects" / "project-a" / daily["paths"][0]
         weekly_path = root / "projects" / "project-a" / weekly["paths"][0]
-        assert "Grounded daily synthesis" in daily_path.read_text(encoding="utf-8")
+        assert "# Review-gate evidence changes the project decision context" in daily_path.read_text(encoding="utf-8")
+        assert "## Next review" in daily_path.read_text(encoding="utf-8")
+        assert "## Open question" in daily_path.read_text(encoding="utf-8")
         assert "[source:source-a]" in daily_path.read_text(encoding="utf-8")
         assert "[source:source-a@revision-a]" not in daily_path.read_text(encoding="utf-8")
         assert "decisive evidence" in weekly_path.read_text(encoding="utf-8")
         assert daily["manifest"]["generation"]["mode"] == "llm"
+        assert daily["manifest"]["generation"]["llm_documents"] == ["daily"]
         assert weekly["manifest"]["generation"]["mode"] == "llm"
         assert weekly["manifest"]["distillation_contract_revision"] == GrowthDistillationService.DISTILLATION_CONTRACT_REVISION
+    finally:
+        repo.close()
+
+
+def test_distillation_manifest_links_native_model_evidence_to_the_durable_growth_run(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "distillation-promptops-link.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        repo.create_source(
+            SourceRecord(
+                id="source-a",
+                project_id="project-a",
+                source_type="article",
+                content_hash="a" * 64,
+                raw_content="A review gate must remain in the publication workflow.",
+                trust_level="trusted",
+                status=SourceStatus.ELIGIBLE,
+                captured_at=_CUTOFF_SAFE_TIME,
+                updated_at=_CUTOFF_SAFE_TIME,
+            )
+        )
+        provider = _CorrelatedNarrativeProvider()
+        result = GrowthDistillationService(repo, root, narrative_provider=provider).run_daily(
+            "project-a",
+            "2026-07-24",
+            source_cutoff="2026-07-24T09:00:00Z",
+            knowledge_run_id="growth-run-a",
+        )
+
+        promptops = result["manifest"]["generation"]["promptops"]
+        assert provider.knowledge_run_ids == ["growth-run-a"]
+        assert promptops == {
+            "knowledge_run_id": "growth-run-a",
+            "prompt_run_id": "prompt-growth-a",
+            "agent_manifest_fingerprint": "a" * 64,
+            "task": "knowledge_distillation",
+            "revision": "growth-distillation-v9",
+            "provider": "deepseek",
+            "model": "deepseek-v4-pro",
+            "attempt_count": 1,
+            "retry_count": 0,
+            "retry_categories": [],
+            "usage": {
+                "provider_calls": 1,
+                "reported_calls": 1,
+                "complete": True,
+                "latency_ms": 250,
+                "prompt_tokens": 91,
+                "completion_tokens": 32,
+                "total_tokens": 123,
+                "cached_tokens": None,
+                "reasoning_tokens": None,
+            },
+        }
+    finally:
+        repo.close()
+
+
+def test_daily_distillation_rejects_a_thin_cited_paragraph_and_uses_the_full_fallback(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "distillation-thin-daily.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        repo.create_source(
+            SourceRecord(
+                id="source-a",
+                project_id="project-a",
+                source_type="article",
+                content_hash="a" * 64,
+                raw_content="A review gate must remain in the publication workflow.",
+                trust_level="trusted",
+                status=SourceStatus.ELIGIBLE,
+                captured_at=_CUTOFF_SAFE_TIME,
+                updated_at=_CUTOFF_SAFE_TIME,
+            )
+        )
+
+        result = GrowthDistillationService(
+            repo,
+            root,
+            narrative_provider=_ThinCitedDailyProvider(),
+        ).run_daily("project-a", "2026-07-24", source_cutoff="2026-07-24T09:00:00Z")
+
+        daily = (root / "projects" / "project-a" / result["paths"][0]).read_text(encoding="utf-8")
+        assert result["manifest"]["generation"] == {
+            "mode": "deterministic",
+            "provider": "",
+            "model": "",
+            "reason": "provider_response_rejected",
+        }
+        assert "One-line evidence update" not in daily
+        assert "# Daily knowledge growth" in daily
+        assert "## Incremental change counts" in daily
     finally:
         repo.close()
 

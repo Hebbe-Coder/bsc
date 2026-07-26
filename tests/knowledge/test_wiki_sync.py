@@ -20,7 +20,7 @@ def test_obsidian_sync_imports_user_markdown_without_reading_managed_or_hidden_f
     try:
         report = ObsidianSyncService(repo, root).sync(project_id="project-a")
 
-        assert report == {"scanned": 1, "created": 1, "duplicates": 0, "rejected": 0, "deleted": 0, "skipped": 1}
+        assert report == {"scanned": 1, "created": 1, "duplicates": 0, "rejected": 0, "deleted": 0, "skipped": 1, "blocked": 0}
         source = repo.list_sources("project-a")[0]
         assert source["vault_path"] == "welcome.md"
         assert source["status"] == "validated"
@@ -60,7 +60,7 @@ def test_obsidian_sync_imports_text_and_canvas_as_immutable_structured_evidence(
         report = ObsidianSyncService(repo, root).sync(project_id="project-a")
         sources = {source["origin"]: source for source in repo.list_sources("project-a")}
 
-        assert report == {"scanned": 2, "created": 2, "duplicates": 0, "rejected": 0, "deleted": 0, "skipped": 0}
+        assert report == {"scanned": 2, "created": 2, "duplicates": 0, "rejected": 0, "deleted": 0, "skipped": 0, "blocked": 0}
         assert sources["notes.txt"]["source_type"] == "obsidian_file"
         assert sources["map.canvas"]["metadata"]["extension"] == ".canvas"
     finally:
@@ -87,7 +87,7 @@ def test_obsidian_sync_excludes_all_configured_managed_project_roots(tmp_path):
     try:
         report = ObsidianSyncService(repo, root).sync(project_id="project-a")
 
-        assert report == {"scanned": 3, "created": 3, "duplicates": 0, "rejected": 0, "deleted": 0, "skipped": 0}
+        assert report == {"scanned": 3, "created": 3, "duplicates": 0, "rejected": 0, "deleted": 0, "skipped": 0, "blocked": 0}
         assert {source["origin"] for source in repo.list_sources("project-a")} == {
             "research.md", "clients/acme/raw/brief.md", "clients/acme/inbox/signal.json"
         }
@@ -103,6 +103,9 @@ def test_obsidian_sync_attributes_declared_plugin_exports_without_reading_plugin
     (project_root / "bsc-plugins.json").write_text(
         '{"plugins":[{"id":"readwise","name":"Readwise Export","adapter":"filesystem_drop","input_paths":["raw/readwise"]}]}',
         encoding="utf-8",
+    )
+    ObsidianPluginManifest.load(project_root).set_trust(
+        project_root, plugin_ids=["readwise"], trusted=True, actor_id="test", reason="fixture"
     )
     (project_root / "raw" / "readwise" / "weekly.md").write_text("Imported highlight", encoding="utf-8")
     repo = WikiRepository(db_path=str(tmp_path / "sync-plugin.db"))
@@ -123,6 +126,47 @@ def test_obsidian_sync_attributes_declared_plugin_exports_without_reading_plugin
         repo.close()
 
 
+def test_plugin_status_verifies_declared_destination_from_readonly_settings(tmp_path):
+    root = tmp_path / "vault"
+    project_root = root / "projects" / "project-a"
+    export_root = project_root / "00_Inbox" / "web-clipper"
+    export_root.mkdir(parents=True)
+    (project_root / "bsc-plugins.json").write_text(
+        '{"plugins":[{"id":"obsidian-clipper","name":"Obsidian Clipper","adapter":"filesystem_drop","input_paths":["00_Inbox/web-clipper"]}]}',
+        encoding="utf-8",
+    )
+    settings_path = root / ".obsidian" / "plugins" / "obsidian-clipper" / "data.json"
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text('{"advancedStorageFolder":"projects/project-a/00_Inbox/web-clipper"}', encoding="utf-8")
+    manifest = ObsidianPluginManifest.load(project_root)
+
+    configured = manifest.public_status(project_root=project_root, vault_root=root)["plugins"][0]
+
+    assert configured["runtime_configuration"] == {
+        "state": "configured",
+        "detail_code": "destination_matches_bridge",
+    }
+    settings_path.write_text('{"advancedStorageFolder":"unmanaged/inbox"}', encoding="utf-8")
+    mismatch = manifest.public_status(project_root=project_root, vault_root=root)["plugins"][0]
+    assert mismatch["runtime_configuration"]["state"] == "mismatch"
+
+
+def test_plugin_status_marks_interactive_importers_without_claiming_a_saved_destination(tmp_path):
+    project_root = tmp_path / "vault" / "projects" / "project-a"
+    project_root.mkdir(parents=True)
+    (project_root / "bsc-plugins.json").write_text(
+        '{"plugins":[{"id":"docxer","name":"Docxer","adapter":"filesystem_drop","input_paths":["01_Sources/docxer"]}]}',
+        encoding="utf-8",
+    )
+
+    status = ObsidianPluginManifest.load(project_root).public_status(project_root=project_root, vault_root=tmp_path / "vault")
+
+    assert status["plugins"][0]["runtime_configuration"] == {
+        "state": "interactive_destination",
+        "detail_code": "plugin_selects_destination_per_import",
+    }
+
+
 def test_obsidian_sync_accepts_the_documented_obsidian_inbox_and_source_layout(tmp_path):
     root = tmp_path / "vault"
     root.mkdir()
@@ -136,6 +180,9 @@ def test_obsidian_sync_accepts_the_documented_obsidian_inbox_and_source_layout(t
         '{"id":"docxer","name":"Docxer","adapter":"filesystem_drop","input_paths":["01_Sources/docxer"]}'
         "]}",
         encoding="utf-8",
+    )
+    ObsidianPluginManifest.load(project_root).set_trust(
+        project_root, plugin_ids=["web-clipper", "docxer"], trusted=True, actor_id="test", reason="fixture"
     )
     (project_root / "00_Inbox" / "web-clipper" / "article.md").write_text("Captured article", encoding="utf-8")
     (project_root / "01_Sources" / "docxer" / "brief.md").write_text("Converted brief", encoding="utf-8")
@@ -154,6 +201,66 @@ def test_obsidian_sync_accepts_the_documented_obsidian_inbox_and_source_layout(t
         assert sources["projects/project-a/00_Inbox/web-clipper/article.md"]["metadata"]["obsidian_plugin"] == "web-clipper"
         assert sources["projects/project-a/01_Sources/docxer/brief.md"]["metadata"]["obsidian_plugin"] == "docxer"
         assert sources["projects/project-a/00_Inbox/web-clipper/article.md"]["metadata"]["obsidian_adapter"] == "filesystem_drop"
+    finally:
+        repo.close()
+
+
+def test_obsidian_sync_lists_untrusted_plugin_exports_but_never_reads_them(tmp_path):
+    root = tmp_path / "vault"
+    project_root = root / "projects" / "project-a"
+    export = project_root / "00_Inbox" / "web-clipper" / "article.md"
+    export.parent.mkdir(parents=True)
+    (project_root / "bsc-plugins.json").write_text(
+        '{"plugins":[{"id":"web-clipper","name":"Obsidian Clipper","adapter":"filesystem_drop","input_paths":["00_Inbox/web-clipper"]}]}',
+        encoding="utf-8",
+    )
+    export.write_text("An exported source that must wait for approval", encoding="utf-8")
+    repo = WikiRepository(db_path=str(tmp_path / "untrusted-plugin.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    try:
+        blocked = ObsidianSyncService(repo, root).sync(project_id="project-a")
+        manifest = ObsidianPluginManifest.load(project_root)
+        assert blocked["blocked"] == 1
+        assert repo.list_sources("project-a") == []
+        assert manifest.public_status(project_root=project_root)["plugins"][0]["trust_state"] == "untrusted"
+
+        manifest.set_trust(project_root, plugin_ids=["web-clipper"], trusted=True, actor_id="test", reason="fixture")
+        approved = ObsidianSyncService(repo, root).sync(project_id="project-a")
+        source = repo.list_sources("project-a")[0]
+        assert approved["created"] == 1
+        assert source["source_type"] == "obsidian_plugin:web-clipper"
+    finally:
+        repo.close()
+
+
+def test_obsidian_sync_reconciles_a_trusted_bridge_for_an_existing_immutable_duplicate(tmp_path):
+    root = tmp_path / "vault"
+    project_root = root / "projects" / "project-a"
+    export = project_root / "00_Inbox" / "web-clipper" / "article.md"
+    export.parent.mkdir(parents=True)
+    export.write_text("Existing immutable capture", encoding="utf-8")
+    repo = WikiRepository(db_path=str(tmp_path / "plugin-provenance.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    try:
+        first = ObsidianSyncService(repo, root).sync(project_id="project-a")
+        source = repo.list_sources("project-a")[0]
+        assert first["created"] == 1
+        assert "obsidian_plugin" not in source["metadata"]
+
+        (project_root / "bsc-plugins.json").write_text(
+            '{"plugins":[{"id":"web-clipper","name":"Obsidian Clipper","adapter":"filesystem_drop","input_paths":["00_Inbox/web-clipper"]}]}',
+            encoding="utf-8",
+        )
+        ObsidianPluginManifest.load(project_root).set_trust(
+            project_root, plugin_ids=["web-clipper"], trusted=True, actor_id="test", reason="fixture"
+        )
+        second = ObsidianSyncService(repo, root).sync(project_id="project-a")
+        reconciled = repo.list_sources("project-a")[0]
+        assert second["created"] == 0
+        assert second["duplicates"] == 1
+        assert reconciled["content_hash"] == source["content_hash"]
+        assert reconciled["metadata"]["obsidian_plugin"] == "web-clipper"
+        assert reconciled["metadata"]["obsidian_adapter"] == "filesystem_drop"
     finally:
         repo.close()
 

@@ -53,6 +53,17 @@ async def lifespan(app: FastAPI):
         logger.error(f"Orchestrator recovery failed: {e}")
         if settings.is_production:
             raise RuntimeError("orchestrator recovery failed") from e
+
+    try:
+        from app.api.dbos_api import recover_dbos_runs_on_startup
+
+        recovered_dbos = recover_dbos_runs_on_startup()
+        if recovered_dbos:
+            logger.warning(f"Marked {len(recovered_dbos)} interrupted DBOS executions for manual retry")
+    except Exception as e:
+        logger.error(f"DBOS recovery failed: {e}")
+        if settings.is_production:
+            raise RuntimeError("DBOS recovery failed") from e
     
     try:
         from app.knowledge.schema import ensure_schema
@@ -65,6 +76,32 @@ async def lifespan(app: FastAPI):
         logger.error(f"Knowledge schema initialization failed: {e}")
         if settings.is_production:
             raise RuntimeError("knowledge schema initialization failed") from e
+
+    try:
+        from app.knowledge.growth_repository import GrowthRepository
+        from app.knowledge.candidate_extraction import recover_abandoned_source_candidate_extractions
+        from app.knowledge.method_distillation import recover_abandoned_source_method_distillations
+
+        repo = GrowthRepository()
+        try:
+            recovered_method_distillations = recover_abandoned_source_method_distillations(repo)
+            recovered_candidate_extractions = recover_abandoned_source_candidate_extractions(repo)
+        finally:
+            repo.close()
+        if recovered_method_distillations:
+            logger.warning(
+                "Marked %s interrupted source method distillation runs for explicit retry",
+                len(recovered_method_distillations),
+            )
+        if recovered_candidate_extractions:
+            logger.warning(
+                "Marked %s interrupted candidate extraction runs for explicit retry",
+                len(recovered_candidate_extractions),
+            )
+    except Exception as e:
+        logger.error(f"Knowledge candidate/method distillation recovery failed: {e}")
+        if settings.is_production:
+            raise RuntimeError("knowledge candidate/method distillation recovery failed") from e
     
     logger.info(f"Service started: http://{settings.APP_HOST}:{settings.APP_PORT} | Docs: /docs | Product: /")
     yield
@@ -274,7 +311,7 @@ except Exception as e:
 
 # Load routers (fail-safe)
 _try = lambda m: __import__(m, fromlist=["router"])
-for _m in ["app.api.bsc_api","app.api.chat_api","app.api.studio_api","app.api.visual_api","app.api.dashboard","app.api.template_api","app.api.tasks_api","app.api.stream_api","app.api.recommendation_api","app.api.prd_api","app.api.pm_report_api","app.api.dialog_api","app.api.prd_editor_api","app.api.skill_routes","app.api.sop_report_api","app.api.brainstorm_api","app.api.knowledge_api","app.api.knowledge_workspace_api","app.api.knowledge_ws","app.api.growth_api","app.api.files_api","app.api.orchestrate","app.api.mcp_http"]:
+for _m in ["app.api.bsc_api","app.api.chat_api","app.api.studio_api","app.api.visual_api","app.api.dashboard","app.api.template_api","app.api.tasks_api","app.api.stream_api","app.api.recommendation_api","app.api.prd_api","app.api.pm_report_api","app.api.dialog_api","app.api.prd_editor_api","app.api.skill_routes","app.api.sop_report_api","app.api.brainstorm_api","app.api.knowledge_api","app.api.knowledge_workspace_api","app.api.knowledge_ws","app.api.growth_api","app.api.files_api","app.api.orchestrate","app.api.dbos_api","app.api.mcp_http"]:
     try: 
         app.include_router(_try(_m).router)
         logger.info(f"Router loaded: {_m}")

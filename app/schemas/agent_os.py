@@ -90,6 +90,30 @@ class KnowledgeOutputRegistration(BaseModel):
     errors: list[str] = Field(default_factory=list)
 
 
+class AgentContextSegment(BaseModel):
+    """Redacted disposition of one inherited or project context segment."""
+
+    role: str = ""
+    source_session_id: str = ""
+    priority: int = 0
+    fingerprint: str = ""
+    estimated_tokens: int = 0
+    disposition: str = ""
+
+
+class AgentContextManifest(BaseModel):
+    """Inspectable context composition; intentionally excludes prompt bodies."""
+
+    revision: str = ""
+    manifest_id: str = ""
+    policy: str = ""
+    compaction_mode: str = ""
+    current_input_fingerprint: str = ""
+    source_session_ids: list[str] = Field(default_factory=list)
+    inherited: list[AgentContextSegment] = Field(default_factory=list)
+    persistent: list[AgentContextSegment] = Field(default_factory=list)
+
+
 class AgentRuntimeMetadata(BaseModel):
     status: str = ""
     execution_id: str = ""
@@ -101,6 +125,7 @@ class AgentRuntimeMetadata(BaseModel):
     degraded: bool = False
     capability_executions: list[CapabilityExecutionMetadata] = Field(default_factory=list)
     context: dict[str, Any] = Field(default_factory=dict)
+    context_manifest: AgentContextManifest | None = None
     knowledge_context: KnowledgeContextMetadata = Field(default_factory=KnowledgeContextMetadata)
     knowledge_output_registration: KnowledgeOutputRegistration = Field(
         default_factory=KnowledgeOutputRegistration

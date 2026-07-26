@@ -36,6 +36,26 @@ def test_growth_sse_replay_terminal_cursor_cross_project_and_bounded_payload(mon
             event_type="knowledge.growth.asset.created",
             payload={"asset_id": "asset-a", "secret": "sk-1234567890", "large": "x" * 80_000},
         )
+        repo.append_run_event(
+            project_id="project-a",
+            run_id=run.id,
+            event_type="knowledge.growth.model.completed",
+            payload={
+                "provider": "deepseek",
+                "model": "deepseek-v4-pro",
+                "usage": {
+                    "provider_calls": 1,
+                    "reported_calls": 1,
+                    "complete": True,
+                    "total_tokens": 3292,
+                    "reasoning_tokens": 1384,
+                    "api_key": "must-not-leak",
+                },
+                "attempt_count": 2,
+                "retry_count": 1,
+                "retry_categories": ["server_error", "not_a_safe_category"],
+            },
+        )
         repo.update_run_status("project-a", run.id, RunStatus.COMPLETED, output_refs={"asset_id": "asset-a"})
 
         with TestClient(app) as client:
@@ -62,6 +82,17 @@ def test_growth_sse_replay_terminal_cursor_cross_project_and_bounded_payload(mon
         events = replay.json()["data"]["events"]
         assert [event["sequence"] for event in events] == [2, 3]
         assert all(event["project_id"] == "project-a" for event in events)
+        assert events[1]["payload"]["usage"] == {
+            "provider_calls": 1,
+            "reported_calls": 1,
+            "complete": True,
+            "total_tokens": 3292,
+            "reasoning_tokens": 1384,
+        }
+        assert events[1]["payload"]["attempt_count"] == 2
+        assert events[1]["payload"]["retry_count"] == 1
+        assert events[1]["payload"]["retry_categories"] == ["server_error"]
+        assert "api_key" not in events[1]["payload"]["usage"]
         assert events[-1]["terminal"] is True
         assert stream.status_code == 200
         assert "id: 2" in stream.text and "id: 3" in stream.text

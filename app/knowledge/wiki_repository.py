@@ -16,6 +16,7 @@ from app.knowledge.wiki_contracts import (
     KnowledgeRun,
     ProposalStatus,
     RunStatus,
+    SourceCaptureAttempt,
     SourceRecord,
     SourceStatus,
     WikiProposal,
@@ -125,6 +126,61 @@ class WikiRepository(BaseRepository):
                 "SELECT * FROM knowledge_sources WHERE project_id=? ORDER BY captured_at DESC, id DESC", (project_id,)
             ).fetchall()
         return [self._decode(row, ("metadata_json",)) or {} for row in rows]
+
+    def create_source_capture_attempt(self, attempt: SourceCaptureAttempt) -> dict:
+        """Persist capture evidence without duplicating raw source material."""
+        if attempt.run_id and not self.get_run(attempt.project_id, attempt.run_id):
+            raise KeyError("capture attempt run is missing or belongs to another project")
+        if attempt.source_id and not self.get_source(attempt.project_id, attempt.source_id):
+            raise KeyError("capture attempt source is missing or belongs to another project")
+        self._execute(
+            "INSERT INTO knowledge_source_capture_attempts "
+            "(id,project_id,source_type,origin,content_hash,run_id,source_id,outcome,policy_json,projection_json,created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                attempt.id,
+                attempt.project_id,
+                attempt.source_type,
+                attempt.origin,
+                attempt.content_hash,
+                attempt.run_id,
+                attempt.source_id,
+                attempt.outcome.value,
+                self._json_dumps(attempt.policy),
+                self._json_dumps(attempt.projection),
+                _iso(attempt.created_at),
+            ),
+        )
+        self._commit()
+        return self.get_source_capture_attempt(attempt.project_id, attempt.id) or {}
+
+    def get_source_capture_attempt(self, project_id: str, attempt_id: str) -> dict | None:
+        row = self._execute(
+            "SELECT * FROM knowledge_source_capture_attempts WHERE project_id=? AND id=?",
+            (project_id, attempt_id),
+        ).fetchone()
+        return self._decode(row, ("policy_json", "projection_json"))
+
+    def list_source_capture_attempts(
+        self,
+        project_id: str,
+        *,
+        run_id: str = "",
+        source_id: str = "",
+        limit: int = 100,
+    ) -> list[dict]:
+        params: list[Any] = [project_id]
+        query = "SELECT * FROM knowledge_source_capture_attempts WHERE project_id=?"
+        if run_id:
+            query += " AND run_id=?"
+            params.append(run_id)
+        if source_id:
+            query += " AND source_id=?"
+            params.append(source_id)
+        query += " ORDER BY created_at DESC,id DESC LIMIT ?"
+        params.append(max(1, min(int(limit), 500)))
+        rows = self._execute(query, tuple(params)).fetchall()
+        return [self._decode(row, ("policy_json", "projection_json")) or {} for row in rows]
 
     def update_source_status(self, project_id: str, source_id: str, status: SourceStatus) -> dict:
         now = self._now()
@@ -509,7 +565,8 @@ class WikiRepository(BaseRepository):
                     (revision_id, project_id, page_id, version, content_hash, content, proposal_id, now),
                 )
             self._execute("DELETE FROM knowledge_citations WHERE project_id=?", (project_id,))
-            source_statuses = {source["id"]: source["status"] for source in self.list_sources(project_id)}
+            source_records = {source["id"]: source for source in self.list_sources(project_id)}
+            source_statuses = {source_id: source["status"] for source_id, source in source_records.items()}
             for page in indexed_pages:
                 if page["path"] == "AGENTS.md":
                     continue
@@ -523,7 +580,13 @@ class WikiRepository(BaseRepository):
                             "stale" if source_statuses.get(source_id) in {"superseded", "rejected"} else "active", now,
                         ),
                     )
-            self._replace_graph_edges_in_transaction(project_id, indexed_pages, proposal_id, now)
+            self._replace_graph_edges_in_transaction(
+                project_id,
+                indexed_pages,
+                proposal_id,
+                now,
+                source_records=source_records,
+            )
             if proposal_id:
                 self._execute(
                     "UPDATE knowledge_proposals SET status=?,updated_at=? WHERE project_id=? AND id=?",
@@ -539,13 +602,28 @@ class WikiRepository(BaseRepository):
             backend.rollback()
             raise
 
-    def _replace_graph_edges_in_transaction(self, project_id: str, pages: list[dict[str, Any]], proposal_id: str, now: str) -> None:
+    def _replace_graph_edges_in_transaction(
+        self,
+        project_id: str,
+        pages: list[dict[str, Any]],
+        proposal_id: str,
+        now: str,
+        *,
+        source_records: dict[str, dict[str, Any]],
+    ) -> None:
         by_path = {page["path"]: page for page in pages}
-        graph_rows: dict[str, tuple[str, str, str, str]] = {}
+        graph_rows: dict[str, tuple[str, str, str, str, dict[str, Any], str]] = {}
 
-        def add(from_id: str, to_id: str, edge_type: str) -> None:
+        def add(
+            from_id: str,
+            to_id: str,
+            edge_type: str,
+            *,
+            metadata: dict[str, Any] | None = None,
+            revision: str = "",
+        ) -> None:
             edge_id = hashlib.sha256(f"{project_id}|{from_id}|{to_id}|{edge_type}".encode("utf-8")).hexdigest()[:24]
-            graph_rows[edge_id] = (from_id, to_id, edge_type, edge_id)
+            graph_rows[edge_id] = (from_id, to_id, edge_type, edge_id, metadata or {}, revision)
 
         for page in pages:
             for target in re.findall(r"\[\[([^\]]+)\]\]", page["content"]):
@@ -556,21 +634,39 @@ class WikiRepository(BaseRepository):
                 if proposal_id:
                     add(proposal_id, page["id"], "proposal_changes_page")
                 continue
-            for source_id in self._source_ids(page["content"]):
-                add(page["id"], source_id, "wiki_cites_source")
+            for sequence, source_id in enumerate(self._source_ids(page["content"])):
+                evidence = self._evidence_edge_metadata(
+                    page,
+                    source_id,
+                    sequence,
+                    source_records.get(source_id),
+                )
+                add(
+                    page["id"],
+                    source_id,
+                    "wiki_cites_source",
+                    metadata={"evidence": evidence},
+                    revision=page["content_hash"],
+                )
                 if page["page_kind"] == "decision":
-                    add(page["id"], source_id, "decision_uses_evidence")
+                    add(
+                        page["id"],
+                        source_id,
+                        "decision_uses_evidence",
+                        metadata={"evidence": evidence},
+                        revision=page["content_hash"],
+                    )
             if proposal_id:
                 add(proposal_id, page["id"], "proposal_changes_page")
         self._execute(
             "DELETE FROM knowledge_graph_edges WHERE project_id=? AND edge_type<>?",
             (project_id, "source_supersedes_source"),
         )
-        for from_id, to_id, edge_type, edge_id in graph_rows.values():
+        for from_id, to_id, edge_type, edge_id, metadata, revision in graph_rows.values():
             self._execute(
                 "INSERT INTO knowledge_graph_edges (id,project_id,from_id,to_id,edge_type,metadata_json,revision,created_at) "
                 "VALUES (?,?,?,?,?,?,?,?)",
-                (edge_id, project_id, from_id, to_id, edge_type, "{}", proposal_id, now),
+                (edge_id, project_id, from_id, to_id, edge_type, self._json_dumps(metadata), revision or proposal_id, now),
             )
 
     @staticmethod
@@ -583,6 +679,27 @@ class WikiRepository(BaseRepository):
             if f"[source:{source_id}]" in line:
                 return line.strip()[:1000]
         return ""
+
+    @staticmethod
+    def _evidence_edge_metadata(
+        page: dict[str, Any],
+        source_id: str,
+        sequence: int,
+        source: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Attach immutable citation/version facts without duplicating evidence text."""
+        citation_id = hashlib.sha256(f"{page['id']}|{source_id}|{sequence}".encode("utf-8")).hexdigest()[:24]
+        status = str((source or {}).get("status") or "missing")
+        return {
+            "citation_id": citation_id,
+            "source_id": source_id,
+            "source_content_hash": str((source or {}).get("content_hash") or ""),
+            "source_status": status,
+            "source_revision_available": bool(source),
+            "page_content_hash": str(page["content_hash"]),
+            "page_version": int(page["version"]),
+            "extraction_method": "explicit_source_marker_v1",
+        }
 
     @staticmethod
     def _page_metadata(path: str, content: str) -> dict[str, Any]:

@@ -41,6 +41,7 @@ from app.middleware.auth import resolve_knowledge_auth
 from app.mcp.compatibility import build_compatibility_profile
 from app.mcp import wiki_tools
 from app.mcp import growth_tools
+from app.mcp import dbos_tools
 
 logger = logging.getLogger(__name__)
 
@@ -559,12 +560,41 @@ def _authorize_growth_project(project_id: str, api_key: str = "", *, write: bool
     raise PermissionError("invalid knowledge growth access role")
 
 
+def _authorize_dbos_project(project_id: str, api_key: str = "", *, write: bool = False) -> None:
+    """Apply the same project-key isolation to DBOS MCP tools."""
+    from app.core.config import settings
+
+    if not project_id or not project_id.strip():
+        raise ValueError("project_id is required")
+    if not settings.DYNAMIC_BUSINESS_OS_ENABLED:
+        raise RuntimeError("Dynamic Business OS is disabled by configuration")
+    role, scoped_project_id = _require_mcp_auth(api_key)
+    if role == "admin":
+        return
+    if role == "reader":
+        if write:
+            raise PermissionError("reader keys are read-only for Dynamic Business OS")
+        return
+    if role in {"project_admin", "system"}:
+        if scoped_project_id == project_id:
+            return
+        raise PermissionError("no access to this project")
+    if role == "project_reader":
+        if scoped_project_id != project_id:
+            raise PermissionError("no access to this project")
+        if write:
+            raise PermissionError("project_reader is read-only for Dynamic Business OS")
+        return
+    raise PermissionError("invalid Dynamic Business OS access role")
+
+
 _GROWTH_ACTION_PERMISSIONS = {
     "profile": ({"get"}, {"update"}),
     "source_triage": ({"get"}, {"run"}),
-    "method": ({"list", "get", "resolve", "revisions"}, {"propose", "review", "publish", "deprecate"}),
+    "method": ({"list", "get", "resolve", "revisions", "experiments", "experiment"}, {"propose", "distill", "review", "publish", "deprecate", "evolve"}),
     "output": ({"list", "get"}, {"register", "evaluate", "file"}),
     "feedback": ({"list"}, {"create", "process"}),
+    "failure": ({"list", "get"}, {"create", "resolve"}),
     "schedule": ({"list"}, {"create"}),
     "run": ({"list", "get", "events"}, {"start"}),
     "distillation": ({"list", "get"}, {"start"}),
@@ -662,6 +692,25 @@ def knowledge_growth_feedback(
     _authorize_growth_project(project_id, api_key, write=_growth_action_is_write("feedback", action))
     return growth_tools.growth_feedback(
         project_id, action, feedback_id, output_id, limit, cursor, payload
+    )
+
+
+@mcp.tool()
+def knowledge_growth_failure(
+    project_id: str,
+    action: str = "list",
+    failure_id: str = "",
+    status: str = "",
+    run_id: str = "",
+    diagnostic_pattern: str = "",
+    limit: int = 100,
+    cursor: str = "",
+    payload: dict | None = None,
+    api_key: str = "",
+) -> dict:
+    _authorize_growth_project(project_id, api_key, write=_growth_action_is_write("failure", action))
+    return growth_tools.growth_failure(
+        project_id, action, failure_id, status, run_id, diagnostic_pattern, limit, cursor, payload
     )
 
 
@@ -776,6 +825,203 @@ def knowledge_growth_triage(project_id: str, source_id: str, api_key: str = "") 
 def knowledge_growth_weekly_distill(project_id: str, week: str, source_cutoff: str, api_key: str = "") -> dict:
     _authorize_growth_project(project_id, api_key, write=True)
     return growth_tools.growth_weekly_distill(project_id, week, source_cutoff)
+
+
+@mcp.tool()
+def dbos_create_mission(
+    project_id: str,
+    title: str,
+    intent: str,
+    intake_mode: str = "business",
+    context: dict | None = None,
+    api_key: str = "",
+) -> dict:
+    """Create a project-scoped mission. It cannot execute until confirmed."""
+    _authorize_dbos_project(project_id, api_key, write=True)
+    return dbos_tools.dbos_create_mission(project_id, title, intent, intake_mode, context)
+
+
+@mcp.tool()
+def dbos_diagnose_mission(project_id: str, mission_id: str, api_key: str = "") -> dict:
+    """Compile an inspectable diagnosis, capability selection, and Dynamic SOP."""
+    _authorize_dbos_project(project_id, api_key, write=True)
+    return dbos_tools.dbos_diagnose_mission(project_id, mission_id)
+
+
+@mcp.tool()
+def dbos_confirm_mission(
+    project_id: str,
+    mission_id: str,
+    actor_id: str,
+    authorized_capabilities: list[str],
+    api_key: str = "",
+) -> dict:
+    """Grant only capabilities selected by the mission's reviewed Dynamic SOP."""
+    _authorize_dbos_project(project_id, api_key, write=True)
+    return dbos_tools.dbos_confirm_mission(project_id, mission_id, actor_id, authorized_capabilities)
+
+
+@mcp.tool()
+async def dbos_execute_mission(
+    project_id: str,
+    mission_id: str,
+    capability_name: str,
+    idempotency_key: str = "",
+    api_key: str = "",
+) -> dict:
+    """Run one authorized capability and persist its result in the mission ledger."""
+    _authorize_dbos_project(project_id, api_key, write=True)
+    return await dbos_tools.dbos_execute_mission(project_id, mission_id, capability_name, idempotency_key)
+
+
+@mcp.tool()
+def dbos_run_external_worker(
+    project_id: str,
+    mission_id: str,
+    dynamic_sop_id: str,
+    capability_name: str,
+    worker_id: str,
+    model_id: str,
+    endpoint: str,
+    payload: dict,
+    idempotency_key: str,
+    estimated_cost_microusd: int = 0,
+    api_key: str = "",
+) -> dict:
+    """Queue one non-production, allowlisted HTTPS worker after DBOS policy checks."""
+    _authorize_dbos_project(project_id, api_key, write=True)
+    return dbos_tools.dbos_run_external_worker(
+        project_id, mission_id, dynamic_sop_id, capability_name, worker_id, model_id,
+        endpoint, payload, idempotency_key, estimated_cost_microusd,
+    )
+
+
+@mcp.tool()
+def dbos_cancel_external_worker(
+    project_id: str,
+    worker_run_id: str,
+    reason: str,
+    api_key: str = "",
+) -> dict:
+    """Request cancellation of a queued or executing external HTTPS worker."""
+    _authorize_dbos_project(project_id, api_key, write=True)
+    return dbos_tools.dbos_cancel_external_worker(project_id, worker_run_id, reason)
+
+
+@mcp.tool()
+def dbos_review_mission(
+    project_id: str,
+    mission_id: str,
+    idempotency_key: str,
+    api_key: str = "",
+) -> dict:
+    """Run a PromptOps-governed advisory review; it cannot approve or execute work."""
+    _authorize_dbos_project(project_id, api_key, write=True)
+    return dbos_tools.dbos_review_mission(project_id, mission_id, idempotency_key)
+
+
+@mcp.tool()
+def dbos_control_center(project_id: str, mission_id: str, api_key: str = "") -> dict:
+    """Read mission state, reasoning lineage, execution evidence, and feedback memory."""
+    _authorize_dbos_project(project_id, api_key)
+    return dbos_tools.dbos_control_center(project_id, mission_id)
+
+
+@mcp.tool()
+def dbos_record_feedback(
+    project_id: str,
+    mission_id: str,
+    statement: str,
+    source_refs: list[str] | None = None,
+    api_key: str = "",
+) -> dict:
+    """Persist outcome-linked feedback as advisory project memory."""
+    _authorize_dbos_project(project_id, api_key, write=True)
+    return dbos_tools.dbos_record_feedback(project_id, mission_id, statement, source_refs)
+
+
+@mcp.tool()
+def dbos_record_decision(
+    project_id: str,
+    mission_id: str,
+    task_id: str,
+    statement: str,
+    rationale: str = "",
+    alternatives: list[str] | None = None,
+    actor_id: str = "mcp",
+    api_key: str = "",
+) -> dict:
+    """Record a review decision against a Dynamic SOP task without executing it."""
+    _authorize_dbos_project(project_id, api_key, write=True)
+    return dbos_tools.dbos_record_decision(
+        project_id, mission_id, task_id, statement, rationale, alternatives, actor_id,
+    )
+
+
+@mcp.tool()
+def dbos_stop_mission(project_id: str, mission_id: str, reason: str, api_key: str = "") -> dict:
+    """Stop a non-terminal DBOS mission and persist the reviewer reason."""
+    _authorize_dbos_project(project_id, api_key, write=True)
+    return dbos_tools.dbos_stop_mission(project_id, mission_id, reason)
+
+
+@mcp.tool()
+def dbos_rollback_execution(project_id: str, execution_id: str, reason: str, api_key: str = "") -> dict:
+    """Record a reviewer rollback for a completed, failed, or rejected DBOS execution."""
+    _authorize_dbos_project(project_id, api_key, write=True)
+    return dbos_tools.dbos_rollback_execution(project_id, execution_id, reason)
+
+
+@mcp.tool()
+def dbos_mission(
+    project_id: str,
+    action: str = "read",
+    mission_id: str = "",
+    payload: dict | None = None,
+    api_key: str = "",
+) -> dict:
+    """Create, diagnose, or read a project-scoped Dynamic Business OS mission."""
+    _authorize_dbos_project(project_id, api_key, write=action in {"create", "diagnose"})
+    return dbos_tools.dbos_mission(project_id, action, mission_id, payload)
+
+
+@mcp.tool()
+def dbos_confirm(
+    project_id: str,
+    mission_id: str,
+    authorized_capabilities: list[str],
+    actor_id: str = "mcp",
+    api_key: str = "",
+) -> dict:
+    """Confirm selected capabilities before any DBOS execution can begin."""
+    _authorize_dbos_project(project_id, api_key, write=True)
+    return dbos_tools.dbos_confirm(project_id, mission_id, authorized_capabilities, actor_id)
+
+
+@mcp.tool()
+async def dbos_execute(
+    project_id: str,
+    mission_id: str,
+    capability_name: str,
+    idempotency_key: str = "",
+    api_key: str = "",
+) -> dict:
+    """Execute one confirmed capability with durable idempotency semantics."""
+    _authorize_dbos_project(project_id, api_key, write=True)
+    return await dbos_tools.dbos_execute(project_id, mission_id, capability_name, idempotency_key)
+
+
+@mcp.tool()
+def dbos_feedback(
+    project_id: str,
+    mission_id: str,
+    statement: str,
+    source_refs: list[str] | None = None,
+    api_key: str = "",
+) -> dict:
+    """Store feedback only after an audited execution exists for the mission."""
+    _authorize_dbos_project(project_id, api_key, write=True)
+    return dbos_tools.dbos_feedback(project_id, mission_id, statement, source_refs)
 
 
 @mcp.tool()

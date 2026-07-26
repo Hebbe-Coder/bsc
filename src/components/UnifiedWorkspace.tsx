@@ -9,7 +9,7 @@ import {
   type OrchestratorEvent,
 } from '../api/orchestrateApi';
 import { runAnalysis } from '../api/agentOsApi';
-import type { KnowledgeContextMetadata, KnowledgeOutputRegistration } from '../api/generated/agentOsContracts';
+import type { AgentContextManifest, KnowledgeContextMetadata, KnowledgeOutputRegistration } from '../api/generated/agentOsContracts';
 import { fetchWrapper } from '../api/fetchWrapper';
 import { adaptAgentOsToDashboard } from '../utils/agentOsAdapter';
 import { fetchCompilerDashboard, type DashboardData } from '../api/compilerDashboardApi';
@@ -39,6 +39,7 @@ import {
 } from 'lucide-react';
 
 const GrowthWorkspace = lazy(() => import('./GrowthWorkspace').then((module) => ({ default: module.GrowthWorkspace })));
+const BusinessControlCenter = lazy(() => import('./dbos/BusinessControlCenter').then((module) => ({ default: module.BusinessControlCenter })));
 
 // ---- Types ----
 type Mode = 'auto' | 'analyze' | 'compile' | 'board';
@@ -147,9 +148,11 @@ export function UnifiedWorkspace() {
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const [growthOpen, setGrowthOpen] = useState(false);
+  const [dbosOpen, setDbosOpen] = useState(false);
   const [runtimeAccessKey, setRuntimeAccessKey] = useState(LOCAL_PROXY_SENTINEL);
   const [knowledgeContext, setKnowledgeContext] = useState<KnowledgeContextMetadata | null>(null);
   const [knowledgeOutputRegistration, setKnowledgeOutputRegistration] = useState<KnowledgeOutputRegistration | null>(null);
+  const [contextManifest, setContextManifest] = useState<AgentContextManifest | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -199,7 +202,7 @@ export function UnifiedWorkspace() {
       return;
     }
     const value = input.trim();
-    setInput(''); setLoading(true); setError(null); setDashData(null); setLogs([]); setKnowledgeContext(null); setKnowledgeOutputRegistration(null);
+    setInput(''); setLoading(true); setError(null); setDashData(null); setLogs([]); setKnowledgeContext(null); setKnowledgeOutputRegistration(null); setContextManifest(null);
     logCounter = 0; setPipelineStages({});
     clearTerminal();
 
@@ -292,6 +295,13 @@ export function UnifiedWorkspace() {
         setPipelineStages(projectAgentPipeline(result.runtime.capability_executions));
         setKnowledgeContext(result.runtime.knowledge_context);
         setKnowledgeOutputRegistration(result.runtime.knowledge_output_registration);
+        setContextManifest(result.runtime.context_manifest);
+        if (result.runtime.context_manifest) {
+          const inherited = result.runtime.context_manifest.inherited;
+          const summarized = inherited.filter((item) => item.disposition === 'summarized').length;
+          const omitted = inherited.filter((item) => item.disposition === 'omitted').length;
+          addLog('tool', `Context ${result.runtime.context_manifest.policy || 'fresh'}: ${inherited.length} inherited, ${summarized} summarized, ${omitted} omitted`);
+        }
         if (result.runtime.knowledge_context.knowledge_context_used) {
           const references = result.runtime.knowledge_context.page_ids.length
             + result.runtime.knowledge_context.source_ids.length
@@ -359,6 +369,9 @@ export function UnifiedWorkspace() {
           </button>
           <button type="button" className="skill-trigger" onClick={() => setGrowthOpen(true)}>
             <Sprout size={15} aria-hidden="true" /> Growth
+          </button>
+          <button type="button" className="skill-trigger" onClick={() => setDbosOpen(true)}>
+            <Workflow size={15} aria-hidden="true" /> Operate
           </button>
           <span className={'studio-status ' + statusColor}><i aria-hidden="true" />{statusLabel}</span>
           <code>{sessionDisplay}</code>
@@ -444,6 +457,15 @@ export function UnifiedWorkspace() {
             ) : (
               <p className="rail-note">Fresh, fork and resume are applied to Compiler runs, where session context is persisted and validated.</p>
             )}
+            {contextManifest && <div className="context-manifest-status" aria-label="Last runtime context manifest">
+              <div><span>Last runtime</span><code>{contextManifest.manifest_id.slice(0, 12)}</code></div>
+              <p>{contextManifest.policy || 'fresh'} / {contextManifest.compaction_mode || 'summary'} / {contextManifest.source_session_ids.length} source sessions</p>
+              <dl>
+                <div><dt>Included</dt><dd>{contextManifest.inherited.filter((item) => item.disposition === 'included').length}</dd></div>
+                <div><dt>Summarized</dt><dd>{contextManifest.inherited.filter((item) => item.disposition === 'summarized').length}</dd></div>
+                <div><dt>Omitted</dt><dd>{contextManifest.inherited.filter((item) => item.disposition === 'omitted').length}</dd></div>
+              </dl>
+            </div>}
           </section>
 
           <section className="rail-section rail-stages">
@@ -533,6 +555,7 @@ export function UnifiedWorkspace() {
       {skillsOpen && <SkillMarket onClose={() => setSkillsOpen(false)} context={input || workspaceIdea} />}
       {knowledgeOpen && <KnowledgeWorkspace onClose={() => setKnowledgeOpen(false)} runtimeAccessKey={runtimeAccessKey} />}
       {growthOpen && <Suspense fallback={<section className="growth-workspace" aria-label="Knowledge growth workspace"><div className="growth-state" role="status">Loading growth workspace...</div></section>}><GrowthWorkspace onClose={() => setGrowthOpen(false)} runtimeAccessKey={runtimeAccessKey} /></Suspense>}
+      {dbosOpen && <Suspense fallback={<section className="dbos-control-center" aria-label="Business Control Center"><div className="dbos-message" role="status">Loading mission control center...</div></section>}><BusinessControlCenter onClose={() => setDbosOpen(false)} initialProjectId={knowledgeProjectId || 'default'} /></Suspense>}
     </div>
   );
 }

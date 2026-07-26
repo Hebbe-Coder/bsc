@@ -6,16 +6,18 @@ import tsconfigPaths from "vite-tsconfig-paths";
 export default defineConfig(({ mode, command }) => {
   // Vite config executes before it exposes .env values to import.meta.env.
   const env = loadEnv(mode, process.cwd(), '');
-  // A command-line target must win over checked-in local defaults so isolated
-  // Studio instances can verify a specific backend without editing .env.
-  let apiProxyTarget = process.env.VITE_API_PROXY_TARGET || 'http://localhost:8000';
-  if (!process.env.VITE_API_PROXY_TARGET && env.VITE_API_PROXY_TARGET) {
-    apiProxyTarget = env.VITE_API_PROXY_TARGET;
-  }
+  // BSC_VITE_API_PROXY_TARGET is a local, explicit override. It lets a
+  // refreshed Studio move away from a stale inherited VITE_API_PROXY_TARGET
+  // without changing generic Vite behavior for other processes.
+  const apiProxyTarget = process.env.BSC_VITE_API_PROXY_TARGET
+    || process.env.VITE_API_PROXY_TARGET
+    || env.BSC_VITE_API_PROXY_TARGET
+    || env.VITE_API_PROXY_TARGET
+    || 'http://localhost:8000';
   // A local development key stays inside the Vite process. It is never exposed
   // through import.meta.env or included in a production build.
   const localRuntimeApiKey = command === 'serve' && mode !== 'production'
-    ? process.env.BSC_LOCAL_API_KEY || env.BSC_LOCAL_API_KEY || ''
+    ? process.env.BSC_LOCAL_API_KEY || env.BSC_LOCAL_API_KEY || env.API_KEY || ''
     : '';
   const authorizedProxy = {
     target: apiProxyTarget,

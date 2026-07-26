@@ -21,6 +21,20 @@ import uuid
 
 logger = logging.getLogger(__name__)
 
+# These are concrete modules, not packages that expose a ``tasks`` child
+# module. Celery's autodiscovery appends ``.tasks`` and therefore silently
+# misses this repository's task decorators. Worker/Beat must import this exact
+# contract before any scheduled task can be considered runnable.
+CELERY_TASK_MODULES = (
+    "app.tasks.bsc_tasks",
+    "app.tasks.document_tasks",
+    "app.tasks.export_tasks",
+    "app.tasks.knowledge_tasks",
+    "app.tasks.growth_tasks",
+    "app.tasks.method_distillation_tasks",
+    "app.tasks.candidate_extraction_tasks",
+)
+
 
 class SyncTaskResult:
     """同步任务结果模拟类，兼容Celery AsyncResult接口"""
@@ -159,6 +173,10 @@ def _init_celery():
     
     try:
         from celery import Celery
+
+        knowledge_queue = str(getattr(settings, "CELERY_KNOWLEDGE_QUEUE", "bsc_knowledge") or "bsc_knowledge").strip()
+        if not knowledge_queue:
+            knowledge_queue = "bsc_knowledge"
         
         celery_app = Celery(
             "bsc_tasks",
@@ -177,6 +195,10 @@ def _init_celery():
             task_soft_time_limit=getattr(settings, "CELERY_TASK_SOFT_TIMEOUT", 3000),
             worker_prefetch_multiplier=1,
             worker_max_tasks_per_child=1000,
+            imports=CELERY_TASK_MODULES,
+            # Knowledge jobs are scoped to one database and Vault. Another
+            # runtime may share Redis while owning different persistent state.
+            task_routes={"knowledge.*": {"queue": knowledge_queue}},
             beat_schedule={
                 "knowledge-schedule-reconciliation": {
                     "task": "knowledge.reconcile_schedules",
@@ -184,13 +206,6 @@ def _init_celery():
                 },
             },
         )
-
-        celery_app.autodiscover_tasks([
-            "app.tasks.bsc_tasks",
-            "app.tasks.document_tasks",
-            "app.tasks.export_tasks",
-            "app.tasks.knowledge_tasks",
-        ])
 
         logger.info("Celery initialized successfully")
         return celery_app

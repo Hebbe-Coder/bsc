@@ -28,9 +28,14 @@ def _registry(tmp_path):
 
 
 def _approve(repo, proposal):
+    summary = {"eligible": True, "average_quality": 90, "groundedness": 0.95}
+    if proposal.get("operation") == "update":
+        # These registry tests model a proposal that has already passed the
+        # evaluator; detailed holdout behavior belongs to method evolution tests.
+        summary["evolution"] = {"passed": True, "status": "fixture"}
     return repo.update_method_proposal_evaluation(
         proposal["project_id"], proposal["id"],
-        {"eligible": True, "average_quality": 90, "groundedness": 0.95}, "approved",
+        summary, "approved",
     )
 
 

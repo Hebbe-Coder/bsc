@@ -1,8 +1,9 @@
-import { AlertTriangle, CheckCircle2, ExternalLink, KeyRound, Link2, LoaderCircle, Network, ShieldAlert, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ExternalLink, KeyRound, Link2, LoaderCircle, Network, ShieldAlert, Sparkles, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
   GrowthAssetDetail,
+  GrowthCandidateReviewInput,
   GrowthFeedbackInput,
   GrowthLineageEdge,
   GrowthLineageNode,
@@ -29,6 +30,10 @@ type Props = {
   evidenceState: GrowthRequestState;
   onClose: () => void;
   onAction: (detail: GrowthAssetDetail) => void;
+  onDistillSourceMethods: (detail: GrowthAssetDetail) => void;
+  onDistillAcceptedCandidate: (detail: GrowthAssetDetail) => void;
+  onExtractSourceCandidates: (detail: GrowthAssetDetail) => void;
+  onReviewCandidate: (detail: GrowthAssetDetail, review: GrowthCandidateReviewInput) => void;
   onEvaluate: (detail: GrowthAssetDetail, payload: GrowthOutputEvaluationInput) => void;
   onEvaluateMethod: (detail: GrowthAssetDetail) => void;
   onPublishMethod: (detail: GrowthAssetDetail) => void;
@@ -37,7 +42,7 @@ type Props = {
   onFollow: (id: string, type?: string) => void;
 };
 
-const hiddenFields = new Set(['raw_content', 'content', 'content_base64', 'body', 'operations', 'active_revision']);
+const hiddenFields = new Set(['raw_content', 'content', 'content_base64', 'body', 'operations', 'active_revision', 'evidence', 'claim', 'explanation', 'evolution_experiments']);
 
 function displayValue(value: unknown): string {
   if (value === null || value === undefined || value === '') return 'Not recorded';
@@ -84,6 +89,10 @@ function ids(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && Boolean(item)) : [];
 }
 
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
 function requiresEvidence(detail: GrowthAssetDetail): boolean {
   const metadata = detail.record.metadata;
   return !(metadata && typeof metadata === 'object' && (metadata as Record<string, unknown>).requires_evidence === false);
@@ -92,7 +101,7 @@ function requiresEvidence(detail: GrowthAssetDetail): boolean {
 export function GrowthInspector(props: Props) {
   const {
     selected, detail, state, error, edges, nodes = [], canWrite, compact, open, actionState, actionMessage,
-    evidenceSources, evidenceState, onClose, onAction, onEvaluate, onEvaluateMethod, onPublishMethod, onLinkEvidence, onFeedback, onFollow,
+    evidenceSources, evidenceState, onClose, onAction, onDistillSourceMethods, onDistillAcceptedCandidate, onExtractSourceCandidates, onReviewCandidate, onEvaluate, onEvaluateMethod, onPublishMethod, onLinkEvidence, onFeedback, onFollow,
   } = props;
   const headingRef = useRef<HTMLHeadingElement>(null);
   const [feedbackType, setFeedbackType] = useState<GrowthFeedbackInput['feedback_type']>('accepted');
@@ -100,6 +109,7 @@ export function GrowthInspector(props: Props) {
   const [rating, setRating] = useState(90);
   const [selectedEvidenceIds, setSelectedEvidenceIds] = useState<string[]>([]);
   const [findings, setFindings] = useState('');
+  const [candidateReviewNote, setCandidateReviewNote] = useState('');
   const [scores, setScores] = useState<Omit<GrowthOutputEvaluationInput, 'findings'>>({
     groundedness: 0,
     task_fit: 0,
@@ -124,7 +134,7 @@ export function GrowthInspector(props: Props) {
   useEffect(() => {
     setFeedbackType('accepted'); setFeedbackText(''); setRating(90);
     setSelectedEvidenceIds(ids(detail?.evidence?.source_ids ?? detail?.record.source_refs));
-    setFindings('');
+    setFindings(''); setCandidateReviewNote('');
     setScores({ groundedness: 0, task_fit: 0, usefulness: 0, coherence: 0, format_quality: 0 });
   }, [detail?.evidence?.source_ids, detail?.record.source_refs, selected?.id]);
 
@@ -139,6 +149,37 @@ export function GrowthInspector(props: Props) {
   const hasEvaluation = Boolean(detail?.kind === 'output' && detail.evaluations?.some((evaluation) => evaluation.status === 'completed'));
   const canAttachEvidence = detail?.kind === 'output' && outputStatus === 'registered';
   const canEvaluate = detail?.kind === 'output' && outputStatus === 'registered' && !hasEvaluation && (!evidenceRequired || hasEvidenceReferences);
+  const sourceStatus = detail?.kind === 'source' ? String(detail.record.status || '') : '';
+  const sourceMetadata = detail?.kind === 'source' && detail.record.metadata && typeof detail.record.metadata === 'object'
+    ? detail.record.metadata as Record<string, unknown>
+    : {};
+  const sourceClassification = String(sourceMetadata.data_classification || 'internal').toLowerCase();
+  const sourceCanDistill = detail?.kind === 'source'
+    && ['eligible', 'processed'].includes(sourceStatus)
+    && !['private', 'confidential'].includes(sourceClassification);
+  const sourceDistillationReason = ['private', 'confidential'].includes(sourceClassification)
+    ? 'Private raw evidence is excluded. Create an approved sanitized derivative before model distillation.'
+    : !['eligible', 'processed'].includes(sourceStatus)
+      ? 'Run evidence triage and resolve admission requirements before method distillation.'
+      : '';
+  const candidateStatus = detail?.kind === 'candidate' ? String(detail.record.status || '') : '';
+  const candidateEvidence = detail?.kind === 'candidate' && Array.isArray(detail.record.evidence)
+    ? detail.record.evidence.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+    : [];
+  const methodEvaluation = detail?.kind === 'method_proposal' ? record(detail.record.eval_summary) : {};
+  const methodEvolution = record(methodEvaluation.evolution);
+  const holdout = record(methodEvolution.holdout);
+  const mutation = record(methodEvolution.mutation);
+  const cost = record(methodEvolution.cost);
+  const isMethodUpdate = detail?.kind === 'method_proposal' && String(detail.record.operation || '') === 'update';
+  const updateEvaluationPassed = methodEvolution.passed === true;
+  const updateFindings = Array.isArray(methodEvolution.findings)
+    ? methodEvolution.findings.filter((item): item is string => typeof item === 'string' && Boolean(item))
+    : [];
+  const updatePublicationBlocked = isMethodUpdate && !updateEvaluationPassed;
+  const methodExperiments = detail?.kind === 'method' && Array.isArray(detail.record.evolution_experiments)
+    ? detail.record.evolution_experiments.filter((item): item is GrowthRecord => Boolean(item) && typeof item === 'object')
+    : [];
 
   return <aside
     className={`growth-inspector${compact ? ' growth-inspector--drawer' : ''}`}
@@ -169,10 +210,51 @@ export function GrowthInspector(props: Props) {
           const label = targetNode?.label || target;
           return <button key={edge.id} type="button" onClick={() => onFollow(target, type)}><span><b>{edge.edge_type}</b><strong>{label}</strong>{targetNode && <small>{target}</small>}</span><ExternalLink size={12} /></button>;
         }) : <p>No relationship in the current bounded graph slice.</p>}</section>
+        {detail.kind === 'method' && <section className="growth-inspector__section" aria-label="Method evolution experiments">
+          <h4><Sparkles size={13} /> Method evolution experiments</h4>
+          {methodExperiments.length ? methodExperiments.map((experiment) => {
+            const proposalId = typeof experiment.candidate_proposal_id === 'string' ? experiment.candidate_proposal_id : '';
+            const decision = String(experiment.decision || experiment.status || 'recorded');
+            return <button key={experiment.id} type="button" disabled={!proposalId} title={proposalId ? 'Open the review-only candidate proposal' : 'Candidate proposal not recorded'} onClick={() => onFollow(proposalId, 'method_proposal')}><span><b>{decision}</b><strong>{String(experiment.mutation_dimension || 'method mutation')}</strong><small>{String(experiment.baseline_revision_id || 'baseline not recorded')}</small></span><ExternalLink size={12} /></button>;
+          }) : <p>No durable method-evolution experiment has been recorded for this method.</p>}
+        </section>}
         {command ? <div className="growth-inspector__actions">
           <button type="button" disabled={actionDisabled} title={permissionMessage || command} onClick={() => onAction(detail)}>{actionState === 'loading' ? <LoaderCircle size={14} className="spin" /> : canWrite ? <CheckCircle2 size={14} /> : <KeyRound size={14} />}{command}</button>
           {permissionMessage && <small>{permissionMessage}. The API remains authoritative.</small>}
-        </div> : detail.kind !== 'output' && <div className="growth-inspector__notice">No write action is exposed for this asset type by the current Growth API.</div>}
+        </div> : detail.kind !== 'output' && detail.kind !== 'candidate' && <div className="growth-inspector__notice">No write action is exposed for this asset type by the current Growth API.</div>}
+        {detail.kind === 'source' && <section className="growth-inspector__section" aria-label="Source method distillation">
+          <h4><Sparkles size={13} /> Distill review-only methods</h4>
+          <p>Creates RIA-TV++ candidates from this immutable evidence. Evidence anchors, trigger boundaries and routing tests are required; publication remains a separate review step.</p>
+          {sourceDistillationReason && <div className="growth-inspector__notice">{sourceDistillationReason}</div>}
+          <button type="button" disabled={actionDisabled || !sourceCanDistill} title={permissionMessage || sourceDistillationReason || 'Distill source into review-only method proposals'} onClick={() => onDistillSourceMethods(detail)}>{actionState === 'loading' ? <LoaderCircle size={14} className="spin" /> : canWrite ? <Sparkles size={14} /> : <KeyRound size={14} />}Distill source into methods</button>
+          <button type="button" disabled={actionDisabled || !sourceCanDistill} title={permissionMessage || sourceDistillationReason || 'Extract review-only framework, principle, case, counterexample and glossary candidates'} onClick={() => onExtractSourceCandidates(detail)}>{actionState === 'loading' ? <LoaderCircle size={14} className="spin" /> : canWrite ? <Sparkles size={14} /> : <KeyRound size={14} />}Extract five evidence candidates</button>
+        </section>}
+        {detail.kind === 'candidate' && <section className="growth-inspector__section" aria-label="Evidence candidate review">
+          <h4><Sparkles size={13} /> Evidence candidate review</h4>
+          <p>{String(detail.record.claim || 'No candidate claim was persisted.')}</p>
+          {typeof detail.record.explanation === 'string' && detail.record.explanation && <div className="growth-inspector__notice">{detail.record.explanation}</div>}
+          <div className="growth-candidate-evidence">
+            {candidateEvidence.length ? candidateEvidence.map((item, index) => {
+              const sourceId = typeof item.source_id === 'string' ? item.source_id : '';
+              const anchor = String(item.anchor || `evidence ${index + 1}`);
+              const quote = String(item.quote || '');
+              return <button key={`${sourceId}-${anchor}-${index}`} type="button" disabled={!sourceId} onClick={() => onFollow(sourceId, 'source')}><span>{anchor}</span><strong>{quote}</strong><small>{sourceId}</small><ExternalLink size={12} /></button>;
+            }) : <p>No exact evidence anchors were returned; this candidate cannot be used for promotion.</p>}
+          </div>
+          {candidateStatus === 'pending_review' ? <form className="growth-feedback-form" onSubmit={(event) => {
+            event.preventDefault();
+            onReviewCandidate(detail, { decision: 'accepted', review_note: candidateReviewNote.trim() });
+          }}>
+            <label><span>Review note</span><textarea aria-label="Candidate review note" value={candidateReviewNote} onChange={(event) => setCandidateReviewNote(event.target.value)} placeholder="Why this should be retained or rejected" /></label>
+            <div className="growth-candidate-review-actions">
+              <button type="submit" disabled={actionDisabled} title={permissionMessage || 'Accept candidate for later selection'}>{actionState === 'loading' ? <LoaderCircle size={14} className="spin" /> : <CheckCircle2 size={14} />}Accept for later selection</button>
+              <button type="button" disabled={actionDisabled} title={permissionMessage || 'Reject candidate'} onClick={() => onReviewCandidate(detail, { decision: 'rejected', review_note: candidateReviewNote.trim() })}>{actionState === 'loading' ? <LoaderCircle size={14} className="spin" /> : <X size={14} />}Reject candidate</button>
+            </div>
+          </form> : <>
+            <div className="growth-inspector__notice">Review decision recorded: {candidateStatus || 'unknown'}. This is still not a publication action.</div>
+            {candidateStatus === 'accepted' && <button type="button" disabled={actionDisabled} title={permissionMessage || 'Draft a review-only method from this accepted evidence selection'} onClick={() => onDistillAcceptedCandidate(detail)}>{actionState === 'loading' ? <LoaderCircle size={14} className="spin" /> : canWrite ? <Sparkles size={14} /> : <KeyRound size={14} />}Draft method from accepted candidate</button>}
+          </>}
+        </section>}
         {detail.kind === 'output' && <>
           {canAttachEvidence ? <form className="growth-feedback-form growth-evidence-form" onSubmit={(event) => {
             event.preventDefault();
@@ -211,8 +293,24 @@ export function GrowthInspector(props: Props) {
         {detail.kind === 'method_proposal' && <section className="growth-inspector__section" aria-label="Method candidate gate">
           <h4>Method candidate gate</h4>
           <p>Evaluation reads the immutable supporting outputs and their persisted quality records. It never promotes a candidate by itself.</p>
+          {isMethodUpdate && <div className="growth-method-evolution" aria-label="Method update evaluation">
+            <h5>UPDATE EVALUATION</h5>
+            <dl>
+              <div><dt>Protocol</dt><dd>{String(methodEvolution.protocol_revision || 'not evaluated')}</dd></div>
+              <div><dt>Gate</dt><dd>{updateEvaluationPassed ? 'passed' : String(methodEvolution.status || 'not evaluated')}</dd></div>
+              <div><dt>Positive</dt><dd>{displayValue(methodEvolution.positive_case_count)}</dd></div>
+              <div><dt>Near negative</dt><dd>{displayValue(methodEvolution.near_negative_case_count)}</dd></div>
+              <div><dt>Holdout</dt><dd>{displayValue(holdout.case_count)}</dd></div>
+              <div><dt>Candidate</dt><dd>{displayValue(holdout.candidate_passed)}</dd></div>
+              <div><dt>Baseline</dt><dd>{displayValue(holdout.baseline_passed)}</dd></div>
+              <div><dt>Regressions</dt><dd>{ids(holdout.regressed_case_ids).join(', ') || 'none'}</dd></div>
+              <div><dt>Mutation</dt><dd>{ids(mutation.observed_dimensions).join(', ') || 'not evaluated'}</dd></div>
+              <div><dt>Cost</dt><dd>{String(cost.status || 'not recorded')}</dd></div>
+            </dl>
+            {updateFindings.length > 0 && <ul>{updateFindings.map((finding) => <li key={finding}>{finding}</li>)}</ul>}
+          </div>}
           <button type="button" disabled={actionDisabled} title={permissionMessage || 'Evaluate method candidate'} onClick={() => onEvaluateMethod(detail)}>{actionState === 'loading' ? <LoaderCircle size={14} className="spin" /> : <CheckCircle2 size={14} />}Evaluate method candidate</button>
-          {String(detail.record.status || '') === 'approved' && <button type="button" disabled={actionDisabled} title={permissionMessage || 'Publish approved method'} onClick={() => onPublishMethod(detail)}>{actionState === 'loading' ? <LoaderCircle size={14} className="spin" /> : <CheckCircle2 size={14} />}Publish approved method</button>}
+          {String(detail.record.status || '') === 'approved' && <button type="button" disabled={actionDisabled || updatePublicationBlocked} title={permissionMessage || (updatePublicationBlocked ? 'Passing isolated holdout and non-regression evaluation required' : 'Publish approved method')} onClick={() => onPublishMethod(detail)}>{actionState === 'loading' ? <LoaderCircle size={14} className="spin" /> : <CheckCircle2 size={14} />}Publish approved method</button>}
         </section>}
       </>}
     </>}

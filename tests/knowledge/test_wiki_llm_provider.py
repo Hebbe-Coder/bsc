@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from types import SimpleNamespace
 
+from app.promptops import PromptTask
 from app.knowledge.wiki_compiler import WikiCompiler
 from app.knowledge.wiki_llm_provider import SOPWikiCompilerProvider
 from app.knowledge.wiki_repository import WikiRepository
@@ -24,6 +26,16 @@ class SequenceStructuredClient:
             }
         )
         return next(self._responses)
+
+
+class RecordingPromptOps:
+    def __init__(self, output: dict) -> None:
+        self.output = output
+        self.requests = []
+
+    def run_structured(self, request):
+        self.requests.append(request)
+        return SimpleNamespace(output=self.output)
 
 
 def test_provider_repairs_missing_operation_and_compiles_a_reviewable_proposal(tmp_path):
@@ -80,3 +92,31 @@ def test_provider_repairs_missing_operation_and_compiles_a_reviewable_proposal(t
         assert "previous response was rejected" in client.calls[1]["system_prompt"]
     finally:
         repo.close()
+
+
+def test_provider_uses_promptops_with_project_scope_and_versioned_revision():
+    valid = {
+        "rationale": "Capture a durable project decision.",
+        "operations": [
+            {
+                "operation": "create",
+                "path": "wiki/decisions/approval.md",
+                "content": "---\ntitle: Approval\nkind: decision\n---\n\nApproval is required. [source:source-a]",
+                "source_ids": ["source-a"],
+            }
+        ],
+    }
+    promptops = RecordingPromptOps(valid)
+
+    result = SOPWikiCompilerProvider(provider="deepseek", promptops=promptops).compile_wiki(
+        "[source:source-a] Approval is required.",
+        project_id="project-a",
+    )
+
+    assert result == valid
+    assert len(promptops.requests) == 1
+    request = promptops.requests[0]
+    assert request.project_id == "project-a"
+    assert request.task == PromptTask.WIKI_COMPILATION
+    assert request.revision == "wiki-proposal-v1"
+    assert request.provider == "deepseek"

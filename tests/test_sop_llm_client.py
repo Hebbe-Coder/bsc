@@ -142,9 +142,11 @@ def test_parse_extracts_embedded_json():
 
 def test_retry_on_dirty_then_valid():
     state = {"n": 0}
+    bodies = []
 
     def handler(n, url, headers, body):
         state["n"] = n
+        bodies.append(body)
         if n == 1:
             return _FakeResp({"choices": [{"message": {"content": "不是 json"}}]})
         return _FakeResp({"choices": [{"message": {"content": '{"executive_summary":"ok","key_findings":[],"recommendations":[],"risk_highlights":[]}'}}]})
@@ -155,13 +157,75 @@ def test_retry_on_dirty_then_valid():
     assert state["n"] == 2  # 重试了一次
 
 
+def test_structured_retry_repairs_dirty_json_in_json_mode():
+    bodies = []
+
+    def handler(n, url, headers, body):
+        bodies.append(body)
+        if n == 1:
+            return _FakeResp({"choices": [{"message": {"content": "not json"}}]})
+        return _FakeResp({"choices": [{"message": {"content": '{"answer":"ok"}'}}]})
+
+    client = SOPLLMClient(provider="deepseek", api_key="sk", http_client=_FakeClient(handler))
+
+    assert client.chat_structured("return JSON", "data") == {"answer": "ok"}
+    assert bodies[0]["response_format"] == {"type": "json_object"}
+    assert bodies[1]["response_format"] == {"type": "json_object"}
+
+
+def test_structured_chat_preserves_each_provider_usage_across_json_repair_attempts():
+    def handler(n, url, headers, body):
+        if n == 1:
+            return _FakeResp(
+                {
+                    "choices": [{"message": {"content": "not json"}}],
+                    "usage": {"prompt_tokens": 11, "completion_tokens": 2, "total_tokens": 13},
+                }
+            )
+        return _FakeResp(
+            {
+                "choices": [{"message": {"content": '{"answer":"ok"}'}}],
+                "usage": {"prompt_tokens": 7, "completion_tokens": 3, "total_tokens": 10},
+            }
+        )
+
+    client = SOPLLMClient(provider="deepseek", api_key="sk", http_client=_FakeClient(handler))
+
+    assert client.chat_structured("return JSON", "data") == {"answer": "ok"}
+    assert [usage.total_tokens for usage in client.last_call_usages] == [13, 10]
+    assert client.last_usage is not None
+    assert client.last_usage.total_tokens == 10
+
+
 def test_http_5xx_raises_sopllmerror():
     def handler(n, url, headers, body):
         return _FakeResp({"error": "boom"}, status=500)
 
     c = SOPLLMClient(provider="deepseek", api_key="sk", http_client=_FakeClient(handler))
-    with pytest.raises(SOPLLMError):
+    with pytest.raises(SOPLLMError) as exc_info:
         c.chat("你是分析师", "数据")
+    assert exc_info.value.category == "server_error"
+
+
+def test_rate_limited_provider_failure_has_a_retryable_category():
+    def handler(n, url, headers, body):
+        return _FakeResp({"error": "slow down"}, status=429)
+
+    client = SOPLLMClient(provider="deepseek", api_key="sk", http_client=_FakeClient(handler))
+
+    with pytest.raises(SOPLLMError) as exc_info:
+        client.chat("return JSON", "data")
+
+    assert exc_info.value.category == "rate_limited"
+
+
+def test_missing_provider_configuration_is_not_reported_as_transient_failure(monkeypatch):
+    monkeypatch.setattr("app.services.sop_llm_client.settings.KIMI_API_KEY", "")
+
+    with pytest.raises(SOPLLMError) as exc_info:
+        SOPLLMClient(provider="kimi")
+
+    assert exc_info.value.category == "provider_not_configured"
 
 
 def test_chat_structured_returns_none_on_persistent_failure():

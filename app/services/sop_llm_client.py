@@ -157,6 +157,8 @@ class SOPLLMClient:
         self.timeout = timeout
         self._http = http_client
         self.last_structured_failure = ""
+        self.last_usage: ModelUsage | None = None
+        self.last_call_usages: list[ModelUsage] = []
 
         if self.provider == "mock":
             ensure_mock_allowed("SOP")
@@ -166,7 +168,10 @@ class SOPLLMClient:
             return
 
         if self.provider not in PROVIDER_REGISTRY:
-            raise SOPLLMError(f"未知 SOP LLM provider: {self.provider}")
+            raise SOPLLMError(
+                f"未知 SOP LLM provider: {self.provider}",
+                category="provider_unsupported",
+            )
         key_attr, url_attr, model_attr = PROVIDER_KEY_MAP[self.provider]
         reg = PROVIDER_REGISTRY[self.provider]
         self.base_url = (base_url or getattr(settings, url_attr) or reg["base_url"]).rstrip("/")
@@ -179,7 +184,10 @@ class SOPLLMClient:
         else:
             self.keys = []
         if not self.api_key and not self.keys:
-            raise SOPLLMError(f"provider={self.provider} 需要配置 {key_attr} 或 RAG_LLM_KEYS")
+            raise SOPLLMError(
+                f"provider={self.provider} 需要配置 {key_attr} 或 RAG_LLM_KEYS",
+                category="provider_not_configured",
+            )
 
     def chat(
         self,
@@ -214,6 +222,7 @@ class SOPLLMClient:
 
         keys = self.keys or [self.api_key]
         last_err = None
+        last_category = "request_failed"
         for key in keys:
             try:
                 client = self._http or httpx.Client(timeout=self.timeout)
@@ -227,10 +236,16 @@ class SOPLLMClient:
                         json=body,
                     )
                     if resp.status_code in (401, 402, 429):
+                        last_category = {
+                            401: "credential_rejected",
+                            402: "payment_required",
+                            429: "rate_limited",
+                        }[resp.status_code]
                         last_err = f"HTTP {resp.status_code} (key 被拒)"
                         logger.warning("LLM key 被拒(%s),切换下一 key", resp.status_code)
                         continue
                     if resp.status_code >= 500:
+                        last_category = "server_error"
                         last_err = f"HTTP {resp.status_code} (服务端错误)"
                         logger.warning("LLM 服务端错误(%s),尝试下一 key", resp.status_code)
                         continue
@@ -254,12 +269,12 @@ class SOPLLMClient:
                             "LLM returned an unsupported completion payload",
                             category="response_payload_invalid",
                         )
+                    usage = extract_model_usage(data, provider=self.provider, model=self.model)
+                    self._record_usage(usage)
                     return {
                         "content": content,
                         "_meta": {
-                            "usage": extract_model_usage(
-                                data, provider=self.provider, model=self.model
-                            ).model_dump(mode="json"),
+                            "usage": usage.model_dump(mode="json"),
                         },
                     }
                 finally:
@@ -275,9 +290,15 @@ class SOPLLMClient:
                     ) from e
                 # 网络/超时等瞬时异常,尝试下一 key
                 last_err = e
+                if isinstance(e, httpx.TimeoutException):
+                    last_category = "transport_timeout"
+                elif isinstance(e, httpx.NetworkError):
+                    last_category = "network_error"
+                else:
+                    last_category = "request_failed"
                 logger.warning("LLM 请求失败(尝试下一 key): %s", e)
                 continue
-        raise SOPLLMError(f"所有 LLM key 均不可用: {last_err}")
+        raise SOPLLMError(f"所有 LLM key 均不可用: {last_err}", category=last_category)
 
     def chat_structured(
         self,
@@ -287,14 +308,17 @@ class SOPLLMClient:
         max_tokens: int = 1200,
     ) -> Optional[dict]:
         """返回解析后的 dict,或 None(调用方走兜底)。内置一次降温度重试。"""
+        self.reset_usage_tracking()
         if self.provider == "mock":
             try:
                 return json.loads(self._mock_content(system_prompt))
             except (json.JSONDecodeError, ValueError):
                 return None
+        # Keep the repair attempt in JSON mode unless the provider explicitly
+        # rejects that mode. A prose retry cannot repair a structured contract.
         attempts = (
             (temperature, True),
-            (temperature * 0.5, False),
+            (0.0, True),
         )
         self.last_structured_failure = ""
         for t, use_json_mode in attempts:
@@ -312,9 +336,35 @@ class SOPLLMClient:
                     return parsed
             except SOPLLMError as e:
                 self.last_structured_failure = e.category
+                if e.category == "response_format_rejected" and use_json_mode:
+                    try:
+                        raw = self.chat(
+                            system_prompt,
+                            user_prompt,
+                            temperature=0.0,
+                            max_tokens=max_tokens,
+                            use_json_mode=False,
+                        )
+                        parsed = _parse_json(raw.get("content", ""))
+                        if parsed is not None:
+                            self.last_structured_failure = ""
+                            return parsed
+                    except SOPLLMError as fallback_error:
+                        self.last_structured_failure = fallback_error.category
+                        logger.warning("SOP LLM plain JSON fallback failed: %s", fallback_error)
+                    break
                 logger.warning("SOP LLM 解析失败(retry): %s", e)
         logger.warning("SOP LLM 结构化解析最终失败,返回 None")
         return None
+
+    def reset_usage_tracking(self) -> None:
+        """Start a new request-scoped provider usage ledger."""
+        self.last_usage = None
+        self.last_call_usages = []
+
+    def _record_usage(self, usage: ModelUsage) -> None:
+        self.last_usage = usage
+        self.last_call_usages.append(usage)
 
     def _mock_content(self, system_prompt: str) -> str:
         sp = system_prompt.lower()

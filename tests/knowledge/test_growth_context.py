@@ -1,5 +1,5 @@
 from app.knowledge.growth_context import GrowthContextBuilder, GrowthContextService
-from app.knowledge.growth_contracts import ProjectKnowledgeProfile
+from app.knowledge.growth_contracts import MethodAsset, MethodRevision, MethodStatus, ProjectKnowledgeProfile
 from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.wiki_contracts import SourceRecord, SourceStatus
 from app.knowledge.wiki_rules import build_default_agents_rules
@@ -277,6 +277,38 @@ def test_source_reservation_preserves_a_domain_concept_before_project_overview()
     assert "page:overview" in pack.omitted_refs
 
 
+def test_routed_method_is_reserved_with_evidence_when_context_is_tight():
+    pack = GrowthContextBuilder(max_characters=2_400).build(
+        project_id="project-a",
+        profile={"revision": 1},
+        rules="Use reviewed evidence and apply the selected method.",
+        task="Review generated code before release.",
+        pages=[
+            {"id": "concept-a", "project_id": "project-a", "status": "published", "content": "Published concept A. " * 70},
+            {"id": "concept-b", "project_id": "project-a", "status": "published", "content": "Published concept B. " * 70},
+        ],
+        sources=[{
+            "id": "source-a",
+            "project_id": "project-a",
+            "status": "eligible",
+            "raw_content": "Immutable source evidence. " * 120,
+        }],
+        methods=[{
+            "id": "method-a",
+            "project_id": "project-a",
+            "revision": "method-r1",
+            "status": "published",
+            "body": "Selected inspection method. " * 160,
+        }],
+    )
+
+    assert pack.character_count <= pack.character_budget
+    assert pack.source_ids == ("source-a",)
+    assert pack.method_revision_ids == ("method-r1",)
+    assert "method:method-a@method-r1" in pack.rendered
+    assert any(item.ref == "method:method-a" and item.reason == "excerpted_for_budget" for item in pack.omissions)
+
+
 def test_context_policy_override_remains_bounded():
     with pytest.raises(ValueError, match="must not exceed"):
         GrowthContextBuilder(max_characters=48_001)
@@ -388,5 +420,50 @@ def test_growth_context_excludes_horizon_signal_until_current_project_triage_exi
 
         assert pack.source_ids == ()
         assert "Unreviewed discovery signal." not in pack.rendered
+    finally:
+        repository.close()
+
+
+def test_growth_context_routes_published_methods_to_the_current_task_and_records_omissions(tmp_path):
+    vault_root = tmp_path / "vault"
+    project_root = vault_root / "projects" / "project-a"
+    project_root.mkdir(parents=True)
+    (project_root / "AGENTS.md").write_text(
+        build_default_agents_rules("project-a"), encoding="utf-8"
+    )
+    repository = GrowthRepository(db_path=str(tmp_path / "growth-context-routing.db"))
+    repository.configure_vault("project-a", "projects/project-a")
+    try:
+        conversion = repository.create_method(MethodAsset(
+            id="method-conversion", project_id="project-a", slug="conversion-experiment",
+            name="Conversion experiment", status=MethodStatus.PUBLISHED,
+            active_revision_id="revision-conversion",
+        ))
+        social = repository.create_method(MethodAsset(
+            id="method-social", project_id="project-a", slug="social-calendar",
+            name="Social calendar", status=MethodStatus.PUBLISHED,
+            active_revision_id="revision-social",
+        ))
+        repository.save_method_revision(MethodRevision(
+            id="revision-conversion", project_id="project-a", method_id=conversion["id"], version=1,
+            status=MethodStatus.PUBLISHED, body="Conversion-specific method body.",
+            manifest={"trigger_contract": {"positive_signals": ["conversion experiment"], "negative_signals": ["quick social post"]}},
+        ))
+        repository.save_method_revision(MethodRevision(
+            id="revision-social", project_id="project-a", method_id=social["id"], version=1,
+            status=MethodStatus.PUBLISHED, body="Social-specific method body.",
+            manifest={"trigger_contract": {"positive_signals": ["quick social post"], "negative_signals": []}},
+        ))
+
+        pack = GrowthContextService(repository, vault_root).build_context(
+            project_id="project-a", task="Design a conversion experiment for the checkout funnel"
+        )
+
+        assert pack.method_revision_ids == ("revision-conversion",)
+        assert set(pack.candidate_method_revision_ids) == {"revision-conversion", "revision-social"}
+        assert pack.omitted_method_revision_ids == ("revision-social",)
+        assert "Conversion-specific method body." in pack.rendered
+        assert "Social-specific method body." not in pack.rendered
+        assert any(item.ref == "method:revision-social" and item.reason == "routing_mismatch" for item in pack.omissions)
     finally:
         repository.close()

@@ -4,6 +4,7 @@ import pytest
 
 from app.core.config import settings
 from app.knowledge.growth_repository import GrowthRepository
+from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
 from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus, SourceRecord, SourceStatus
 from app.tasks.growth_tasks import (
     execute_growth_run,
@@ -45,6 +46,64 @@ def test_growth_task_is_registered_and_duplicate_delivery_is_idempotent(tmp_path
         repo.close()
 
 
+def test_growth_task_persists_the_correlated_promptops_execution_event(tmp_path, monkeypatch):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "growth-promptops-event.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    run = _queued_run(repo, run_id="growth-model-event")
+    monkeypatch.setattr(settings, "KNOWLEDGE_GROWTH_ENABLED", True)
+    monkeypatch.setattr(settings, "OBSIDIAN_VAULT_ROOT", str(root))
+
+    def generated(_self, _project_id, _period, *, source_cutoff, knowledge_run_id=""):
+        assert source_cutoff == "2026-07-24T09:00:00+00:00"
+        return {
+            "status": "generated",
+            "input_hash": "input-hash",
+            "paths": ["distillations/example.md"],
+            "manifest": {
+                "input_count": 1,
+                "generation": {
+                    "promptops": {
+                        "knowledge_run_id": knowledge_run_id,
+                        "prompt_run_id": "prompt-a",
+                        "agent_manifest_fingerprint": "a" * 64,
+                        "task": "knowledge_distillation",
+                        "revision": "growth-distillation-v9",
+                        "provider": "deepseek",
+                        "model": "deepseek-v4-pro",
+                        "usage": {"provider_calls": 1, "reported_calls": 1, "complete": True, "total_tokens": 123},
+                        "attempt_count": 2,
+                        "retry_count": 1,
+                        "retry_categories": ["server_error"],
+                    }
+                },
+            },
+        }
+
+    monkeypatch.setattr("app.tasks.growth_tasks.GrowthDistillationService.run_daily", generated)
+    try:
+        result = execute_growth_run("project-a", run.id, repository=repo)
+
+        assert result["status"] == "completed"
+        events = repo.list_run_events(project_id="project-a", run_id=run.id)
+        model_event = next(event for event in events if event["event_type"] == "knowledge.growth.model.completed")
+        assert model_event["payload"] == {
+            "prompt_run_id": "prompt-a",
+            "agent_manifest_fingerprint": "a" * 64,
+            "task": "knowledge_distillation",
+            "revision": "growth-distillation-v9",
+            "provider": "deepseek",
+            "model": "deepseek-v4-pro",
+            "usage": {"provider_calls": 1, "reported_calls": 1, "complete": True, "total_tokens": 123},
+            "attempt_count": 2,
+            "retry_count": 1,
+            "retry_categories": ["server_error"],
+        }
+    finally:
+        repo.close()
+
+
 def test_growth_daily_syncs_declared_obsidian_exports_before_distillation(tmp_path, monkeypatch):
     root = tmp_path / "vault"
     project_root = root / "projects" / "project-a"
@@ -62,6 +121,13 @@ def test_growth_daily_syncs_declared_obsidian_exports_before_distillation(tmp_pa
         '{"id":"hyperframes","name":"HyperFrames","adapter":"filesystem_output","input_paths":["04_Outputs/hyperframes"]}'
         ']}',
         encoding="utf-8",
+    )
+    ObsidianPluginManifest.load(project_root).set_trust(
+        project_root,
+        plugin_ids=("readwise", "hyperframes"),
+        trusted=True,
+        actor_id="test-operator",
+        reason="fixture grants read-only filesystem bridge access",
     )
     repo = GrowthRepository(db_path=str(tmp_path / "growth-plugin-daily.db"))
     repo.configure_vault("project-a", "projects/project-a")
@@ -106,32 +172,41 @@ def test_growth_daily_syncs_declared_obsidian_exports_before_distillation(tmp_pa
         plugin_source = next(
             source for source in repo.list_sources("project-a") if source["vault_path"].endswith("research.md")
         )
-        assert result["sync"]["plugins"]["plugins"] == [
-            {
-                "id": "readwise",
-                "name": "Readwise",
-                "adapter": "filesystem_drop",
-                "input_paths": ["raw/readwise"],
-                "path_status": "ready",
-                "status": "captured",
-                "captured_sources": 1,
-                "registered_outputs": 0,
-                "last_captured_at": plugin_source["captured_at"],
-                "last_registered_at": "",
-            },
-            {
-                "id": "hyperframes",
-                "name": "HyperFrames",
-                "adapter": "filesystem_output",
-                "input_paths": ["04_Outputs/hyperframes"],
-                "path_status": "ready",
-                "status": "registered_output",
-                "captured_sources": 0,
-                "registered_outputs": 1,
-                "last_captured_at": "",
-                "last_registered_at": repo.list_outputs("project-a")[0]["created_at"],
-            },
-        ]
+        plugins = {item["id"]: item for item in result["sync"]["plugins"]["plugins"]}
+        readwise = plugins["readwise"]
+        assert {key: value for key, value in readwise.items() if key != "trusted_at"} == {
+            "id": "readwise",
+            "name": "Readwise",
+            "adapter": "filesystem_drop",
+            "input_paths": ["raw/readwise"],
+            "trust_state": "trusted",
+            "trust_actor": "test-operator",
+            "path_status": "ready",
+            "runtime_configuration": {"state": "declared_only", "detail_code": "no_readonly_settings_probe"},
+            "status": "captured",
+            "captured_sources": 1,
+            "registered_outputs": 0,
+            "last_captured_at": plugin_source["captured_at"],
+            "last_registered_at": "",
+        }
+        assert readwise["trusted_at"]
+        hyperframes = plugins["hyperframes"]
+        assert {key: value for key, value in hyperframes.items() if key != "trusted_at"} == {
+            "id": "hyperframes",
+            "name": "HyperFrames",
+            "adapter": "filesystem_output",
+            "input_paths": ["04_Outputs/hyperframes"],
+            "trust_state": "trusted",
+            "trust_actor": "test-operator",
+            "path_status": "ready",
+            "runtime_configuration": {"state": "declared_only", "detail_code": "no_readonly_settings_probe"},
+            "status": "registered_output",
+            "captured_sources": 0,
+            "registered_outputs": 1,
+            "last_captured_at": "",
+            "last_registered_at": repo.list_outputs("project-a")[0]["created_at"],
+        }
+        assert hyperframes["trusted_at"]
         assert repo.get_source("project-a", "trusted-preexisting")["status"] == "eligible"
         assert repo.get_source("project-a", "trusted-low-priority")["status"] == "validated"
         assert plugin_source["status"] == "validated"

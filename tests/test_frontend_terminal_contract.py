@@ -58,3 +58,13 @@ def test_context_policy_control_is_wired_to_orchestrator_request():
     assert "parentSessionId:" in workspace
     assert "context_policy: options.contextPolicy || 'fresh'" in api
     assert "Parent session id" in control
+
+
+def test_runtime_context_manifest_is_visible_without_prompt_body_rendering():
+    workspace = (ROOT / "src/components/UnifiedWorkspace.tsx").read_text(encoding="utf-8")
+    contracts = (ROOT / "src/api/generated/agentOsContracts.ts").read_text(encoding="utf-8")
+
+    assert "setContextManifest(result.runtime.context_manifest);" in workspace
+    assert "context-manifest-status" in workspace
+    assert "interface AgentContextManifest" in contracts
+    assert "context_manifest: AgentContextManifest | null;" in contracts

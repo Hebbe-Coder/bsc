@@ -3,12 +3,14 @@ import json
 
 from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus
 from app.knowledge.growth_repository import GrowthRepository
+from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_source_capture import CapturedSourceInput, SourceCaptureService
 from app.knowledge.wiki_evaluator import WikiEvaluator
 from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.wiki_rules import build_default_agents_rules
 from app.knowledge.wiki_compiler import WikiCompilationError
+from app.knowledge.scheduler import KnowledgeScheduler
 from app.tasks.knowledge_tasks import classify_knowledge_failure, execute_knowledge_run
 from app.tasks.knowledge_tasks import reconcile_knowledge_schedules
 
@@ -140,6 +142,13 @@ def test_source_sync_task_registers_declared_external_output_feedback(tmp_path, 
         '{"plugins":[{"id":"hyperframes","name":"HyperFrames","adapter":"filesystem_output","input_paths":["04_Outputs/hyperframes"]}]}',
         encoding="utf-8",
     )
+    ObsidianPluginManifest.load(project_root).set_trust(
+        project_root,
+        plugin_ids=["hyperframes"],
+        trusted=True,
+        actor_id="pytest",
+        reason="The test explicitly authorizes this declared filesystem bridge.",
+    )
     repo.configure_vault("project-a", "projects/project-a")
     monkeypatch.setattr("app.tasks.knowledge_tasks.settings.OBSIDIAN_VAULT_ROOT", str(vault_root))
     try:
@@ -148,7 +157,7 @@ def test_source_sync_task_registers_declared_external_output_feedback(tmp_path, 
 
         assert result["status"] == "completed"
         assert result["sync"]["output_feedback"] == {
-            "scanned": 1, "registered": 1, "duplicates": 0, "rejected": 0, "skipped": 0
+            "scanned": 1, "registered": 1, "duplicates": 0, "rejected": 0, "skipped": 0, "blocked": 0
         }
         assert output["status"] == "registered"
         assert output["metadata"]["original_path"] == "04_Outputs/hyperframes/video-brief.md"
@@ -435,6 +444,16 @@ def test_horizon_missing_explicit_artifact_is_a_channel_error_not_an_empty_resul
             "category": "transient_dependency", "code": "horizon_unavailable", "retryable": True
         }
         assert "empty_result" not in persisted["output_refs"].values()
+        failures = GrowthRepository.borrow(repo).list_failure_records("project-a", run_id=run.id)
+        assert len(failures) == 1
+        assert failures[0]["code"] == "source_capture_failure"
+        linked_events = [
+            event
+            for event in repo.list_run_events(project_id="project-a", run_id=run.id)
+            if event["sequence"] == failures[0]["event_sequence"]
+        ]
+        assert linked_events[0]["event_type"] == "knowledge.run.failure_recorded"
+        assert bool(failures[0]["retryable"]) is True
     finally:
         repo.close()
 
@@ -497,6 +516,38 @@ def test_schedule_reconciler_claims_due_run_and_advances_only_after_enqueue(tmp_
         assert repo.list_schedules("project-a")[0]["id"] == schedule["id"]
         assert repo.list_schedules("project-a")[0]["next_run_at"] > due_at
         assert repo.list_runs("project-a")[0]["status"] == "queued"
+    finally:
+        repo.close()
+
+
+def test_schedule_reconciler_requeues_unproven_source_sync_claim(tmp_path, monkeypatch):
+    repo = WikiRepository(db_path=str(tmp_path / "schedule-reconcile-requeue.db"))
+    due_at = "2026-07-21T13:00:00+00:00"
+    schedule = repo.upsert_schedule(
+        project_id="project-a", job_type="source_sync", cron="*/5 * * * *",
+        timezone_name="UTC", enabled=True, next_run_at=due_at,
+    )
+    stale_claim = KnowledgeScheduler(repo, scheduler_available=True).claim_run(
+        project_id="project-a",
+        job_type="source_sync",
+        idempotency_key=f"{schedule['id']}:{due_at}",
+        trigger="schedule",
+    )
+    dispatched: list[list[str]] = []
+    monkeypatch.setattr("app.tasks.knowledge_tasks.WikiRepository", lambda: repo)
+    monkeypatch.setattr(
+        "app.tasks.knowledge_tasks.knowledge_execute.apply_async",
+        lambda args: dispatched.append(args) or type("QueuedTask", (), {"id": "requeued-task"})(),
+    )
+    try:
+        result = reconcile_knowledge_schedules(datetime(2026, 7, 21, 13, 5, tzinfo=timezone.utc))
+
+        assert stale_claim["claimed"] is True
+        assert result == {"queued": 1, "duplicates": 1, "failures": 0, "recovered": 0}
+        assert dispatched == [["project-a", stale_claim["run_id"], schedule["id"]]]
+        events = repo.list_run_events(project_id="project-a", run_id=stale_claim["run_id"])
+        assert any(event["event_type"] == "knowledge.run.execution_dispatched" for event in events)
+        assert repo.get_schedule("project-a", schedule["id"])["next_run_at"] > due_at
     finally:
         repo.close()
 

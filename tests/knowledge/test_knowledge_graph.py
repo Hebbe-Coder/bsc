@@ -58,6 +58,43 @@ def test_graph_visualization_returns_only_persisted_entity_nodes(tmp_path):
         repo.close()
 
 
+def test_publication_graph_evidence_edges_keep_citation_and_source_revision_lineage(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "citation-lineage.db"))
+    source = SourceCaptureService(repo).capture(
+        CapturedSourceInput(
+            project_id="project-a",
+            source_type="manual_upload",
+            origin="evidence/brief.md",
+            raw_content="Immutable evidence revision.",
+            trust_level="trusted",
+        )
+    ).source
+    try:
+        repo.record_publication(
+            project_id="project-a",
+            contents={"wiki/overview.md": f"# Overview\nEvidence-backed conclusion. [source:{source['id']}]\n"},
+            source_ids=[source["id"]],
+        )
+        page = repo.list_pages("project-a")[0]
+        citation = repo.list_citations("project-a", page["id"])[0]
+        evidence_edges = [
+            edge for edge in repo.list_graph_edges("project-a")
+            if edge["edge_type"] in {"wiki_cites_source", "decision_uses_evidence"}
+        ]
+
+        assert len(evidence_edges) == 1
+        evidence = evidence_edges[0]["metadata"]["evidence"]
+        assert evidence["citation_id"] == citation["id"]
+        assert evidence["source_id"] == source["id"]
+        assert evidence["source_content_hash"] == source["content_hash"]
+        assert evidence["page_content_hash"] == page["content_hash"]
+        assert evidence["page_version"] == page["version"]
+        assert evidence["extraction_method"] == "explicit_source_marker_v1"
+        assert "raw_content" not in evidence
+    finally:
+        repo.close()
+
+
 def test_graph_queries_are_bounded_and_expose_project_scoped_backlinks(tmp_path):
     repo = WikiRepository(db_path=str(tmp_path / "graph-bounded.db"))
     try:

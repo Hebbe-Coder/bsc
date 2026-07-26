@@ -14,6 +14,8 @@ from app.core.llm_usage import ModelUsage
 from app.schemas.agent_os import (
     AgentAnalysisResponse,
     AgentBoard,
+    AgentContextManifest,
+    AgentContextSegment,
     CapabilityExecutionAttempt,
     CapabilityExecutionMetadata,
     AgentGapDetail,
@@ -37,6 +39,8 @@ MODELS = [
     CapabilityExecutionMetadata,
     KnowledgeContextMetadata,
     KnowledgeOutputRegistration,
+    AgentContextSegment,
+    AgentContextManifest,
     AgentRuntimeMetadata,
     AgentAnalysisResponse,
 ]

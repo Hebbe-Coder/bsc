@@ -22,6 +22,7 @@ from app.knowledge.growth_contracts import (
     MethodStatus,
 )
 from app.knowledge.growth_repository import GrowthRepository
+from app.knowledge.method_package_audit import MethodPackageAuditor
 from app.knowledge.vault import FilesystemWikiVault
 
 
@@ -87,6 +88,7 @@ class MethodRegistry:
         normalized_manifest = self._validate_manifest(manifest)
         if not body.strip():
             raise ValueError("method body is required")
+        package_audit = MethodPackageAuditor().audit(body=body, manifest=normalized_manifest)
         output_ids = list(dict.fromkeys(str(value) for value in source_output_ids if str(value)))
         for output_id in output_ids:
             if not self.repository.get_output(project_id, output_id):
@@ -118,6 +120,7 @@ class MethodRegistry:
                 manifest=normalized_manifest,
                 source_output_ids=output_ids,
                 rationale=rationale,
+                package_audit=package_audit,
             )
         )
 
@@ -134,10 +137,20 @@ class MethodRegistry:
         if not persisted:
             raise KeyError("method proposal not found in project")
         self._assert_proposal_immutable(persisted, proposal)
+        package_audit = MethodPackageAuditor().audit(
+            body=str(persisted.get("body") or ""),
+            manifest=dict(persisted.get("manifest") or {}),
+        )
+        if package_audit["blocking"]:
+            raise ValueError("method proposal is blocked by static package audit")
         if persisted.get("operation") != "rollback" and not bool(
             (persisted.get("eval_summary") or {}).get("eligible")
         ):
             raise ValueError("method proposal has not passed promotion gates")
+        if persisted.get("operation") == "update" and not bool(
+            ((persisted.get("eval_summary") or {}).get("evolution") or {}).get("passed")
+        ):
+            raise ValueError("updated method proposal requires a passing isolated holdout and non-regression evaluation")
         method_id = str(persisted.get("method_id") or "")
         method = self.repository.get_method(project_id, method_id)
         if not method:
@@ -425,6 +438,8 @@ class MethodRegistry:
             supplied.get("source_output_ids") or []
         ):
             raise ValueError("method proposal source outputs are immutable")
+        if dict(persisted.get("package_audit") or {}) != dict(supplied.get("package_audit") or {}):
+            raise ValueError("method proposal package audit is immutable")
 
     def _revision_for_proposal(
         self, project_id: str, method_id: str, proposal_id: str

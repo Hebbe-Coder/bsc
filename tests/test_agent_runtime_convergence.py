@@ -222,6 +222,10 @@ def test_runtime_runner_injects_mapped_project_knowledge_without_returning_vault
     assert result["runtime"]["knowledge_context"]["knowledge_context_used"] is True
     assert result["runtime"]["knowledge_context"]["context_pack_id"] == "pack-42"
     assert "context_block" not in result["runtime"]["knowledge_context"]
+    manifest = result["runtime"]["context_manifest"]
+    assert manifest["revision"] == "bsc-context-v2"
+    assert manifest["current_input_fingerprint"]
+    assert "Friday evidence review" not in str(manifest)
 
 
 def test_runtime_stages_contextual_deliverables_in_pending_growth_d_layer(tmp_path, monkeypatch):

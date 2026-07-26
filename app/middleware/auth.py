@@ -75,12 +75,16 @@ class AuthMiddleware(BaseHTTPMiddleware):
             principal = _with_browser_session(principal, request.cookies.get(settings.AUTH_SESSION_COOKIE))
             issued_cookie = True
 
-        if principal.role == "reader" and not request.url.path.startswith("/knowledge/"):
+        if principal.role == "reader" and not (
+            request.url.path.startswith("/knowledge/")
+            or request.url.path.startswith("/api/dbos")
+        ):
             return _auth_error(403, "read-only key cannot access this endpoint")
         if principal.role.startswith("project_") and not (
             request.url.path.startswith("/knowledge/")
             or request.url.path.startswith("/api/orchestrate")
             or request.url.path.startswith("/api/mcp")
+            or request.url.path.startswith("/api/dbos")
         ):
             return _auth_error(403, "project key is not valid for this endpoint")
 

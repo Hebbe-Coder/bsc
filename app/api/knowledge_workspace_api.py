@@ -76,6 +76,12 @@ class PluginManifestRequest(BaseModel):
     plugins: list[dict[str, Any]] = Field(default_factory=list, max_length=64)
 
 
+class PluginTrustRequest(BaseModel):
+    plugin_ids: list[str] = Field(min_length=1, max_length=64)
+    trusted: bool = True
+    reason: str = Field(default="", max_length=512)
+
+
 class ScheduleStateRequest(BaseModel):
     project_id: str = Field(min_length=1)
     enabled: bool
@@ -293,7 +299,12 @@ def workspace_status(request: Request, project_id: str, repo: WikiRepository = D
     sources = repo.list_sources(project_id)
     horizon_sources = [source for source in sources if source.get("source_type") == "horizon_signal"]
     outputs = repo.list_outputs(project_id) if isinstance(repo, GrowthRepository) else []
-    plugins = ObsidianPluginManifest.load(project_root).public_status(sources, outputs, project_root=project_root)
+    plugins = ObsidianPluginManifest.load(project_root).public_status(
+        sources,
+        outputs,
+        project_root=project_root,
+        vault_root=Path(settings.OBSIDIAN_VAULT_ROOT) if settings.OBSIDIAN_VAULT_ROOT else None,
+    )
     role = str(getattr(request.state, "knowledge_role", ""))
     sync_run = repo.latest_run_for_type(project_id, "source_sync")
     horizon_run = repo.latest_run_for_type(project_id, "horizon_capture")
@@ -399,9 +410,54 @@ def configure_workspace_plugins(
         vault = FilesystemWikiVault(Path(settings.OBSIDIAN_VAULT_ROOT), project_id, mapping["vault_path"])
         manifest = ObsidianPluginManifest.from_payload({"plugins": payload.plugins})
         manifest.write_to(vault.project_root)
+        if manifest.plugins:
+            # This is an explicit project-admin command, distinct from a
+            # bridge merely appearing on disk. Persist the approval separately
+            # so later manifest changes require another trust decision.
+            manifest = manifest.set_trust(
+                vault.project_root,
+                plugin_ids=[plugin.plugin_id for plugin in manifest.plugins],
+                trusted=True,
+                actor_id=str(getattr(request.state, "knowledge_role", "") or "http"),
+                reason="registered through the governed workspace API",
+            )
     except Exception as exc:
         raise _command_error(exc) from exc
-    return ApiResponse.ok(manifest.public_status(project_root=vault.project_root))
+    return ApiResponse.ok(manifest.public_status(project_root=vault.project_root, vault_root=Path(settings.OBSIDIAN_VAULT_ROOT)))
+
+
+@router.put("/workspaces/{project_id}/plugins/trust")
+def set_workspace_plugin_trust(
+    payload: PluginTrustRequest,
+    request: Request,
+    project_id: str,
+    repo: WikiRepository = Depends(get_wiki_repository),
+):
+    """Approve or revoke reads from already declared Obsidian bridge paths."""
+    project_id = _enforce_project_access(request, project_id, write=True)
+    mapping = repo.get_vault(project_id)
+    if not mapping:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "knowledge_vault_unconfigured", "message": "Map the project Vault before managing plugin trust"},
+        )
+    if not settings.OBSIDIAN_VAULT_ROOT:
+        raise HTTPException(status_code=400, detail="OBSIDIAN_VAULT_ROOT is not configured")
+    try:
+        vault = FilesystemWikiVault(Path(settings.OBSIDIAN_VAULT_ROOT), project_id, mapping["vault_path"])
+        manifest = ObsidianPluginManifest.load(vault.project_root)
+        if not manifest.configured:
+            raise ValueError("plugin manifest is not configured")
+        manifest = manifest.set_trust(
+            vault.project_root,
+            plugin_ids=payload.plugin_ids,
+            trusted=payload.trusted,
+            actor_id=str(getattr(request.state, "knowledge_role", "") or "http"),
+            reason=payload.reason,
+        )
+    except Exception as exc:
+        raise _command_error(exc) from exc
+    return ApiResponse.ok(manifest.public_status(project_root=vault.project_root, vault_root=Path(settings.OBSIDIAN_VAULT_ROOT)))
 
 
 @router.get("/sources")

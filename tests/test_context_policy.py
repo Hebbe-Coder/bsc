@@ -78,3 +78,53 @@ def test_fork_and_resume_keep_project_knowledge_outside_chat_history():
         )
         assert packet.usage.persistent_items == 1
         assert packet.usage.persistent_included == 1
+
+
+def test_context_manifest_tracks_compacted_segments_without_exposing_content():
+    older_secret = "Older draft detail that must not be copied into an audit record."
+    packet = ContextManager(max_tokens=96, max_verbatim_items=1).build(
+        "Create a tailored follow-up SOP",
+        policy=ContextPolicy.RESUME,
+        inherited_items=[
+            ContextItem(
+                role="user",
+                content=older_secret,
+                source_session_id="parent-session",
+                priority=10,
+            ),
+            ContextItem(
+                role="runtime",
+                content="The release gate requires evidence review before publishing.",
+                source_session_id="parent-session",
+                priority=90,
+            ),
+        ],
+    )
+
+    manifest = packet.manifest.model_dump_json()
+    assert packet.usage.manifest_id == packet.manifest.manifest_id
+    assert packet.manifest.source_session_ids == ["parent-session"]
+    assert packet.usage.recoverable_source_sessions == ["parent-session"]
+    assert "parent-session" in manifest
+    assert older_secret not in manifest
+    assert any(item.disposition == "included" for item in packet.manifest.inherited)
+    assert any(item.disposition in {"summarized", "omitted"} for item in packet.manifest.inherited)
+
+
+def test_context_manifest_is_stable_for_an_identical_context_composition():
+    kwargs = {
+        "input_text": "Prepare a project-specific operating routine.",
+        "policy": ContextPolicy.FORK,
+        "inherited_items": [ContextItem(
+            role="runtime",
+            content="The project requires a Friday source review.",
+            source_session_id="session-7",
+            priority=80,
+        )],
+    }
+
+    first = ContextManager(max_tokens=256).build(**kwargs)
+    second = ContextManager(max_tokens=256).build(**kwargs)
+
+    assert first.manifest.manifest_id == second.manifest.manifest_id
+    assert first.manifest.current_input_fingerprint == second.manifest.current_input_fingerprint

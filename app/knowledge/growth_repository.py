@@ -8,8 +8,13 @@ from typing import Any
 from urllib.parse import urlparse
 
 from app.knowledge.growth_contracts import (
+    KnowledgeCandidate,
+    KnowledgeCandidateStatus,
+    KnowledgeFailureRecord,
+    KnowledgeFailureStatus,
     KnowledgeLineageEdge,
     MethodAsset,
+    MethodEvolutionRun,
     MethodProposal,
     MethodRevision,
     MethodStatus,
@@ -227,6 +232,202 @@ class GrowthRepository(WikiRepository):
         rows = self._execute(query, tuple(params)).fetchall()
         return [self._decode_growth(row, ("reasons_json",)) or {} for row in rows]
 
+    # ---- Cangjie evidence candidates -----------------------------------
+
+    def save_candidate(self, candidate: KnowledgeCandidate) -> dict[str, Any]:
+        """Persist a review-only candidate with source/run lineage.
+
+        The immutable source hash is verified before the first write. A
+        deterministic fingerprint makes a repeated worker delivery idempotent
+        without concealing the original extraction run in the lineage graph.
+        """
+        source = self.get_source(candidate.project_id, candidate.source_id)
+        if not source:
+            raise KeyError("candidate source not found in project")
+        if str(source.get("content_hash") or "") != candidate.source_content_hash:
+            raise ValueError("candidate source content hash no longer matches immutable evidence")
+        if not self.get_run(candidate.project_id, candidate.extraction_run_id):
+            raise KeyError("candidate extraction run not found in project")
+        existing = self._execute(
+            "SELECT * FROM knowledge_candidates WHERE project_id=? AND fingerprint=?",
+            (candidate.project_id, candidate.fingerprint),
+        ).fetchone()
+        if existing:
+            record = self._decode_growth(existing, ("evidence_json", "metadata_json")) or {}
+            self._ensure_candidate_lineage(record)
+            return record
+
+        try:
+            self._execute(
+                "INSERT INTO knowledge_candidates "
+                "(id,project_id,source_id,source_content_hash,extraction_run_id,candidate_type,title,claim,explanation,evidence_json,fingerprint,status,reviewer_id,review_note,reviewed_at,metadata_json,created_at,updated_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    candidate.id,
+                    candidate.project_id,
+                    candidate.source_id,
+                    candidate.source_content_hash,
+                    candidate.extraction_run_id,
+                    candidate.candidate_type.value,
+                    candidate.title,
+                    candidate.claim,
+                    candidate.explanation,
+                    self._json_dumps([item.model_dump(mode="json") for item in candidate.evidence]),
+                    candidate.fingerprint,
+                    candidate.status.value,
+                    candidate.reviewer_id,
+                    candidate.review_note,
+                    _iso(candidate.reviewed_at),
+                    self._json_dumps(candidate.metadata),
+                    _iso(candidate.created_at),
+                    _iso(candidate.updated_at),
+                ),
+            )
+            self._commit()
+            record = self.get_candidate(candidate.project_id, candidate.id) or {}
+            self._ensure_candidate_lineage(record)
+            return record
+        except Exception:
+            self._execute(
+                "DELETE FROM knowledge_graph_edges WHERE project_id=? AND (from_id=? OR to_id=?)",
+                (candidate.project_id, candidate.id, candidate.id),
+            )
+            self._execute(
+                "DELETE FROM knowledge_candidates WHERE project_id=? AND id=?",
+                (candidate.project_id, candidate.id),
+            )
+            self._commit()
+            raise
+
+    def _ensure_candidate_lineage(self, candidate: dict[str, Any]) -> None:
+        if not candidate:
+            return
+        project_id = str(candidate["project_id"])
+        candidate_id = str(candidate["id"])
+        self.add_lineage_edge(
+            KnowledgeLineageEdge(
+                project_id=project_id,
+                from_type="source",
+                from_id=str(candidate["source_id"]),
+                to_type="candidate",
+                to_id=candidate_id,
+                relation="source_extracts_candidate",
+                metadata={
+                    "content_hash": str(candidate["source_content_hash"]),
+                    "candidate_type": str(candidate["candidate_type"]),
+                },
+            )
+        )
+        self.add_lineage_edge(
+            KnowledgeLineageEdge(
+                project_id=project_id,
+                from_type="run",
+                from_id=str(candidate["extraction_run_id"]),
+                to_type="candidate",
+                to_id=candidate_id,
+                relation="run_produces_candidate",
+                metadata={"candidate_type": str(candidate["candidate_type"])},
+            )
+        )
+
+    def get_candidate(self, project_id: str, candidate_id: str) -> dict[str, Any] | None:
+        row = self._execute(
+            "SELECT * FROM knowledge_candidates WHERE project_id=? AND id=?",
+            (project_id, candidate_id),
+        ).fetchone()
+        return self._decode_growth(row, ("evidence_json", "metadata_json"))
+
+    def list_candidates(
+        self,
+        project_id: str,
+        *,
+        status: str = "",
+        source_id: str = "",
+        extraction_run_id: str = "",
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        params: list[Any] = [project_id]
+        query = "SELECT * FROM knowledge_candidates WHERE project_id=?"
+        if status:
+            query += " AND status=?"
+            params.append(status)
+        if source_id:
+            query += " AND source_id=?"
+            params.append(source_id)
+        if extraction_run_id:
+            query += " AND extraction_run_id=?"
+            params.append(extraction_run_id)
+        query += " ORDER BY created_at DESC,id DESC LIMIT ?"
+        params.append(max(1, min(int(limit), 500)))
+        rows = self._execute(query, tuple(params)).fetchall()
+        return [
+            self._decode_growth(row, ("evidence_json", "metadata_json")) or {}
+            for row in rows
+        ]
+
+    def review_candidate(
+        self,
+        project_id: str,
+        candidate_id: str,
+        *,
+        decision: KnowledgeCandidateStatus,
+        actor_id: str,
+        review_note: str = "",
+    ) -> dict[str, Any]:
+        """Record one terminal human decision; acceptance is not publication."""
+        actor = actor_id.strip()
+        note = review_note.strip()
+        if decision not in {KnowledgeCandidateStatus.ACCEPTED, KnowledgeCandidateStatus.REJECTED}:
+            raise ValueError("candidate review decision must be accepted or rejected")
+        if not actor:
+            raise ValueError("candidate reviewer_id is required")
+        backend = self._begin_lifecycle_transaction(f"{project_id}|candidate|{candidate_id}|review")
+        try:
+            row = self._execute(
+                "SELECT * FROM knowledge_candidates WHERE project_id=? AND id=?",
+                (project_id, candidate_id),
+            ).fetchone()
+            current = self._decode_growth(row, ("evidence_json", "metadata_json"))
+            if not current:
+                raise KeyError("candidate not found in project")
+            if current.get("status") != KnowledgeCandidateStatus.PENDING_REVIEW.value:
+                raise LifecycleConflictError("candidate review state conflict: decision is already recorded")
+            now = self._now()
+            cursor = self._execute(
+                "UPDATE knowledge_candidates SET status=?,reviewer_id=?,review_note=?,reviewed_at=?,updated_at=? "
+                "WHERE project_id=? AND id=? AND status=?",
+                (
+                    decision.value,
+                    actor,
+                    note,
+                    now,
+                    now,
+                    project_id,
+                    candidate_id,
+                    KnowledgeCandidateStatus.PENDING_REVIEW.value,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise LifecycleConflictError("candidate review state conflict")
+            self._record_lifecycle_audit(
+                project_id=project_id,
+                target_type="candidate",
+                target_id=candidate_id,
+                action="review",
+                event_type="knowledge.candidate.reviewed",
+                actor_id=actor,
+                reason=note or "candidate review recorded",
+                from_status=KnowledgeCandidateStatus.PENDING_REVIEW.value,
+                to_status=decision.value,
+                expected={"source_content_hash": str(current.get("source_content_hash") or "")},
+                now=now,
+            )
+            self._commit()
+        except Exception:
+            backend.rollback()
+            raise
+        return self.get_candidate(project_id, candidate_id) or {}
+
     # ---- methods --------------------------------------------------------
 
     def create_method(self, method: MethodAsset) -> dict[str, Any]:
@@ -319,12 +520,13 @@ class GrowthRepository(WikiRepository):
     def save_method_proposal(self, proposal: MethodProposal) -> dict[str, Any]:
         self._execute(
             "INSERT INTO knowledge_method_proposals "
-            "(id,project_id,method_id,operation,body,manifest_json,source_output_ids_json,rationale,status,eval_summary_json,created_at,updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            "(id,project_id,method_id,operation,body,manifest_json,source_output_ids_json,rationale,status,package_audit_json,eval_summary_json,created_at,updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 proposal.id, proposal.project_id, proposal.method_id, proposal.operation, proposal.body,
                 self._json_dumps(proposal.manifest), self._json_dumps(proposal.source_output_ids), proposal.rationale,
-                proposal.status.value, self._json_dumps(proposal.eval_summary), _iso(proposal.created_at), _iso(proposal.updated_at),
+                proposal.status.value, self._json_dumps(proposal.package_audit), self._json_dumps(proposal.eval_summary),
+                _iso(proposal.created_at), _iso(proposal.updated_at),
             ),
         )
         self._commit()
@@ -334,7 +536,7 @@ class GrowthRepository(WikiRepository):
         row = self._execute(
             "SELECT * FROM knowledge_method_proposals WHERE project_id=? AND id=?", (project_id, proposal_id)
         ).fetchone()
-        return self._decode_growth(row, ("manifest_json", "source_output_ids_json", "eval_summary_json"))
+        return self._decode_growth(row, ("manifest_json", "source_output_ids_json", "package_audit_json", "eval_summary_json"))
 
     def list_method_proposals(
         self, project_id: str, status: str = "", limit: int = 100
@@ -348,9 +550,21 @@ class GrowthRepository(WikiRepository):
         params.append(limit)
         rows = self._execute(query, tuple(params)).fetchall()
         return [
-            self._decode_growth(row, ("manifest_json", "source_output_ids_json", "eval_summary_json")) or {}
+            self._decode_growth(row, ("manifest_json", "source_output_ids_json", "package_audit_json", "eval_summary_json")) or {}
             for row in rows
         ]
+
+    def update_method_proposal_package_audit(
+        self, project_id: str, proposal_id: str, audit: dict[str, Any]
+    ) -> dict[str, Any]:
+        cursor = self._execute(
+            "UPDATE knowledge_method_proposals SET package_audit_json=?,updated_at=? WHERE project_id=? AND id=?",
+            (self._json_dumps(audit), self._now(), project_id, proposal_id),
+        )
+        self._commit()
+        if cursor.rowcount != 1:
+            raise KeyError("method proposal not found in project")
+        return self.get_method_proposal(project_id, proposal_id) or {}
 
     def update_method_proposal_evaluation(self, project_id: str, proposal_id: str, summary: dict[str, Any], status: str) -> dict[str, Any]:
         cursor = self._execute(
@@ -361,6 +575,137 @@ class GrowthRepository(WikiRepository):
         if cursor.rowcount != 1:
             raise KeyError("method proposal not found in project")
         return self.get_method_proposal(project_id, proposal_id) or {}
+
+    # ---- governed method-evolution experiments -------------------------
+
+    def create_method_evolution_run(self, run: MethodEvolutionRun) -> tuple[dict[str, Any], bool]:
+        """Insert one idempotent experiment and return ``(record, created)``.
+
+        The idempotency key is scoped to a project and bound to an immutable
+        input fingerprint. Retrying the same experiment is safe; reusing a
+        key for different candidate material is refused rather than silently
+        returning unrelated evidence.
+        """
+        existing = self.get_method_evolution_run_by_idempotency(
+            run.project_id, run.idempotency_key
+        )
+        if existing:
+            if str(existing.get("input_fingerprint") or "") != run.input_fingerprint:
+                raise ValueError("method evolution idempotency key is bound to different input")
+            return existing, False
+        self._execute(
+            "INSERT INTO knowledge_method_evolution_runs "
+            "(id,project_id,method_id,baseline_revision_id,mutation_dimension,rationale,"
+            "supporting_output_ids_json,candidate_proposal_id,input_fingerprint,evaluation_summary_json,"
+            "decision,rollback_revision_id,status,idempotency_key,actor_id,created_at,updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(project_id,idempotency_key) DO NOTHING",
+            (
+                run.id,
+                run.project_id,
+                run.method_id,
+                run.baseline_revision_id,
+                run.mutation_dimension,
+                run.rationale,
+                self._json_dumps(run.supporting_output_ids),
+                run.candidate_proposal_id,
+                run.input_fingerprint,
+                self._json_dumps(run.evaluation_summary),
+                run.decision.value,
+                run.rollback_revision_id,
+                run.status.value,
+                run.idempotency_key,
+                run.actor_id,
+                _iso(run.created_at),
+                _iso(run.updated_at),
+            ),
+        )
+        self._commit()
+        persisted = self.get_method_evolution_run_by_idempotency(
+            run.project_id, run.idempotency_key
+        )
+        if not persisted:
+            raise RuntimeError("method evolution run was not persisted")
+        if str(persisted.get("input_fingerprint") or "") != run.input_fingerprint:
+            raise ValueError("method evolution idempotency key is bound to different input")
+        return persisted, str(persisted.get("id") or "") == run.id
+
+    def get_method_evolution_run(
+        self, project_id: str, experiment_id: str
+    ) -> dict[str, Any] | None:
+        row = self._execute(
+            "SELECT * FROM knowledge_method_evolution_runs WHERE project_id=? AND id=?",
+            (project_id, experiment_id),
+        ).fetchone()
+        return self._decode_growth(
+            row,
+            ("supporting_output_ids_json", "evaluation_summary_json"),
+        )
+
+    def get_method_evolution_run_by_idempotency(
+        self, project_id: str, idempotency_key: str
+    ) -> dict[str, Any] | None:
+        row = self._execute(
+            "SELECT * FROM knowledge_method_evolution_runs WHERE project_id=? AND idempotency_key=?",
+            (project_id, idempotency_key),
+        ).fetchone()
+        return self._decode_growth(
+            row,
+            ("supporting_output_ids_json", "evaluation_summary_json"),
+        )
+
+    def list_method_evolution_runs(
+        self,
+        project_id: str,
+        *,
+        method_id: str = "",
+        status: str = "",
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        params: list[Any] = [project_id]
+        query = "SELECT * FROM knowledge_method_evolution_runs WHERE project_id=?"
+        if method_id:
+            query += " AND method_id=?"
+            params.append(method_id)
+        if status:
+            query += " AND status=?"
+            params.append(status)
+        query += " ORDER BY created_at DESC,id DESC LIMIT ?"
+        params.append(max(1, min(int(limit), 500)))
+        rows = self._execute(query, tuple(params)).fetchall()
+        return [
+            self._decode_growth(
+                row, ("supporting_output_ids_json", "evaluation_summary_json")
+            )
+            or {}
+            for row in rows
+        ]
+
+    def update_method_evolution_run(
+        self,
+        project_id: str,
+        experiment_id: str,
+        *,
+        evaluation_summary: dict[str, Any],
+        decision: str,
+        status: str,
+    ) -> dict[str, Any]:
+        cursor = self._execute(
+            "UPDATE knowledge_method_evolution_runs "
+            "SET evaluation_summary_json=?,decision=?,status=?,updated_at=? "
+            "WHERE project_id=? AND id=?",
+            (
+                self._json_dumps(evaluation_summary),
+                decision,
+                status,
+                self._now(),
+                project_id,
+                experiment_id,
+            ),
+        )
+        self._commit()
+        if cursor.rowcount != 1:
+            raise KeyError("method evolution run not found in project")
+        return self.get_method_evolution_run(project_id, experiment_id) or {}
 
     def latest_method_version(self, project_id: str, method_id: str) -> int:
         row = self._execute(
@@ -808,13 +1153,129 @@ class GrowthRepository(WikiRepository):
     def upsert_eval_case(self, project_id: str, case_id: str, case_type: str, expected: dict[str, Any]) -> dict[str, Any]:
         return super().upsert_eval_case(project_id, case_id, case_type, expected)
 
+    # ---- diagnosed knowledge failures ---------------------------------
+
+    def create_failure_record(self, failure: KnowledgeFailureRecord) -> dict[str, Any]:
+        """Persist a failure without allowing a cross-project run/event reference."""
+        if failure.run_id:
+            run = self.get_run(failure.project_id, failure.run_id)
+            if not run:
+                raise KeyError("failure run is missing or belongs to another project")
+        if failure.event_sequence is not None:
+            event = self._execute(
+                "SELECT 1 FROM knowledge_run_events WHERE project_id=? AND run_id=? AND sequence=?",
+                (failure.project_id, failure.run_id, failure.event_sequence),
+            ).fetchone()
+            if not event:
+                raise KeyError("failure event is missing or belongs to another project")
+        self._execute(
+            "INSERT INTO knowledge_failure_records "
+            "(id,project_id,code,diagnostic_pattern,secondary_diagnostic_patterns_json,severity,summary,run_id,event_sequence,evidence_refs_json,root_cause,minimal_structural_fix,retryable,status,resolution_json,created_at,updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                failure.id, failure.project_id, failure.code.value, failure.diagnostic_pattern.value,
+                self._json_dumps([item.value for item in failure.secondary_diagnostic_patterns]), failure.severity,
+                failure.summary, failure.run_id, failure.event_sequence,
+                self._json_dumps(failure.evidence_refs), failure.root_cause, failure.minimal_structural_fix,
+                1 if failure.retryable else 0, failure.status.value,
+                self._json_dumps(failure.resolution), _iso(failure.created_at), _iso(failure.updated_at),
+            ),
+        )
+        self._commit()
+        return self.get_failure_record(failure.project_id, failure.id) or {}
+
+    def get_failure_record(self, project_id: str, failure_id: str) -> dict[str, Any] | None:
+        row = self._execute(
+            "SELECT * FROM knowledge_failure_records WHERE project_id=? AND id=?",
+            (project_id, failure_id),
+        ).fetchone()
+        return self._decode_growth(row, ("evidence_refs_json", "secondary_diagnostic_patterns_json", "resolution_json"))
+
+    def list_failure_records(
+        self,
+        project_id: str,
+        *,
+        status: str = "",
+        run_id: str = "",
+        diagnostic_pattern: str = "",
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        params: list[Any] = [project_id]
+        query = "SELECT * FROM knowledge_failure_records WHERE project_id=?"
+        if status:
+            query += " AND status=?"
+            params.append(status)
+        if run_id:
+            query += " AND run_id=?"
+            params.append(run_id)
+        if diagnostic_pattern:
+            query += " AND diagnostic_pattern=?"
+            params.append(diagnostic_pattern)
+        query += " ORDER BY created_at DESC,id DESC LIMIT ?"
+        params.append(max(1, min(int(limit), 500)))
+        rows = self._execute(query, tuple(params)).fetchall()
+        return [
+            self._decode_growth(row, ("evidence_refs_json", "secondary_diagnostic_patterns_json", "resolution_json")) or {}
+            for row in rows
+        ]
+
+    def resolve_failure_record(
+        self,
+        project_id: str,
+        failure_id: str,
+        *,
+        actor_id: str,
+        resolution_note: str,
+        retry_scheduled: bool = False,
+    ) -> dict[str, Any]:
+        """Close or schedule a retry while retaining the original diagnostic evidence."""
+        actor = actor_id.strip()
+        note = resolution_note.strip()
+        if not actor:
+            raise ValueError("actor_id is required to resolve a failure")
+        if not note:
+            raise ValueError("resolution_note is required")
+        current = self.get_failure_record(project_id, failure_id)
+        if not current:
+            raise KeyError("failure record not found in project")
+        if current.get("status") == KnowledgeFailureStatus.RESOLVED.value:
+            return current
+        now = self._now()
+        status = (
+            KnowledgeFailureStatus.RETRY_SCHEDULED.value
+            if retry_scheduled
+            else KnowledgeFailureStatus.RESOLVED.value
+        )
+        resolution = {
+            "actor_id": actor,
+            "note": note,
+            "resolved_at": now,
+            "retry_scheduled": retry_scheduled,
+        }
+        cursor = self._execute(
+            "UPDATE knowledge_failure_records SET status=?,resolution_json=?,updated_at=? "
+            "WHERE project_id=? AND id=? AND status<>?",
+            (
+                status, self._json_dumps(resolution), now, project_id, failure_id,
+                KnowledgeFailureStatus.RESOLVED.value,
+            ),
+        )
+        self._commit()
+        if cursor.rowcount != 1:
+            raise LifecycleConflictError("failure lifecycle conflict during resolution")
+        return self.get_failure_record(project_id, failure_id) or {}
+
     # ---- authoritative lineage -----------------------------------------
 
     _RELATIONS = {
         "source_supports_page", "source_contradicts_source", "page_informs_method",
+        "source_distills_method_proposal",
+        "source_extracts_candidate", "run_produces_candidate", "candidate_guides_method_proposal",
         "output_used_source", "output_used_page", "output_used_method_revision",
         "output_produced_by_run", "feedback_evaluates_output", "output_proposes_page",
         "output_proposes_method", "method_supersedes_method",
+        "method_revision_baselines_method_proposal",
+        "output_supports_method_proposal", "run_evaluates_method_proposal",
     }
 
     def _endpoint_exists(self, project_id: str, endpoint_type: str, endpoint_id: str) -> bool:
@@ -824,6 +1285,7 @@ class GrowthRepository(WikiRepository):
             "method": "knowledge_methods",
             "method_revision": "knowledge_method_revisions",
             "method_proposal": "knowledge_method_proposals",
+            "candidate": "knowledge_candidates",
             "output": "knowledge_outputs",
             "feedback": "knowledge_output_feedback",
             "run": "knowledge_runs",
@@ -943,6 +1405,10 @@ class GrowthRepository(WikiRepository):
     def add_lineage_edge(self, edge: KnowledgeLineageEdge) -> dict[str, Any]:
         if edge.relation not in self._RELATIONS:
             raise LineageConflictError("unsupported lineage relation")
+        if edge.relation == "candidate_guides_method_proposal" and (
+            edge.from_type != "candidate" or edge.to_type != "method_proposal"
+        ):
+            raise LineageConflictError("candidate guidance must connect a candidate to a method proposal")
         if not self._endpoint_exists(edge.project_id, edge.from_type, edge.from_id) or not self._endpoint_exists(edge.project_id, edge.to_type, edge.to_id):
             raise LineageConflictError("lineage endpoint is missing or belongs to another project")
         duplicate = self._execute(
@@ -1006,6 +1472,12 @@ class GrowthRepository(WikiRepository):
             (
                 "method_proposal",
                 "SELECT id,operation,rationale,status FROM knowledge_method_proposals "
+                "WHERE project_id=? AND id IN ({placeholders})",
+                (),
+            ),
+            (
+                "candidate",
+                "SELECT id,candidate_type,title,claim,status FROM knowledge_candidates "
                 "WHERE project_id=? AND id IN ({placeholders})",
                 (),
             ),
@@ -1076,6 +1548,9 @@ class GrowthRepository(WikiRepository):
             return _bounded_lineage_label(f"{method} v{version}" if version else method, "Method revision")
         if endpoint_type == "method_proposal":
             return _bounded_lineage_label(record.get("rationale") or record.get("operation"), "Method proposal")
+        if endpoint_type == "candidate":
+            prefix = str(record.get("candidate_type") or "candidate").replace("_", " ")
+            return _bounded_lineage_label(f"{prefix}: {record.get('title') or record.get('claim')}", "Knowledge candidate")
         if endpoint_type == "output":
             return _bounded_lineage_label(record.get("title") or record.get("vault_path") or record.get("kind"), "Output")
         if endpoint_type == "feedback":

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import uuid
 from typing import Any
@@ -36,6 +37,7 @@ _TOOL_HANDLERS = {
     "knowledge_growth_method": server.knowledge_growth_method,
     "knowledge_growth_output": server.knowledge_growth_output,
     "knowledge_growth_feedback": server.knowledge_growth_feedback,
+    "knowledge_growth_failure": server.knowledge_growth_failure,
     "knowledge_growth_summary": server.knowledge_growth_summary,
     "knowledge_growth_lineage": server.knowledge_growth_lineage,
     "knowledge_growth_review": server.knowledge_growth_review,
@@ -44,6 +46,22 @@ _TOOL_HANDLERS = {
     "knowledge_growth_distillation": server.knowledge_growth_distillation,
     "knowledge_growth_triage": server.knowledge_growth_triage,
     "knowledge_growth_weekly_distill": server.knowledge_growth_weekly_distill,
+    "dbos_create_mission": server.dbos_create_mission,
+    "dbos_diagnose_mission": server.dbos_diagnose_mission,
+    "dbos_confirm_mission": server.dbos_confirm_mission,
+    "dbos_execute_mission": server.dbos_execute_mission,
+    "dbos_run_external_worker": server.dbos_run_external_worker,
+    "dbos_cancel_external_worker": server.dbos_cancel_external_worker,
+    "dbos_review_mission": server.dbos_review_mission,
+    "dbos_control_center": server.dbos_control_center,
+    "dbos_record_feedback": server.dbos_record_feedback,
+    "dbos_record_decision": server.dbos_record_decision,
+    "dbos_stop_mission": server.dbos_stop_mission,
+    "dbos_rollback_execution": server.dbos_rollback_execution,
+    "dbos_mission": server.dbos_mission,
+    "dbos_confirm": server.dbos_confirm,
+    "dbos_execute": server.dbos_execute,
+    "dbos_feedback": server.dbos_feedback,
     "analyze_domain": server.analyze_domain,
 }
 
@@ -56,6 +74,7 @@ _GROWTH_TOOLS = {
     "knowledge_growth_method",
     "knowledge_growth_output",
     "knowledge_growth_feedback",
+    "knowledge_growth_failure",
     "knowledge_growth_summary",
     "knowledge_growth_lineage",
     "knowledge_growth_review",
@@ -69,6 +88,41 @@ _GROWTH_WRITE_ONLY_TOOLS = {
     "knowledge_growth_review",
     "knowledge_growth_triage",
     "knowledge_growth_weekly_distill",
+}
+_DBOS_TOOLS = {
+    "dbos_create_mission",
+    "dbos_diagnose_mission",
+    "dbos_confirm_mission",
+    "dbos_execute_mission",
+    "dbos_run_external_worker",
+    "dbos_cancel_external_worker",
+    "dbos_review_mission",
+    "dbos_control_center",
+    "dbos_record_feedback",
+    "dbos_record_decision",
+    "dbos_stop_mission",
+    "dbos_rollback_execution",
+    "dbos_mission",
+    "dbos_confirm",
+    "dbos_execute",
+    "dbos_feedback",
+}
+_DBOS_WRITE_TOOLS = {
+    "dbos_create_mission",
+    "dbos_diagnose_mission",
+    "dbos_confirm_mission",
+    "dbos_execute_mission",
+    "dbos_run_external_worker",
+    "dbos_cancel_external_worker",
+    "dbos_review_mission",
+    "dbos_record_feedback",
+    "dbos_record_decision",
+    "dbos_stop_mission",
+    "dbos_rollback_execution",
+    "dbos_mission",
+    "dbos_confirm",
+    "dbos_execute",
+    "dbos_feedback",
 }
 
 _TOOL_SPECS = {
@@ -183,10 +237,10 @@ _TOOL_SPECS = {
         "required": ["project_id"],
     },
     "knowledge_growth_method": {
-        "description": "List revisions and govern proposal, publication, resolution and audited deprecation of method assets.",
+        "description": "List revisions and govern proposal, publication, audited deprecation, and single-variable method-evolution experiments.",
         "properties": {
             "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
-            "action": {"type": "string", "enum": ["list", "get", "propose", "review", "publish", "resolve", "revisions", "deprecate"]},
+            "action": {"type": "string", "enum": ["list", "get", "propose", "distill", "review", "publish", "resolve", "revisions", "deprecate", "experiments", "experiment", "evolve"]},
             "method_id": {"type": "string", "maxLength": 128},
             "proposal_id": {"type": "string", "maxLength": 128},
             "status": {"type": "string", "maxLength": 32},
@@ -194,7 +248,7 @@ _TOOL_SPECS = {
             "cursor": {"type": "string", "maxLength": 16},
             "payload": {
                 "type": "object",
-                "description": "Action payload; deprecate requires a non-blank reason of at most 500 characters.",
+                "description": "Action payload; distill requires source_id and creates review-only proposals; evolve requires candidate_body, candidate_manifest, supporting_output_ids, mutation_dimension, rationale and idempotency_key, and never publishes automatically; experiment requires experiment_id; deprecate requires a non-blank reason of at most 500 characters.",
             },
         },
         "required": ["project_id"],
@@ -225,6 +279,24 @@ _TOOL_SPECS = {
             "limit": {"type": "integer", "minimum": 1, "maximum": 500},
             "cursor": {"type": "string", "maxLength": 16},
             "payload": {"type": "object"},
+        },
+        "required": ["project_id"],
+    },
+    "knowledge_growth_failure": {
+        "description": "List, record, or resolve project-scoped knowledge failure diagnostics linked to durable run evidence.",
+        "properties": {
+            "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "action": {"type": "string", "enum": ["list", "get", "create", "resolve"]},
+            "failure_id": {"type": "string", "maxLength": 128},
+            "status": {"type": "string", "enum": ["", "open", "retry_scheduled", "resolved"]},
+            "run_id": {"type": "string", "maxLength": 128},
+            "diagnostic_pattern": {"type": "string", "enum": ["", "P01", "P02", "P03", "P04", "P05", "P06", "P07", "P08", "P09", "P10", "P11", "P12"]},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 500},
+            "cursor": {"type": "string", "maxLength": 16},
+            "payload": {
+                "type": "object",
+                "description": "Create requires code and summary; it may declare a P01-P12 primary diagnosis, up to two secondary diagnoses, and a minimal structural fix. Resolve requires a non-blank resolution_note; source bodies must not be included.",
+            },
         },
         "required": ["project_id"],
     },
@@ -305,6 +377,168 @@ _TOOL_SPECS = {
         "description": "Run an idempotent project weekly distillation.",
         "properties": {"project_id": {"type": "string"}, "week": {"type": "string"}, "source_cutoff": {"type": "string"}},
         "required": ["project_id", "week", "source_cutoff"],
+    },
+    "dbos_create_mission": {
+        "description": "Create a project-scoped DBOS mission that requires review before execution.",
+        "properties": {
+            "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "title": {"type": "string", "minLength": 1, "maxLength": 300},
+            "intent": {"type": "string", "minLength": 1, "maxLength": 20000},
+            "intake_mode": {"type": "string", "enum": ["business", "career"]},
+            "context": {"type": "object"},
+        },
+        "required": ["project_id", "title", "intent"],
+    },
+    "dbos_diagnose_mission": {
+        "description": "Create the reviewable diagnosis, capability selection, and Dynamic SOP for a mission.",
+        "properties": {
+            "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "mission_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        },
+        "required": ["project_id", "mission_id"],
+    },
+    "dbos_confirm_mission": {
+        "description": "Confirm a selected subset of a reviewed mission's capabilities.",
+        "properties": {
+            "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "mission_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "actor_id": {"type": "string", "minLength": 1, "maxLength": 256},
+            "authorized_capabilities": {"type": "array"},
+        },
+        "required": ["project_id", "mission_id", "actor_id", "authorized_capabilities"],
+    },
+    "dbos_execute_mission": {
+        "description": "Execute one confirmed DBOS capability with an idempotency key.",
+        "properties": {
+            "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "mission_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "capability_name": {"type": "string", "minLength": 1, "maxLength": 128},
+            "idempotency_key": {"type": "string", "maxLength": 256},
+        },
+        "required": ["project_id", "mission_id", "capability_name"],
+    },
+    "dbos_run_external_worker": {
+        "description": "Queue one non-production allowlisted HTTPS worker through the mission policy gate. Credentials are server-side references only.",
+        "properties": {
+            "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "mission_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "dynamic_sop_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "capability_name": {"type": "string", "minLength": 1, "maxLength": 128},
+            "worker_id": {"type": "string", "minLength": 1, "maxLength": 100},
+            "model_id": {"type": "string", "minLength": 1, "maxLength": 100},
+            "endpoint": {"type": "string", "minLength": 1, "maxLength": 2000},
+            "payload": {"type": "object"},
+            "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 200},
+            "estimated_cost_microusd": {"type": "integer", "minimum": 0},
+        },
+        "required": ["project_id", "mission_id", "dynamic_sop_id", "capability_name", "worker_id", "model_id", "endpoint", "payload", "idempotency_key"],
+    },
+    "dbos_cancel_external_worker": {
+        "description": "Request cancellation of a queued or executing external worker. Cancellation is completed only after transport acknowledgement.",
+        "properties": {
+            "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "worker_run_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "reason": {"type": "string", "minLength": 1, "maxLength": 500},
+        },
+        "required": ["project_id", "worker_run_id", "reason"],
+    },
+    "dbos_review_mission": {
+        "description": "Run a metered PromptOps Advisor review for a compiled mission. The review can only recommend; it cannot authorize or execute work.",
+        "properties": {
+            "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "mission_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 200},
+        },
+        "required": ["project_id", "mission_id", "idempotency_key"],
+    },
+    "dbos_control_center": {
+        "description": "Read the project-scoped DBOS mission ledger, lineage, and execution health.",
+        "properties": {
+            "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "mission_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        },
+        "required": ["project_id", "mission_id"],
+    },
+    "dbos_record_feedback": {
+        "description": "Record an execution-linked DBOS feedback memory candidate.",
+        "properties": {
+            "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "mission_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "statement": {"type": "string", "minLength": 1, "maxLength": 20000},
+            "source_refs": {"type": "array"},
+        },
+        "required": ["project_id", "mission_id", "statement"],
+    },
+    "dbos_record_decision": {
+        "description": "Record a reviewer decision against a Dynamic SOP task without executing it.",
+        "properties": {
+            "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "mission_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "task_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "statement": {"type": "string", "minLength": 1, "maxLength": 4000},
+            "rationale": {"type": "string", "maxLength": 20000},
+            "alternatives": {"type": "array"},
+            "actor_id": {"type": "string", "maxLength": 200},
+        },
+        "required": ["project_id", "mission_id", "task_id", "statement"],
+    },
+    "dbos_stop_mission": {
+        "description": "Stop a non-terminal DBOS mission and persist the reviewer reason.",
+        "properties": {
+            "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "mission_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "reason": {"type": "string", "minLength": 1, "maxLength": 500},
+        },
+        "required": ["project_id", "mission_id", "reason"],
+    },
+    "dbos_rollback_execution": {
+        "description": "Record a reviewer rollback for an eligible DBOS execution.",
+        "properties": {
+            "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "execution_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "reason": {"type": "string", "minLength": 1, "maxLength": 500},
+        },
+        "required": ["project_id", "execution_id", "reason"],
+    },
+    "dbos_mission": {
+        "description": "Create, diagnose, or read a project-scoped Dynamic Business OS mission.",
+        "properties": {
+            "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "action": {"type": "string", "enum": ["create", "diagnose", "read", "control_center"]},
+            "mission_id": {"type": "string", "maxLength": 128},
+            "payload": {"type": "object"},
+        },
+        "required": ["project_id"],
+    },
+    "dbos_confirm": {
+        "description": "Confirm selected capabilities before a DBOS mission may execute.",
+        "properties": {
+            "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "mission_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "authorized_capabilities": {"type": "array"},
+            "actor_id": {"type": "string", "maxLength": 256},
+        },
+        "required": ["project_id", "mission_id", "authorized_capabilities"],
+    },
+    "dbos_execute": {
+        "description": "Execute one confirmed DBOS capability with a durable idempotency key.",
+        "properties": {
+            "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "mission_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "capability_name": {"type": "string", "minLength": 1, "maxLength": 128},
+            "idempotency_key": {"type": "string", "maxLength": 256},
+        },
+        "required": ["project_id", "mission_id", "capability_name"],
+    },
+    "dbos_feedback": {
+        "description": "Record outcome-linked feedback as an advisory DBOS memory candidate.",
+        "properties": {
+            "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "mission_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "statement": {"type": "string", "minLength": 1, "maxLength": 20000},
+            "source_refs": {"type": "array"},
+        },
+        "required": ["project_id", "mission_id", "statement"],
     },
     "analyze_domain": {
         "description": "Classify a business text into a domain.",
@@ -419,7 +653,11 @@ async def _call_tool(request_id: Any, params: Any, *, api_key: str) -> dict[str,
         return _error(request_id, -32602, argument_error)
     arguments["api_key"] = api_key
     try:
-        result = await asyncio.to_thread(_TOOL_HANDLERS[name], **arguments)
+        handler = _TOOL_HANDLERS[name]
+        if inspect.iscoroutinefunction(handler):
+            result = await handler(**arguments)
+        else:
+            result = await asyncio.to_thread(handler, **arguments)
         return _success(request_id, _wire_result(normalize_mcp_result(result)))
     except server.growth_tools.GrowthUnavailableError as exc:
         return _error(
@@ -439,6 +677,8 @@ async def _call_tool(request_id: Any, params: Any, *, api_key: str) -> dict[str,
             str(exc),
             data={"code": "knowledge_conflict"},
         )
+    except server.dbos_tools.ExternalWorkerPolicyError as exc:
+        return _error(request_id, -32009, str(exc), data={"code": "policy_denied"})
     except ValueError as exc:
         message = str(exc)
         normalized = message.lower()
@@ -465,6 +705,8 @@ def _tool_list() -> list[dict[str, Any]]:
         enabled_names -= _GROWTH_TOOLS
     elif not settings.KNOWLEDGE_MCP_WRITE_ENABLED:
         enabled_names -= _GROWTH_WRITE_ONLY_TOOLS
+    if not settings.DYNAMIC_BUSINESS_OS_ENABLED:
+        enabled_names -= _DBOS_TOOLS
     return [
         {
             "name": name,

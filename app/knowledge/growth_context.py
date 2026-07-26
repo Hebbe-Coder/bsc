@@ -13,6 +13,7 @@ from typing import Any, Iterable
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.knowledge.generation_provenance import redact_secrets, sanitize_untrusted_text
+from app.knowledge.method_routing import MethodRouter
 from app.knowledge.source_triage import current_project_triage_decisions, source_admission_reason
 
 
@@ -43,6 +44,8 @@ class GrowthContextPack(BaseModel):
     page_ids: tuple[str, ...] = ()
     index_refs: tuple[str, ...] = ()
     method_revision_ids: tuple[str, ...] = ()
+    candidate_method_revision_ids: tuple[str, ...] = ()
+    omitted_method_revision_ids: tuple[str, ...] = ()
     output_ids: tuple[str, ...] = ()
     rejected_output_ids: tuple[str, ...] = ()
     regression_constraints: tuple[str, ...] = ()
@@ -78,6 +81,7 @@ class GrowthContextBuilder:
     _STATUS_ALLOWED = {"", "active", "approved", "accepted", "eligible", "processed", "published", "filed"}
     MAX_CHARACTERS = 48_000
     MINIMUM_SOURCE_EXCERPT_CHARACTERS = 640
+    MINIMUM_METHOD_EXCERPT_CHARACTERS = 640
 
     def __init__(self, max_characters: int = 12_000, *, characters_per_token: int = 4) -> None:
         if max_characters < 512:
@@ -100,6 +104,8 @@ class GrowthContextBuilder:
         sources: Iterable[dict[str, Any]] = (),
         project_contexts: Iterable[dict[str, Any]] = (),
         methods: Iterable[dict[str, Any]] = (),
+        candidate_method_revision_ids: Iterable[str] = (),
+        omitted_method_revision_ids: Iterable[str] = (),
         outputs: Iterable[dict[str, Any]] = (),
         evaluations: Iterable[dict[str, Any]] = (),
         feedback: Iterable[dict[str, Any]] = (),
@@ -115,6 +121,14 @@ class GrowthContextBuilder:
         profile_revision = int(profile.get("revision", 0) or 0)
         resolved_rules_revision = rules_revision or hashlib.sha256((rules or "").encode("utf-8")).hexdigest()[:16]
         omissions: list[ContextOmission] = []
+        candidate_method_ids = tuple(dict.fromkeys(
+            str(item).strip() for item in candidate_method_revision_ids if str(item).strip()
+        ))
+        omitted_method_ids = tuple(dict.fromkeys(
+            str(item).strip() for item in omitted_method_revision_ids if str(item).strip()
+        ))
+        for revision_id in omitted_method_ids:
+            omissions.append(ContextOmission(ref=f"method:{revision_id}", reason="routing_mismatch"))
         provenance = [f"profile:{profile_revision}", f"rules:{resolved_rules_revision}"]
         candidates: list[_Candidate] = []
         seen: set[tuple[str, str]] = set()
@@ -224,8 +238,14 @@ class GrowthContextBuilder:
             self._trusted_section("task", "request", str(redact_secrets(task or ""))),
         )
         # A growth run must not turn into a rules-only prompt. Reserve a
-        # bounded excerpt for A-layer evidence before fitting trusted metadata.
+        # bounded excerpt for A-layer evidence and one routed C-layer method
+        # before fitting other context.
         evidence_reserve = self._evidence_reserve(candidates, mandatory_count=len(mandatory))
+        method_reserve = self._method_reserve(
+            candidates,
+            mandatory_count=len(mandatory),
+            evidence_reserve=evidence_reserve,
+        )
         rendered_sections: list[str] = []
         used = 0
         for index, section in enumerate(mandatory):
@@ -234,7 +254,7 @@ class GrowthContextBuilder:
             # that follow. Without this, a near-limit rules document could
             # leave the final task section two characters over budget.
             separator = 2 if rendered_sections else 0
-            reserve = (remaining_required * 50) + evidence_reserve
+            reserve = (remaining_required * 50) + evidence_reserve + method_reserve
             available = max(0, self.max_characters - used - separator - reserve)
             fitted = self._fit(section, available)
             if fitted:
@@ -243,8 +263,11 @@ class GrowthContextBuilder:
 
         included_candidates: list[_Candidate] = []
         for item in sorted(candidates, key=lambda candidate: candidate.key):
+            if item.kind == "method":
+                continue
             section = self._untrusted_section(item)
-            if len("\n\n".join([*rendered_sections, section])) > self.max_characters:
+            available = self._remaining_budget(rendered_sections) - method_reserve
+            if len(section) > max(0, available):
                 omissions.append(ContextOmission(ref=f"{item.kind}:{item.ref}", reason="budget"))
                 continue
             rendered_sections.append(section)
@@ -264,7 +287,9 @@ class GrowthContextBuilder:
         else:
             source = None
         if source is not None:
-            while included_candidates and self._remaining_budget(rendered_sections) < self.MINIMUM_SOURCE_EXCERPT_CHARACTERS:
+            while included_candidates and self._remaining_budget(rendered_sections) < (
+                self.MINIMUM_SOURCE_EXCERPT_CHARACTERS + method_reserve
+            ):
                 evictable = [
                     (index, candidate)
                     for index, candidate in enumerate(included_candidates)
@@ -282,7 +307,10 @@ class GrowthContextBuilder:
                 rendered_sections.pop(len(rendered_sections) - len(included_candidates) - 1 + evict_index)
                 omissions.append(ContextOmission(ref=f"{evicted.kind}:{evicted.ref}", reason="budget_reserved_for_source"))
 
-            excerpt = self._bounded_untrusted_section(source, self._remaining_budget(rendered_sections))
+            excerpt = self._bounded_untrusted_section(
+                source,
+                max(0, self._remaining_budget(rendered_sections) - method_reserve),
+            )
             if excerpt:
                 rendered_sections.append(excerpt)
                 included_candidates.append(source)
@@ -291,6 +319,13 @@ class GrowthContextBuilder:
                     if not (item.ref == f"source:{source.ref}" and item.reason == "budget")
                 ]
                 omissions.append(ContextOmission(ref=f"source:{source.ref}", reason="excerpted_for_budget"))
+
+        self._reserve_selected_method(
+            candidates=candidates,
+            rendered_sections=rendered_sections,
+            included_candidates=included_candidates,
+            omissions=omissions,
+        )
 
         included: dict[str, list[str]] = {
             kind: []
@@ -326,6 +361,8 @@ class GrowthContextBuilder:
                     "omissions": [item.model_dump() for item in omissions],
                     "assumptions": explicit_assumptions,
                     "research_gaps": explicit_gaps,
+                    "candidate_method_revision_ids": candidate_method_ids,
+                    "omitted_method_revision_ids": omitted_method_ids,
                 },
                 sort_keys=True,
                 ensure_ascii=False,
@@ -350,6 +387,8 @@ class GrowthContextBuilder:
             page_ids=tuple(included["page"]),
             index_refs=tuple(included["index"]),
             method_revision_ids=tuple(included["method"]),
+            candidate_method_revision_ids=candidate_method_ids,
+            omitted_method_revision_ids=omitted_method_ids,
             output_ids=tuple(included["output"]),
             rejected_output_ids=tuple(included["constraint"]),
             regression_constraints=tuple(
@@ -386,6 +425,73 @@ class GrowthContextBuilder:
             self.MINIMUM_SOURCE_EXCERPT_CHARACTERS,
             max(0, self.max_characters - mandatory_floor),
         )
+
+    def _method_reserve(
+        self,
+        candidates: Iterable[_Candidate],
+        *,
+        mandatory_count: int,
+        evidence_reserve: int,
+    ) -> int:
+        if not any(candidate.kind == "method" for candidate in candidates):
+            return 0
+        mandatory_floor = (mandatory_count * 48) + (max(0, mandatory_count - 1) * 2)
+        return min(
+            self.MINIMUM_METHOD_EXCERPT_CHARACTERS,
+            max(0, self.max_characters - mandatory_floor - evidence_reserve),
+        )
+
+    def _reserve_selected_method(
+        self,
+        *,
+        candidates: Iterable[_Candidate],
+        rendered_sections: list[str],
+        included_candidates: list[_Candidate],
+        omissions: list[ContextOmission],
+    ) -> None:
+        """Keep one routed C-layer method alongside B knowledge and A evidence."""
+        selected = next(
+            (item for item in sorted(candidates, key=lambda candidate: candidate.key) if item.kind == "method"),
+            None,
+        )
+        if selected is None or any(
+            item.kind == "method" and item.ref == selected.ref and item.revision == selected.revision
+            for item in included_candidates
+        ):
+            return
+
+        method_section = self._untrusted_section(selected)
+        required = min(self.MINIMUM_METHOD_EXCERPT_CHARACTERS, len(method_section))
+        while included_candidates and self._remaining_budget(rendered_sections) < required:
+            page_count = sum(item.kind == "page" for item in included_candidates)
+            evictable = [
+                (index, candidate)
+                for index, candidate in enumerate(included_candidates)
+                if candidate.kind not in {"source", "method"}
+                and (candidate.kind != "page" or page_count > 1)
+            ]
+            if not evictable:
+                break
+            evict_index, evicted = max(
+                evictable,
+                key=lambda item: (item[1].priority, item[1].kind == "index", item[1].ref),
+            )
+            included_candidates.pop(evict_index)
+            rendered_sections.pop(len(rendered_sections) - len(included_candidates) - 1 + evict_index)
+            omissions.append(ContextOmission(ref=f"{evicted.kind}:{evicted.ref}", reason="budget_reserved_for_method"))
+
+        excerpt = self._bounded_untrusted_section(selected, self._remaining_budget(rendered_sections))
+        if not excerpt:
+            return
+        rendered_sections.append(excerpt)
+        included_candidates.append(selected)
+        omissions[:] = [
+            item
+            for item in omissions
+            if not (item.ref == f"method:{selected.ref}" and item.reason == "budget")
+        ]
+        if excerpt != method_section:
+            omissions.append(ContextOmission(ref=f"method:{selected.ref}", reason="excerpted_for_budget"))
 
     @staticmethod
     def _bounded_untrusted_section(candidate: _Candidate, available: int) -> str:
@@ -561,7 +667,7 @@ class GrowthContextService:
                 )
         sources = sources[: self.MAX_RECORDS]
         project_contexts = project_contexts[: self.MAX_RECORDS]
-        methods = self._methods(project_id)
+        methods, candidate_method_ids, omitted_method_ids = self._routed_methods(project_id, task)
         outputs = self._outputs(project_id, project_root)
         return self.builder.build(
             project_id=project_id,
@@ -573,6 +679,8 @@ class GrowthContextService:
             sources=sources,
             project_contexts=project_contexts,
             methods=methods,
+            candidate_method_revision_ids=candidate_method_ids,
+            omitted_method_revision_ids=omitted_method_ids,
             outputs=outputs,
             evaluations=self._evaluations(project_id),
             feedback=self._feedback(project_id),
@@ -645,6 +753,25 @@ class GrowthContextService:
                 }
             )
         return revisions
+
+    def _routed_methods(
+        self, project_id: str, task: str
+    ) -> tuple[list[dict[str, Any]], tuple[str, ...], tuple[str, ...]]:
+        """Inject only the one published method selected for this exact task."""
+        methods = self._methods(project_id)
+        candidate_ids = tuple(str(item.get("id") or "") for item in methods if item.get("id"))
+        decision = MethodRouter().select(methods, task)
+        selected_slug = decision.selected_slug
+        if not selected_slug:
+            return [], candidate_ids, candidate_ids
+        selected = [
+            item
+            for item in methods
+            if str(item.get("method_slug") or (item.get("manifest") or {}).get("task_family") or "") == selected_slug
+        ]
+        selected_ids = {str(item.get("id") or "") for item in selected}
+        omitted = tuple(item for item in candidate_ids if item not in selected_ids)
+        return selected, candidate_ids, omitted
 
     def _outputs(self, project_id: str, project_root: Path | None) -> list[dict[str, Any]]:
         outputs: list[dict[str, Any]] = []

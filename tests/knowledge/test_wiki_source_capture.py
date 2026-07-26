@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 
 from app.knowledge.wiki_contracts import SourceStatus
+from app.knowledge.growth_repository import GrowthRepository
+from app.knowledge.project_profile import ProjectProfileService
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_source_capture import (
     CapturedSourceInput,
@@ -44,6 +46,38 @@ def test_source_capture_hashes_and_deduplicates_project_evidence(tmp_path):
         assert first.source["content_hash"] == sha256_content("# Brief\nSame evidence")
         assert first.source["raw_content"] == "# Brief\nSame evidence"
         assert repo.list_sources("project-a") == [first.source]
+    finally:
+        repo.close()
+
+
+def test_source_capture_canonicalizes_web_origins_before_supersession(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "canonical-origin.db"))
+    service = SourceCaptureService(repo)
+    try:
+        first = service.capture(
+            CapturedSourceInput(
+                project_id="project-a",
+                source_type="horizon_signal",
+                origin="HTTPS://News.Example.com:443/brief/?b=2&utm_source=radar&a=1#overview",
+                raw_content="First captured version.",
+            )
+        )
+        updated = service.capture(
+            CapturedSourceInput(
+                project_id="project-a",
+                source_type="horizon_signal",
+                origin="https://news.example.com/brief?a=1&utm_medium=email&b=2",
+                raw_content="Updated captured version.",
+            )
+        )
+
+        canonical_origin = "https://news.example.com/brief?a=1&b=2"
+        assert first.source["origin"] == canonical_origin
+        assert updated.source["origin"] == canonical_origin
+        assert updated.source["supersedes_id"] == first.source["id"]
+        assert repo.get_source("project-a", first.source["id"])["status"] == SourceStatus.SUPERSEDED.value
+        attempts = repo.list_source_capture_attempts("project-a")
+        assert {attempt["origin"] for attempt in attempts} == {canonical_origin}
     finally:
         repo.close()
 
@@ -205,5 +239,154 @@ def test_trust_assessment_records_freshness_relevance_curation_and_extraction(tm
         assert assessment["curation"] == "user_curated"
         assert assessment["extraction_quality"] == "complete"
         assert assessment["reasons"]
+    finally:
+        repo.close()
+
+
+def test_capture_attempt_ledger_keeps_policy_projection_and_deduplication_evidence(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "capture-attempts.db"))
+    service = SourceCaptureService(
+        repo,
+        search_index=RecordingSourceIndex({"status": "error", "reason": "backend unavailable"}),
+    )
+    try:
+        payload = CapturedSourceInput(
+            project_id="project-a",
+            source_type="manual_upload",
+            origin="evidence/brief.md",
+            raw_content="Evidence must remain in the immutable source record only.",
+            trust_level="trusted",
+        )
+        captured = service.capture(payload)
+        duplicate = service.capture(payload)
+        rejected = service.capture(
+            CapturedSourceInput(
+                project_id="project-a",
+                source_type="web_clip",
+                origin="https://example.test/failed-extraction",
+                raw_content="The rejected source is still retained for audit.",
+                metadata={"extraction_status": "failed"},
+            )
+        )
+
+        attempts = repo.list_source_capture_attempts("project-a", limit=20)
+        by_outcome = {attempt["outcome"]: attempt for attempt in attempts}
+
+        projection_failed = by_outcome["projection_failed"]
+        assert projection_failed["source_id"] == captured.source["id"]
+        assert projection_failed["content_hash"] == captured.source["content_hash"]
+        assert projection_failed["projection"]["status"] == "failed"
+        assert projection_failed["policy"]["extraction_quality"] == "complete"
+        assert "raw_content" not in projection_failed
+
+        duplicate_attempt = by_outcome["duplicate"]
+        assert duplicate_attempt["source_id"] == duplicate.source["id"]
+        assert duplicate_attempt["content_hash"] == captured.source["content_hash"]
+
+        rejected_attempt = by_outcome["rejected_by_policy"]
+        assert rejected_attempt["source_id"] == rejected.source["id"]
+        assert rejected_attempt["policy"]["extraction_quality"] == "failed"
+        assert repo.list_source_capture_attempts("project-b", limit=20) == []
+    finally:
+        repo.close()
+
+
+def test_project_profile_source_policy_controls_authority_retention_and_capture_snapshot(tmp_path):
+    repo = GrowthRepository(db_path=str(tmp_path / "profile-capture-policy.db"))
+    service = SourceCaptureService(repo, search_index=RecordingSourceIndex())
+    try:
+        ProjectProfileService(repo).update_profile(
+            "project-a",
+            {
+                "source_policy": {
+                    "primary_origin_prefixes": ["https://primary.example/"],
+                    "trusted_origin_prefixes": ["https://trusted.example/"],
+                    "community_origin_prefixes": ["https://community.example/"],
+                    "blocked_origin_prefixes": ["https://blocked.example/"],
+                    "trusted_source_types": ["manual_upload"],
+                    "require_triage_source_types": ["horizon_signal"],
+                    "primary_retention_days": 720,
+                    "trusted_retention_days": 360,
+                    "community_retention_days": 45,
+                    "untrusted_retention_days": 15,
+                }
+            },
+            expected_revision=0,
+            actor_id="owner-a",
+        )
+
+        primary = service.capture(
+            CapturedSourceInput(
+                project_id="project-a",
+                source_type="horizon_signal",
+                origin="https://primary.example/brief",
+                raw_content="Primary evidence remains subject to Horizon triage.",
+                trust_level="reviewed",
+            )
+        )
+        community = service.capture(
+            CapturedSourceInput(
+                project_id="project-a",
+                source_type="web_clip",
+                origin="https://community.example/thread",
+                raw_content="Community evidence requires review.",
+            )
+        )
+        blocked = service.capture(
+            CapturedSourceInput(
+                project_id="project-a",
+                source_type="manual_upload",
+                origin="https://blocked.example/unsafe",
+                raw_content="Blocked evidence is retained only for the audit ledger.",
+                trust_level="trusted",
+            )
+        )
+
+        primary_policy = primary.source["metadata"]["policy_assessment"]
+        assert primary.source["status"] == SourceStatus.VALIDATED.value
+        assert primary_policy["authority"] == "primary"
+        assert primary_policy["retention_days"] == 720
+        assert primary_policy["policy_source"] == "project_profile"
+        assert primary_policy["profile_revision"] == 1
+        assert primary_policy["policy_snapshot"]["community_retention_days"] == 45
+        assert primary_policy["retention_expires_at"]
+
+        community_policy = community.source["metadata"]["policy_assessment"]
+        assert community.source["status"] == SourceStatus.VALIDATED.value
+        assert community.source["trust_level"] == "reviewed"
+        assert community_policy["authority"] == "community"
+        assert community_policy["retention_days"] == 45
+
+        assert blocked.source["status"] == SourceStatus.REJECTED.value
+        assert blocked.source["metadata"]["policy_assessment"]["authority"] == "blocked"
+        assert blocked.source["metadata"]["projection"]["status"] == "skipped"
+
+        attempts = repo.list_source_capture_attempts("project-a", limit=10)
+        primary_attempt = next(item for item in attempts if item["source_id"] == primary.source["id"])
+        assert primary_attempt["policy"]["profile_revision"] == 1
+        assert primary_attempt["policy"]["policy_snapshot"]["primary_origin_prefixes"] == ["https://primary.example/"]
+    finally:
+        repo.close()
+
+
+def test_unconfigured_project_uses_a_truthful_default_source_policy(tmp_path):
+    repo = GrowthRepository(db_path=str(tmp_path / "default-capture-policy.db"))
+    try:
+        captured = SourceCaptureService(repo, search_index=RecordingSourceIndex()).capture(
+            CapturedSourceInput(
+                project_id="project-a",
+                source_type="manual_upload",
+                origin="notes/brief.md",
+                raw_content="Local evidence remains usable with the documented default policy.",
+                trust_level="trusted",
+            )
+        )
+
+        policy = captured.source["metadata"]["policy_assessment"]
+        assert captured.source["status"] == SourceStatus.ELIGIBLE.value
+        assert policy["policy_source"] == "default"
+        assert policy["profile_revision"] == 0
+        assert policy["profile_configured"] is False
+        assert repo.get_profile("project-a") is None
     finally:
         repo.close()

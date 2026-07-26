@@ -27,7 +27,7 @@ export type KnowledgeWorkspaceData = {
       missing_managed_directories?: string[];
     };
   };
-  plugins: { configured: boolean; supported_adapters: string[]; plugins: Array<{ id: string; name: string; adapter: 'filesystem_drop' | 'filesystem_output'; input_paths: string[]; path_status: 'ready' | 'missing' | 'unavailable' | 'unverified'; status: 'awaiting_export' | 'captured' | 'awaiting_output' | 'registered_output'; captured_sources: number; registered_outputs: number; last_captured_at: string; last_registered_at: string }>; errors: string[] };
+  plugins: { configured: boolean; supported_adapters: string[]; plugins: Array<{ id: string; name: string; adapter: 'filesystem_drop' | 'filesystem_output'; input_paths: string[]; trust_state: 'trusted' | 'untrusted' | 'configuration_changed' | 'unavailable'; trusted_at: string; trust_actor: string; path_status: 'ready' | 'missing' | 'unavailable' | 'unverified'; runtime_configuration?: { state: 'configured' | 'interactive_destination' | 'declared_only' | 'mismatch' | 'unavailable' | 'unverified'; detail_code: string }; status: 'awaiting_export' | 'captured' | 'awaiting_output' | 'registered_output' | 'awaiting_trust' | 'trust_stale' | 'trust_unavailable'; captured_sources: number; registered_outputs: number; last_captured_at: string; last_registered_at: string }>; errors: string[] };
   sources: number;
   runs: number;
   schedules: number;
@@ -189,6 +189,7 @@ export function setKnowledgeWorkspaceAccessKey(value: string) {
 export const fetchKnowledgeWorkspace = (projectId: string) => request<KnowledgeWorkspaceData>(`/knowledge/workspaces/${encodeURIComponent(projectId)}`);
 export const configureKnowledgeVault = (projectId: string, vaultPath: string) => request<{ vault: KnowledgeWorkspaceData['vault'] }>(`/knowledge/workspaces/${encodeURIComponent(projectId)}/vault`, { method: 'PUT', body: JSON.stringify({ vault_path: vaultPath }) });
 export const configureKnowledgePlugins = (projectId: string, plugins: KnowledgePluginBridge[]) => request<KnowledgeWorkspaceData['plugins']>(`/knowledge/workspaces/${encodeURIComponent(projectId)}/plugins`, { method: 'PUT', body: JSON.stringify({ plugins }) });
+export const setKnowledgePluginTrust = (projectId: string, pluginIds: string[], trusted: boolean, reason = '') => request<KnowledgeWorkspaceData['plugins']>(`/knowledge/workspaces/${encodeURIComponent(projectId)}/plugins/trust`, { method: 'PUT', body: JSON.stringify({ plugin_ids: pluginIds, trusted, reason }) });
 export const initializeKnowledgeWorkspace = (projectId: string) => post<{ created: string[]; created_directories?: string[]; indexing: Record<string, unknown>; run_id: string }>(`/knowledge/workspaces/${encodeURIComponent(projectId)}/initialize`, {});
 export const fetchKnowledgeSources = (projectId: string) => request<{ sources: KnowledgeSource[]; count: number }>(`/knowledge/sources?project_id=${encodeURIComponent(projectId)}`);
 export const importFeishuKnowledgeExport = (projectId: string, exportPayload: FeishuKnowledgeExport) => post<FeishuKnowledgeImport>('/knowledge/sources/feishu/import', { project_id: projectId, export: exportPayload });

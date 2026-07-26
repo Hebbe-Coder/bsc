@@ -100,11 +100,21 @@ def execute_growth_run(
         service = GrowthDistillationService(repo, Path(settings.OBSIDIAN_VAULT_ROOT))
         if run["run_type"] == "growth_daily":
             period = str(inputs.get("date") or created_at.astimezone(ZoneInfo("Asia/Shanghai")).date().isoformat())
-            result = service.run_daily(project_id, period, source_cutoff=cutoff)
+            result = service.run_daily(
+                project_id,
+                period,
+                source_cutoff=cutoff,
+                knowledge_run_id=run_id,
+            )
         else:
             local = created_at.astimezone(ZoneInfo("Asia/Shanghai")).isocalendar()
             period = str(inputs.get("week") or week or f"{local.year}-W{local.week:02d}")
-            result = service.run_weekly(project_id, period, source_cutoff=cutoff)
+            result = service.run_weekly(
+                project_id,
+                period,
+                source_cutoff=cutoff,
+                knowledge_run_id=run_id,
+            )
 
         finished = datetime.now(timezone.utc)
         queue_delay_ms = max(0, int((finished - (_parse_datetime(run.get("created_at")) or finished)).total_seconds() * 1000))
@@ -124,6 +134,25 @@ def execute_growth_run(
             "failure_category": "",
         }
         refs = {"growth": result, "sync": sync, "schedule_id": schedule_id, "metrics": metrics}
+        promptops = ((result.get("manifest") or {}).get("generation") or {}).get("promptops") or {}
+        if isinstance(promptops, dict) and promptops.get("knowledge_run_id") == run_id:
+            repo.append_run_event(
+                project_id=project_id,
+                run_id=run_id,
+                event_type="knowledge.growth.model.completed",
+                payload={
+                    "prompt_run_id": str(promptops.get("prompt_run_id") or ""),
+                    "agent_manifest_fingerprint": str(promptops.get("agent_manifest_fingerprint") or ""),
+                    "task": str(promptops.get("task") or ""),
+                    "revision": str(promptops.get("revision") or ""),
+                    "provider": str(promptops.get("provider") or ""),
+                    "model": str(promptops.get("model") or ""),
+                    "usage": promptops.get("usage") if isinstance(promptops.get("usage"), dict) else {},
+                    "attempt_count": int(promptops.get("attempt_count") or 1),
+                    "retry_count": int(promptops.get("retry_count") or 0),
+                    "retry_categories": list(promptops.get("retry_categories") or []),
+                },
+            )
         repo.append_run_event(
             project_id=project_id,
             run_id=run_id,
@@ -396,6 +425,7 @@ def _sync_declared_obsidian_exports(
                 repository.list_sources(project_id),
                 repository.list_outputs(project_id),
                 project_root=project_root,
+                vault_root=vault_root,
             ),
         }
         repository.append_run_event(

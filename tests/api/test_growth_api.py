@@ -6,10 +6,14 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.growth_api import get_growth_repository
+import app.api.growth_api as growth_api_module
+from app.api.growth_api import _start_run, get_growth_repository
 from app.core.config import settings
 from app.knowledge.growth_contracts import (
+    CandidateEvidenceAnchor,
     FeedbackType,
+    KnowledgeCandidate,
+    KnowledgeCandidateStatus,
     KnowledgeLineageEdge,
     MethodAsset,
     MethodProposal,
@@ -20,7 +24,7 @@ from app.knowledge.growth_contracts import (
 )
 from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.output_registry import OutputRegistry
-from app.knowledge.wiki_contracts import KnowledgeRun, SourceStatus
+from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus, SourceRecord, SourceStatus
 from app.knowledge.wiki_source_capture import CapturedSourceInput, SourceCaptureService
 from app.main import app
 
@@ -144,6 +148,77 @@ def test_canonical_profile_summary_and_legacy_alias(growth_api):
     assert summary.json()["data"]["counts"]["review_records"] == 0
 
 
+def test_profile_source_policy_is_validated_revisioned_and_returned_by_the_api(growth_api):
+    client, _repo = growth_api
+    response = client.patch(
+        "/knowledge/projects/project-a/profile",
+        headers=_headers(),
+        json={
+            "expected_revision": 0,
+            "source_policy": {
+                "primary_origin_prefixes": ["https://research.example/"],
+                "trusted_origin_prefixes": ["https://news.example/"],
+                "community_origin_prefixes": ["https://community.example/"],
+                "blocked_origin_prefixes": ["https://blocked.example/"],
+                "trusted_source_types": ["manual_upload"],
+                "require_triage_source_types": ["horizon_signal"],
+                "primary_retention_days": 730,
+                "trusted_retention_days": 365,
+                "community_retention_days": 30,
+                "untrusted_retention_days": 14,
+            },
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    profile = response.json()["data"]["profile"]
+    assert profile["revision"] == 1
+    assert profile["source_policy"]["primary_origin_prefixes"] == ["https://research.example/"]
+    assert profile["source_policy"]["untrusted_retention_days"] == 14
+
+    invalid = client.patch(
+        "/knowledge/projects/project-a/profile",
+        headers=_headers(),
+        json={"expected_revision": 1, "source_policy": {"community_retention_days": 0}},
+    )
+    assert invalid.status_code == 422
+
+
+def test_publish_api_cannot_bypass_a_failed_method_update_holdout(growth_api):
+    client, repo = growth_api
+    method = repo.create_method(MethodAsset(
+        id="method-update-api",
+        project_id="project-a",
+        slug="weekly-report",
+        name="Weekly report",
+    ))
+    proposal = repo.save_method_proposal(MethodProposal(
+        id="method-update-proposal-api",
+        project_id="project-a",
+        method_id=method["id"],
+        operation="update",
+        body="# Candidate update",
+        manifest={"task_family": "weekly-report", "prompt_only": True},
+    ))
+    repo.update_method_proposal_evaluation(
+        "project-a",
+        proposal["id"],
+        {"eligible": True, "evolution": {"passed": False}, "findings": []},
+        "approved",
+    )
+
+    response = client.post(
+        f"/knowledge/projects/project-a/methods/proposals/{proposal['id']}/publish",
+        headers=_headers(),
+        json={},
+    )
+
+    assert response.status_code == 400
+    assert "holdout" in response.json()["message"]["message"]
+    audit = next(run for run in repo.list_runs("project-a") if run["run_type"] == "method_publish")
+    assert audit["status"] == "failed"
+
+
 def test_filed_outputs_remain_verified_in_summary_and_method_proposals(growth_api):
     client, repo = growth_api
     accepted = _output(repo, "project-a", "accepted", status="accepted")
@@ -235,6 +310,173 @@ def test_method_candidates_are_visible_and_reviewable_in_growth_review_queue(gro
     assert detail.json()["data"]["proposal"]["body"] == proposal["body"]
     assert summary.json()["data"]["counts"]["method_proposals"] == 1
     assert summary.json()["data"]["counts"]["review_records"] == 1
+
+
+def test_source_method_distillation_endpoint_submits_a_project_scoped_detached_proposal_run(growth_api, monkeypatch):
+    client, repo = growth_api
+    source = repo.create_source(SourceRecord(
+        id="source-distill-a",
+        project_id="project-a",
+        source_type="meeting_notes",
+        origin="obsidian://project-a/note",
+        content_hash="a" * 64,
+        raw_content="Raw evidence must never return in the API response.",
+        trust_level="reviewed",
+        status=SourceStatus.ELIGIBLE,
+    ))
+
+    class FakeDistiller:
+        def __init__(self, repository):
+            self.repository = repository
+
+        def submit(self, *, project_id, source_id, actor_id, trigger, candidate_ids):
+            assert project_id == "project-a"
+            assert source_id == source["id"]
+            assert actor_id
+            assert trigger == "http"
+            assert candidate_ids == ["accepted-candidate-a"]
+            return self.repository.create_run(KnowledgeRun(
+                id="source-distillation-run",
+                project_id=project_id,
+                run_type="source_method_distillation",
+                trigger=trigger,
+                status=RunStatus.QUEUED,
+                actor_id=actor_id,
+            ))
+
+    dispatched = []
+    monkeypatch.setattr(growth_api_module, "SourceMethodDistillationService", FakeDistiller)
+    monkeypatch.setattr(
+        growth_api_module,
+        "dispatch_source_method_distillation",
+        lambda project_id, run_id, **_kwargs: dispatched.append((project_id, run_id)) or {"execution": "in_process", "task_id": "in-process:test"},
+    )
+    response = client.post(
+        "/knowledge/projects/project-a/methods/distill",
+        headers=_headers(),
+        json={"source_id": source["id"], "candidate_ids": ["accepted-candidate-a"]},
+    )
+    denied = client.post(
+        "/knowledge/projects/project-a/methods/distill",
+        headers=_headers("growth-reader-key"),
+        json={"source_id": source["id"], "candidate_ids": ["accepted-candidate-a"]},
+    )
+
+    assert response.status_code == 202, response.text
+    data = response.json()["data"]
+    assert data["publication_status"] == "proposal_only"
+    assert data["run"]["id"] == "source-distillation-run"
+    assert data["run"]["status"] == "queued"
+    assert data["proposals"] == []
+    assert data["execution"] == {"execution": "in_process", "task_id": "in-process:test"}
+    assert dispatched == [("project-a", "source-distillation-run")]
+    assert "Raw evidence" not in response.text
+    assert denied.status_code == 403
+
+    runs = client.get("/knowledge/projects/project-a/runs", headers=_headers())
+    assert runs.status_code == 200
+    assert runs.json()["data"]["runs"][0]["id"] == "source-distillation-run"
+
+
+def test_candidate_extraction_endpoint_and_candidate_review_are_project_scoped(growth_api, monkeypatch):
+    client, repo = growth_api
+    raw_content = "An evidence ladder compares reliability before a decision is made."
+    source = repo.create_source(SourceRecord(
+        id="source-candidate-a",
+        project_id="project-a",
+        source_type="meeting_notes",
+        origin="obsidian://project-a/candidate-note",
+        content_hash=hashlib.sha256(raw_content.encode()).hexdigest(),
+        raw_content=raw_content,
+        trust_level="reviewed",
+        status=SourceStatus.ELIGIBLE,
+    ))
+
+    class FakeExtractor:
+        def __init__(self, repository):
+            self.repository = repository
+
+        def submit(self, *, project_id, source_id, actor_id, trigger):
+            assert project_id == "project-a"
+            assert source_id == source["id"]
+            assert actor_id
+            assert trigger == "http"
+            return self.repository.create_run(KnowledgeRun(
+                id="candidate-extraction-run",
+                project_id=project_id,
+                run_type="cangjie_candidate_extraction",
+                trigger=trigger,
+                status=RunStatus.QUEUED,
+                actor_id=actor_id,
+            ))
+
+    dispatched = []
+    monkeypatch.setattr(growth_api_module, "SourceCandidateExtractionService", FakeExtractor)
+    monkeypatch.setattr(
+        growth_api_module,
+        "dispatch_source_candidate_extraction",
+        lambda project_id, run_id, **_kwargs: dispatched.append((project_id, run_id)) or {
+            "execution": "in_process", "task_name": "knowledge.candidate_extraction.execute", "task_id": "in-process:test"
+        },
+    )
+    response = client.post(
+        "/knowledge/projects/project-a/candidates/extract",
+        headers=_headers(),
+        json={"source_id": source["id"]},
+    )
+    denied = client.post(
+        "/knowledge/projects/project-a/candidates/extract",
+        headers=_headers("growth-reader-key"),
+        json={"source_id": source["id"]},
+    )
+    assert response.status_code == 202, response.text
+    assert response.json()["data"]["publication_status"] == "review_only"
+    assert response.json()["data"]["candidates"] == []
+    assert dispatched == [("project-a", "candidate-extraction-run")]
+    assert raw_content not in response.text
+    assert denied.status_code == 403
+
+    candidate = repo.save_candidate(KnowledgeCandidate(
+        id="candidate-a",
+        project_id="project-a",
+        source_id=source["id"],
+        source_content_hash=source["content_hash"],
+        extraction_run_id="candidate-extraction-run",
+        candidate_type="framework",
+        title="Evidence ladder",
+        claim="Compare source reliability before selecting a decision path.",
+        evidence=[CandidateEvidenceAnchor(
+            source_id=source["id"],
+            content_hash=source["content_hash"],
+            anchor="paragraph-1",
+            quote=raw_content,
+        )],
+        fingerprint="b" * 64,
+    ))
+    listed = client.get("/knowledge/projects/project-a/candidates", headers=_headers("growth-reader-key"))
+    detail = client.get(f"/knowledge/projects/project-a/candidates/{candidate['id']}", headers=_headers())
+    summary = client.get("/knowledge/projects/project-a/growth/summary", headers=_headers())
+    assert listed.status_code == detail.status_code == summary.status_code == 200
+    assert listed.json()["data"]["candidates"][0]["id"] == candidate["id"]
+    assert "evidence" not in listed.json()["data"]["candidates"][0]
+    assert detail.json()["data"]["candidate"]["evidence"][0]["quote"] == raw_content
+    assert summary.json()["data"]["counts"]["pending_candidates"] == 1
+
+    reviewed = client.post(
+        f"/knowledge/projects/project-a/candidates/{candidate['id']}/review",
+        headers=_headers(),
+        json={"decision": "accepted", "review_note": "Keep for later method selection."},
+    )
+    reader_review = client.post(
+        f"/knowledge/projects/project-a/candidates/{candidate['id']}/review",
+        headers=_headers("growth-reader-key"),
+        json={"decision": "rejected"},
+    )
+    assert reviewed.status_code == 200, reviewed.text
+    assert reviewed.json()["data"]["candidate"]["status"] == KnowledgeCandidateStatus.ACCEPTED.value
+    assert reviewed.json()["data"]["publication_status"] == "review_only"
+    assert reader_review.status_code == 403
+    assert repo.list_methods("project-a") == []
 
 
 def test_reader_can_read_but_cannot_mutate(growth_api):
@@ -721,6 +963,112 @@ def test_schedules_runs_and_distillations_are_truthful(growth_api, monkeypatch):
     assert run.status_code == 200
     assert run.json()["data"]["run"]["status"] == "unavailable"
     assert repo.get_run("project-a", run.json()["data"]["run"]["run_id"])["status"] == "unavailable"
+
+
+def test_idempotent_growth_run_persists_one_celery_assignment(monkeypatch, tmp_path):
+    repo = GrowthRepository(db_path=str(tmp_path / "growth-idempotent-celery-assignment.db"))
+    dispatched: list[list[str]] = []
+
+    class QueuedTask:
+        id = "growth-celery-task-123"
+
+    monkeypatch.setattr(settings, "KNOWLEDGE_SCHEDULES_ENABLED", True)
+    monkeypatch.setattr(growth_api_module, "is_celery_real", lambda: True)
+    monkeypatch.setattr(growth_api_module, "is_celery_broker_available", lambda: True)
+    monkeypatch.setattr(
+        "app.tasks.knowledge_tasks.knowledge_execute.apply_async",
+        lambda args: dispatched.append(args) or QueuedTask(),
+    )
+    try:
+        first = _start_run(
+            repo,
+            project_id="project-a",
+            job_type="growth_daily",
+            idempotency_key="growth-assignment-key",
+            input_refs={"date": "2026-07-26"},
+            actor_id="test-operator",
+        )
+        duplicate = _start_run(
+            repo,
+            project_id="project-a",
+            job_type="growth_daily",
+            idempotency_key="growth-assignment-key",
+            input_refs={"date": "2026-07-26"},
+            actor_id="test-operator",
+        )
+
+        assert first == {
+            "status": "queued",
+            "run_id": first["run_id"],
+            "task_id": "growth-celery-task-123",
+        }
+        assert duplicate == {"status": "duplicate", "run_id": first["run_id"], "duplicate": True}
+        assert dispatched == [["project-a", first["run_id"]]]
+        events = repo.list_run_events(project_id="project-a", run_id=first["run_id"])
+        assert [event["event_type"] for event in events] == [
+            "knowledge.run.queued",
+            "knowledge.run.execution_assigned",
+        ]
+        assert events[-1]["payload"] == {
+            "execution": "celery",
+            "task_name": "knowledge.execute",
+            "task_id": "growth-celery-task-123",
+        }
+    finally:
+        repo.close()
+
+
+def test_capture_attempt_ledger_is_project_scoped_and_excludes_raw_evidence(growth_api):
+    client, repo = growth_api
+    run = KnowledgeRun(project_id="project-a", run_type="horizon_capture", trigger="manual")
+    repo.create_run(run)
+    captured = SourceCaptureService(repo).capture(
+        CapturedSourceInput(
+            project_id="project-a",
+            source_type="horizon_signal",
+            origin="https://news.example.test/agent-systems",
+            raw_content="This raw evidence body must never be in the capture ledger API.",
+            trust_level="trusted",
+            capture_run_id=run.id,
+        )
+    )
+    other_run = KnowledgeRun(project_id="project-b", run_type="horizon_capture", trigger="manual")
+    repo.create_run(other_run)
+    SourceCaptureService(repo).capture(
+        CapturedSourceInput(
+            project_id="project-b",
+            source_type="horizon_signal",
+            origin="https://news.example.test/other-project",
+            raw_content="Other project evidence.",
+            trust_level="trusted",
+            capture_run_id=other_run.id,
+        )
+    )
+
+    response = client.get(
+        f"/knowledge/projects/project-a/capture-attempts?run_id={run.id}",
+        headers=_headers(),
+    )
+    cross_project = client.get(
+        f"/knowledge/projects/project-b/capture-attempts?run_id={run.id}",
+        headers=_headers(),
+    )
+    runs = client.get("/knowledge/projects/project-a/runs", headers=_headers())
+
+    assert response.status_code == cross_project.status_code == runs.status_code == 200
+    payload = response.json()["data"]
+    assert payload["pagination"]["count"] == 1
+    attempt = payload["capture_attempts"][0]
+    assert attempt["project_id"] == "project-a"
+    assert attempt["run_id"] == run.id
+    assert attempt["source_id"] == captured.source["id"]
+    assert attempt["outcome"] == "captured"
+    assert attempt["policy"]["reasons"] == ["explicit_trusted_source", "project_profile_triage_required"]
+    assert attempt["policy"]["extraction_quality"] == "complete"
+    assert "raw_content" not in attempt
+    assert "This raw evidence body" not in response.text
+    assert cross_project.json()["data"]["capture_attempts"] == []
+    assert [item["id"] for item in runs.json()["data"]["runs"]] == [run.id]
 
 
 def test_disabled_route_and_invalid_encoding_use_stable_errors(growth_api, monkeypatch):

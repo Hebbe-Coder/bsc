@@ -4,18 +4,69 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.knowledge.wiki_contracts import SourceRecord, SourceStatus, can_transition_source
+from app.knowledge.growth_contracts import ProjectKnowledgeProfile, ProjectSourcePolicy
+from app.knowledge.wiki_contracts import (
+    SourceCaptureAttempt,
+    SourceCaptureOutcome,
+    SourceRecord,
+    SourceStatus,
+    can_transition_source,
+)
 from app.knowledge.wiki_repository import WikiRepository
 
 
 def sha256_content(content: str | bytes) -> str:
     payload = content.encode("utf-8") if isinstance(content, str) else content
     return hashlib.sha256(payload).hexdigest()
+
+
+_TRACKING_QUERY_KEYS = frozenset({
+    "dclid", "fbclid", "gclid", "mc_cid", "mc_eid", "msclkid", "ref", "ref_src",
+})
+
+
+def canonicalize_origin(origin: str) -> str:
+    """Normalize HTTP(S) origin identity without rewriting non-web evidence paths.
+
+    Source content remains immutable. This value is used only to decide whether
+    a later capture is a version of an existing web source, so fragments and
+    common analytics parameters must not create a parallel evidence lineage.
+    """
+    value = str(origin or "").strip()
+    if not value:
+        return ""
+    try:
+        parsed = urlsplit(value)
+        scheme = parsed.scheme.lower()
+        host = parsed.hostname
+        if scheme not in {"http", "https"} or not host:
+            return value
+        port = parsed.port
+    except ValueError:
+        # Preserve malformed values for the source-policy boundary instead of
+        # silently treating them as a URL owned by a different source.
+        return value
+
+    normalized_host = host.lower()
+    if ":" in normalized_host and not normalized_host.startswith("["):
+        normalized_host = f"[{normalized_host}]"
+    default_port = 80 if scheme == "http" else 443
+    netloc = normalized_host if port in {None, default_port} else f"{normalized_host}:{port}"
+    path = parsed.path or "/"
+    if path != "/" and path.endswith("/"):
+        path = path.rstrip("/") or "/"
+    query = urlencode(sorted(
+        (key, item)
+        for key, item in parse_qsl(parsed.query, keep_blank_values=True)
+        if not key.lower().startswith("utm_") and key.lower() not in _TRACKING_QUERY_KEYS
+    ), doseq=True)
+    return urlunsplit((scheme, netloc, path, query, ""))
 
 
 class CaptureModel(BaseModel):
@@ -31,6 +82,12 @@ class CapturedSourceInput(CaptureModel):
     trust_level: str = "untrusted"
     metadata: dict[str, Any] = Field(default_factory=dict)
     content_hash: str = ""
+    capture_run_id: str = Field(default="", max_length=128)
+
+    @field_validator("origin")
+    @classmethod
+    def normalize_origin(cls, value: str) -> str:
+        return canonicalize_origin(value)
 
     @field_validator("trust_level")
     @classmethod
@@ -101,13 +158,80 @@ class SourceTrustPolicy:
     trusted_source_types: set[str]
     trusted_origin_prefixes: tuple[str, ...] = ()
     requires_profile_triage_source_types: set[str] = field(default_factory=set)
+    primary_origin_prefixes: tuple[str, ...] = ()
+    community_origin_prefixes: tuple[str, ...] = ()
+    blocked_origin_prefixes: tuple[str, ...] = ()
+    primary_retention_days: int = 730
+    trusted_retention_days: int = 365
+    community_retention_days: int = 90
+    untrusted_retention_days: int = 30
 
-    def assess(self, payload: CapturedSourceInput, *, now: datetime | None = None) -> "SourceTrustAssessment":
+    @classmethod
+    def from_project_policy(cls, policy: ProjectSourcePolicy) -> "SourceTrustPolicy":
+        return cls(
+            trusted_source_types=set(policy.trusted_source_types),
+            trusted_origin_prefixes=tuple(policy.trusted_origin_prefixes),
+            requires_profile_triage_source_types=set(policy.require_triage_source_types),
+            primary_origin_prefixes=tuple(policy.primary_origin_prefixes),
+            community_origin_prefixes=tuple(policy.community_origin_prefixes),
+            blocked_origin_prefixes=tuple(policy.blocked_origin_prefixes),
+            primary_retention_days=policy.primary_retention_days,
+            trusted_retention_days=policy.trusted_retention_days,
+            community_retention_days=policy.community_retention_days,
+            untrusted_retention_days=policy.untrusted_retention_days,
+        )
+
+    def snapshot(self) -> dict[str, Any]:
+        """Return a bounded, secret-free policy copy for the evidence ledger."""
+        return {
+            "primary_origin_prefixes": list(self.primary_origin_prefixes),
+            "trusted_origin_prefixes": list(self.trusted_origin_prefixes),
+            "community_origin_prefixes": list(self.community_origin_prefixes),
+            "blocked_origin_prefixes": list(self.blocked_origin_prefixes),
+            "trusted_source_types": sorted(self.trusted_source_types),
+            "require_triage_source_types": sorted(self.requires_profile_triage_source_types),
+            "primary_retention_days": self.primary_retention_days,
+            "trusted_retention_days": self.trusted_retention_days,
+            "community_retention_days": self.community_retention_days,
+            "untrusted_retention_days": self.untrusted_retention_days,
+        }
+
+    def assess(
+        self,
+        payload: CapturedSourceInput,
+        *,
+        now: datetime | None = None,
+        policy_source: str = "default",
+        profile_revision: int = 0,
+        profile_configured: bool = False,
+    ) -> "SourceTrustAssessment":
+        effective_now = now or datetime.now(timezone.utc)
         extraction = str(payload.metadata.get("extraction_status") or "complete").lower()
-        freshness = self._freshness(payload.metadata.get("published_at"), now=now)
+        freshness = self._freshness(payload.metadata.get("published_at"), now=effective_now)
         relevance = self._relevance(payload.metadata.get("ai_score"))
         curation = "user_curated" if payload.metadata.get("curated") else "reviewed" if payload.trust_level == "reviewed" else "uncurated"
         reasons: list[str] = []
+        authority = self._authority(payload, reasons)
+        retention_days = self._retention_days(authority)
+        retention_expires_at = (effective_now + timedelta(days=retention_days)).isoformat()
+
+        if authority == "blocked":
+            return SourceTrustAssessment(
+                trust_level="untrusted",
+                status=SourceStatus.REJECTED,
+                reasons=tuple(reasons),
+                freshness=freshness,
+                relevance=relevance,
+                curation=curation,
+                extraction_quality=extraction,
+                authority=authority,
+                retention_days=retention_days,
+                retention_expires_at=retention_expires_at,
+                policy_source=policy_source,
+                profile_revision=profile_revision,
+                profile_configured=profile_configured,
+                policy_snapshot=self.snapshot(),
+            )
 
         if extraction in {"unsupported", "failed", "encoding_error"}:
             reasons.append(f"extraction_{extraction}")
@@ -119,31 +243,29 @@ class SourceTrustPolicy:
                 relevance=relevance,
                 curation=curation,
                 extraction_quality=extraction,
+                authority=authority,
+                retention_days=retention_days,
+                retention_expires_at=retention_expires_at,
+                policy_source=policy_source,
+                profile_revision=profile_revision,
+                profile_configured=profile_configured,
+                policy_snapshot=self.snapshot(),
             )
 
-        trusted = payload.trust_level == "trusted"
-        if trusted:
-            reasons.append("explicit_trusted_source")
-        elif payload.source_type not in self.trusted_source_types:
-            reasons.append("source_type_requires_review")
-        elif self.trusted_origin_prefixes and not payload.origin.startswith(self.trusted_origin_prefixes):
-            reasons.append("origin_not_allowlisted")
-        else:
-            trusted = True
-            reasons.append("source_type_and_origin_allowlisted")
+        trusted = authority in {"primary", "trusted"}
         if freshness == "stale":
             reasons.append("published_material_is_stale")
         if relevance == "low":
             reasons.append("low_relevance_score")
         requires_profile_triage = (
-            payload.source_type in self.requires_profile_triage_source_types
+            payload.source_type.strip().lower() in self.requires_profile_triage_source_types
             or payload.metadata.get("admission_gate") == "project_triage"
         )
         if requires_profile_triage:
             reasons.append("project_profile_triage_required")
         return SourceTrustAssessment(
-            trust_level="trusted" if trusted else payload.trust_level,
-            status=SourceStatus.VALIDATED if requires_profile_triage else (
+            trust_level="trusted" if trusted else "reviewed" if authority == "community" else payload.trust_level,
+            status=SourceStatus.VALIDATED if requires_profile_triage or authority == "community" else (
                 SourceStatus.ELIGIBLE if trusted else SourceStatus.VALIDATED
             ),
             reasons=tuple(reasons),
@@ -151,7 +273,50 @@ class SourceTrustPolicy:
             relevance=relevance,
             curation=curation,
             extraction_quality=extraction,
+            authority=authority,
+            retention_days=retention_days,
+            retention_expires_at=retention_expires_at,
+            policy_source=policy_source,
+            profile_revision=profile_revision,
+            profile_configured=profile_configured,
+            policy_snapshot=self.snapshot(),
         )
+
+    def _authority(self, payload: CapturedSourceInput, reasons: list[str]) -> str:
+        origin = payload.origin
+        source_type = payload.source_type.strip().lower()
+        if self.blocked_origin_prefixes and origin.startswith(self.blocked_origin_prefixes):
+            reasons.append("origin_blocklisted")
+            return "blocked"
+        if self.primary_origin_prefixes and origin.startswith(self.primary_origin_prefixes):
+            reasons.append("primary_origin_allowlisted")
+            return "primary"
+        if self.trusted_origin_prefixes and origin.startswith(self.trusted_origin_prefixes):
+            reasons.append("trusted_origin_allowlisted")
+            return "trusted"
+        if self.community_origin_prefixes and origin.startswith(self.community_origin_prefixes):
+            reasons.append("community_origin_requires_review")
+            return "community"
+        if payload.trust_level == "trusted":
+            reasons.append("explicit_trusted_source")
+            return "trusted"
+        if source_type not in self.trusted_source_types:
+            reasons.append("source_type_requires_review")
+            return "untrusted"
+        if self.trusted_origin_prefixes and not origin.startswith(self.trusted_origin_prefixes):
+            reasons.append("origin_not_allowlisted")
+            return "untrusted"
+        reasons.append("source_type_and_origin_allowlisted")
+        return "trusted"
+
+    def _retention_days(self, authority: str) -> int:
+        if authority == "primary":
+            return self.primary_retention_days
+        if authority == "trusted":
+            return self.trusted_retention_days
+        if authority == "community":
+            return self.community_retention_days
+        return self.untrusted_retention_days
 
     @staticmethod
     def _freshness(value: Any, *, now: datetime | None) -> str:
@@ -192,6 +357,13 @@ class SourceTrustAssessment:
     relevance: str
     curation: str
     extraction_quality: str
+    authority: str
+    retention_days: int
+    retention_expires_at: str
+    policy_source: str
+    profile_revision: int
+    profile_configured: bool
+    policy_snapshot: dict[str, Any]
 
     def metadata(self) -> dict[str, Any]:
         return {
@@ -200,6 +372,13 @@ class SourceTrustAssessment:
             "relevance": self.relevance,
             "curation": self.curation,
             "extraction_quality": self.extraction_quality,
+            "authority": self.authority,
+            "retention_days": self.retention_days,
+            "retention_expires_at": self.retention_expires_at,
+            "policy_source": self.policy_source,
+            "profile_revision": self.profile_revision,
+            "profile_configured": self.profile_configured,
+            "policy_snapshot": self.policy_snapshot,
         }
 
 
@@ -215,11 +394,12 @@ class SourceCaptureService:
     def __init__(
         self,
         repository: WikiRepository,
-        trust_policy: SourceTrustPolicy = DEFAULT_SOURCE_TRUST_POLICY,
+        trust_policy: SourceTrustPolicy | None = None,
         search_index=None,
     ) -> None:
         self.repository = repository
-        self.trust_policy = trust_policy
+        self.trust_policy = trust_policy or DEFAULT_SOURCE_TRUST_POLICY
+        self._uses_project_profile_policy = trust_policy is None
         if search_index is None:
             from app.knowledge.wiki_index import WikiSearchIndex
 
@@ -230,9 +410,18 @@ class SourceCaptureService:
         content_hash = payload.content_hash or sha256_content(payload.raw_content)
         existing = self.repository.find_source_by_content_hash(payload.project_id, content_hash)
         if existing:
+            assessment = self._assess(payload)
+            self._record_attempt(
+                payload,
+                content_hash=content_hash,
+                source=existing,
+                outcome=SourceCaptureOutcome.DUPLICATE,
+                policy=assessment.metadata(),
+                projection=dict((existing.get("metadata") or {}).get("projection") or {}),
+            )
             return CaptureResult(source=existing, created=False)
 
-        assessment = self.trust_policy.assess(payload)
+        assessment = self._assess(payload)
         prior = self.repository.find_latest_source_by_origin(payload.project_id, payload.source_type, payload.origin)
         metadata = {**payload.metadata, "policy_assessment": assessment.metadata()}
         source = SourceRecord(
@@ -270,7 +459,68 @@ class SourceCaptureService:
                 prior_source_id=prior["id"],
                 current_source_id=created["id"],
             )
+        outcome = (
+            SourceCaptureOutcome.REJECTED_BY_POLICY
+            if assessment.status is SourceStatus.REJECTED
+            else SourceCaptureOutcome.PROJECTION_FAILED
+            if projection.get("status") == "failed"
+            else SourceCaptureOutcome.CAPTURED
+        )
+        self._record_attempt(
+            payload,
+            content_hash=content_hash,
+            source=created,
+            outcome=outcome,
+            policy=assessment.metadata(),
+            projection=projection,
+        )
         return CaptureResult(source=created, created=True)
+
+    def _assess(self, payload: CapturedSourceInput) -> SourceTrustAssessment:
+        if not self._uses_project_profile_policy:
+            return self.trust_policy.assess(payload, policy_source="injected")
+        get_profile = getattr(self.repository, "get_profile", None)
+        if not callable(get_profile):
+            return self.trust_policy.assess(payload, policy_source="default")
+        persisted = get_profile(payload.project_id)
+        if not persisted:
+            return self.trust_policy.assess(
+                payload,
+                policy_source="default",
+                profile_revision=0,
+                profile_configured=False,
+            )
+        profile = ProjectKnowledgeProfile.model_validate(persisted)
+        return SourceTrustPolicy.from_project_policy(profile.source_policy).assess(
+            payload,
+            policy_source="project_profile",
+            profile_revision=profile.revision,
+            profile_configured=True,
+        )
+
+    def _record_attempt(
+        self,
+        payload: CapturedSourceInput,
+        *,
+        content_hash: str,
+        source: dict[str, Any],
+        outcome: SourceCaptureOutcome,
+        policy: dict[str, Any],
+        projection: dict[str, Any],
+    ) -> None:
+        self.repository.create_source_capture_attempt(
+            SourceCaptureAttempt(
+                project_id=payload.project_id,
+                source_type=payload.source_type,
+                origin=payload.origin,
+                content_hash=content_hash,
+                run_id=payload.capture_run_id,
+                source_id=str(source.get("id") or ""),
+                outcome=outcome,
+                policy=policy,
+                projection=projection,
+            )
+        )
 
     def transition_source(self, project_id: str, source_id: str, target: SourceStatus) -> dict[str, Any]:
         source = self.repository.get_source(project_id, source_id)

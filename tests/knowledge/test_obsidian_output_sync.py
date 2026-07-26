@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from app.knowledge.growth_repository import GrowthRepository
+from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
 from app.knowledge.obsidian_output_sync import ObsidianOutputSyncService
 from app.knowledge.wiki_contracts import KnowledgeRun
 
@@ -16,6 +17,9 @@ def test_declared_plugin_output_is_copied_to_pending_d_layer_without_mutating_th
         '{"plugins":[{"id":"hyperframes","name":"HyperFrames","adapter":"filesystem_output","input_paths":["04_Outputs/hyperframes"]}]}',
         encoding="utf-8",
     )
+    ObsidianPluginManifest.load(project_root).set_trust(
+        project_root, plugin_ids=["hyperframes"], trusted=True, actor_id="test", reason="fixture"
+    )
     repo = GrowthRepository(db_path=str(tmp_path / "output-sync.db"))
     repo.configure_vault("project-a", "projects/project-a")
     run = KnowledgeRun(id="sync-1", project_id="project-a", run_type="source_sync", trigger="manual")
@@ -26,8 +30,8 @@ def test_declared_plugin_output_is_copied_to_pending_d_layer_without_mutating_th
         second = service.sync(project_id="project-a", run_id=run.id)
         outputs = repo.list_outputs("project-a")
 
-        assert first == {"scanned": 1, "registered": 1, "duplicates": 0, "rejected": 0, "skipped": 0}
-        assert second == {"scanned": 1, "registered": 0, "duplicates": 1, "rejected": 0, "skipped": 0}
+        assert first == {"scanned": 1, "registered": 1, "duplicates": 0, "rejected": 0, "skipped": 0, "blocked": 0}
+        assert second == {"scanned": 1, "registered": 0, "duplicates": 1, "rejected": 0, "skipped": 0, "blocked": 0}
         assert original.read_text(encoding="utf-8") == "# Video brief\nOriginal plugin output"
         assert len(outputs) == 1
         output = outputs[0]
@@ -58,12 +62,15 @@ def test_output_sync_ignores_undeclared_and_temporary_files(tmp_path):
         '{"plugins":[{"id":"formatter","name":"Formatter","adapter":"filesystem_output","input_paths":["04_Outputs/articles"]}]}',
         encoding="utf-8",
     )
+    ObsidianPluginManifest.load(project_root).set_trust(
+        project_root, plugin_ids=["formatter"], trusted=True, actor_id="test", reason="fixture"
+    )
     repo = GrowthRepository(db_path=str(tmp_path / "output-sync-unlisted.db"))
     repo.configure_vault("project-a", "projects/project-a")
     try:
         report = ObsidianOutputSyncService(repo, vault).sync(project_id="project-a")
 
-        assert report == {"scanned": 1, "registered": 1, "duplicates": 0, "rejected": 0, "skipped": 1}
+        assert report == {"scanned": 1, "registered": 1, "duplicates": 0, "rejected": 0, "skipped": 1, "blocked": 0}
         assert len(repo.list_outputs("project-a")) == 1
         assert repo.list_outputs("project-a")[0]["metadata"]["original_path"] == "04_Outputs/articles/article.md"
     finally:

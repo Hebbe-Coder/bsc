@@ -1,6 +1,7 @@
 import sys
 import os
 import tempfile
+from types import SimpleNamespace
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from app.knowledge.service import KnowledgeService
@@ -24,6 +25,16 @@ class _FakeLLMTwoPhase:
         if "cite_ids" in system_prompt:
             return {"cite_ids": [1]}
         return {"answer": "依据[1]作答。"}
+
+
+class _RecordingPromptOps:
+    def __init__(self, responses):
+        self.responses = iter(responses)
+        self.requests = []
+
+    def run_structured(self, request):
+        self.requests.append(request)
+        return SimpleNamespace(output=next(self.responses))
 
 
 def _tmp_service():
@@ -86,3 +97,53 @@ def test_generator_builds_llm_with_only_keys():
     gen = RAGAnswerGenerator(provider="deepseek", keys=["k1", "k2"])
     llm = gen._get_llm()  # 不应抛 SOPLLMError(多 Key 优先,无需单 api_key)
     assert llm.keys == ["k1", "k2"]
+
+
+def test_real_rag_uses_project_scoped_promptops_and_preserves_citations():
+    svc = _tmp_service()
+    svc.ingest("content safety review requires an approval gate", project_id="p1", title="A")
+    promptops = _RecordingPromptOps([{"answer": "An approval gate is required [1]."}])
+
+    out = RAGAnswerGenerator(
+        service=svc,
+        provider="deepseek",
+        keys=["runtime-key"],
+        promptops=promptops,
+        enable_agent_router=False,
+        enable_self_rag=False,
+    ).answer("approval gate", project_id="p1", enable_rewrite=False)
+
+    assert out["answer"] == "An approval gate is required [1]."
+    assert out["metrics"]["citation_rate"] == 1.0
+    request = promptops.requests[0]
+    assert request.project_id == "p1"
+    assert request.task.value == "rag_answer"
+    assert request.revision == "rag-answer-v1"
+    assert request.provider_keys == ("runtime-key",)
+
+
+def test_two_phase_rag_uses_distinct_promptops_profiles_and_filters_plan_ids():
+    svc = _tmp_service()
+    svc.ingest("content safety review requires an approval gate", project_id="p1", title="A")
+    promptops = _RecordingPromptOps([
+        {"cite_ids": [1, 999]},
+        {"answer": "An approval gate is required [1] [999]."},
+    ])
+
+    out = RAGAnswerGenerator(
+        service=svc,
+        provider="deepseek",
+        promptops=promptops,
+        two_phase=True,
+        enable_agent_router=False,
+        enable_self_rag=False,
+    ).answer("approval gate", project_id="p1", enable_rewrite=False)
+
+    assert [request.task.value for request in promptops.requests] == [
+        "retrieval_sufficiency", "rag_answer",
+    ]
+    assert [request.revision for request in promptops.requests] == [
+        "rag-citation-plan-v1", "rag-answer-v1",
+    ]
+    assert "[999]" not in out["answer"]
+    assert out["metrics"]["citation_rate"] == 0.5

@@ -23,7 +23,7 @@ class ObsidianSyncService:
         self.capture_service = SourceCaptureService(repository)
 
     def sync(self, *, project_id: str) -> dict[str, int]:
-        report = {"scanned": 0, "created": 0, "duplicates": 0, "rejected": 0, "deleted": 0, "skipped": 0}
+        report = {"scanned": 0, "created": 0, "duplicates": 0, "rejected": 0, "deleted": 0, "skipped": 0, "blocked": 0}
         seen_paths: set[str] = set()
         mappings = {
             str(mapping["project_id"]): PurePosixPath(str(mapping["vault_path"]).replace("\\", "/")).parts
@@ -45,7 +45,13 @@ class ObsidianSyncService:
                 continue
             seen_paths.add(relative.as_posix())
             project_relative = "/".join(relative.parts[len(project_root):]) if project_root else ""
+            declared_plugin = manifest.declared_plugin_for(project_relative) if project_relative else None
             plugin = manifest.plugin_for(project_relative) if project_relative else None
+            if declared_plugin and not plugin:
+                # A declared path remains visible in workspace status, but is
+                # not read until its exact adapter/root configuration is trusted.
+                report["blocked"] += 1
+                continue
             workspace_role = ObsidianPluginManifest.workspace_role_for(
                 tuple(relative.parts[len(project_root):]) if project_root else ()
             )
@@ -72,6 +78,7 @@ class ObsidianSyncService:
                     )
                 )
                 report["rejected" if result.created else "duplicates"] += 1
+                self._reconcile_plugin_provenance(result.source, plugin, workspace_role)
                 self._mark_present(result.source)
                 continue
             try:
@@ -97,6 +104,7 @@ class ObsidianSyncService:
                     )
                 )
                 report["rejected" if result.created else "duplicates"] += 1
+                self._reconcile_plugin_provenance(result.source, plugin, workspace_role)
                 self._mark_present(result.source)
                 continue
             if not content:
@@ -122,6 +130,7 @@ class ObsidianSyncService:
                 )
             )
             report["created" if result.created else "duplicates"] += 1
+            self._reconcile_plugin_provenance(result.source, plugin, workspace_role)
             self._mark_present(result.source)
         for source in self.repository.list_sources(project_id):
             metadata = source.get("metadata") or {}
@@ -147,6 +156,31 @@ class ObsidianSyncService:
         restored = {**metadata, "source_present": True}
         restored.pop("deleted_at", None)
         self.repository.update_source_metadata(source["project_id"], source["id"], restored)
+
+    def _reconcile_plugin_provenance(self, source: dict, plugin, workspace_role: str) -> None:
+        """Attach a trusted bridge to a duplicate without changing its evidence body.
+
+        Older captures can predate a bridge declaration. When their immutable
+        content hash matches a later trusted export, recording this narrow
+        provenance makes the existing evidence visible through the bridge
+        rather than recapturing or rewriting it.
+        """
+        if plugin is None:
+            return
+        metadata = source.get("metadata") or {}
+        expected = {
+            "obsidian_plugin": plugin.plugin_id,
+            "plugin_name": plugin.name,
+            "obsidian_adapter": plugin.adapter,
+            **self._workspace_metadata(workspace_role),
+        }
+        if all(metadata.get(key) == value for key, value in expected.items()):
+            return
+        self.repository.update_source_metadata(
+            source["project_id"],
+            source["id"],
+            {**metadata, "sync": "obsidian", **expected},
+        )
 
     @staticmethod
     def _plugin_metadata(plugin) -> dict:

@@ -32,7 +32,7 @@ class ObsidianOutputSyncService:
             raise ValueError("Obsidian Vault root does not exist")
 
     def sync(self, *, project_id: str, run_id: str = "") -> dict[str, int]:
-        report = {"scanned": 0, "registered": 0, "duplicates": 0, "rejected": 0, "skipped": 0}
+        report = {"scanned": 0, "registered": 0, "duplicates": 0, "rejected": 0, "skipped": 0, "blocked": 0}
         mapping = self.repository.get_vault(project_id)
         if not mapping:
             raise ValueError("project Vault mapping is not configured")
@@ -45,6 +45,9 @@ class ObsidianOutputSyncService:
         registry = OutputRegistry(self.repository, self.vault_root)
         for plugin in manifest.plugins:
             if plugin.adapter != "filesystem_output":
+                continue
+            if not manifest.is_trusted(plugin):
+                report["blocked"] += len(plugin.input_paths)
                 continue
             for configured_path in plugin.input_paths:
                 export_root = (project_root / configured_path).resolve()

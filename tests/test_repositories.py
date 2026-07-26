@@ -8,6 +8,15 @@ Repository层单元测试
 - CacheService: 缓存设置、获取、过期、删除等操作
 """
 from app.core.cache_service import MemoryCache
+from app.repositories.base_repository import BaseRepository
+
+
+def test_base_repository_cleanup_tolerates_partial_initialization():
+    """A failed constructor must not emit a second destructor exception."""
+    repository = BaseRepository.__new__(BaseRepository)
+
+    repository._close_connection()
+    repository.__del__()
 
 
 class TestProjectRepository:

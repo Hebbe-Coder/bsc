@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.knowledge.wiki_compiler import WikiCompilationError
 from app.knowledge.wiki_contracts import WikiOperation
 from app.services.sop_llm_client import SOPLLMClient, SOPLLMError
+from app.promptops import PromptOps, PromptOpsError, PromptRequest, PromptTask
 
 
 class StructuredWikiClient(Protocol):
@@ -54,21 +55,36 @@ Rules:
 class SOPWikiCompilerProvider:
     """Request a structured draft only; publication remains outside the model call."""
 
-    def __init__(self, provider: str = "", *, client: StructuredWikiClient | None = None) -> None:
+    # WikiCompiler uses this marker to provide the project scope without
+    # breaking existing deterministic/fake compiler providers.
+    project_scoped = True
+
+    def __init__(
+        self,
+        provider: str = "",
+        *,
+        client: StructuredWikiClient | None = None,
+        promptops: PromptOps | None = None,
+    ) -> None:
         selected = (provider or settings.KNOWLEDGE_WIKI_LLM_PROVIDER or settings.SOP_LLM_PROVIDER or "mock").lower()
         if selected == "mock" and client is None:
             raise WikiCompilationError("a real KNOWLEDGE_WIKI_LLM_PROVIDER is required for maintenance compilation")
-        self.client = client or SOPLLMClient(provider=selected)
+        self.provider = selected
+        # An injected structured client is a deterministic test/offline seam.
+        # Production requests take the governed PromptOps route instead.
+        self.client = client
+        self.promptops = promptops or (None if client is not None else PromptOps())
 
-    def compile_wiki(self, prompt: str) -> dict[str, Any]:
+    def compile_wiki(self, prompt: str, *, project_id: str = "") -> dict[str, Any]:
         try:
-            response = self.client.chat_structured(
+            response = self._compile(
+                project_id=project_id,
+                revision="wiki-proposal-v1",
                 system_prompt=_WIKI_PROPOSAL_SCHEMA,
                 user_prompt=prompt,
                 temperature=0.1,
-                max_tokens=4000,
             )
-        except SOPLLMError as exc:
+        except (SOPLLMError, PromptOpsError) as exc:
             raise WikiCompilationError("Wiki LLM request failed") from exc
         try:
             return self._validate_wire_response(response)
@@ -76,7 +92,9 @@ class SOPWikiCompilerProvider:
             # Ask once for a schema-only repair. The compiler never infers an operation
             # because create/replace/append have materially different publication effects.
             try:
-                repaired = self.client.chat_structured(
+                repaired = self._compile(
+                    project_id=project_id,
+                    revision="wiki-proposal-v1-repair",
                     system_prompt=(
                         _WIKI_PROPOSAL_SCHEMA
                         + "\nYour previous response was rejected because it was not a valid Wiki proposal. "
@@ -84,16 +102,47 @@ class SOPWikiCompilerProvider:
                     ),
                     user_prompt=prompt,
                     temperature=0.0,
-                    max_tokens=4000,
                 )
                 return self._validate_wire_response(repaired)
-            except SOPLLMError as exc:
+            except (SOPLLMError, PromptOpsError) as exc:
                 raise WikiCompilationError("Wiki LLM repair request failed") from exc
             except WikiCompilationError as repair_error:
                 raise WikiCompilationError(
                     "Wiki LLM returned an invalid proposal after schema repair: "
                     f"{repair_error}"
                 ) from first_error
+
+    def _compile(
+        self,
+        *,
+        project_id: str,
+        revision: str,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float,
+    ) -> dict[str, Any] | None:
+        if self.promptops is not None:
+            run = self.promptops.run_structured(
+                PromptRequest(
+                    project_id=project_id or "default",
+                    task=PromptTask.WIKI_COMPILATION,
+                    revision=revision,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    provider=self.provider,
+                    temperature=temperature,
+                    max_tokens=4_000,
+                )
+            )
+            return run.output
+        if self.client is None:
+            raise WikiCompilationError("Wiki LLM client is not configured")
+        return self.client.chat_structured(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=temperature,
+            max_tokens=4_000,
+        )
 
     @staticmethod
     def _validate_wire_response(response: Any) -> dict[str, Any]:
