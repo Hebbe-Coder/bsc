@@ -2,6 +2,29 @@ import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tsconfigPaths from "vite-tsconfig-paths";
 
+export function resolveApiProxyTarget(
+  processEnv: Record<string, string | undefined>,
+  fileEnv: Record<string, string | undefined>,
+): string {
+  return processEnv.BSC_VITE_API_PROXY_TARGET
+    || processEnv.VITE_API_PROXY_TARGET
+    || fileEnv.BSC_VITE_API_PROXY_TARGET
+    || fileEnv.VITE_API_PROXY_TARGET
+    || 'http://localhost:8000';
+}
+
+export function resolveLocalRuntimeApiKey(
+  command: string,
+  mode: string,
+  processEnv: Record<string, string | undefined>,
+  fileEnv: Record<string, string | undefined>,
+): string {
+  if (command !== 'serve' || mode === 'production') return '';
+  // Both locations are server-side Vite configuration. The credential is
+  // injected only into the development proxy, never into import.meta.env.
+  return processEnv.BSC_LOCAL_API_KEY || fileEnv.BSC_LOCAL_API_KEY || '';
+}
+
 // https://vite.dev/config/
 export default defineConfig(({ mode, command }) => {
   // Vite config executes before it exposes .env values to import.meta.env.
@@ -9,16 +32,11 @@ export default defineConfig(({ mode, command }) => {
   // BSC_VITE_API_PROXY_TARGET is a local, explicit override. It lets a
   // refreshed Studio move away from a stale inherited VITE_API_PROXY_TARGET
   // without changing generic Vite behavior for other processes.
-  const apiProxyTarget = process.env.BSC_VITE_API_PROXY_TARGET
-    || process.env.VITE_API_PROXY_TARGET
-    || env.BSC_VITE_API_PROXY_TARGET
-    || env.VITE_API_PROXY_TARGET
-    || 'http://localhost:8000';
-  // A local development key stays inside the Vite process. It is never exposed
-  // through import.meta.env or included in a production build.
-  const localRuntimeApiKey = command === 'serve' && mode !== 'production'
-    ? process.env.BSC_LOCAL_API_KEY || env.BSC_LOCAL_API_KEY || env.API_KEY || ''
-    : '';
+  const apiProxyTarget = resolveApiProxyTarget(process.env, env);
+  // A local development key must be opted in with BSC_LOCAL_API_KEY. Falling
+  // back to API_KEY would silently replace the key entered in Studio and make
+  // an isolated/local runtime impossible to verify.
+  const localRuntimeApiKey = resolveLocalRuntimeApiKey(command, mode, process.env, env);
   const authorizedProxy = {
     target: apiProxyTarget,
     changeOrigin: true,
@@ -26,11 +44,16 @@ export default defineConfig(({ mode, command }) => {
     // The event hook below remains as a defensive override for callers that
     // attach their own non-secret placeholder Authorization value.
     headers: localRuntimeApiKey ? { Authorization: `Bearer ${localRuntimeApiKey}` } : undefined,
-    configure(proxy: { on: (event: string, handler: (request: { setHeader: (name: string, value: string) => void }) => void) => void }) {
-      if (!localRuntimeApiKey) return;
-      proxy.on('proxyReq', (request) => {
-        // Force the loopback key server-side so the browser never receives it.
-        request.setHeader('Authorization', `Bearer ${localRuntimeApiKey}`);
+    configure(proxy: { on: (event: string, handler: (request: { setHeader: (name: string, value: string) => void }, incoming: { headers: Record<string, string | string[] | undefined> }) => void) => void }) {
+      proxy.on('proxyReq', (request, incoming) => {
+        const authorization = incoming.headers.authorization;
+        if (typeof authorization === 'string' && authorization) {
+          request.setHeader('Authorization', authorization);
+        }
+        if (localRuntimeApiKey) {
+          // Force an explicitly opted-in loopback key server-side so the browser never receives it.
+          request.setHeader('Authorization', `Bearer ${localRuntimeApiKey}`);
+        }
       });
     },
   };

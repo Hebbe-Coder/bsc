@@ -49,6 +49,9 @@ type EffectiveMode = 'analyze' | 'compile' | 'board';
 
 export function formatRuntimeError(reason: unknown): string {
   const message = reason instanceof Error ? reason.message : String(reason || 'Analysis failed');
+  if (/signal is aborted without reason|aborterror/i.test(message)) {
+    return 'The Agent OS run exceeded the UI wait budget. The backend may still be completing; check results before retrying.';
+  }
   if (/failed to fetch|networkerror/i.test(message)) {
     return 'Cannot reach the BSC API. Start the backend or set VITE_API_PROXY_TARGET, then restart Vite.';
   }

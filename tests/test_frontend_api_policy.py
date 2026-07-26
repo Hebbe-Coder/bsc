@@ -43,7 +43,11 @@ def test_vite_proxies_agent_os_routes_to_backend():
     source = (ROOT / "vite.config.ts").read_text(encoding="utf-8")
 
     assert "'/agent':" in source
-    assert "process.env.VITE_API_PROXY_TARGET || 'http://localhost:8000'" in source
+    assert "processEnv.BSC_VITE_API_PROXY_TARGET" in source
+    assert "processEnv.VITE_API_PROXY_TARGET" in source
+    assert "fileEnv.BSC_VITE_API_PROXY_TARGET" in source
+    assert "fileEnv.VITE_API_PROXY_TARGET" in source
+    assert "|| 'http://localhost:8000';" in source
     assert "target: apiProxyTarget" in source
 
 
@@ -68,7 +72,8 @@ def test_agent_os_uses_an_extended_request_budget():
     assert "timeout ?? this.timeout" in wrapper
     assert "AGENT_OS_TIMEOUT" in agent_api
     assert "timeout: AGENT_OS_TIMEOUT" in agent_api
-    assert "export const AGENT_OS_TIMEOUT = 180000;" in config
+    assert "const DEFAULT_AGENT_OS_TIMEOUT = 600000;" in config
+    assert "resolveAgentOsTimeout(import.meta.env.VITE_AGENT_OS_TIMEOUT)" in config
 
 
 def test_evaluation_dimensions_have_unique_react_keys():

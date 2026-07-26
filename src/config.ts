@@ -4,8 +4,19 @@ export const API_BASE = import.meta.env.VITE_API_BASE || '';
 
 export const API_TIMEOUT = 60000;
 
-// A capability runtime can make several model calls in one user-visible run.
-export const AGENT_OS_TIMEOUT = 180000;
+const DEFAULT_AGENT_OS_TIMEOUT = 600000;
+const MIN_AGENT_OS_TIMEOUT = 60000;
+
+export function resolveAgentOsTimeout(value: string | undefined): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= MIN_AGENT_OS_TIMEOUT
+    ? parsed
+    : DEFAULT_AGENT_OS_TIMEOUT;
+}
+
+// A capability runtime can make several sequential model calls in one
+// user-visible run. Its request budget must exceed the normal six-step path.
+export const AGENT_OS_TIMEOUT = resolveAgentOsTimeout(import.meta.env.VITE_AGENT_OS_TIMEOUT);
 
 export const STREAM_TIMEOUT = 120000;
 
