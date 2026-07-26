@@ -211,6 +211,48 @@ export type DbosMissionInput = {
   context: Record<string, unknown>;
 };
 
+export type DbosIntakeQuestion = {
+  question_id: string;
+  phase: 'qualify' | 'complete' | 'probe' | string;
+  field: string;
+  prompt: string;
+  options: Array<{ label: string; value: string }>;
+};
+
+export type DbosIntake = {
+  artifact_id: string;
+  project_id: string;
+  original_request: string;
+  classification: 'build' | 'direct' | 'help' | 'uncertain' | string;
+  classification_confidence: number;
+  classification_rationale: string[];
+  domain: string;
+  phase: 'classified' | 'clarifying' | 'ready_for_review' | 'converted' | 'exited' | string;
+  active_question?: Record<string, unknown>;
+  tier?: 'lite' | 'standard' | 'full' | string;
+  recommendation_state?: 'idle' | 'available' | 'unavailable' | string;
+  recommendations?: Array<Record<string, unknown>>;
+  unresolved_fields: string[];
+  linked_mission_id?: string;
+  handoff_path?: string;
+  handoff_sha256?: string;
+  [key: string]: unknown;
+};
+
+export type DbosIntakeAvailability = {
+  enabled: boolean;
+};
+
+export type DbosIntakeRevision = {
+  artifact_id: string;
+  question_id: string;
+  question_field: string;
+  question_phase: string;
+  answer: string;
+  skipped: boolean;
+  status: string;
+};
+
 export class DbosRequestError extends Error {
   constructor(
     message: string,
@@ -332,6 +374,72 @@ export async function recordDbosDecision(
     json({ project_id: projectId, ...input }),
   );
   return payload.decision;
+}
+
+export async function createDbosIntake(projectId: string, requestText: string, context: Record<string, unknown> = {}): Promise<DbosIntake> {
+  const payload = await request<{ intake: DbosIntake }>('/api/dbos/intake', json({ project_id: projectId, request_text: requestText, context }));
+  return payload.intake;
+}
+
+export function fetchDbosIntakeAvailability(): Promise<DbosIntakeAvailability> {
+  return request('/api/dbos/intake/availability');
+}
+
+export async function fetchDbosIntake(projectId: string, sessionId: string): Promise<DbosIntake> {
+  const payload = await request<{ intake: DbosIntake }>(`/api/dbos/intake/${encodeURIComponent(sessionId)}?${projectQuery(projectId)}`);
+  return payload.intake;
+}
+
+export async function resolveDbosIntake(projectId: string, sessionId: string, action: 'clarify' | 'direct' | 'help'): Promise<DbosIntake> {
+  const payload = await request<{ intake: DbosIntake }>(`/api/dbos/intake/${encodeURIComponent(sessionId)}/uncertainty`, json({ project_id: projectId, action }));
+  return payload.intake;
+}
+
+export async function nextDbosIntakeQuestion(projectId: string, sessionId: string): Promise<{ intake: DbosIntake; question: DbosIntakeQuestion | null }> {
+  return request(`/api/dbos/intake/${encodeURIComponent(sessionId)}/questions/next`, json({ project_id: projectId }));
+}
+
+export async function answerDbosIntake(projectId: string, sessionId: string, questionId: string, answer = '', skipped = false): Promise<DbosIntake> {
+  const payload = await request<{ intake: DbosIntake }>(`/api/dbos/intake/${encodeURIComponent(sessionId)}/answers`, json({ project_id: projectId, question_id: questionId, answer, skipped }));
+  return payload.intake;
+}
+
+export async function listDbosIntakeRevisions(projectId: string, sessionId: string): Promise<{ revisions: DbosIntakeRevision[] }> {
+  return request(`/api/dbos/intake/${encodeURIComponent(sessionId)}/answers?${projectQuery(projectId)}`);
+}
+
+export async function revertDbosIntakeAnswer(projectId: string, sessionId: string, revisionId: string): Promise<DbosIntake> {
+  const payload = await request<{ intake: DbosIntake }>(
+    `/api/dbos/intake/${encodeURIComponent(sessionId)}/answers/${encodeURIComponent(revisionId)}/revert`,
+    json({ project_id: projectId }),
+  );
+  return payload.intake;
+}
+
+export async function directReviewDbosIntake(projectId: string, sessionId: string): Promise<DbosIntake> {
+  const payload = await request<{ intake: DbosIntake }>(
+    `/api/dbos/intake/${encodeURIComponent(sessionId)}/direct-review`,
+    json({ project_id: projectId }),
+  );
+  return payload.intake;
+}
+
+export async function selectDbosIntakeTier(projectId: string, sessionId: string, tier: 'lite' | 'standard' | 'full'): Promise<DbosIntake> {
+  const payload = await request<{ intake: DbosIntake }>(`/api/dbos/intake/${encodeURIComponent(sessionId)}/tier`, json({ project_id: projectId, tier }));
+  return payload.intake;
+}
+
+export async function recommendDbosIntake(projectId: string, sessionId: string): Promise<DbosIntake> {
+  const payload = await request<{ intake: DbosIntake }>(`/api/dbos/intake/${encodeURIComponent(sessionId)}/recommendations`, json({ project_id: projectId }));
+  return payload.intake;
+}
+
+export async function convertDbosIntake(projectId: string, sessionId: string, title = ''): Promise<{ intake: DbosIntake; mission: DbosMission }> {
+  return request(`/api/dbos/intake/${encodeURIComponent(sessionId)}/convert`, json({ project_id: projectId, title }));
+}
+
+export async function exportDbosIntakeHandoff(projectId: string, sessionId: string, actorId: string, approved: boolean): Promise<{ intake: DbosIntake; handoff: Record<string, unknown> }> {
+  return request(`/api/dbos/intake/${encodeURIComponent(sessionId)}/handoff`, json({ project_id: projectId, actor_id: actorId, approved }));
 }
 
 export async function createDBOSMission(input: DbosMissionInput): Promise<{ mission: DbosMission }> {

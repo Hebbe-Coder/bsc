@@ -26,4 +26,5 @@ def test_http_mcp_advertises_the_dynamic_business_os_tools():
         "dbos_record_decision",
         "dbos_stop_mission",
         "dbos_rollback_execution",
+        "dbos_intake",
     }.issubset(names)

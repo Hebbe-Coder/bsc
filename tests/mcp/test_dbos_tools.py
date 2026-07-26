@@ -27,6 +27,7 @@ def test_dbos_mcp_surface_tracks_the_feature_flag(monkeypatch):
         "dbos_control_center",
         "dbos_stop_mission",
         "dbos_rollback_execution",
+        "dbos_intake",
     } <= names
 
     monkeypatch.setattr(settings, "DYNAMIC_BUSINESS_OS_ENABLED", False)
@@ -93,3 +94,34 @@ def test_dbos_mcp_stop_uses_the_project_scoped_service(monkeypatch, tmp_path):
     stopped = dbos_tools.dbos_stop_mission("project-a", mission_id, "Owner paused the mission.")
 
     assert stopped["mission"]["mission_status"] == "stopped"
+
+
+def test_unified_intake_mcp_facade_uses_the_dbos_project_ledger(monkeypatch, tmp_path):
+    monkeypatch.setattr(dbos_api, "DBOS_DATA_ROOT", tmp_path / "dbos")
+    created = dbos_tools.dbos_intake(
+        "project-a",
+        "create",
+        payload={"request_text": "Direct execution: build a research workflow"},
+    )
+    session_id = created["intake"]["artifact_id"]
+    assert created["intake"]["phase"] == "ready_for_review"
+
+    converted = dbos_tools.dbos_intake("project-a", "convert", session_id)
+    assert converted["mission"]["mission_status"] == "ready_for_confirmation"
+    assert dbos_tools.dbos_intake("project-a", "get", session_id)["intake"]["linked_mission_id"] == converted["mission"]["artifact_id"]
+
+    with pytest.raises(ValueError, match="unsupported intake action"):
+        dbos_tools.dbos_intake("project-a", "execute", session_id)
+
+
+def test_unified_intake_mcp_can_bypass_to_review_and_respects_its_feature_flag(monkeypatch, tmp_path):
+    monkeypatch.setattr(dbos_api, "DBOS_DATA_ROOT", tmp_path / "dbos")
+    created = dbos_tools.dbos_intake("project-a", "create", payload={"request_text": "Build a site"})
+    session_id = created["intake"]["artifact_id"]
+
+    reviewed = dbos_tools.dbos_intake("project-a", "direct_to_review", session_id)
+    assert reviewed["intake"]["phase"] == "ready_for_review"
+    assert "role" in reviewed["intake"]["unresolved_fields"]
+
+    monkeypatch.setattr(settings, "DBOS_BLINDSPOT_INTAKE_ENABLED", False)
+    assert "dbos_intake" not in {item["name"] for item in mcp_http._tool_list()}

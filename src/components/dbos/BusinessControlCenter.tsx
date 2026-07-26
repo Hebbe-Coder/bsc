@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import ReactFlow, { Background, Controls, type Edge, type Node } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { AlertTriangle, CheckCircle2, CircleStop, ClipboardCheck, Network, Play, RefreshCw, Send, ShieldCheck, Undo2, X } from 'lucide-react';
@@ -19,6 +19,7 @@ import {
   type DBOSControlCenter,
   type DbosMission,
 } from '../../api/dbosApi';
+import { BlindspotIntakePanel } from './BlindspotIntakePanel';
 
 type Props = {
   onClose: () => void;
@@ -87,29 +88,41 @@ export function BusinessControlCenter({ onClose, initialProjectId = 'default', i
   const [feedback, setFeedback] = useState('');
   const [decision, setDecision] = useState({ taskId: '', statement: '', rationale: '' });
   const [inspectedTaskId, setInspectedTaskId] = useState('');
+  const [activeIntakeSessionId, setActiveIntakeSessionId] = useState('');
+  const currentProjectIdRef = useRef(projectId.trim());
+  const refreshSequenceRef = useRef(0);
   const [draft, setDraft] = useState<MissionDraft>({
     title: '', intent: '', intake_mode: 'business', role: '', industry: '', organization_stage: '', goal: '', time_horizon: '',
     constraints: '', stakeholders: '', decision_rights: '', success_metrics: '', evidence: '',
   });
 
   const refresh = async (preferredMissionId = missionId) => {
-    if (!projectId.trim()) return;
+    const requestedProjectId = projectId.trim();
+    if (!requestedProjectId) return;
+    const refreshSequence = ++refreshSequenceRef.current;
+    const isCurrentRequest = () => (
+      refreshSequence === refreshSequenceRef.current && requestedProjectId === currentProjectIdRef.current
+    );
     setBusy(true); setError('');
     try {
-      const listed = await listDbosMissions(projectId.trim());
+      const listed = await listDbosMissions(requestedProjectId);
+      if (!isCurrentRequest()) return;
       setMissions(listed.missions);
       const nextMissionId = listed.missions.some((mission) => mission.artifact_id === preferredMissionId)
         ? preferredMissionId : (listed.missions[0]?.artifact_id || '');
       setMissionId(nextMissionId);
       if (!nextMissionId) {
-        setCenter(null); setAuthorized([]); return;
+        setCenter(null); setAuthorized([]); setActiveIntakeSessionId(''); return;
       }
-      const value = await getDBOSControlCenter(projectId.trim(), nextMissionId);
+      const value = await getDBOSControlCenter(requestedProjectId, nextMissionId);
+      if (!isCurrentRequest()) return;
       setCenter(value);
       setAuthorized((current) => current.length ? current.filter((name) => capabilityList(value).includes(name)) : capabilityList(value));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Unable to read the DBOS mission.');
-    } finally { setBusy(false); }
+      if (isCurrentRequest()) setError(reason instanceof Error ? reason.message : 'Unable to read the DBOS mission.');
+    } finally {
+      if (isCurrentRequest()) setBusy(false);
+    }
   };
 
   useEffect(() => { if (!initialData) void refresh(); }, []);
@@ -217,7 +230,7 @@ export function BusinessControlCenter({ onClose, initialProjectId = 'default', i
 
   const toggleAuthorization = (name: string) => setAuthorized((current) => current.includes(name) ? current.filter((item) => item !== name) : [...current, name]);
   const selectMission = (nextMissionId: string) => {
-    if (!nextMissionId) { setMissionId(''); setCenter(null); setAuthorized([]); return; }
+    if (!nextMissionId) { setMissionId(''); setCenter(null); setAuthorized([]); setActiveIntakeSessionId(''); return; }
     void refresh(nextMissionId);
   };
   const graph = center ? graphProjection(center.reasoning_graph) : { nodes: [], edges: [] };
@@ -235,6 +248,9 @@ export function BusinessControlCenter({ onClose, initialProjectId = 'default', i
   const risks = center?.risks ?? [];
   const adaptive = adaptiveCompilation(center?.dynamic_sop?.metadata?.adaptive_compilation);
   const adaptiveModelRun = adaptive?.model_run;
+  const missionIntakeSessionId = typeof center?.mission.context?.intake_session_id === 'string'
+    ? center.mission.context.intake_session_id : '';
+  const visibleIntakeSessionId = activeIntakeSessionId || missionIntakeSessionId;
   const adaptiveStatus = adaptive?.status === 'completed'
     ? `PROJECT CONTEXT REFINED${adaptive.context_available ? '' : ' (MISSION EVIDENCE ONLY)'}`
     : adaptive?.reason === 'model_output_not_grounded'
@@ -245,7 +261,15 @@ export function BusinessControlCenter({ onClose, initialProjectId = 'default', i
     <header className="dbos-control-center__header">
       <div><p>Dynamic Business OS</p><h2>Business Control Center</h2><span>Diagnosis, authorization, execution evidence, and reusable feedback.</span></div>
       <div className="dbos-control-center__actions">
-        <label>Project<input aria-label="DBOS project ID" value={projectId} onChange={(event) => setProjectId(event.target.value)} disabled={busy} /></label>
+        <label>Project<input aria-label="DBOS project ID" value={projectId} onChange={(event) => {
+          const nextProjectId = event.target.value;
+          if (nextProjectId !== projectId) {
+            currentProjectIdRef.current = nextProjectId.trim();
+            refreshSequenceRef.current += 1;
+            setMissionId(''); setMissions([]); setCenter(null); setAuthorized([]); setActiveIntakeSessionId(''); setError('');
+          }
+          setProjectId(nextProjectId);
+        }} disabled={busy} /></label>
         {missions.length > 0 && <label>Mission<select aria-label="DBOS mission" value={missionId} onChange={(event) => selectMission(event.target.value)} disabled={busy}><option value="">New mission</option>{missions.map((mission) => <option key={mission.artifact_id} value={mission.artifact_id}>{mission.title}</option>)}</select></label>}
         <button type="button" className="dbos-icon-button" aria-label="Refresh DBOS control center" title="Refresh" onClick={() => void refresh()} disabled={busy}><RefreshCw size={16} /></button>
         <button type="button" className="dbos-icon-button" aria-label="Close Business Control Center" title="Close" onClick={onClose}><X size={17} /></button>
@@ -254,7 +278,7 @@ export function BusinessControlCenter({ onClose, initialProjectId = 'default', i
 
     {error && <div className="dbos-alert" role="alert"><AlertTriangle size={16} /><span>{error}</span></div>}
 
-    {!center ? <form className="dbos-intake" aria-busy={busy} onSubmit={(event) => { event.preventDefault(); void createAndDiagnose(); }}>
+    {!center ? <><BlindspotIntakePanel projectId={projectId.trim()} disabled={busy} onMissionConverted={(nextMissionId) => { setActiveIntakeSessionId(''); setMissionId(nextMissionId); void refresh(nextMissionId); }} /><details className="dbos-manual-intake"><summary>Manual Mission</summary><form className="dbos-intake" aria-busy={busy} onSubmit={(event) => { event.preventDefault(); void createAndDiagnose(); }}>
       <div className="dbos-intake__intro"><ShieldCheck size={22} /><div><strong>Start with a diagnosis, not an SOP title.</strong><span>The Mission stays non-executable until its capability grants are reviewed and confirmed.</span></div></div>
       {busyLabel && <div className="dbos-intake__status" role="status" aria-live="polite"><RefreshCw size={15} /><span>{busyLabel}</span></div>}
       <label>Mission title<input required value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label>
@@ -271,7 +295,8 @@ export function BusinessControlCenter({ onClose, initialProjectId = 'default', i
       <label>Success metrics<textarea value={draft.success_metrics} onChange={(event) => setDraft({ ...draft, success_metrics: event.target.value })} placeholder="One measurable outcome per line" /></label>
       <label className="dbos-intake__evidence">Observed evidence<textarea aria-label="Observed evidence" value={draft.evidence} onChange={(event) => setDraft({ ...draft, evidence: event.target.value })} placeholder={'Source | finding | strength\nWeekly dashboard | Cart conversion fell 12% | high'} /></label>
       <button type="submit" disabled={busy || !projectId.trim()}><Network size={16} />{busyLabel || 'Create diagnosis'}</button>
-    </form> : <>
+    </form></details></> : <>
+      {visibleIntakeSessionId && <BlindspotIntakePanel projectId={projectId.trim()} sessionId={visibleIntakeSessionId} disabled={busy} onMissionConverted={(nextMissionId) => { setActiveIntakeSessionId(visibleIntakeSessionId); setMissionId(nextMissionId); void refresh(nextMissionId); }} />}
       <div className="dbos-metrics">
         <div><small>MISSION</small><strong>{String(center.mission.status || center.mission.mission_status || 'draft')}</strong></div>
         <div><small>CAPABILITIES</small><strong>{center.selection?.selected?.length ?? 0}</strong></div>

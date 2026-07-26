@@ -149,6 +149,7 @@ class Settings(BaseSettings):
     KNOWLEDGE_GROWTH_ENABLED: bool = False
     KNOWLEDGE_GROWTH_SEMANTIC_DISTILLATION_ENABLED: bool = False
     DYNAMIC_BUSINESS_OS_ENABLED: bool = True
+    DBOS_BLINDSPOT_INTAKE_ENABLED: bool = True
     OBSIDIAN_VAULT_ROOT: str = ""
     HORIZON_ENABLED: bool = False
     HORIZON_API_BASE_URL: str = ""

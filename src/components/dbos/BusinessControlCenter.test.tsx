@@ -91,6 +91,40 @@ describe('BusinessControlCenter', () => {
     expect(screen.getByRole('button', { name: /confirm 1 capability/i })).toBeVisible();
   });
 
+  it('clears Mission and Intake state immediately when the project scope changes', () => {
+    render(<BusinessControlCenter onClose={vi.fn()} initialProjectId="project-a" initialData={center} />);
+
+    fireEvent.change(screen.getByLabelText('DBOS project ID'), { target: { value: 'project-b' } });
+
+    expect(screen.queryByText('30-day Conversion Recovery Operating System')).not.toBeInTheDocument();
+    expect(screen.queryByText('Conversion recovery')).not.toBeInTheDocument();
+  });
+
+  it('clears cached Mission choices when the project scope changes', async () => {
+    dbosApi.listDbosMissions.mockResolvedValue({ missions: [{ artifact_id: 'mission-a', title: 'Conversion recovery' }] });
+    dbosApi.getDBOSControlCenter.mockResolvedValue(center);
+    render(<BusinessControlCenter onClose={vi.fn()} initialProjectId="project-a" />);
+
+    expect(await screen.findByRole('option', { name: 'Conversion recovery' })).toBeVisible();
+    fireEvent.change(screen.getByLabelText('DBOS project ID'), { target: { value: 'project-b' } });
+
+    expect(screen.queryByRole('option', { name: 'Conversion recovery' })).not.toBeInTheDocument();
+  });
+
+  it('does not restore a prior project after its in-flight refresh resolves', async () => {
+    let resolveList: ((value: { missions: Array<{ artifact_id: string; title: string }> }) => void) | undefined;
+    dbosApi.listDbosMissions.mockImplementationOnce(() => new Promise((resolve) => { resolveList = resolve; }));
+
+    render(<BusinessControlCenter onClose={vi.fn()} initialProjectId="project-a" />);
+    await waitFor(() => expect(dbosApi.listDbosMissions).toHaveBeenCalledWith('project-a'));
+
+    fireEvent.change(screen.getByLabelText('DBOS project ID'), { target: { value: 'project-b' } });
+    resolveList?.({ missions: [{ artifact_id: 'mission-a', title: 'Conversion recovery' }] });
+
+    await waitFor(() => expect(dbosApi.getDBOSControlCenter).not.toHaveBeenCalled());
+    expect(screen.queryByText('Conversion recovery')).not.toBeInTheDocument();
+  });
+
   it('requires the matching persisted decision before enabling execution', () => {
     const confirmedWithoutDecision: DBOSControlCenter = {
       ...center,

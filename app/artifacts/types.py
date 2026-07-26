@@ -62,6 +62,8 @@ class ArtifactType(StrEnum):
     TASK_VERIFICATION = "task_verification"
     EXTERNAL_WORKER_RUN = "external_worker_run"
     ADVISOR_REVIEW = "advisor_review"
+    INTAKE_SESSION = "intake_session"
+    INTAKE_ANSWER_REVISION = "intake_answer_revision"
 
 
 class GapCategory(StrEnum):
@@ -323,6 +325,47 @@ class MissionArtifact(BaseArtifact):
     confirmed_by: str = ""
     confirmed_at: str = ""
     revision: int = Field(default=1, ge=1)
+
+
+class IntakeSessionArtifact(BaseArtifact):
+    """Project-scoped, reviewable state for a bounded DBOS intake."""
+
+    artifact_type: ArtifactType = ArtifactType.INTAKE_SESSION
+    session_id: str = ""
+    original_request: str = ""
+    classification: str = "uncertain"
+    classification_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    classification_rationale: list[str] = Field(default_factory=list)
+    domain: str = "business"
+    phase: str = "classified"
+    initial_context: dict[str, Any] = Field(default_factory=dict)
+    declared_context: dict[str, Any] = Field(default_factory=dict)
+    unresolved_fields: list[str] = Field(default_factory=list)
+    active_question: dict[str, Any] = Field(default_factory=dict)
+    qualifying_question_count: int = Field(default=0, ge=0, le=2)
+    completion_question_count: int = Field(default=0, ge=0, le=3)
+    probe_question_count: int = Field(default=0, ge=0, le=1)
+    tier: str = ""
+    recommendation_state: str = "idle"
+    recommendations: list[dict[str, Any]] = Field(default_factory=list)
+    linked_mission_id: str = ""
+    handoff_path: str = ""
+    handoff_sha256: str = ""
+
+
+class IntakeAnswerRevisionArtifact(BaseArtifact):
+    """An immutable answer or skip record owned by one intake session."""
+
+    artifact_type: ArtifactType = ArtifactType.INTAKE_ANSWER_REVISION
+    session_id: str = ""
+    question_id: str = ""
+    question_field: str = ""
+    question_phase: str = ""
+    answer: str = ""
+    skipped: bool = False
+    context_updates: dict[str, Any] = Field(default_factory=dict)
+    revision_ordinal: int = Field(default=1, ge=1)
+    supersedes_id: str = ""
 
 
 class DiagnosisArtifact(BaseArtifact):
@@ -646,4 +689,6 @@ ARTIFACT_CLASS_MAP: dict[ArtifactType, type[BaseArtifact]] = {
     ArtifactType.TASK_VERIFICATION: TaskVerificationArtifact,
     ArtifactType.EXTERNAL_WORKER_RUN: ExternalWorkerRunArtifact,
     ArtifactType.ADVISOR_REVIEW: AdvisorReviewArtifact,
+    ArtifactType.INTAKE_SESSION: IntakeSessionArtifact,
+    ArtifactType.INTAKE_ANSWER_REVISION: IntakeAnswerRevisionArtifact,
 }

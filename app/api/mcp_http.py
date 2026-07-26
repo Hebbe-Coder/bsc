@@ -62,6 +62,7 @@ _TOOL_HANDLERS = {
     "dbos_confirm": server.dbos_confirm,
     "dbos_execute": server.dbos_execute,
     "dbos_feedback": server.dbos_feedback,
+    "dbos_intake": server.dbos_intake,
     "analyze_domain": server.analyze_domain,
 }
 
@@ -106,6 +107,7 @@ _DBOS_TOOLS = {
     "dbos_confirm",
     "dbos_execute",
     "dbos_feedback",
+    "dbos_intake",
 }
 _DBOS_WRITE_TOOLS = {
     "dbos_create_mission",
@@ -123,6 +125,7 @@ _DBOS_WRITE_TOOLS = {
     "dbos_confirm",
     "dbos_execute",
     "dbos_feedback",
+    "dbos_intake",
 }
 
 _TOOL_SPECS = {
@@ -540,6 +543,16 @@ _TOOL_SPECS = {
         },
         "required": ["project_id", "mission_id", "statement"],
     },
+    "dbos_intake": {
+        "description": "Create or govern a bounded Blindspot Intake. Conversion creates a review-gated Mission; it never executes work.",
+        "properties": {
+            "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "action": {"type": "string", "enum": ["create", "get", "resolve_uncertain", "next_question", "answer", "revert", "list_revisions", "direct_to_review", "select_tier", "convert", "recommend", "export_handoff"]},
+            "session_id": {"type": "string", "maxLength": 128},
+            "payload": {"type": "object"},
+        },
+        "required": ["project_id", "action"],
+    },
     "analyze_domain": {
         "description": "Classify a business text into a domain.",
         "properties": {"text": {"type": "string"}},
@@ -707,6 +720,8 @@ def _tool_list() -> list[dict[str, Any]]:
         enabled_names -= _GROWTH_WRITE_ONLY_TOOLS
     if not settings.DYNAMIC_BUSINESS_OS_ENABLED:
         enabled_names -= _DBOS_TOOLS
+    elif not settings.DBOS_BLINDSPOT_INTAKE_ENABLED:
+        enabled_names.discard("dbos_intake")
     return [
         {
             "name": name,

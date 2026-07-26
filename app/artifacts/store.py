@@ -132,6 +132,18 @@ class ArtifactGraphStore:
             artifact.project_id = self._project_id
         for parent_id in artifact.parent_ids:
             parent = self._index.get(parent_id)
+            if parent is None:
+                # Stores can share a directory while holding independently
+                # loaded indexes. Read a persisted parent before accepting an
+                # edge so a stale index cannot create a cross-project link.
+                parent_path = self._artifact_path(parent_id)
+                if parent_path.exists():
+                    raw_parent = json.loads(parent_path.read_text(encoding="utf-8"))
+                    parent = {
+                        "tenant_id": raw_parent.get("tenant_id", ""),
+                        "project_id": raw_parent.get("project_id", ""),
+                        "session_id": raw_parent.get("session_id", ""),
+                    }
             if parent is not None and not self._matches_scope(parent):
                 raise ValueError("artifact parent is outside this store scope")
         artifact.updated_at = time.strftime("%Y-%m-%dT%H:%M:%S")
