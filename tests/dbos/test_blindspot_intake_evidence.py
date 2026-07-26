@@ -100,3 +100,41 @@ def test_approved_handoff_is_hashed_idempotent_and_not_a_source(tmp_path, monkey
         assert repo.list_sources("project-a")[0]["id"] == "a-source"
     finally:
         repo.close()
+
+
+def test_direct_review_runs_the_full_governed_path_to_an_approved_vault_handoff(tmp_path, monkeypatch):
+    vault_root = tmp_path / "vault"
+    vault_root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "knowledge.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        repo.create_source(_source("horizon-direct"))
+        monkeypatch.setattr(settings, "OBSIDIAN_VAULT_ROOT", str(vault_root))
+        service = DBOSService(
+            store=ArtifactGraphStore(str(tmp_path / "artifacts"), project_id="project-a"),
+            knowledge_repository=repo,
+        )
+
+        session = service.create_intake(
+            "project-a",
+            "Build a customer research workflow",
+            context={"role": "Research lead"},
+        )
+        reviewed = service.direct_to_review(session.artifact_id)
+        service.select_intake_tier(session.artifact_id, "standard")
+        recommended = service.recommend_intake(session.artifact_id)
+        flow = service.convert_intake(session.artifact_id)
+        handoff = service.export_intake_handoff(session.artifact_id, actor_id="owner", approved=True)
+        target = vault_root / "projects" / "project-a" / "outputs" / "handoffs" / f"{session.artifact_id}.md"
+
+        assert reviewed.phase == "ready_for_review"
+        assert "goal" in reviewed.unresolved_fields
+        assert recommended.recommendations[0]["trust_level"] == "reviewed"
+        assert recommended.recommendations[0]["applicability"] == "automation intake at standard tier"
+        assert flow.mission.mission_status == "ready_for_confirmation"
+        assert target.exists()
+        assert handoff.metadata["content_sha256"] == service.get_intake(session.artifact_id).handoff_sha256
+        assert "Approved DBOS Intake Handoff" in target.read_text(encoding="utf-8")
+        assert [source["id"] for source in repo.list_sources("project-a")] == ["horizon-direct"]
+    finally:
+        repo.close()

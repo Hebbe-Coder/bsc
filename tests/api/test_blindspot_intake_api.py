@@ -62,3 +62,45 @@ def test_intake_rest_rejects_extra_fields_and_unapproved_handoff(monkeypatch, tm
     )
     assert handoff.status_code == 422
     assert "explicit approval" in handoff.text
+
+
+def test_intake_availability_hides_mutating_routes_when_feature_is_disabled(monkeypatch, tmp_path):
+    from app.api import dbos_api
+    from app.core.config import settings
+
+    monkeypatch.setattr(dbos_api, "DBOS_DATA_ROOT", tmp_path / "dbos")
+    monkeypatch.setattr(settings, "DBOS_BLINDSPOT_INTAKE_ENABLED", False)
+    client = TestClient(app)
+
+    availability = client.get("/api/dbos/intake/availability")
+    assert availability.status_code == 200
+    assert availability.json() == {"enabled": False}
+
+    created = client.post("/api/dbos/intake", json={"project_id": "project-a", "request_text": "Build a site"})
+    assert created.status_code == 503
+    assert "blindspot_intake_disabled" in created.text
+
+
+def test_intake_rest_supports_direct_review_and_revision_listing(monkeypatch, tmp_path):
+    from app.api import dbos_api
+
+    monkeypatch.setattr(dbos_api, "DBOS_DATA_ROOT", tmp_path / "dbos")
+    client = TestClient(app)
+    project_id = "direct-review-project"
+    created = client.post("/api/dbos/intake", json={"project_id": project_id, "request_text": "Build a site"})
+    session_id = created.json()["intake"]["artifact_id"]
+
+    next_question = client.post(f"/api/dbos/intake/{session_id}/questions/next", json={"project_id": project_id})
+    question_id = next_question.json()["question"]["question_id"]
+    client.post(
+        f"/api/dbos/intake/{session_id}/answers",
+        json={"project_id": project_id, "question_id": question_id, "answer": "Product lead"},
+    )
+    revisions = client.get(f"/api/dbos/intake/{session_id}/answers", params={"project_id": project_id})
+    assert revisions.status_code == 200
+    assert revisions.json()["revisions"][0]["question_id"] == question_id
+
+    reviewed = client.post(f"/api/dbos/intake/{session_id}/direct-review", json={"project_id": project_id})
+    assert reviewed.status_code == 200
+    assert reviewed.json()["intake"]["phase"] == "ready_for_review"
+    assert "goal" in reviewed.json()["intake"]["unresolved_fields"]

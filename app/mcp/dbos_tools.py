@@ -11,6 +11,7 @@ from typing import Any
 
 from app.artifacts import ExecutionResultArtifact
 from app.api.dbos_api import dbos_service_for
+from app.core.config import settings
 from app.dbos.external_worker import ExternalWorkerPolicyError
 
 
@@ -276,6 +277,8 @@ def dbos_intake(
 ) -> dict[str, Any]:
     """Unified governed-intake facade with no execution or external side effects."""
     _project(project_id)
+    if not settings.DBOS_BLINDSPOT_INTAKE_ENABLED:
+        raise ValueError("governed blindspot intake is disabled")
     values = payload or {}
     service = dbos_service_for(project_id)
     if action == "create":
@@ -296,6 +299,11 @@ def dbos_intake(
         return {"intake": intake.model_dump(mode="json")}
     if action == "revert":
         intake = service.revert_intake_answer(session_id, str(values.get("revision_id") or ""))
+        return {"intake": intake.model_dump(mode="json")}
+    if action == "list_revisions":
+        return {"revisions": [revision.model_dump(mode="json") for revision in service.list_intake_revisions(session_id)]}
+    if action == "direct_to_review":
+        intake = service.direct_to_review(session_id)
         return {"intake": intake.model_dump(mode="json")}
     if action == "select_tier":
         intake = service.select_intake_tier(session_id, str(values.get("tier") or ""))

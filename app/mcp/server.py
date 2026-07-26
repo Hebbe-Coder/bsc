@@ -1033,7 +1033,7 @@ def dbos_intake(
     api_key: str = "",
 ) -> dict:
     """Create or govern a bounded Blindspot Intake without bypassing Mission confirmation."""
-    write_actions = {"create", "resolve_uncertain", "next_question", "answer", "revert", "select_tier", "convert", "recommend", "export_handoff"}
+    write_actions = {"create", "resolve_uncertain", "next_question", "answer", "revert", "direct_to_review", "select_tier", "convert", "recommend", "export_handoff"}
     _authorize_dbos_project(project_id, api_key, write=action in write_actions)
     return dbos_tools.dbos_intake(project_id, action, session_id, payload)
 

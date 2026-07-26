@@ -137,13 +137,20 @@ class IntakeHandoffRequest(DBOSRequest):
 
 @router.post("/intake", status_code=201)
 def create_intake(payload: IntakeCreateRequest, request: Request):
+    _require_intake_enabled()
     service = _service(request, payload.project_id, write=True)
     intake = _guard(lambda: service.create_intake(payload.project_id, payload.request_text, context=payload.context))
     return {"intake": intake.model_dump(mode="json")}
 
 
+@router.get("/intake/availability")
+def intake_availability():
+    return {"enabled": bool(settings.DYNAMIC_BUSINESS_OS_ENABLED and settings.DBOS_BLINDSPOT_INTAKE_ENABLED)}
+
+
 @router.get("/intake/{session_id}")
 def read_intake(session_id: str, request: Request, project_id: str = Query(min_length=1, max_length=128)):
+    _require_intake_enabled()
     service = _service(request, project_id, write=False)
     try:
         intake = service.get_intake(session_id)
@@ -154,6 +161,7 @@ def read_intake(session_id: str, request: Request, project_id: str = Query(min_l
 
 @router.post("/intake/{session_id}/uncertainty")
 def resolve_intake_uncertainty(session_id: str, payload: IntakeUncertaintyRequest, request: Request):
+    _require_intake_enabled()
     service = _service(request, payload.project_id, write=True)
     intake = _guard(lambda: service.resolve_intake_uncertainty(session_id, payload.action))
     return {"intake": intake.model_dump(mode="json")}
@@ -161,6 +169,7 @@ def resolve_intake_uncertainty(session_id: str, payload: IntakeUncertaintyReques
 
 @router.post("/intake/{session_id}/questions/next")
 def next_intake_question(session_id: str, payload: IntakeProjectRequest, request: Request):
+    _require_intake_enabled()
     service = _service(request, payload.project_id, write=True)
     question = _guard(lambda: service.next_intake_question(session_id))
     return {"intake": service.get_intake(session_id).model_dump(mode="json"), "question": question}
@@ -168,6 +177,7 @@ def next_intake_question(session_id: str, payload: IntakeProjectRequest, request
 
 @router.post("/intake/{session_id}/answers")
 def answer_intake(session_id: str, payload: IntakeAnswerRequest, request: Request):
+    _require_intake_enabled()
     service = _service(request, payload.project_id, write=True)
     intake = _guard(lambda: service.answer_intake(session_id, payload.question_id, payload.answer, skipped=payload.skipped))
     return {"intake": intake.model_dump(mode="json")}
@@ -175,6 +185,7 @@ def answer_intake(session_id: str, payload: IntakeAnswerRequest, request: Reques
 
 @router.post("/intake/{session_id}/answers/{revision_id}/revert")
 def revert_intake_answer(session_id: str, revision_id: str, payload: IntakeProjectRequest, request: Request):
+    _require_intake_enabled()
     service = _service(request, payload.project_id, write=True)
     intake = _guard(lambda: service.revert_intake_answer(session_id, revision_id))
     return {"intake": intake.model_dump(mode="json")}
@@ -182,13 +193,31 @@ def revert_intake_answer(session_id: str, revision_id: str, payload: IntakeProje
 
 @router.post("/intake/{session_id}/tier")
 def select_intake_tier(session_id: str, payload: IntakeTierRequest, request: Request):
+    _require_intake_enabled()
     service = _service(request, payload.project_id, write=True)
     intake = _guard(lambda: service.select_intake_tier(session_id, payload.tier))
     return {"intake": intake.model_dump(mode="json")}
 
 
+@router.get("/intake/{session_id}/answers")
+def list_intake_answers(session_id: str, request: Request, project_id: str = Query(min_length=1, max_length=128)):
+    _require_intake_enabled()
+    service = _service(request, project_id, write=False)
+    revisions = _guard(lambda: service.list_intake_revisions(session_id))
+    return {"revisions": [revision.model_dump(mode="json") for revision in revisions]}
+
+
+@router.post("/intake/{session_id}/direct-review")
+def direct_intake_review(session_id: str, payload: IntakeProjectRequest, request: Request):
+    _require_intake_enabled()
+    service = _service(request, payload.project_id, write=True)
+    intake = _guard(lambda: service.direct_to_review(session_id))
+    return {"intake": intake.model_dump(mode="json")}
+
+
 @router.post("/intake/{session_id}/convert")
 def convert_intake(session_id: str, payload: IntakeConvertRequest, request: Request):
+    _require_intake_enabled()
     service = _service(request, payload.project_id, write=True)
     flow = _guard(lambda: service.convert_intake(session_id, title=payload.title))
     return {"intake": service.get_intake(session_id).model_dump(mode="json"), "mission": flow.mission.model_dump(mode="json")}
@@ -196,6 +225,7 @@ def convert_intake(session_id: str, payload: IntakeConvertRequest, request: Requ
 
 @router.post("/intake/{session_id}/recommendations")
 def recommend_intake(session_id: str, payload: IntakeProjectRequest, request: Request):
+    _require_intake_enabled()
     service = _service(request, payload.project_id, write=True)
     intake = _guard(lambda: service.recommend_intake(session_id))
     return {"intake": intake.model_dump(mode="json")}
@@ -203,6 +233,7 @@ def recommend_intake(session_id: str, payload: IntakeProjectRequest, request: Re
 
 @router.post("/intake/{session_id}/handoff", status_code=201)
 def export_intake_handoff(session_id: str, payload: IntakeHandoffRequest, request: Request):
+    _require_intake_enabled()
     service = _service(request, payload.project_id, write=True)
     deliverable = _guard(lambda: service.export_intake_handoff(session_id, actor_id=payload.actor_id, approved=payload.approved))
     return {"intake": service.get_intake(session_id).model_dump(mode="json"), "handoff": deliverable.model_dump(mode="json")}
@@ -373,6 +404,14 @@ def _service(request: Request, project_id: str, *, write: bool) -> DBOSService:
         raise HTTPException(status_code=403, detail="read-only key cannot mutate DBOS missions")
     tenant = str(getattr(request.state, "tenant_id", settings.DEFAULT_TENANT_ID))
     return dbos_service_for(project_id, tenant_id=tenant)
+
+
+def _require_intake_enabled() -> None:
+    if not settings.DBOS_BLINDSPOT_INTAKE_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "blindspot_intake_disabled", "message": "Governed Blindspot Intake is disabled by configuration"},
+        )
 
 
 def dbos_service_for(project_id: str, *, tenant_id: str | None = None) -> DBOSService:

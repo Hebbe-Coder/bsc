@@ -77,6 +77,9 @@ class IntakeService:
             tags=["dbos", "blindspot_intake", classification, domain],
         )
         session.session_id = session.artifact_id
+        if classification == "direct":
+            session.unresolved_fields = self._missing_expected_fields(session)
+            session.classification_rationale.append("direct path preserves unanswered context as explicit gaps")
         self.store.add(session)
         return session
 
@@ -135,6 +138,7 @@ class IntakeService:
         return item
 
     def resolve_uncertain(self, session_id: str, action: str) -> IntakeSessionArtifact:
+        self._ensure_enabled()
         session = self.get_session(session_id)
         if session.classification != "uncertain" or session.phase != "classified":
             raise IntakeError("session does not require an uncertainty choice")
@@ -148,17 +152,21 @@ class IntakeService:
         classification, phase = mapping[action]
         session.classification = classification
         session.phase = phase
+        if classification == "direct":
+            session.active_question = {}
+            session.unresolved_fields = self._missing_expected_fields(session)
         session.classification_rationale.append(f"user resolved uncertainty: {action}")
         self.store.update(session)
         return session
 
     def next_question(self, session_id: str) -> dict[str, Any] | None:
+        self._ensure_enabled()
         session = self.get_session(session_id)
         if session.phase != "clarifying":
             return None
         if session.active_question:
             return dict(session.active_question)
-        answered_fields = {item.question_field for item in self._active_revisions(session)}
+        answered_fields = self._known_fields(session)
         candidate = self._next_candidate(session, answered_fields)
         if candidate is None:
             session.phase = "ready_for_review"
@@ -178,6 +186,7 @@ class IntakeService:
         return question
 
     def answer(self, session_id: str, question_id: str, answer: str = "", *, skipped: bool = False) -> IntakeSessionArtifact:
+        self._ensure_enabled()
         session = self.get_session(session_id)
         question = session.active_question
         if session.phase != "clarifying" or not question or question.get("question_id") != question_id:
@@ -206,6 +215,7 @@ class IntakeService:
         return session
 
     def revert(self, session_id: str, revision_id: str) -> IntakeSessionArtifact:
+        self._ensure_enabled()
         session = self.get_session(session_id)
         if session.phase == "converted":
             raise IntakeError("converted intake answers are immutable; create a new intake revision")
@@ -223,6 +233,7 @@ class IntakeService:
         return session
 
     def select_tier(self, session_id: str, tier: str) -> IntakeSessionArtifact:
+        self._ensure_enabled()
         session = self.get_session(session_id)
         normalized = tier.strip().lower()
         if normalized not in {"lite", "standard", "full"}:
@@ -232,6 +243,28 @@ class IntakeService:
         session.tier = normalized
         self.store.update(session)
         return session
+
+    def direct_to_review(self, session_id: str) -> IntakeSessionArtifact:
+        """End optional questioning while preserving all remaining unknowns."""
+        self._ensure_enabled()
+        session = self.get_session(session_id)
+        if session.phase in {"converted", "exited", "cancelled"}:
+            raise IntakeError("intake cannot enter direct review in its current phase")
+        if session.phase == "classified":
+            raise IntakeError("resolve the uncertainty choice before entering direct review")
+        session.active_question = {}
+        session.unresolved_fields = list(dict.fromkeys([
+            *session.unresolved_fields,
+            *self._missing_expected_fields(session),
+        ]))
+        session.phase = "ready_for_review"
+        session.classification_rationale.append("user bypassed remaining intake questions")
+        self.store.update(session)
+        return session
+
+    def list_revisions(self, session_id: str) -> list[IntakeAnswerRevisionArtifact]:
+        session = self.get_session(session_id)
+        return self._all_revisions(session)
 
     def _next_candidate(self, session: IntakeSessionArtifact, answered_fields: set[str]) -> tuple[str, str] | None:
         if session.qualifying_question_count < 2:
@@ -260,8 +293,18 @@ class IntakeService:
         session.qualifying_question_count = sum(item.question_phase == "qualify" for item in revisions)
         session.completion_question_count = sum(item.question_phase == "complete" for item in revisions)
         session.probe_question_count = sum(item.question_phase == "probe" for item in revisions)
-        if session.classification == "build" and self._next_candidate(session, {item.question_field for item in revisions}) is None:
+        if session.classification == "build" and self._next_candidate(session, self._known_fields(session)) is None:
             session.phase = "ready_for_review"
+
+    def _known_fields(self, session: IntakeSessionArtifact) -> set[str]:
+        return {
+            *session.initial_context.keys(),
+            *(item.question_field for item in self._active_revisions(session)),
+        }
+
+    def _missing_expected_fields(self, session: IntakeSessionArtifact) -> list[str]:
+        expected = [*self.QUALIFYING_FIELDS, *self.COMPLETION_FIELDS[session.domain], "primary_risk"]
+        return [field for field in expected if field not in self._known_fields(session)]
 
     def _active_revisions(self, session: IntakeSessionArtifact) -> list[IntakeAnswerRevisionArtifact]:
         return [

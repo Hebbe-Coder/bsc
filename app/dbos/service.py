@@ -105,6 +105,12 @@ class DBOSService:
     def revert_intake_answer(self, session_id: str, revision_id: str):
         return self.intake_service.revert(session_id, revision_id)
 
+    def list_intake_revisions(self, session_id: str):
+        return self.intake_service.list_revisions(session_id)
+
+    def direct_to_review(self, session_id: str):
+        return self.intake_service.direct_to_review(session_id)
+
     def select_intake_tier(self, session_id: str, tier: str):
         return self.intake_service.select_tier(session_id, tier)
 
@@ -117,6 +123,7 @@ class DBOSService:
         )
 
     def _with_intake_evidence(self, operation, session_id: str):
+        self.intake_service._ensure_enabled()
         session = self.intake_service.get_session(session_id)
         repository = self._knowledge_repository
         owned = False
@@ -131,6 +138,7 @@ class DBOSService:
 
     def convert_intake(self, session_id: str, *, title: str = "") -> DBOSFlow:
         """Create exactly one review-gated Mission from a ready Intake session."""
+        self.intake_service._ensure_enabled()
         session = self.intake_service.get_session(session_id)
         if session.linked_mission_id:
             mission = self._mission(session.linked_mission_id)
@@ -163,7 +171,7 @@ class DBOSService:
         return self.diagnose_and_compile(mission.artifact_id)
 
     def _persist_unresolved_intake_gaps(self, session, diagnosis_id: str) -> None:
-        """Keep skips explicit rather than silently substituting a default fact."""
+        """Keep skipped or bypassed fields explicit rather than inferring a fact."""
         for field in session.unresolved_fields:
             self.store.add(AssumptionArtifact(
                 project_id=session.project_id,
@@ -180,7 +188,7 @@ class DBOSService:
             self.store.add(GapArtifact(
                 project_id=session.project_id,
                 label=f"Unanswered intake: {field}",
-                gap_statement=f"The intake owner skipped '{field}', so it remains an explicit gap.",
+                gap_statement=f"The intake owner did not declare '{field}', so it remains an explicit gap.",
                 category=GapCategory.EVIDENCE_MISSING,
                 severity=Severity.MEDIUM,
                 affected_artifact_ids=[diagnosis_id, session.artifact_id],

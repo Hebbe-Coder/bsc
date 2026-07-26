@@ -239,6 +239,20 @@ export type DbosIntake = {
   [key: string]: unknown;
 };
 
+export type DbosIntakeAvailability = {
+  enabled: boolean;
+};
+
+export type DbosIntakeRevision = {
+  artifact_id: string;
+  question_id: string;
+  question_field: string;
+  question_phase: string;
+  answer: string;
+  skipped: boolean;
+  status: string;
+};
+
 export class DbosRequestError extends Error {
   constructor(
     message: string,
@@ -367,6 +381,10 @@ export async function createDbosIntake(projectId: string, requestText: string, c
   return payload.intake;
 }
 
+export function fetchDbosIntakeAvailability(): Promise<DbosIntakeAvailability> {
+  return request('/api/dbos/intake/availability');
+}
+
 export async function fetchDbosIntake(projectId: string, sessionId: string): Promise<DbosIntake> {
   const payload = await request<{ intake: DbosIntake }>(`/api/dbos/intake/${encodeURIComponent(sessionId)}?${projectQuery(projectId)}`);
   return payload.intake;
@@ -383,6 +401,26 @@ export async function nextDbosIntakeQuestion(projectId: string, sessionId: strin
 
 export async function answerDbosIntake(projectId: string, sessionId: string, questionId: string, answer = '', skipped = false): Promise<DbosIntake> {
   const payload = await request<{ intake: DbosIntake }>(`/api/dbos/intake/${encodeURIComponent(sessionId)}/answers`, json({ project_id: projectId, question_id: questionId, answer, skipped }));
+  return payload.intake;
+}
+
+export async function listDbosIntakeRevisions(projectId: string, sessionId: string): Promise<{ revisions: DbosIntakeRevision[] }> {
+  return request(`/api/dbos/intake/${encodeURIComponent(sessionId)}/answers?${projectQuery(projectId)}`);
+}
+
+export async function revertDbosIntakeAnswer(projectId: string, sessionId: string, revisionId: string): Promise<DbosIntake> {
+  const payload = await request<{ intake: DbosIntake }>(
+    `/api/dbos/intake/${encodeURIComponent(sessionId)}/answers/${encodeURIComponent(revisionId)}/revert`,
+    json({ project_id: projectId }),
+  );
+  return payload.intake;
+}
+
+export async function directReviewDbosIntake(projectId: string, sessionId: string): Promise<DbosIntake> {
+  const payload = await request<{ intake: DbosIntake }>(
+    `/api/dbos/intake/${encodeURIComponent(sessionId)}/direct-review`,
+    json({ project_id: projectId }),
+  );
   return payload.intake;
 }
 

@@ -65,3 +65,18 @@ def test_answer_reversion_is_allowed_before_conversion_but_not_after(tmp_path):
     service.convert_intake(session.artifact_id)
     with pytest.raises(IntakeError):
         service.revert_intake_answer(session.artifact_id, revision.artifact_id)
+
+
+def test_direct_review_conversion_persists_bypassed_fields_as_assumptions_and_gaps(tmp_path):
+    service = _service(tmp_path)
+    session = service.create_intake("project-a", "Build a customer research portal")
+
+    reviewed = service.direct_to_review(session.artifact_id)
+    flow = service.convert_intake(session.artifact_id)
+    artifacts = service.store.get_by_project("project-a")
+
+    assert reviewed.phase == "ready_for_review"
+    assert "role" in reviewed.unresolved_fields
+    assert flow.mission.mission_status == "ready_for_confirmation"
+    assert any(isinstance(item, AssumptionArtifact) and item.label == "Unanswered intake: role" for item in artifacts)
+    assert any(isinstance(item, GapArtifact) and item.label == "Unanswered intake: role" for item in artifacts)

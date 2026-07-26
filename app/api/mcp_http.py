@@ -547,7 +547,7 @@ _TOOL_SPECS = {
         "description": "Create or govern a bounded Blindspot Intake. Conversion creates a review-gated Mission; it never executes work.",
         "properties": {
             "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
-            "action": {"type": "string", "enum": ["create", "get", "resolve_uncertain", "next_question", "answer", "revert", "select_tier", "convert", "recommend", "export_handoff"]},
+            "action": {"type": "string", "enum": ["create", "get", "resolve_uncertain", "next_question", "answer", "revert", "list_revisions", "direct_to_review", "select_tier", "convert", "recommend", "export_handoff"]},
             "session_id": {"type": "string", "maxLength": 128},
             "payload": {"type": "object"},
         },
@@ -720,6 +720,8 @@ def _tool_list() -> list[dict[str, Any]]:
         enabled_names -= _GROWTH_WRITE_ONLY_TOOLS
     if not settings.DYNAMIC_BUSINESS_OS_ENABLED:
         enabled_names -= _DBOS_TOOLS
+    elif not settings.DBOS_BLINDSPOT_INTAKE_ENABLED:
+        enabled_names.discard("dbos_intake")
     return [
         {
             "name": name,

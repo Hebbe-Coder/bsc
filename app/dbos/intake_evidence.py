@@ -10,7 +10,7 @@ from app.artifacts import ArtifactGraphStore, DeliverableArtifact, IntakeSession
 from app.core.config import settings
 from app.knowledge.vault import FilesystemWikiVault
 
-from .intake import IntakeError
+from .intake import IntakeError, IntakeService
 
 
 class IntakeEvidenceService:
@@ -23,6 +23,7 @@ class IntakeEvidenceService:
         self.repository = repository
 
     def recommend(self, session: IntakeSessionArtifact) -> IntakeSessionArtifact:
+        IntakeService._ensure_enabled()
         if not session.tier:
             raise IntakeError("select an intake tier before generating recommendations")
         if self.repository is None or not hasattr(self.repository, "list_sources"):
@@ -44,6 +45,7 @@ class IntakeEvidenceService:
         return session
 
     def export_handoff(self, session: IntakeSessionArtifact, *, actor_id: str, approved: bool) -> DeliverableArtifact:
+        IntakeService._ensure_enabled()
         if not approved:
             raise IntakeError("Vault handoff requires an explicit approval")
         if not session.linked_mission_id:

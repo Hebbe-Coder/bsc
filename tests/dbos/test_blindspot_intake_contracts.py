@@ -1,5 +1,8 @@
+import pytest
+
 from app.artifacts import ArtifactGraphStore, ArtifactType, IntakeAnswerRevisionArtifact, IntakeSessionArtifact
-from app.dbos.intake import IntakeService
+from app.core.config import settings
+from app.dbos.intake import IntakeDisabledError, IntakeService
 
 
 def _service(tmp_path):
@@ -81,3 +84,37 @@ def test_store_scope_rejects_an_intake_parent_from_another_project(tmp_path):
         assert "outside this store scope" in str(exc)
     else:
         raise AssertionError("cross-project Intake parent should be rejected")
+
+
+def test_prefilled_context_skips_duplicate_questions_and_direct_review_persists_unanswered_fields(tmp_path):
+    service = _service(tmp_path)
+    session = service.create_session(
+        "project-a",
+        "Build a customer research portal",
+        context={"role": "Product lead", "industry": "Software or AI"},
+    )
+
+    question = service.next_question(session.artifact_id)
+    assert question is not None
+    assert question["field"] == "goal"
+
+    reviewed = service.direct_to_review(session.artifact_id)
+    assert reviewed.phase == "ready_for_review"
+    assert "role" not in reviewed.unresolved_fields
+    assert "industry" not in reviewed.unresolved_fields
+    assert {"goal", "organization_stage", "success_metrics", "primary_risk"} <= set(reviewed.unresolved_fields)
+
+
+def test_feature_flag_blocks_every_intake_mutation_after_a_session_exists(tmp_path, monkeypatch):
+    service = _service(tmp_path)
+    session = service.create_session("project-a", "Build a customer portal")
+    monkeypatch.setattr(settings, "DBOS_BLINDSPOT_INTAKE_ENABLED", False)
+
+    with pytest.raises(IntakeDisabledError):
+        service.next_question(session.artifact_id)
+    with pytest.raises(IntakeDisabledError):
+        service.direct_to_review(session.artifact_id)
+
+    restored = service.get_session(session.artifact_id)
+    assert restored.phase == "clarifying"
+    assert not restored.active_question
