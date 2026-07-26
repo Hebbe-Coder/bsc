@@ -65,12 +65,15 @@ def test_postgresql_matches_runtime_persistence_contract():
             message="started",
         )
         event_store.append(event)
+        repo.record_event(event)
 
         restored = repo.get(session_id)
         assert restored is not None
         assert restored.tenant_id == "tenant-contract"
         assert restored.project_id == "project-contract"
         assert restored.owner_session_id == "browser-contract"
+        assert restored.current_stage == "pipeline"
+        assert restored.event_seq == 1
         assert event_store.events_after(session_id, after=0) == [event]
         assert asset["project_id"] == project["id"]
         assert document["project_id"] == project["id"]

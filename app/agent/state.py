@@ -238,14 +238,17 @@ class ProjectDraftRepository:
         return draft
 
     def record_event(self, event: Any) -> None:
+        # PostgreSQL does not coerce SQLite-style integer parameters to boolean
+        # inside CASE WHEN. Resolve the terminal branch before executing the
+        # shared qmark SQL so both database backends preserve the same stage.
+        stage = self.get(event.session_id).current_stage if event.terminal else event.stage
         self._db.execute(
             """UPDATE agent_project_drafts
-               SET current_stage = CASE WHEN ? THEN current_stage ELSE ? END,
+               SET current_stage = ?,
                    event_seq = ?, updated_at = ?
                WHERE session_id = ? AND event_seq < ?""",
             (
-                int(event.terminal),
-                event.stage,
+                stage,
                 event.seq,
                 _timestamp(),
                 event.session_id,

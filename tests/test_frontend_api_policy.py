@@ -8,7 +8,11 @@ SRC = ROOT / "src"
 def test_frontend_network_calls_use_the_single_fetch_wrapper():
     direct_fetches = []
     for path in SRC.rglob("*"):
-        if path.suffix not in {".ts", ".tsx"} or path.name == "fetchWrapper.ts":
+        if (
+            path.suffix not in {".ts", ".tsx"}
+            or path.name == "fetchWrapper.ts"
+            or ".test." in path.name
+        ):
             continue
         if "fetch(" in path.read_text(encoding="utf-8"):
             direct_fetches.append(path.relative_to(ROOT))

@@ -210,8 +210,11 @@ export class FetchWrapper {
     if (!body) return {};
     try {
       const parsed = JSON.parse(body) as { error?: string; message?: string; detail?: unknown };
-      if (typeof parsed.detail === 'string' && !parsed.error && !parsed.message) {
-        return { error: parsed.detail };
+      if (!parsed.error && !parsed.message && parsed.detail !== undefined) {
+        if (typeof parsed.detail === 'string') {
+          return { error: parsed.detail };
+        }
+        return { error: JSON.stringify(parsed.detail) };
       }
       return parsed;
     } catch {

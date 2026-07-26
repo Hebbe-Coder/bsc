@@ -232,3 +232,26 @@ def test_task_projection_tracks_event_and_terminal_metadata(draft_repo):
     assert draft.error_message == "Pipeline failed"
     assert draft.created_at
     assert draft.completed_at
+
+
+def test_terminal_event_preserves_the_last_non_terminal_stage(draft_repo):
+    draft_repo.save(ProjectDraft(
+        session_id="terminal-event-stage",
+        idea="x",
+        status=JobStatus.RUNNING.value,
+        current_stage="architect",
+    ))
+
+    draft_repo.record_event(OrchestratorEvent(
+        session_id="terminal-event-stage",
+        seq=2,
+        type=EventType.PIPELINE_FAILED,
+        stage="pipeline",
+        status=JobStatus.FAILED.value,
+        terminal=True,
+    ))
+
+    draft = draft_repo.get("terminal-event-stage")
+
+    assert draft.current_stage == "architect"
+    assert draft.event_seq == 2
