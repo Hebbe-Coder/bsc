@@ -53,3 +53,15 @@ data/local-production-smoke.db
 data/artifacts/default/
 data/artifacts/legacy_*/
 nul
+
+# ---- Local agent tooling and runtime state (never source-controlled) ----
+.agents/
+.runtime-migration/
+skills-lock.json
+data/dbos/
+data/promptops/
+data/horizon-runs/
+output/
+celerybeat-schedule
+celerybeat-schedule-shm
+celerybeat-schedule-wal
