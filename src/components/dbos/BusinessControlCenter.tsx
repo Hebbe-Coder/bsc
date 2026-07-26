@@ -266,7 +266,7 @@ export function BusinessControlCenter({ onClose, initialProjectId = 'default', i
           if (nextProjectId !== projectId) {
             currentProjectIdRef.current = nextProjectId.trim();
             refreshSequenceRef.current += 1;
-            setMissionId(''); setCenter(null); setAuthorized([]); setActiveIntakeSessionId(''); setError('');
+            setMissionId(''); setMissions([]); setCenter(null); setAuthorized([]); setActiveIntakeSessionId(''); setError('');
           }
           setProjectId(nextProjectId);
         }} disabled={busy} /></label>

@@ -100,6 +100,17 @@ describe('BusinessControlCenter', () => {
     expect(screen.queryByText('Conversion recovery')).not.toBeInTheDocument();
   });
 
+  it('clears cached Mission choices when the project scope changes', async () => {
+    dbosApi.listDbosMissions.mockResolvedValue({ missions: [{ artifact_id: 'mission-a', title: 'Conversion recovery' }] });
+    dbosApi.getDBOSControlCenter.mockResolvedValue(center);
+    render(<BusinessControlCenter onClose={vi.fn()} initialProjectId="project-a" />);
+
+    expect(await screen.findByRole('option', { name: 'Conversion recovery' })).toBeVisible();
+    fireEvent.change(screen.getByLabelText('DBOS project ID'), { target: { value: 'project-b' } });
+
+    expect(screen.queryByRole('option', { name: 'Conversion recovery' })).not.toBeInTheDocument();
+  });
+
   it('does not restore a prior project after its in-flight refresh resolves', async () => {
     let resolveList: ((value: { missions: Array<{ artifact_id: string; title: string }> }) => void) | undefined;
     dbosApi.listDbosMissions.mockImplementationOnce(() => new Promise((resolve) => { resolveList = resolve; }));

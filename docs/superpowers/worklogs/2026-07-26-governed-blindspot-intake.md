@@ -12,7 +12,7 @@ not staged, reverted, or mixed into this feature.
 | 2026-07-26 | P02 interview/Mission bridge | Complete | Added one-question interview progression, skip and targeted revert revisions, recorded assumptions/gaps, durable tier selection, and idempotent conversion into the existing confirmed Mission lifecycle. |
 | 2026-07-26 | P03 evidence/Vault handoff | Complete | Added source eligibility filtering, explicit unavailable recommendation state, approval-gated confined handoff export, SHA-256 Deliverable record, and generated-output exclusion from raw evidence. |
 | 2026-07-26 | P04 REST/MCP/Workspace | Complete | Added authorized Intake REST lifecycle, `dbos_intake` MCP facade and catalog entry, TypeScript client types, and a single-action intake panel inside BusinessControlCenter. |
-| 2026-07-26 | P05 evaluations/release | Complete with recorded browser follow-up | Focused backend, API/MCP, frontend, TypeScript and production-build checks passed. Initial browser evidence exists; second-round browser recheck exposed and drove fixes for two cross-project races, but the browser policy blocked a post-fix reload. |
+| 2026-07-27 | P05 evaluations/release | Complete | Focused backend, API/MCP, frontend, TypeScript, production-build and post-hardening desktop/mobile browser checks passed. |
 
 ## Guardrails
 
@@ -35,6 +35,8 @@ not staged, reverted, or mixed into this feature.
 | 2026-07-26 | Cross-project regression | Browser exploration on `http://127.0.0.1:5185` exposed a stale `BusinessControlCenter` refresh and retained `BlindspotIntakePanel` state after the project input changed. Added scope guards and component regression tests; `npm run test:frontend -- src/components/dbos/BlindspotIntakePanel.test.tsx src/components/dbos/BusinessControlCenter.test.tsx` -> 2 files, 17 passed. |
 | 2026-07-26 | Final focused backend suite | `& 'C:\\Users\\34216\\Documents\\New project 3\\bsc-backend\\.venv\\Scripts\\python.exe' -m pytest tests\\dbos\\test_blindspot_intake_contracts.py tests\\dbos\\test_blindspot_intake_mission_bridge.py tests\\dbos\\test_blindspot_intake_evidence.py tests\\dbos\\test_blindspot_intake_evals.py tests\\api\\test_blindspot_intake_api.py tests\\mcp\\test_dbos_tools.py tests\\mcp\\test_dbos_http_contract.py -q` -> 59 passed, one upstream Starlette/httpx deprecation warning. |
 | 2026-07-26 | Final frontend/build checks | `npm run check`, `npm run build`, and `git diff --check` -> passed. Vite still reports pre-existing output chunks above 500 kB. |
+| 2026-07-27 | Post-hardening browser | Fresh-project desktop flow at `http://127.0.0.1:5185`: changing projects removed the old Mission option and content (`0` each) and exposed one new Intake entry. The live flow classified build work, clarified, persisted and reverted one answer, recorded explicit gaps, selected `standard`, showed the no-admitted-source fallback, converted to `ready_for_confirmation`, and refused an approved export with `managed Obsidian Vault is unavailable`. At `390x844`, `scrollWidth == clientWidth == 384`; the captured viewport showed no horizontal overflow. |
+| 2026-07-27 | Final release rerun | Focused DBOS/API/MCP suite -> 59 passed; Intake/Control Center components -> 18 passed; `npm run check`, `npm run build`, and `git diff --check` -> passed. The only warning is the upstream Starlette/httpx deprecation plus Vite's pre-existing large output chunks. |
 
 ## Deviations And External Boundaries
 
@@ -47,10 +49,9 @@ not staged, reverted, or mixed into this feature.
 - The mobile intake landing view was browser-checked. An attempted automated
   screenshot of an older collapsed Manual Mission compatibility control timed
   out in the local browser runtime; it was not used as acceptance evidence.
-- The second-round browser verification was interrupted by the browser URL
-  policy after it had exposed both project-scope races. The post-fix browser
-  reload and a fresh 390px run remain an explicit follow-up, rather than a
-  claimed verification. The final component tests exercise both races.
+- The post-hardening browser rerun completed on 2026-07-27. The separate
+  compatibility-control screenshot remains out of scope; the governed Intake
+  flow itself was verified on desktop and at 390px.
 
 ## Rollback
 
