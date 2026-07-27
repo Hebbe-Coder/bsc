@@ -10,7 +10,7 @@ vi.mock('reactflow', () => ({
 }));
 
 import { BusinessControlCenter } from './BusinessControlCenter';
-import type { DBOSControlCenter } from '../../api/dbosApi';
+import { DbosRequestError, type DBOSControlCenter } from '../../api/dbosApi';
 
 const dbosApi = vi.hoisted(() => ({
   createDBOSMission: vi.fn(),
@@ -139,6 +139,17 @@ describe('BusinessControlCenter', () => {
 
     await waitFor(() => expect(dbosApi.getDBOSControlCenter).not.toHaveBeenCalled());
     expect(screen.queryByText('Conversion recovery')).not.toBeInTheDocument();
+  });
+
+  it('clears a Mission that disappears between listing and control-center loading', async () => {
+    dbosApi.listDbosMissions.mockResolvedValue({ missions: [{ artifact_id: 'mission-a', title: 'Conversion recovery' }] });
+    dbosApi.getDBOSControlCenter.mockRejectedValue(new DbosRequestError('mission was not found in this project', 404));
+
+    render(<BusinessControlCenter onClose={vi.fn()} initialProjectId="project-a" />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('selection was cleared');
+    expect(screen.queryByRole('option', { name: 'Conversion recovery' })).not.toBeInTheDocument();
+    expect(screen.getByText('Frame the work before a Mission exists')).toBeVisible();
   });
 
   it('requires the matching persisted decision before enabling execution', () => {

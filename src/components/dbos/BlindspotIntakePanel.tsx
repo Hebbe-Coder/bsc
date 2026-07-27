@@ -29,6 +29,14 @@ type Props = {
   onMissionConverted: (missionId: string) => void;
 };
 
+function formatIntakeError(reason: unknown): string {
+  const message = reason instanceof Error ? reason.message : String(reason || 'Unable to update governed Intake.');
+  if (/failed to fetch|networkerror/i.test(message)) {
+    return 'The Business OS connection was interrupted. No Mission or capability was changed; retry when the local API is ready.';
+  }
+  return message;
+}
+
 export function BlindspotIntakePanel({ projectId, sessionId = '', disabled = false, initialRequestText = '', autoStart = false, onMissionConverted }: Props) {
   const [availability, setAvailability] = useState<boolean | null>(null);
   const [requestText, setRequestText] = useState(initialRequestText);
@@ -59,7 +67,7 @@ export function BlindspotIntakePanel({ projectId, sessionId = '', disabled = fal
     setBusy(true);
     setError('');
     try { await operation(); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to update governed Intake.'); }
+    catch (reason) { setError(formatIntakeError(reason)); }
     finally { setBusy(false); }
   };
 
@@ -82,7 +90,7 @@ export function BlindspotIntakePanel({ projectId, sessionId = '', disabled = fal
       .catch((reason) => {
         if (!active) return;
         setAvailability(true);
-        setError(reason instanceof Error ? reason.message : 'Unable to check governed Intake availability.');
+        setError(formatIntakeError(reason));
       });
     return () => { active = false; };
   }, []);
@@ -96,7 +104,7 @@ export function BlindspotIntakePanel({ projectId, sessionId = '', disabled = fal
         setIntake(restored);
         setRevisions(revisionResult.revisions);
       })
-      .catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : 'Unable to read Intake state.'); });
+      .catch((reason) => { if (active) setError(formatIntakeError(reason)); });
     return () => { active = false; };
   }, [availability, projectId, sessionId]);
 

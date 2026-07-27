@@ -70,6 +70,17 @@ describe('BlindspotIntakePanel', () => {
     expect(api.convertDbosIntake).not.toHaveBeenCalled();
   });
 
+  it('describes an interrupted Business OS connection without claiming a Mission changed', async () => {
+    api.fetchDbosIntakeAvailability.mockResolvedValue({ enabled: true });
+    api.createDbosIntake.mockRejectedValue(new TypeError('Failed to fetch'));
+
+    render(<BlindspotIntakePanel projectId="project-a" onMissionConverted={vi.fn()} />);
+    fireEvent.change(await screen.findByLabelText('Request'), { target: { value: 'Build a research workflow' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start intake' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('No Mission or capability was changed');
+  });
+
   it('uses one bounded question, preserves skip, selects a tier, and converts to a gated Mission', async () => {
     api.fetchDbosIntakeAvailability.mockResolvedValue({ enabled: true });
     api.createDbosIntake.mockResolvedValue({ ...base, phase: 'clarifying' });

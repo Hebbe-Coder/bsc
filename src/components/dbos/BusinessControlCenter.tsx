@@ -16,6 +16,7 @@ import {
   reviewDBOSMission,
   rollbackDBOSExecution,
   stopDBOSMission,
+  DbosRequestError,
   type DBOSControlCenter,
   type DbosMission,
 } from '../../api/dbosApi';
@@ -111,12 +112,14 @@ export function BusinessControlCenter({ onClose, initialProjectId = 'default', i
       refreshSequence === refreshSequenceRef.current && requestedProjectId === currentProjectIdRef.current
     );
     setBusy(true); setError('');
+    let resolvedMissionId = '';
     try {
       const listed = await listDbosMissions(requestedProjectId);
       if (!isCurrentRequest()) return;
       setMissions(listed.missions);
       const nextMissionId = listed.missions.some((mission) => mission.artifact_id === preferredMissionId)
         ? preferredMissionId : (listed.missions[0]?.artifact_id || '');
+      resolvedMissionId = nextMissionId;
       setMissionId(nextMissionId);
       if (!nextMissionId) {
         setCenter(null); setAuthorized([]); setActiveIntakeSessionId(''); return;
@@ -126,7 +129,16 @@ export function BusinessControlCenter({ onClose, initialProjectId = 'default', i
       setCenter(value);
       setAuthorized((current) => current.length ? current.filter((name) => capabilityList(value).includes(name)) : capabilityList(value));
     } catch (reason) {
-      if (isCurrentRequest()) setError(reason instanceof Error ? reason.message : 'Unable to read the DBOS mission.');
+      if (!isCurrentRequest()) return;
+      if (reason instanceof DbosRequestError && reason.status === 404) {
+        setMissions((current) => current.filter((mission) => mission.artifact_id !== resolvedMissionId));
+        setMissionId(''); setCenter(null); setAuthorized([]); setActiveIntakeSessionId('');
+        setError('The selected Mission is no longer available in this project. Its selection was cleared; start or choose another diagnosis.');
+      } else if (reason instanceof TypeError && /failed to fetch|networkerror/i.test(reason.message)) {
+        setError('The Business OS connection was interrupted. No Mission or capability was changed; refresh to retry.');
+      } else {
+        setError(reason instanceof Error ? reason.message : 'Unable to read the DBOS mission.');
+      }
     } finally {
       if (isCurrentRequest()) setBusy(false);
     }

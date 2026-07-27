@@ -10,9 +10,11 @@ import json
 import os
 import time
 import logging
+from contextlib import contextmanager
 from pathlib import Path
 from collections import defaultdict
 from typing import Any, Optional
+from uuid import uuid4
 
 from .types import (
     ArtifactStatus,
@@ -46,6 +48,9 @@ class ArtifactGraphStore:
     """Pure file I/O store for the Artifact Graph."""
 
     INDEX_FILE = "_index.json"
+    INDEX_LOCK_FILE = ".index.lock"
+    INDEX_LOCK_TIMEOUT_SECONDS = 10.0
+    INDEX_LOCK_STALE_SECONDS = 60.0
 
     def __init__(
         self,
@@ -61,6 +66,7 @@ class ArtifactGraphStore:
         self._session_id = session_id
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._index_path = self._data_dir / self.INDEX_FILE
+        self._index_lock_path = self._data_dir / self.INDEX_LOCK_FILE
         self._index: dict[str, dict[str, Any]] = {}
         self._children_index: dict[str, list[str]] = defaultdict(list)
         self._load_index()
@@ -91,9 +97,50 @@ class ArtifactGraphStore:
             "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
             "total": len(self._index),
         }
-        self._index_path.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        self._atomic_write_text(self._index_path, json.dumps(data, ensure_ascii=False, indent=2))
+
+    @contextmanager
+    def _exclusive_index_lock(self):
+        """Serialize index read-modify-write cycles across API and worker processes."""
+        deadline = time.monotonic() + self.INDEX_LOCK_TIMEOUT_SECONDS
+        descriptor: int | None = None
+        while descriptor is None:
+            try:
+                descriptor = os.open(self._index_lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.write(descriptor, f"{os.getpid()}\n".encode("ascii"))
+            except FileExistsError:
+                try:
+                    age = time.time() - self._index_lock_path.stat().st_mtime
+                    if age > self.INDEX_LOCK_STALE_SECONDS:
+                        self._index_lock_path.unlink()
+                        continue
+                except FileNotFoundError:
+                    continue
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("artifact index is busy; retry the operation")
+                time.sleep(0.025)
+        try:
+            yield
+        finally:
+            os.close(descriptor)
+            try:
+                self._index_lock_path.unlink()
+            except FileNotFoundError:
+                pass
+
+    @staticmethod
+    def _atomic_write_text(path: Path, content: str) -> None:
+        """Never expose a partially written artifact or index to another process."""
+        temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
+        try:
+            with temporary.open("w", encoding="utf-8") as handle:
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+        finally:
+            if temporary.exists():
+                temporary.unlink()
 
     def _artifact_path(self, artifact_id: str) -> Path:
         return self._data_dir / f"{artifact_id}.json"
@@ -126,6 +173,11 @@ class ArtifactGraphStore:
         )
 
     def add(self, artifact: BaseArtifact) -> str:
+        with self._exclusive_index_lock():
+            self._load_index()
+            return self._add_locked(artifact)
+
+    def _add_locked(self, artifact: BaseArtifact) -> str:
         if self._project_id and artifact.project_id and artifact.project_id != self._project_id:
             raise ValueError("artifact project_id is outside this store scope")
         if self._project_id and not artifact.project_id:
@@ -148,9 +200,7 @@ class ArtifactGraphStore:
                 raise ValueError("artifact parent is outside this store scope")
         artifact.updated_at = time.strftime("%Y-%m-%dT%H:%M:%S")
         path = self._artifact_path(artifact.artifact_id)
-        path.write_text(
-            artifact.model_dump_json(indent=2, ensure_ascii=False), encoding="utf-8"
-        )
+        self._atomic_write_text(path, artifact.model_dump_json(indent=2, ensure_ascii=False))
         self._index[artifact.artifact_id] = {
             "artifact_type": artifact.artifact_type.value,
             "tenant_id": self._tenant_id,
@@ -210,28 +260,32 @@ class ArtifactGraphStore:
         return results
 
     def update(self, artifact: BaseArtifact) -> None:
-        meta = self._index.get(artifact.artifact_id)
-        if meta is None or not self._matches_scope(meta):
-            raise KeyError(f"Artifact not found: {artifact.artifact_id}")
-        self.add(artifact)
+        with self._exclusive_index_lock():
+            self._load_index()
+            meta = self._index.get(artifact.artifact_id)
+            if meta is None or not self._matches_scope(meta):
+                raise KeyError(f"Artifact not found: {artifact.artifact_id}")
+            self._add_locked(artifact)
 
     def delete(self, artifact_id: str) -> bool:
-        meta = self._index.get(artifact_id)
-        if meta is None or not self._matches_scope(meta):
-            return False
-        path = self._artifact_path(artifact_id)
-        existed = path.exists()
-        if existed:
-            path.unlink()
-        self._index.pop(artifact_id, None)
-        for pid, children in list(self._children_index.items()):
-            if artifact_id in children:
-                children.remove(artifact_id)
-        self._children_index.pop(artifact_id, None)
-        self._save_index()
-        if existed:
-            logger.info("Artifact deleted: %s", artifact_id)
-        return existed
+        with self._exclusive_index_lock():
+            self._load_index()
+            meta = self._index.get(artifact_id)
+            if meta is None or not self._matches_scope(meta):
+                return False
+            path = self._artifact_path(artifact_id)
+            existed = path.exists()
+            if existed:
+                path.unlink()
+            self._index.pop(artifact_id, None)
+            for pid, children in list(self._children_index.items()):
+                if artifact_id in children:
+                    children.remove(artifact_id)
+            self._children_index.pop(artifact_id, None)
+            self._save_index()
+            if existed:
+                logger.info("Artifact deleted: %s", artifact_id)
+            return existed
 
     def list_all(self) -> list[str]:
         return sorted(
@@ -472,37 +526,36 @@ class ArtifactGraphStore:
         )[:64] or "auto"
         snapshot_id = f"snap_{safe_name}_{ts.replace(':', '-')}"
 
-        # Collect all artifacts
-        all_artifacts = {}
-        for aid in self.list_all():
-            art = self.get(aid)
-            if art is not None:
-                all_artifacts[aid] = art.model_dump()
+        # A snapshot must describe one complete index revision. Writers use
+        # this same lock, so its artifact list cannot straddle two updates.
+        with self._exclusive_index_lock():
+            self._load_index()
+            all_artifacts = {}
+            for aid in self.list_all():
+                art = self.get(aid)
+                if art is not None:
+                    all_artifacts[aid] = art.model_dump()
 
-        snapshot_data = {
-            "snapshot_id": snapshot_id,
-            "name": name or "snapshot",
-            "tag": tag,
-            "created_at": ts,
-            "scope": {
-                "tenant_id": self._tenant_id,
-                "project_id": self._project_id,
-                "session_id": self._session_id,
-            },
-            "total_artifacts": len(all_artifacts),
-            "artifact_types": {
-                at.value: len([a for a in all_artifacts.values()
-                               if a.get("artifact_type") == at.value])
-                for at in ArtifactType
-            },
-            "artifacts": all_artifacts,
-        }
-
-        snap_path = self._data_dir / f"{snapshot_id}.json"
-        snap_path.write_text(
-            json.dumps(snapshot_data, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+            snapshot_data = {
+                "snapshot_id": snapshot_id,
+                "name": name or "snapshot",
+                "tag": tag,
+                "created_at": ts,
+                "scope": {
+                    "tenant_id": self._tenant_id,
+                    "project_id": self._project_id,
+                    "session_id": self._session_id,
+                },
+                "total_artifacts": len(all_artifacts),
+                "artifact_types": {
+                    at.value: len([a for a in all_artifacts.values()
+                                   if a.get("artifact_type") == at.value])
+                    for at in ArtifactType
+                },
+                "artifacts": all_artifacts,
+            }
+            snap_path = self._data_dir / f"{snapshot_id}.json"
+            self._atomic_write_text(snap_path, json.dumps(snapshot_data, ensure_ascii=False, indent=2))
         logger.info("Snapshot saved: %s (%d artifacts)", snapshot_id, len(all_artifacts))
         return {
             "snapshot_id": snapshot_id,
@@ -640,43 +693,69 @@ class ArtifactGraphStore:
         if snap_data is None:
             raise ValueError(f"Snapshot not found: {snapshot_id}")
 
-        # Clear current state
-        for aid in list(self.list_all()):
-            self.delete(aid)
-
-        # Reload artifacts from snapshot
         artifacts = snap_data.get("artifacts", {})
-        for raw in artifacts.values():
-            art = self._deserialize(raw)
-            # Force-add without re-index (direct file write)
-            path = self._artifact_path(art.artifact_id)
-            path.write_text(
-                art.model_dump_json(indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
-            self._index[art.artifact_id] = {
-                "artifact_type": art.artifact_type.value,
-                "tenant_id": self._tenant_id,
-                "project_id": art.project_id,
-                "session_id": self._session_id,
-                "label": art.label,
-                "parent_ids": art.parent_ids,
-                "confidence": art.confidence,
-                "status": art.status.value,
-                "tags": art.tags,
-                "created_at": art.created_at,
-                "updated_at": art.updated_at,
+        if not isinstance(artifacts, dict):
+            raise ValueError(f"Snapshot is malformed: {snapshot_id}")
+
+        with self._exclusive_index_lock():
+            self._load_index()
+            previous_scope_ids = {
+                artifact_id
+                for artifact_id, meta in self._index.items()
+                if self._matches_scope(meta)
             }
+            restored_ids: set[str] = set()
 
-        # Rebuild children index
-        self._children_index = defaultdict(list)
-        for art_id, meta in self._index.items():
-            for pid in meta.get("parent_ids", []):
-                self._children_index[pid].append(art_id)
+            # Publish all restored artifact files before the index points to
+            # them, then atomically replace the index as one graph revision.
+            for raw in artifacts.values():
+                if not isinstance(raw, dict):
+                    raise ValueError(f"Snapshot is malformed: {snapshot_id}")
+                art = self._deserialize(raw)
+                metadata = self._metadata_for(art)
+                if not self._matches_scope(metadata):
+                    raise ValueError("snapshot artifact is outside this store scope")
+                self._atomic_write_text(
+                    self._artifact_path(art.artifact_id),
+                    art.model_dump_json(indent=2, ensure_ascii=False),
+                )
+                self._index[art.artifact_id] = metadata
+                restored_ids.add(art.artifact_id)
 
-        self._save_index()
+            for artifact_id in previous_scope_ids - restored_ids:
+                self._index.pop(artifact_id, None)
+
+            self._children_index = defaultdict(list)
+            for artifact_id, meta in self._index.items():
+                if not self._matches_scope(meta):
+                    continue
+                for parent_id in meta.get("parent_ids", []):
+                    self._children_index[parent_id].append(artifact_id)
+            self._save_index()
+
+            # These paths are no longer reachable from the published index.
+            for artifact_id in previous_scope_ids - restored_ids:
+                path = self._artifact_path(artifact_id)
+                if path.exists():
+                    path.unlink()
+
         logger.info("Restored snapshot %s: %d artifacts", snapshot_id, len(artifacts))
         return len(artifacts)
+
+    def _metadata_for(self, artifact: BaseArtifact) -> dict[str, Any]:
+        return {
+            "artifact_type": artifact.artifact_type.value,
+            "tenant_id": self._tenant_id,
+            "project_id": artifact.project_id,
+            "session_id": self._session_id,
+            "label": artifact.label,
+            "parent_ids": artifact.parent_ids,
+            "confidence": artifact.confidence,
+            "status": artifact.status.value,
+            "tags": artifact.tags,
+            "created_at": artifact.created_at,
+            "updated_at": artifact.updated_at,
+        }
 
 
 def _metadata_list(artifacts: list[BaseArtifact], key: str) -> list[Any]:
