@@ -198,6 +198,11 @@ def _init_celery():
             imports=CELERY_TASK_MODULES,
             # Knowledge jobs are scoped to one database and Vault. Another
             # runtime may share Redis while owning different persistent state.
+            # Keep the default destination scoped too: Celery's task route
+            # table can be absent during early producer initialization.
+            task_default_queue=knowledge_queue,
+            task_default_exchange=knowledge_queue,
+            task_default_routing_key=knowledge_queue,
             task_routes={"knowledge.*": {"queue": knowledge_queue}},
             beat_schedule={
                 "knowledge-schedule-reconciliation": {
@@ -248,7 +253,10 @@ def is_celery_broker_available(timeout_seconds: float = 1.0) -> bool:
     connection = None
     try:
         connection = app.connection_for_read(connect_timeout=timeout_seconds)
-        connection.ensure_connection(max_retries=0)
+        # ``connection_for_read`` alone does not consistently constrain every
+        # Kombu transport's retry path.  Pass the deadline to the connection
+        # attempt as well so an unavailable broker cannot stall API health UI.
+        connection.ensure_connection(max_retries=0, timeout=timeout_seconds)
         return bool(connection.connected)
     except Exception:
         return False

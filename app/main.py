@@ -309,14 +309,17 @@ try:
 except Exception as e:
     logger.warning(f"Exception handlers skipped: {e}")
 
-# Load routers (fail-safe)
+# Development can expose a partial surface while an optional local dependency
+# is being assembled. Production must never start with a missing API contract.
 _try = lambda m: __import__(m, fromlist=["router"])
-for _m in ["app.api.bsc_api","app.api.chat_api","app.api.studio_api","app.api.visual_api","app.api.dashboard","app.api.template_api","app.api.tasks_api","app.api.stream_api","app.api.recommendation_api","app.api.prd_api","app.api.pm_report_api","app.api.dialog_api","app.api.prd_editor_api","app.api.skill_routes","app.api.sop_report_api","app.api.brainstorm_api","app.api.knowledge_api","app.api.knowledge_workspace_api","app.api.knowledge_ws","app.api.growth_api","app.api.files_api","app.api.orchestrate","app.api.dbos_api","app.api.mcp_http"]:
+for _m in ["app.api.bsc_api","app.api.chat_api","app.api.studio_api","app.api.visual_api","app.api.dashboard","app.api.template_api","app.api.tasks_api","app.api.stream_api","app.api.recommendation_api","app.api.prd_api","app.api.pm_report_api","app.api.dialog_api","app.api.prd_editor_api","app.api.skill_routes","app.api.sop_report_api","app.api.brainstorm_api","app.api.knowledge_api","app.api.knowledge_workspace_api","app.api.knowledge_operations_api","app.api.knowledge_ws","app.api.growth_api","app.api.files_api","app.api.orchestrate","app.api.dbos_api","app.api.mcp_http"]:
     try: 
         app.include_router(_try(_m).router)
         logger.info(f"Router loaded: {_m}")
     except Exception as e: 
-        logger.warning(f"Skip router {_m}: {e}")
+        logger.exception("Router failed to load: %s", _m)
+        if settings.is_production:
+            raise RuntimeError(f"required router failed to load: {_m}") from e
 
 # Static
 _static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")

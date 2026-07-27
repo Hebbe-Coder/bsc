@@ -1,6 +1,7 @@
 from app.knowledge.reranker import (
     get_reranker, MockReranker, NoOpReranker, LocalCrossEncoderReranker, rrf_fuse,
 )
+from app.core.config import settings
 
 
 def _cands():
@@ -24,6 +25,15 @@ def test_noop_passthrough():
 
 def test_get_reranker_none_returns_noop():
     assert isinstance(get_reranker("none"), NoOpReranker)
+
+
+def test_get_reranker_falls_back_when_repository_has_no_project_configuration(monkeypatch):
+    """Wiki storage is searchable but does not own the legacy project table."""
+    monkeypatch.setattr(settings, "RERANK_PROVIDER", "mock")
+
+    reranker = get_reranker(project_id="project-a", repo=object())
+
+    assert isinstance(reranker, MockReranker)
 
 
 def test_local_degrades_when_model_load_fails():

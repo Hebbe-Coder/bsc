@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { configureKnowledgePlugins, configureKnowledgeVault, fetchKnowledgeWorkspace, importFeishuKnowledgeExport, initializeKnowledgeWorkspace, KnowledgeRequestError, saveKnowledgeEvaluationCase, setKnowledgePluginTrust } from './knowledgeWorkspaceApi';
+import { configureKnowledgePlugins, configureKnowledgeVault, fetchKnowledgeWorkspace, fetchWeeklyDistillations, importFeishuKnowledgeExport, initializeKnowledgeWorkspace, KnowledgeRequestError, saveKnowledgeEvaluationCase, setKnowledgePluginTrust } from './knowledgeWorkspaceApi';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -99,5 +99,20 @@ describe('knowledge workspace API', () => {
         source_url: 'https://example.feishu.cn/minutes/doccnA1', title: 'Weekly review', content: 'Decision: keep citations.',
       } }),
     });
+  });
+
+  it('keeps current distillations as the default and requests revisions explicitly', async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({
+      success: true,
+      data: { distillations: [], count: 0 },
+    }), { status: 200, headers: { 'content-type': 'application/json' } })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await fetchWeeklyDistillations('project a');
+    await fetchWeeklyDistillations('project a', true);
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/knowledge/distillations?project_id=project%20a');
+    expect(String(fetchMock.mock.calls[0][0])).not.toContain('include_history');
+    expect(String(fetchMock.mock.calls[1][0])).toContain('include_history=true');
   });
 });

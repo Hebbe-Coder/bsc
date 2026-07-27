@@ -102,6 +102,30 @@ def _message_content(message: Any) -> str:
     return "".join(parts)
 
 
+def _response_shape(data: Any) -> dict[str, Any]:
+    """Describe an incompatible completion without retaining provider content."""
+    shape: dict[str, Any] = {"payload_type": type(data).__name__}
+    if not isinstance(data, dict):
+        return shape
+    shape["payload_keys"] = sorted(str(key) for key in data.keys())[:32]
+    choices = data.get("choices")
+    shape["choices_type"] = type(choices).__name__
+    if not isinstance(choices, list) or not choices:
+        return shape
+    first_choice = choices[0]
+    shape["choice_type"] = type(first_choice).__name__
+    if not isinstance(first_choice, dict):
+        return shape
+    shape["choice_keys"] = sorted(str(key) for key in first_choice.keys())[:32]
+    message = first_choice.get("message")
+    shape["message_type"] = type(message).__name__
+    if not isinstance(message, dict):
+        return shape
+    shape["message_keys"] = sorted(str(key) for key in message.keys())[:32]
+    shape["content_type"] = type(message.get("content")).__name__
+    return shape
+
+
 def _response_format_rejected(response: httpx.Response) -> bool:
     """Detect a JSON-mode-only rejection without exposing provider response text."""
     try:
@@ -157,6 +181,7 @@ class SOPLLMClient:
         self.timeout = timeout
         self._http = http_client
         self.last_structured_failure = ""
+        self.last_response_shape: dict[str, Any] = {}
         self.last_usage: ModelUsage | None = None
         self.last_call_usages: list[ModelUsage] = []
 
@@ -261,6 +286,7 @@ class SOPLLMClient:
                         )
                     resp.raise_for_status()
                     data = resp.json()
+                    self.last_response_shape = _response_shape(data)
                     choices = data.get("choices") if isinstance(data, dict) else None
                     message = choices[0].get("message") if isinstance(choices, list) and choices else None
                     content = _message_content(message)
@@ -334,6 +360,7 @@ class SOPLLMClient:
                 if parsed is not None:
                     self.last_structured_failure = ""
                     return parsed
+                self.last_structured_failure = "response_payload_invalid"
             except SOPLLMError as e:
                 self.last_structured_failure = e.category
                 if e.category == "response_format_rejected" and use_json_mode:
@@ -349,6 +376,7 @@ class SOPLLMClient:
                         if parsed is not None:
                             self.last_structured_failure = ""
                             return parsed
+                        self.last_structured_failure = "response_payload_invalid"
                     except SOPLLMError as fallback_error:
                         self.last_structured_failure = fallback_error.category
                         logger.warning("SOP LLM plain JSON fallback failed: %s", fallback_error)
@@ -361,6 +389,7 @@ class SOPLLMClient:
         """Start a new request-scoped provider usage ledger."""
         self.last_usage = None
         self.last_call_usages = []
+        self.last_response_shape = {}
 
     def _record_usage(self, usage: ModelUsage) -> None:
         self.last_usage = usage

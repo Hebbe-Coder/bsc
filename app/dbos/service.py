@@ -27,6 +27,8 @@ from app.artifacts import (
     TaskVerificationArtifact,
 )
 from app.capabilities import CapabilityRegistry, build_default_registry
+from app.core.config import settings
+from app.services.sop_llm_client import PROVIDER_KEY_MAP
 
 from .capabilities import CapabilitySelector
 from .adaptive_compiler import AdaptiveSOPCompiler
@@ -290,10 +292,35 @@ class DBOSService:
             evidence_ids=[item.artifact_id for item in evidence],
         )
 
-    @staticmethod
-    def _adaptive_sop_requested(mission: MissionArtifact) -> bool:
+    @classmethod
+    def _adaptive_sop_requested(cls, mission: MissionArtifact) -> bool:
+        """Choose a model refinement policy without weakening an explicit opt-out.
+
+        Studio always requests adaptive composition, but API and MCP callers may
+        omit the optional mode. When the configured SOP provider is actually
+        usable, omission means the same adaptive experience as Studio. A caller
+        must explicitly choose a deterministic mode to receive the structural
+        baseline only.
+        """
         context = mission.context if isinstance(mission.context, dict) else {}
-        return str(context.get("sop_generation_mode") or "").strip().lower() == "adaptive"
+        mode = str(context.get("sop_generation_mode") or "").strip().lower()
+        if mode in {"deterministic", "baseline", "off"}:
+            return False
+        if mode == "adaptive":
+            # An explicit request still reaches the compiler so its persisted
+            # fallback metadata records a provider/configuration failure.
+            return True
+        if mode not in {"", "auto"}:
+            return False
+        return cls._adaptive_sop_available()
+
+    @staticmethod
+    def _adaptive_sop_available() -> bool:
+        provider = str(settings.SOP_LLM_PROVIDER or settings.LLM_PROVIDER or "mock").strip().lower()
+        key_setting = PROVIDER_KEY_MAP.get(provider)
+        if key_setting is None:
+            return False
+        return bool(str(getattr(settings, key_setting[0], "") or "").strip())
 
     def confirm(self, mission_id: str, *, actor_id: str, authorized_capabilities: list[str]) -> MissionArtifact:
         self._ensure_sop_routing_evaluation(self._mission(mission_id))

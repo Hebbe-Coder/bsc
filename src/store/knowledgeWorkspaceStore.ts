@@ -59,6 +59,7 @@ type KnowledgeWorkspaceState = {
   graphEdgeType: string;
   graphNodeType: string;
   graphNodeStatus: string;
+  pendingNavigationTargetId: string;
   error: string;
   actionMessage: string;
   loading: boolean;
@@ -81,6 +82,8 @@ type KnowledgeWorkspaceState = {
   setGraphEdgeType: (value: string) => void;
   setGraphNodeType: (value: string) => void;
   setGraphNodeStatus: (value: string) => void;
+  setNavigationTarget: (entityId: string) => void;
+  clearNavigationTarget: () => void;
   setError: (value: string) => void;
   setActionMessage: (value: string) => void;
   setActionBusy: (value: boolean) => void;
@@ -120,6 +123,7 @@ export const useKnowledgeWorkspaceStore = create<KnowledgeWorkspaceState>((set, 
   graphEdgeType: '',
   graphNodeType: '',
   graphNodeStatus: '',
+  pendingNavigationTargetId: '',
   error: '',
   actionMessage: '',
   loading: true,
@@ -134,6 +138,7 @@ export const useKnowledgeWorkspaceStore = create<KnowledgeWorkspaceState>((set, 
     selectedProposal: null,
     selectedRun: null,
     selectedDistillation: null,
+    pendingNavigationTargetId: '',
     proposalBaselines: {},
     runEvents: [],
     error: '',
@@ -183,6 +188,8 @@ export const useKnowledgeWorkspaceStore = create<KnowledgeWorkspaceState>((set, 
   setGraphEdgeType: (graphEdgeType) => set({ graphEdgeType }),
   setGraphNodeType: (graphNodeType) => set({ graphNodeType }),
   setGraphNodeStatus: (graphNodeStatus) => set({ graphNodeStatus }),
+  setNavigationTarget: (pendingNavigationTargetId) => set({ pendingNavigationTargetId: pendingNavigationTargetId.trim() }),
+  clearNavigationTarget: () => set({ pendingNavigationTargetId: '' }),
   setError: (error) => set({ error }),
   setActionMessage: (actionMessage) => set({ actionMessage }),
   setActionBusy: (actionBusy) => set({ actionBusy }),

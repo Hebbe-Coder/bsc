@@ -170,5 +170,8 @@ class RequestSignatureMiddleware(BaseHTTPMiddleware):
                     }
                 },
             )
-        
+
+        # AuthMiddleware consumes this verified credential and resolves the
+        # same scoped principal used by Bearer authentication.
+        request.state.signed_api_key = api_key
         return await call_next(request)

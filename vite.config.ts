@@ -29,9 +29,9 @@ export function resolveLocalRuntimeApiKey(
 export default defineConfig(({ mode, command }) => {
   // Vite config executes before it exposes .env values to import.meta.env.
   const env = loadEnv(mode, process.cwd(), '');
-  // BSC_VITE_API_PROXY_TARGET is a local, explicit override. It lets a
-  // refreshed Studio move away from a stale inherited VITE_API_PROXY_TARGET
-  // without changing generic Vite behavior for other processes.
+  // BSC_VITE_API_PROXY_TARGET is the explicit local API endpoint. It keeps a
+  // refreshed Studio independent of stale inherited VITE_API_PROXY_TARGET
+  // values without changing generic Vite behavior for other processes.
   const apiProxyTarget = resolveApiProxyTarget(process.env, env);
   // A local development key must be opted in with BSC_LOCAL_API_KEY. Falling
   // back to API_KEY would silently replace the key entered in Studio and make

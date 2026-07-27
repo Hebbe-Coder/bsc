@@ -137,6 +137,7 @@ class ProposalGate:
             rules=rules,
             source_ids=proposal_source_ids,
             existing_paths=self.vault.contents,
+            existing_contents=self.vault.contents,
         )
         lint_findings = [finding.model_dump() for finding in lint_report.findings]
         if not lint_report.valid and not override:
@@ -187,10 +188,12 @@ class ProposalGate:
         }
         if override:
             review_summary["publication_policy"]["override_reason"] = override_reason
+        # Preserve the validation result without presenting an uncommitted
+        # proposal as approved when the host stops between authorities.
         self.repository.update_proposal_review(
             proposal.project_id,
             proposal.id,
-            ProposalStatus.APPROVED,
+            ProposalStatus.VALIDATING,
             review_summary,
         )
         if audit_run_id:
@@ -249,6 +252,25 @@ class ProposalGate:
             "publication_policy": review_summary["publication_policy"],
             "indexing": indexing,
         }
+
+    @staticmethod
+    def effects_applied(proposal: WikiProposal, contents: dict[str, str]) -> bool:
+        """Check every typed postcondition before recovering an interrupted publish."""
+        for operation in proposal.operations:
+            current = contents.get(operation.path)
+            if operation.operation in {WikiOperationType.CREATE, WikiOperationType.REPLACE}:
+                if current != operation.content:
+                    return False
+            elif operation.operation is WikiOperationType.APPEND:
+                if current is None or not current.endswith(operation.content):
+                    return False
+            elif operation.operation is WikiOperationType.ARCHIVE:
+                if current is not None:
+                    return False
+            elif operation.operation is WikiOperationType.MOVE:
+                if current is not None or contents.get(operation.destination_path) is None:
+                    return False
+        return True
 
     @staticmethod
     def project_revision(contents: dict[str, str]) -> str:

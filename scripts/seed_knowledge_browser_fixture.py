@@ -11,6 +11,8 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.knowledge.vault import FilesystemWikiVault
+from app.core.config import settings
+from app.knowledge.wiki_bootstrap import WikiBootstrapService
 from app.knowledge.wiki_commands import WikiCommandService
 from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus
 from app.knowledge.wiki_repository import WikiRepository
@@ -22,10 +24,13 @@ from app.tasks.knowledge_tasks import execute_knowledge_run
 def seed(*, db_path: Path, vault_root: Path, project_id: str) -> dict[str, str]:
     vault_root.mkdir(parents=True, exist_ok=True)
     repository = WikiRepository(db_path=str(db_path))
+    previous_vault_root = settings.OBSIDIAN_VAULT_ROOT
+    settings.OBSIDIAN_VAULT_ROOT = str(vault_root)
     try:
         vault_path = f"projects/{project_id}"
         repository.configure_vault(project_id, vault_path, actor_id="browser-fixture")
         vault = FilesystemWikiVault(vault_root, project_id, vault_path)
+        WikiBootstrapService(repository).initialize(project_id=project_id, actor_id="browser-fixture")
         source = SourceCaptureService(repository).capture(
             CapturedSourceInput(
                 project_id=project_id,
@@ -36,6 +41,7 @@ def seed(*, db_path: Path, vault_root: Path, project_id: str) -> dict[str, str]:
             )
         ).source
         initial = {
+            **vault.contents,
             "AGENTS.md": build_default_agents_rules(project_id),
             "wiki/index.md": "# Index\n- [[decisions/release-approval]]\n",
             "wiki/log.md": "# Log\n- Initial governed approval decision.\n",
@@ -100,6 +106,7 @@ def seed(*, db_path: Path, vault_root: Path, project_id: str) -> dict[str, str]:
             "distillation_id": result["distillation_id"],
         }
     finally:
+        settings.OBSIDIAN_VAULT_ROOT = previous_vault_root
         repository.close()
 
 

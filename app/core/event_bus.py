@@ -26,6 +26,8 @@ import logging
 from typing import Dict, Callable, List, Optional, Any
 from datetime import datetime
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -225,9 +227,13 @@ class RedisEventBus(EventBus):
             
             logger.info(f"RedisEventBus initialized: stream={stream_name}, group={consumer_group}")
         except ImportError:
+            if settings.is_production:
+                raise RuntimeError("Redis event backend is required in production")
             logger.warning("redis package not installed, falling back to InProcessEventBus")
             self._fallback = InProcessEventBus()
         except Exception as e:
+            if settings.is_production:
+                raise RuntimeError("Redis event backend is unavailable in production") from e
             logger.warning(f"Redis connection failed: {e}, falling back to InProcessEventBus")
             self._fallback = InProcessEventBus()
     

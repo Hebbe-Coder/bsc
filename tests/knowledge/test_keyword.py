@@ -28,3 +28,36 @@ def test_keyword_backend_bm25():
     kb.index(recs)
     res = kb.search("内容安全平台")
     assert res and res[0] == "c1"
+
+
+def test_postgresql_keyword_search_uses_scoped_like_without_sqlite_fts():
+    class _PostgresBackend:
+        dialect = "postgresql"
+
+    class _Rows:
+        def fetchall(self):
+            return [{"chunk_id": "chunk-1"}]
+
+    class _Repository:
+        def __init__(self):
+            self.backend = _PostgresBackend()
+            self.calls = []
+
+        def _get_connection(self):
+            return self.backend
+
+        def _execute(self, sql, params=()):
+            self.calls.append((sql, params))
+            return _Rows()
+
+    repo = _Repository()
+
+    result = KeywordBackend(repo).search("knowledge growth", project_id="project-a", limit=7)
+
+    assert result == ["chunk-1"]
+    assert len(repo.calls) == 1
+    sql, params = repo.calls[0]
+    assert "MATCH" not in sql
+    assert "bm25" not in sql
+    assert "c.content LIKE ?" in sql
+    assert params == ("%knowledge growth%", "project-a", 7)

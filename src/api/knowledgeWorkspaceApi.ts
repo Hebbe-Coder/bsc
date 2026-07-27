@@ -14,6 +14,26 @@ export type KnowledgeSource = {
   captured_at: string;
 };
 
+export type KnowledgeSourceTriage = {
+  id: string;
+  project_id: string;
+  source_id: string;
+  profile_revision: number;
+  relevance: number;
+  value: number;
+  freshness: number;
+  outputability: number;
+  connectedness: number;
+  priority: number;
+  reliability_pass: number | boolean;
+  disposition: string;
+  reasons: string[];
+  evaluator_revision: string;
+  evaluator_status: 'completed' | 'unavailable' | 'failed';
+  latency_ms: number;
+  created_at: string;
+};
+
 export type KnowledgeWorkspaceData = {
   project_id: string;
   vault: {
@@ -27,7 +47,7 @@ export type KnowledgeWorkspaceData = {
       missing_managed_directories?: string[];
     };
   };
-  plugins: { configured: boolean; supported_adapters: string[]; plugins: Array<{ id: string; name: string; adapter: 'filesystem_drop' | 'filesystem_output'; input_paths: string[]; trust_state: 'trusted' | 'untrusted' | 'configuration_changed' | 'unavailable'; trusted_at: string; trust_actor: string; path_status: 'ready' | 'missing' | 'unavailable' | 'unverified'; runtime_configuration?: { state: 'configured' | 'interactive_destination' | 'declared_only' | 'mismatch' | 'unavailable' | 'unverified'; detail_code: string }; status: 'awaiting_export' | 'captured' | 'awaiting_output' | 'registered_output' | 'awaiting_trust' | 'trust_stale' | 'trust_unavailable'; captured_sources: number; registered_outputs: number; last_captured_at: string; last_registered_at: string }>; errors: string[] };
+  plugins: { configured: boolean; supported_adapters: string[]; plugins: Array<{ id: string; name: string; adapter: 'filesystem_drop' | 'filesystem_output'; input_paths: string[]; trust_state: 'trusted' | 'untrusted' | 'configuration_changed' | 'unavailable'; trusted_at: string; trust_actor: string; path_status: 'ready' | 'missing' | 'unavailable' | 'unverified'; runtime_configuration?: { state: 'configured' | 'interactive_destination' | 'declared_only' | 'mismatch' | 'unavailable' | 'unverified'; detail_code: string }; status: 'awaiting_export' | 'captured' | 'awaiting_output' | 'registered_output' | 'awaiting_trust' | 'trust_stale' | 'trust_unavailable'; capture_state?: 'awaiting_trust' | 'trust_stale' | 'trust_unavailable' | 'captured' | 'registered_output' | 'ready_for_first_export' | 'ready_for_first_output' | 'files_detected_pending_capture' | 'files_detected_pending_registration' | 'route_unavailable'; export_observation?: { state: 'empty' | 'files_detected' | 'file_limit_reached' | 'unavailable'; file_count: number; latest_modified_at: string }; captured_sources: number; registered_outputs: number; last_captured_at: string; last_registered_at: string }>; errors: string[] };
   sources: number;
   runs: number;
   schedules: number;
@@ -119,6 +139,8 @@ export type WeeklyDistillation = {
   kind?: 'daily' | 'weekly';
   period?: string;
   paths?: string[];
+  current?: boolean;
+  revision_count?: number;
   manifest?: Record<string, unknown>;
   generation?: Record<string, unknown>;
 };
@@ -194,6 +216,8 @@ export const initializeKnowledgeWorkspace = (projectId: string) => post<{ create
 export const fetchKnowledgeSources = (projectId: string) => request<{ sources: KnowledgeSource[]; count: number }>(`/knowledge/sources?project_id=${encodeURIComponent(projectId)}`);
 export const importFeishuKnowledgeExport = (projectId: string, exportPayload: FeishuKnowledgeExport) => post<FeishuKnowledgeImport>('/knowledge/sources/feishu/import', { project_id: projectId, export: exportPayload });
 export const fetchKnowledgeSource = (projectId: string, sourceId: string) => request<{ source: KnowledgeSource }>(`/knowledge/sources/${encodeURIComponent(sourceId)}?project_id=${encodeURIComponent(projectId)}`);
+export const fetchKnowledgeSourceTriage = (projectId: string, sourceId: string) => request<{ triage: KnowledgeSourceTriage | null }>(`/knowledge/sources/${encodeURIComponent(sourceId)}/triage?project_id=${encodeURIComponent(projectId)}`);
+export const semanticTriageKnowledgeSource = (projectId: string, sourceId: string) => post<{ source: KnowledgeSource; triage: KnowledgeSourceTriage; admission: 'explicit_approval_required' }>(`/knowledge/sources/${encodeURIComponent(sourceId)}/semantic-triage?project_id=${encodeURIComponent(projectId)}`, {});
 export const fetchKnowledgeRuns = (projectId: string) => request<{ runs: KnowledgeRun[]; count: number }>(`/knowledge/runs?project_id=${encodeURIComponent(projectId)}`);
 export const fetchKnowledgeRunEvents = (projectId: string, runId: string, afterSequence = 0) => request<{ events: KnowledgeRunEvent[]; count: number }>(`/knowledge/runs/${encodeURIComponent(runId)}/events?project_id=${encodeURIComponent(projectId)}&after_sequence=${afterSequence}`);
 export const fetchKnowledgeGraph = (projectId: string, edgeType = '') => request<KnowledgeGraph>(`/knowledge/wiki/graph?project_id=${encodeURIComponent(projectId)}${edgeType ? `&edge_type=${encodeURIComponent(edgeType)}` : ''}`);
@@ -204,7 +228,7 @@ export const fetchKnowledgeProposals = (projectId: string) => request<{ proposal
 export const fetchKnowledgePages = (projectId: string) => request<{ pages: KnowledgePage[]; count: number }>(`/knowledge/wiki/pages?project_id=${encodeURIComponent(projectId)}`);
 export const fetchKnowledgePage = (projectId: string, pageId: string) => request<KnowledgePageDetail>(`/knowledge/wiki/pages/${encodeURIComponent(pageId)}?project_id=${encodeURIComponent(projectId)}`);
 export const restoreKnowledgePageRevision = (projectId: string, pageId: string, revisionId: string) => post<{ proposal: KnowledgeProposal }>(`/knowledge/wiki/pages/${encodeURIComponent(pageId)}/revisions/${encodeURIComponent(revisionId)}/restore?project_id=${encodeURIComponent(projectId)}`, {});
-export const fetchWeeklyDistillations = (projectId: string) => request<{ distillations: WeeklyDistillation[]; count: number }>(`/knowledge/distillations?project_id=${encodeURIComponent(projectId)}`);
+export const fetchWeeklyDistillations = (projectId: string, includeHistory = false) => request<{ distillations: WeeklyDistillation[]; count: number }>(`/knowledge/distillations?project_id=${encodeURIComponent(projectId)}${includeHistory ? '&include_history=true' : ''}`);
 export const fetchWeeklyDistillation = (projectId: string, distillationId: string) => request<WeeklyDistillationDetail>(`/knowledge/distillations/${encodeURIComponent(distillationId)}?project_id=${encodeURIComponent(projectId)}`);
 export const configureKnowledgeSchedule = (projectId: string, jobType: string, cron: string, timezone = 'Asia/Shanghai') => post<{ schedule: KnowledgeSchedule }>('/knowledge/schedules', { project_id: projectId, job_type: jobType, cron, timezone });
 export const lintKnowledgeProposal = (projectId: string, proposalId: string) => post<{ proposal_id: string; valid: boolean; findings: Array<{ code: string; message: string; path: string }> }>(`/knowledge/proposals/${encodeURIComponent(proposalId)}/lint?project_id=${encodeURIComponent(projectId)}`, {});

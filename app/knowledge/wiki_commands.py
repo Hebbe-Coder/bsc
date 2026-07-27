@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +19,7 @@ from app.knowledge.wiki_lint import WikiLint
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_rules import ProjectRules, parse_project_rules
 from app.knowledge.wiki_source_capture import CapturedSourceInput, SourceCaptureService
+from app.knowledge.obsidian_source_projection import ObsidianSourceProjection
 
 
 class WikiCommandError(ValueError):
@@ -72,7 +73,19 @@ class WikiCommandService:
             return payload
         source_ids = list(dict.fromkeys(str(value) for value in payload.get("source_ids") or [] if str(value)))
         citations = " ".join(f"[source:{source_id}]" for source_id in source_ids)
-        links = ", ".join(f"[[{operation['path']}]]" for operation in substantive if operation.get("path"))
+        overview_content = existing.get("wiki/overview.md", "")
+        missing_overview_links = [
+            f"[[{operation['path']}]]"
+            for operation in substantive
+            if operation.get("path") and f"[[{operation['path']}]]" not in overview_content
+        ]
+        if "wiki/overview.md" in existing and not missing_overview_links and all(
+            operation.get("operation") == "replace" for operation in substantive
+        ):
+            return payload
+        links = ", ".join(missing_overview_links or [
+            f"[[{operation['path']}]]" for operation in substantive if operation.get("path")
+        ])
         if "wiki/overview.md" in existing:
             overview = {
                 "operation": "append",
@@ -113,6 +126,7 @@ class WikiCommandService:
             source_input = source_input.model_copy(update={"capture_run_id": run.id})
             result = SourceCaptureService(self.repository).capture(source_input)
             source = result.source
+            mirror = self._sync_evidence_mirror(source_input.project_id, source["id"])
             attempt = self.repository.list_source_capture_attempts(
                 source_input.project_id,
                 run_id=run.id,
@@ -128,6 +142,7 @@ class WikiCommandService:
                     "status": source["status"],
                     "capture_attempt_id": attempt[0]["id"] if attempt else "",
                     "capture_outcome": attempt[0]["outcome"] if attempt else "",
+                    "evidence_mirror": mirror,
                 },
             )
             if source["status"] == "eligible":
@@ -143,6 +158,7 @@ class WikiCommandService:
                     "source_id": source["id"],
                     "created": result.created,
                     "capture_attempt_id": attempt[0]["id"] if attempt else "",
+                    "evidence_mirror": mirror,
                 },
             )
             return {"source": source, "created": result.created, "run_id": run.id}
@@ -158,6 +174,7 @@ class WikiCommandService:
             rules=self._rules(project_id, vault),
             source_ids=self._proposal_source_ids(proposal),
             existing_paths=vault.contents,
+            existing_contents=vault.contents,
         )
         return {"proposal_id": proposal_id, "valid": report.valid, "findings": [item.model_dump() for item in report.findings]}
 
@@ -412,6 +429,87 @@ class WikiCommandService:
             retry_of=run_id,
         )
 
+    def recover_abandoned_publications(
+        self,
+        *,
+        now: datetime | None = None,
+        timeout_seconds: int = 120,
+    ) -> dict[str, int]:
+        """Reconcile interrupted manual publication against the authoritative Vault."""
+        if timeout_seconds < 60:
+            raise WikiCommandError("publication recovery timeout must be at least 60 seconds")
+        current = now or datetime.now(timezone.utc)
+        recovered = 0
+        failed = 0
+        for run in self.repository.list_running_runs():
+            if run.get("run_type") != "wiki_publish":
+                continue
+            value = str(run.get("updated_at") or run.get("started_at") or run.get("created_at") or "")
+            try:
+                updated = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                if updated.tzinfo is None:
+                    updated = updated.replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+            if updated > current - timedelta(seconds=timeout_seconds):
+                continue
+            project_id = str(run["project_id"])
+            proposal_id = str((run.get("input_refs") or {}).get("proposal_id") or "")
+            proposal = self.repository.get_proposal(project_id, proposal_id) if proposal_id else None
+            if proposal and proposal.get("status") == ProposalStatus.PUBLISHED.value:
+                self.repository.update_run_status(
+                    project_id,
+                    str(run["id"]),
+                    RunStatus.COMPLETED,
+                    output_refs={
+                        "proposal_id": proposal_id,
+                        "publication": {"status": ProposalStatus.PUBLISHED.value, "recovered": True},
+                    },
+                )
+                recovered += 1
+                continue
+            if proposal:
+                try:
+                    typed = self._proposal(project_id, proposal_id)
+                    vault = self._vault(project_id)
+                    contents = vault.contents
+                    if ProposalGate.effects_applied(typed, contents):
+                        self.repository.record_publication(
+                            project_id=project_id,
+                            proposal_id=proposal_id,
+                            contents=contents,
+                            source_ids=sorted(ProposalGate._proposal_source_ids(typed)),
+                        )
+                        self.repository.update_run_status(
+                            project_id,
+                            str(run["id"]),
+                            RunStatus.COMPLETED,
+                            output_refs={
+                                "proposal_id": proposal_id,
+                                "publication": {"status": ProposalStatus.PUBLISHED.value, "recovered": True},
+                            },
+                        )
+                        recovered += 1
+                        continue
+                except (OSError, ValueError, ProposalGateError, WikiCommandError):
+                    pass
+                if proposal.get("status") in {ProposalStatus.VALIDATING.value, ProposalStatus.APPROVED.value}:
+                    summary = dict(proposal.get("eval_summary") or {})
+                    summary["publication_error"] = "abandoned_publish_recovered"
+                    self.repository.update_proposal_review(project_id, proposal_id, ProposalStatus.FAILED, summary)
+            self.repository.update_run_status(
+                project_id,
+                str(run["id"]),
+                RunStatus.FAILED,
+                error="abandoned publish recovered before a durable publication",
+                output_refs={
+                    "proposal_id": proposal_id,
+                    "failure": {"category": "transient_dependency", "code": "abandoned_publish", "retryable": True},
+                },
+            )
+            failed += 1
+        return {"recovered": recovered, "failed": failed}
+
     def cancel_run(self, *, project_id: str, run_id: str) -> dict:
         run = self.repository.get_run(project_id, run_id)
         if not run:
@@ -524,6 +622,18 @@ class WikiCommandService:
             and is_celery_real()
             and is_celery_broker_available()
         )
+
+    def _sync_evidence_mirror(self, project_id: str, source_id: str) -> dict:
+        """Best-effort source projection that does not change capture authority."""
+        if not settings.OBSIDIAN_VAULT_ROOT:
+            return {"status": "unavailable", "reason": "vault_not_configured"}
+        try:
+            report = ObsidianSourceProjection(
+                self.repository, Path(settings.OBSIDIAN_VAULT_ROOT)
+            ).sync(project_id=project_id, source_ids=[source_id])
+            return {"status": "completed", **report}
+        except (OSError, ValueError, ProposalGateError):
+            return {"status": "failed", "reason": "vault_projection_failed"}
 
     def _vault(self, project_id: str) -> FilesystemWikiVault:
         configured = self.repository.get_vault(project_id)

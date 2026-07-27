@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState, useEffect, useRef, useCallback } from 'react';
 import { useWorkspace } from '../store/workspaceStore';
-import { useKnowledgeWorkspaceStore } from '../store/knowledgeWorkspaceStore';
+import { useGrowthWorkspaceStore, useKnowledgeWorkspaceStore } from '../store/knowledgeWorkspaceStore';
 import {
   cancelOrchestrate,
   startOrchestrate,
@@ -28,6 +28,7 @@ import SkillMarket from './SkillMarket';
 import { KnowledgeWorkspace } from './KnowledgeWorkspace';
 import {
   Blocks,
+  BarChart3,
   Command,
   FileCode2,
   Network,
@@ -40,12 +41,13 @@ import {
 
 const GrowthWorkspace = lazy(() => import('./GrowthWorkspace').then((module) => ({ default: module.GrowthWorkspace })));
 const BusinessControlCenter = lazy(() => import('./dbos/BusinessControlCenter').then((module) => ({ default: module.BusinessControlCenter })));
+const KnowledgeOperationsCockpit = lazy(() => import('./operations/KnowledgeOperationsCockpit').then((module) => ({ default: module.KnowledgeOperationsCockpit })));
 
 // ---- Types ----
-type Mode = 'auto' | 'analyze' | 'compile' | 'board';
+type Mode = 'auto' | 'business' | 'analyze' | 'compile' | 'board';
 type LogType = 'system' | 'agent' | 'tool' | 'error' | 'result' | 'thinking' | 'stage';
 interface LogEntry { id: string; type: LogType; text: string; time: string; }
-type EffectiveMode = 'analyze' | 'compile' | 'board';
+type EffectiveMode = 'business' | 'analyze' | 'compile' | 'board';
 
 export function formatRuntimeError(reason: unknown): string {
   const message = reason instanceof Error ? reason.message : String(reason || 'Analysis failed');
@@ -71,7 +73,7 @@ function includesModeSignal(text: string, signal: string): boolean {
 }
 
 // ---- Auto-detect ----
-function detectMode(input: string): { mode: EffectiveMode; confidence: number; reason: string } {
+export function detectMode(input: string): { mode: EffectiveMode; confidence: number; reason: string } {
   const text = input.toLowerCase(); const len = input.length;
   const boardSignals = ['board', '??', '??', 'ceo', 'cfo', 'cto', 'board review', 'multi-agent', '???'];
   const compileSignals = ['prd', '????', '????', 'compile', '??', 'sop', '????', 'pipeline', '????', '????', '???', '## ', '??', '??', '???'];
@@ -84,14 +86,15 @@ function detectMode(input: string): { mode: EffectiveMode; confidence: number; r
   if (boardHits === 1 && len < 200) return { mode: 'board', confidence: 0.7, reason: 'Board review signal detected' };
   if (compileHits >= 3) return { mode: 'compile', confidence: 0.85, reason: 'Strong compile/PRD signals detected' };
   if (compileHits >= 1 && len > 300) return { mode: 'compile', confidence: 0.7, reason: 'Structured content with compile signals' };
-  if (analyzeHits >= 1) return { mode: 'analyze', confidence: 0.8, reason: 'Analysis/evaluation question detected' };
+  if (analyzeHits >= 1) return { mode: 'analyze', confidence: 0.8, reason: 'Explicit analysis/evaluation request detected' };
   if (len > 400) return { mode: 'compile', confidence: 0.55, reason: 'Long content, defaulting to compile' };
-  return { mode: 'analyze', confidence: 0.6, reason: 'Default analysis mode' };
+  return { mode: 'business', confidence: 0.7, reason: 'Business requests begin with diagnosis before a Dynamic SOP is compiled' };
 }
 
 // ---- Constants ----
-const MODE_LABELS: Record<Mode, string> = { auto: 'Auto', analyze: 'Agent OS', compile: 'Compiler', board: 'Board' };
+const MODE_LABELS: Record<Mode, string> = { auto: 'Auto', business: 'Business OS', analyze: 'Agent OS', compile: 'Compiler', board: 'Board' };
 const MODE_HINTS: Record<EffectiveMode, string> = {
+  business: 'Diagnose the role, environment, objective, evidence, and constraints before compiling a Dynamic SOP.',
   analyze: 'Deep LLM analysis: assumptions, risks, gaps, coverage',
   compile: 'Real-time pipeline: PRD \u2192 Business Model \u2192 Risk \u2192 SOP \u2192 KPI \u2192 Review',
   board: 'Multi-agent board review with CEO, CFO, CTO perspectives',
@@ -118,6 +121,14 @@ const PIPELINE_STAGES = [
   'gap_detection',
   'decision_support',
   'report_composition',
+];
+
+const BUSINESS_OS_STAGES = [
+  'diagnosis',
+  'capability_selection',
+  'dynamic_sop',
+  'authorization_gate',
+  'execution_feedback',
 ];
 
 function stageLabel(stage: string): string {
@@ -151,7 +162,11 @@ export function UnifiedWorkspace() {
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const [growthOpen, setGrowthOpen] = useState(false);
+  const [operationsOpen, setOperationsOpen] = useState(false);
   const [dbosOpen, setDbosOpen] = useState(false);
+  const [dbosMissionId, setDbosMissionId] = useState('');
+  const [dbosArtifactId, setDbosArtifactId] = useState('');
+  const [dbosInitialRequest, setDbosInitialRequest] = useState('');
   const [runtimeAccessKey, setRuntimeAccessKey] = useState(LOCAL_PROXY_SENTINEL);
   const [knowledgeContext, setKnowledgeContext] = useState<KnowledgeContextMetadata | null>(null);
   const [knowledgeOutputRegistration, setKnowledgeOutputRegistration] = useState<KnowledgeOutputRegistration | null>(null);
@@ -195,7 +210,7 @@ export function UnifiedWorkspace() {
     }
   }, [input, mode]);
 
-  const effectiveMode: EffectiveMode = mode === 'auto' ? (detectedMode || 'analyze') : (mode as EffectiveMode);
+  const effectiveMode: EffectiveMode = mode === 'auto' ? (detectedMode || 'business') : (mode as EffectiveMode);
 
   // ---- Submit Handler ----
   const handleSubmit = async () => {
@@ -214,6 +229,16 @@ export function UnifiedWorkspace() {
     addLog('system', 'Project context: ' + (knowledgeProjectId.trim() || 'unscoped'));
 
     try {
+      if (effectiveMode === 'business') {
+        // Creating an Intake is non-executable: it collects context before a Mission or capability grant exists.
+        addLog('agent', 'Opening governed diagnosis before compiling a Dynamic SOP...');
+        setDbosInitialRequest(value);
+        setDbosMissionId('');
+        setDbosArtifactId('');
+        setDbosOpen(true);
+        return;
+      }
+
       if (effectiveMode === 'compile') {
         // ---- Real-time Pipeline Compilation ----
         setCompiling(true);
@@ -352,7 +377,8 @@ export function UnifiedWorkspace() {
 
   const statusColor = loading ? 'status-dot--running' : error ? 'status-dot--error' : 'status-dot--active';
   const statusLabel = loading ? (compiling ? 'Compiling' : 'Running') : error ? 'Error' : 'Ready';
-  const completedStages = PIPELINE_STAGES.filter((stage) => pipelineStages[stage] === 'completed').length;
+  const visibleStages = effectiveMode === 'business' ? BUSINESS_OS_STAGES : PIPELINE_STAGES;
+  const completedStages = visibleStages.filter((stage) => pipelineStages[stage] === 'completed').length;
   const sessionDisplay = sessionId ? sessionId.slice(0, 12) : 'new session';
 
   return (
@@ -373,8 +399,11 @@ export function UnifiedWorkspace() {
           <button type="button" className="skill-trigger" onClick={() => setGrowthOpen(true)}>
             <Sprout size={15} aria-hidden="true" /> Growth
           </button>
-          <button type="button" className="skill-trigger" onClick={() => setDbosOpen(true)}>
-            <Workflow size={15} aria-hidden="true" /> Operate
+          <button type="button" className="skill-trigger" onClick={() => setOperationsOpen(true)}>
+            <BarChart3 size={15} aria-hidden="true" /> Operate
+          </button>
+          <button type="button" className="skill-trigger" onClick={() => { setDbosMissionId(''); setDbosArtifactId(''); setDbosOpen(true); }}>
+            <Workflow size={15} aria-hidden="true" /> Mission
           </button>
           <span className={'studio-status ' + statusColor}><i aria-hidden="true" />{statusLabel}</span>
           <code>{sessionDisplay}</code>
@@ -386,7 +415,7 @@ export function UnifiedWorkspace() {
           <section className="rail-section">
             <p className="rail-label">RUN PROFILE</p>
             <div className="mode-stack" role="radiogroup" aria-label="Execution mode">
-              {(['auto', 'analyze', 'compile', 'board'] as Mode[]).map((nextMode) => (
+              {(['auto', 'business', 'analyze', 'compile', 'board'] as Mode[]).map((nextMode) => (
                 <button
                   key={nextMode}
                   type="button"
@@ -395,8 +424,8 @@ export function UnifiedWorkspace() {
                   onClick={() => setMode(nextMode)}
                   className={mode === nextMode ? 'is-selected' : ''}
                 >
-                  <span>{nextMode === 'compile' ? <Workflow size={15} /> : nextMode === 'board' ? <Sparkles size={15} /> : <FileCode2 size={15} />}</span>
-                  <span><strong>{nextMode === 'auto' && detectedMode ? `Auto: ${MODE_LABELS[detectedMode]}` : MODE_LABELS[nextMode]}</strong><small>{nextMode === 'compile' ? 'Durable multi-stage run' : nextMode === 'board' ? 'Multi-agent verdict' : nextMode === 'analyze' ? 'Focused capability run' : 'Choose from input'}</small></span>
+                  <span>{nextMode === 'business' ? <Blocks size={15} /> : nextMode === 'compile' ? <Workflow size={15} /> : nextMode === 'board' ? <Sparkles size={15} /> : <FileCode2 size={15} />}</span>
+                  <span><strong>{nextMode === 'auto' && detectedMode ? `Auto: ${MODE_LABELS[detectedMode]}` : MODE_LABELS[nextMode]}</strong><small>{nextMode === 'business' ? 'Diagnosis to Dynamic SOP' : nextMode === 'compile' ? 'Durable multi-stage run' : nextMode === 'board' ? 'Multi-agent verdict' : nextMode === 'analyze' ? 'Risk and coverage analysis' : 'Business OS by default'}</small></span>
                 </button>
               ))}
             </div>
@@ -472,9 +501,9 @@ export function UnifiedWorkspace() {
           </section>
 
           <section className="rail-section rail-stages">
-            <div className="rail-section__heading"><p className="rail-label">{effectiveMode === 'compile' ? 'PIPELINE' : 'CAPABILITY PLAN'}</p><span>{completedStages}/{PIPELINE_STAGES.length}</span></div>
+            <div className="rail-section__heading"><p className="rail-label">{effectiveMode === 'business' ? 'BUSINESS SYSTEM' : effectiveMode === 'compile' ? 'PIPELINE' : 'CAPABILITY PLAN'}</p><span>{completedStages}/{visibleStages.length}</span></div>
             <ol>
-              {PIPELINE_STAGES.map((stage) => {
+              {visibleStages.map((stage) => {
                 const stageStatus = pipelineStages[stage] || 'pending';
                 return <li key={stage} data-status={stageStatus}><i aria-hidden="true" /><span>{stageLabel(stage)}</span><small>{stageStatus}</small></li>;
               })}
@@ -538,7 +567,7 @@ export function UnifiedWorkspace() {
               {compiling && sessionId && <button type="button" className="cancel-run" onClick={() => { addLog('system', 'Cancellation requested'); void cancelOrchestrate(sessionId).catch((cancelError: unknown) => { const message = cancelError instanceof Error ? cancelError.message : 'Cancellation request failed'; setError(message); addLog('error', message); }); }}>Cancel run</button>}
             </div>
           )}
-          {!loading && !error && !dashData && <div className="inspector-empty"><div><FileCode2 size={25} aria-hidden="true" /></div><h3>Output with evidence.</h3><p>{effectiveMode === 'compile' ? 'The inspector will collect the decision gate, risk coverage, graph and SOP produced by this run.' : 'Analysis results, coverage evidence and multi-agent decisions will be collected here.'}</p></div>}
+          {!loading && !error && !dashData && <div className="inspector-empty"><div><FileCode2 size={25} aria-hidden="true" /></div><h3>{effectiveMode === 'business' ? 'Start with a business diagnosis.' : 'Output with evidence.'}</h3><p>{effectiveMode === 'business' ? 'Your request will be clarified into a Mission, then compiled into a role-specific capability set and Dynamic SOP. No capability executes until you authorize it.' : effectiveMode === 'compile' ? 'The inspector will collect the decision gate, risk coverage, graph and SOP produced by this run.' : 'Analysis results, coverage evidence and multi-agent decisions will be collected here.'}</p></div>}
           {dashData && (
             <div className="result-stack animate-fade-in-up">
               <div className="result-summary"><div><span>RISK GATE</span><strong>{dashData.risk.gate.decision}</strong></div><div><span>COVERAGE</span><strong>{dashData.risk.coverage.coverage_pct}%</strong></div><div><span>RISKS</span><strong>{dashData.risk.risks.length}</strong></div></div>
@@ -558,7 +587,8 @@ export function UnifiedWorkspace() {
       {skillsOpen && <SkillMarket onClose={() => setSkillsOpen(false)} context={input || workspaceIdea} />}
       {knowledgeOpen && <KnowledgeWorkspace onClose={() => setKnowledgeOpen(false)} runtimeAccessKey={runtimeAccessKey} />}
       {growthOpen && <Suspense fallback={<section className="growth-workspace" aria-label="Knowledge growth workspace"><div className="growth-state" role="status">Loading growth workspace...</div></section>}><GrowthWorkspace onClose={() => setGrowthOpen(false)} runtimeAccessKey={runtimeAccessKey} /></Suspense>}
-      {dbosOpen && <Suspense fallback={<section className="dbos-control-center" aria-label="Business Control Center"><div className="dbos-message" role="status">Loading mission control center...</div></section>}><BusinessControlCenter onClose={() => setDbosOpen(false)} initialProjectId={knowledgeProjectId || 'default'} /></Suspense>}
+      {operationsOpen && <Suspense fallback={<section className="operations-cockpit" aria-label="Knowledge operations cockpit"><div className="operations-loading" role="status">Loading knowledge operations...</div></section>}><KnowledgeOperationsCockpit onClose={() => setOperationsOpen(false)} initialProjectId={knowledgeProjectId} onOpenKnowledge={(projectId, entityId) => { setKnowledgeProjectId(projectId); useKnowledgeWorkspaceStore.getState().setNavigationTarget(entityId); setOperationsOpen(false); setKnowledgeOpen(true); }} onOpenGrowth={(projectId, entityId) => { setKnowledgeProjectId(projectId); const growthStore = useGrowthWorkspaceStore.getState(); growthStore.setProjectId(projectId); growthStore.setStage('review'); growthStore.setCenterView('assets'); growthStore.setSelectedId(entityId); setOperationsOpen(false); setGrowthOpen(true); }} onOpenDbos={(projectId, missionId, artifactId) => { setKnowledgeProjectId(projectId); setDbosMissionId(missionId); setDbosArtifactId(artifactId); setOperationsOpen(false); setDbosOpen(true); }} /></Suspense>}
+      {dbosOpen && <Suspense fallback={<section className="dbos-control-center" aria-label="Business Control Center"><div className="dbos-message" role="status">Loading mission control center...</div></section>}><BusinessControlCenter onClose={() => setDbosOpen(false)} initialProjectId={knowledgeProjectId || 'default'} initialMissionId={dbosMissionId} initialArtifactId={dbosArtifactId} initialRequestText={dbosInitialRequest} autoStartIntake={Boolean(dbosInitialRequest)} /></Suspense>}
     </div>
   );
 }

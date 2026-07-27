@@ -24,13 +24,23 @@ _COMMON_SCHEMA = [
         id TEXT PRIMARY KEY, project_id TEXT NOT NULL, user_id TEXT NOT NULL,
         role TEXT NOT NULL, joined_at TEXT NOT NULL)""",
     """CREATE TABLE IF NOT EXISTS knowledge_projects (
-        id TEXT PRIMARY KEY, name TEXT NOT NULL, created_at TEXT NOT NULL,
+        id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL DEFAULT 'default',
+        name TEXT NOT NULL, created_at TEXT NOT NULL,
         metadata TEXT DEFAULT '{}', rerank_config TEXT DEFAULT '{}')""",
     """CREATE TABLE IF NOT EXISTS project_keys (
         key_hash TEXT PRIMARY KEY, project_id TEXT NOT NULL, role TEXT NOT NULL,
         label TEXT, created_at TEXT NOT NULL,
         FOREIGN KEY(project_id) REFERENCES knowledge_projects(id))""",
 ]
+
+
+# Schema initialization is invoked by API, Worker, and Beat processes. PostgreSQL
+# serializes ordinary DML correctly, but concurrent ``CREATE INDEX IF NOT EXISTS``
+# statements can still deadlock while bootstrap migrations are running. A stable,
+# session-scoped advisory lock keeps the whole migration sequence single-flight,
+# including helpers that may need their own transaction boundary in the future.
+_POSTGRES_SCHEMA_ADVISORY_LOCK = 7_485_216_203
+_POSTGRES_SCHEMA_READY_ATTRIBUTE = "_bsc_knowledge_schema_ready"
 
 
 _WIKI_SCHEMA = [
@@ -209,6 +219,32 @@ _WIKI_SCHEMA = [
 def ensure_schema(repo: Any) -> None:
     backend = repo._get_connection()
     dialect = getattr(backend, "dialect", "sqlite")
+    if dialect == "postgresql" and getattr(backend, _POSTGRES_SCHEMA_READY_ATTRIBUTE, False):
+        return
+    postgres_lock_acquired = False
+    try:
+        if dialect == "postgresql":
+            repo._execute("SELECT pg_advisory_lock(?)", (_POSTGRES_SCHEMA_ADVISORY_LOCK,))
+            postgres_lock_acquired = True
+        elif dialect == "sqlite":
+            # Hold one write transaction for schema inspection and legacy-table
+            # rebuilds. Individual migration helpers must not begin or commit
+            # their own transaction inside this boundary.
+            repo._execute("BEGIN IMMEDIATE")
+        _ensure_schema_unlocked(repo, dialect)
+        repo._commit()
+        if dialect == "postgresql":
+            setattr(backend, _POSTGRES_SCHEMA_READY_ATTRIBUTE, True)
+    except Exception:
+        backend.rollback()
+        raise
+    finally:
+        if dialect == "postgresql" and postgres_lock_acquired:
+            repo._execute("SELECT pg_advisory_unlock(?)", (_POSTGRES_SCHEMA_ADVISORY_LOCK,))
+            repo._commit()
+
+
+def _ensure_schema_unlocked(repo: Any, dialect: str) -> None:
     for sql in _COMMON_SCHEMA:
         repo._execute(sql)
     for sql in _WIKI_SCHEMA:
@@ -239,6 +275,15 @@ def ensure_schema(repo: Any) -> None:
         except Exception:
             pass
 
+    _ensure_columns(
+        repo,
+        "knowledge_projects",
+        ("ALTER TABLE knowledge_projects ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'",),
+    )
+    repo._execute(
+        "UPDATE knowledge_projects SET tenant_id='default' "
+        "WHERE tenant_id IS NULL OR tenant_id=''"
+    )
     _ensure_columns(
         repo,
         "knowledge_docs",
@@ -285,6 +330,7 @@ def ensure_schema(repo: Any) -> None:
     )
     _ensure_triage_evaluator_identity(repo)
     for idx_sql in (
+        "CREATE INDEX IF NOT EXISTS idx_kprojects_tenant_created ON knowledge_projects(tenant_id,created_at)",
         "CREATE INDEX IF NOT EXISTS idx_pm_project_user ON project_members(project_id, user_id)",
         "CREATE INDEX IF NOT EXISTS idx_kdocs_project ON knowledge_docs(project_id)",
         "CREATE INDEX IF NOT EXISTS idx_kdocs_domain ON knowledge_docs(domain)",
@@ -325,7 +371,6 @@ def ensure_schema(repo: Any) -> None:
         "CREATE INDEX IF NOT EXISTS idx_kw_lineage_edge ON knowledge_graph_edges(project_id,from_id,to_id,edge_type)",
     ):
         repo._execute(idx_sql)
-    repo._commit()
 
 
 def _backfill_failure_patterns(repo: Any) -> None:
@@ -374,23 +419,18 @@ def _ensure_triage_evaluator_identity(repo: Any) -> None:
         ]
         if any(definition == "unique(project_id,source_id,profile_revision,evaluator_revision)" for _, definition in existing):
             return
-        try:
-            for name, definition in existing:
-                if definition == "unique(project_id,source_id,profile_revision)":
-                    repo._execute(
-                        'ALTER TABLE knowledge_source_triage DROP CONSTRAINT "'
-                        + name.replace('"', '""')
-                        + '"'
-                    )
-            repo._execute(
-                "ALTER TABLE knowledge_source_triage "
-                "ADD CONSTRAINT knowledge_source_triage_project_source_profile_evaluator_key "
-                "UNIQUE(project_id,source_id,profile_revision,evaluator_revision)"
-            )
-            repo._commit()
-        except Exception:
-            backend.rollback()
-            raise
+        for name, definition in existing:
+            if definition == "unique(project_id,source_id,profile_revision)":
+                repo._execute(
+                    'ALTER TABLE knowledge_source_triage DROP CONSTRAINT "'
+                    + name.replace('"', '""')
+                    + '"'
+                )
+        repo._execute(
+            "ALTER TABLE knowledge_source_triage "
+            "ADD CONSTRAINT knowledge_source_triage_project_source_profile_evaluator_key "
+            "UNIQUE(project_id,source_id,profile_revision,evaluator_revision)"
+        )
         return
 
     index_rows = repo._execute("PRAGMA index_list(knowledge_source_triage)").fetchall()
@@ -401,29 +441,23 @@ def _ensure_triage_evaluator_identity(repo: Any) -> None:
         columns = tuple(str(column[2]) for column in repo._execute(f"PRAGMA index_info({name})").fetchall())
         if columns == expected:
             return
-    try:
-        repo._execute("BEGIN IMMEDIATE")
-        repo._execute("ALTER TABLE knowledge_source_triage RENAME TO knowledge_source_triage_legacy_identity")
-        repo._execute(
-            """CREATE TABLE knowledge_source_triage (
-                id TEXT PRIMARY KEY, project_id TEXT NOT NULL, source_id TEXT NOT NULL,
-                profile_revision INTEGER NOT NULL, relevance INTEGER NOT NULL,
-                value_score INTEGER NOT NULL, freshness INTEGER NOT NULL,
-                outputability INTEGER NOT NULL, connectedness INTEGER NOT NULL,
-                priority INTEGER NOT NULL, reliability_pass INTEGER NOT NULL,
-                disposition TEXT NOT NULL, reasons_json TEXT NOT NULL DEFAULT '[]',
-                evaluator_revision TEXT NOT NULL DEFAULT '', evaluator_status TEXT NOT NULL DEFAULT 'completed',
-                created_at TEXT NOT NULL,
-                UNIQUE(project_id, source_id, profile_revision, evaluator_revision))"""
-        )
-        repo._execute(
-            "INSERT INTO knowledge_source_triage "
-            "(id,project_id,source_id,profile_revision,relevance,value_score,freshness,outputability,connectedness,priority,reliability_pass,disposition,reasons_json,evaluator_revision,evaluator_status,created_at) "
-            "SELECT id,project_id,source_id,profile_revision,relevance,value_score,freshness,outputability,connectedness,priority,reliability_pass,disposition,reasons_json,evaluator_revision,evaluator_status,created_at "
-            "FROM knowledge_source_triage_legacy_identity"
-        )
-        repo._execute("DROP TABLE knowledge_source_triage_legacy_identity")
-        repo._commit()
-    except Exception:
-        backend.rollback()
-        raise
+    repo._execute("ALTER TABLE knowledge_source_triage RENAME TO knowledge_source_triage_legacy_identity")
+    repo._execute(
+        """CREATE TABLE knowledge_source_triage (
+            id TEXT PRIMARY KEY, project_id TEXT NOT NULL, source_id TEXT NOT NULL,
+            profile_revision INTEGER NOT NULL, relevance INTEGER NOT NULL,
+            value_score INTEGER NOT NULL, freshness INTEGER NOT NULL,
+            outputability INTEGER NOT NULL, connectedness INTEGER NOT NULL,
+            priority INTEGER NOT NULL, reliability_pass INTEGER NOT NULL,
+            disposition TEXT NOT NULL, reasons_json TEXT NOT NULL DEFAULT '[]',
+            evaluator_revision TEXT NOT NULL DEFAULT '', evaluator_status TEXT NOT NULL DEFAULT 'completed',
+            created_at TEXT NOT NULL,
+            UNIQUE(project_id, source_id, profile_revision, evaluator_revision))"""
+    )
+    repo._execute(
+        "INSERT INTO knowledge_source_triage "
+        "(id,project_id,source_id,profile_revision,relevance,value_score,freshness,outputability,connectedness,priority,reliability_pass,disposition,reasons_json,evaluator_revision,evaluator_status,created_at) "
+        "SELECT id,project_id,source_id,profile_revision,relevance,value_score,freshness,outputability,connectedness,priority,reliability_pass,disposition,reasons_json,evaluator_revision,evaluator_status,created_at "
+        "FROM knowledge_source_triage_legacy_identity"
+    )
+    repo._execute("DROP TABLE knowledge_source_triage_legacy_identity")

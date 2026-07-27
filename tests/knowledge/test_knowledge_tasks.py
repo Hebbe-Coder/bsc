@@ -6,10 +6,12 @@ from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_source_capture import CapturedSourceInput, SourceCaptureService
+from app.knowledge.wiki_contracts import SourceRecord
 from app.knowledge.wiki_evaluator import WikiEvaluator
 from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.wiki_rules import build_default_agents_rules
 from app.knowledge.wiki_compiler import WikiCompilationError
+from app.knowledge.wiki_llm_provider import WikiLLMProviderError
 from app.knowledge.scheduler import KnowledgeScheduler
 from app.tasks.knowledge_tasks import classify_knowledge_failure, execute_knowledge_run
 from app.tasks.knowledge_tasks import reconcile_knowledge_schedules
@@ -21,6 +23,26 @@ def test_compiler_schema_failure_is_not_misclassified_as_missing_configuration()
     assert failure.__dict__ == {
         "category": "compiler",
         "code": "compiler_failed",
+        "retryable": False,
+    }
+
+
+def test_wiki_llm_payment_requirement_is_an_unavailable_dependency():
+    failure = classify_knowledge_failure(WikiLLMProviderError("payment_required"))
+
+    assert failure.__dict__ == {
+        "category": "dependency",
+        "code": "wiki_llm_payment_required",
+        "retryable": False,
+    }
+
+
+def test_wiki_llm_request_shape_failure_remains_a_compiler_failure():
+    failure = classify_knowledge_failure(WikiLLMProviderError("response_payload_invalid"))
+
+    assert failure.__dict__ == {
+        "category": "compiler",
+        "code": "wiki_llm_response_payload_invalid",
         "retryable": False,
     }
 
@@ -58,6 +80,35 @@ def test_execute_is_idempotent_for_an_existing_terminal_run(tmp_path):
         repo.close()
 
 
+def test_execute_does_not_repeat_a_run_already_claimed_by_another_worker(tmp_path, monkeypatch):
+    repo = WikiRepository(db_path=str(tmp_path / "tasks-claimed.db"))
+    run = KnowledgeRun(project_id="project-a", run_type="source_sync", trigger="manual")
+    repo.create_run(run)
+    assert repo.claim_run_execution(project_id="project-a", run_id=run.id) is True
+    synchronizer_calls = []
+
+    class _UnexpectedSyncService:
+        def __init__(self, *_args, **_kwargs):
+            synchronizer_calls.append("initialized")
+
+        def sync(self, **_kwargs):
+            synchronizer_calls.append("synced")
+            raise AssertionError("a duplicate executor must not synchronize the Vault")
+
+    monkeypatch.setattr("app.tasks.knowledge_tasks.ObsidianSyncService", _UnexpectedSyncService)
+    try:
+        result = execute_knowledge_run("project-a", run.id, repository=repo)
+
+        assert result == {"status": "running", "run_id": run.id, "duplicate": True, "output_refs": {}}
+        assert synchronizer_calls == []
+        assert [event["event_type"] for event in repo.list_run_events(project_id="project-a", run_id=run.id)] == [
+            "knowledge.run.queued",
+            "knowledge.run.running",
+        ]
+    finally:
+        repo.close()
+
+
 def test_source_sync_task_imports_only_non_managed_obsidian_notes(tmp_path, monkeypatch):
     repo = WikiRepository(db_path=str(tmp_path / "tasks-sync.db"))
     run = KnowledgeRun(project_id="project-a", run_type="source_sync", trigger="manual")
@@ -65,6 +116,15 @@ def test_source_sync_task_imports_only_non_managed_obsidian_notes(tmp_path, monk
     vault_root = tmp_path / "vault"
     vault_root.mkdir()
     repo.configure_vault("project-a", "projects/project-a")
+    repo.create_source(SourceRecord(
+        id="horizon-test-1",
+        project_id="project-a",
+        source_type="horizon_signal",
+        origin="https://example.com/horizon",
+        content_hash="a" * 64,
+        raw_content="Captured Horizon evidence",
+        trust_level="reviewed",
+    ))
     (vault_root / "research.md").write_text("# Research\nGrounded observation.", encoding="utf-8")
     (vault_root / "projects" / "project-a" / "wiki").mkdir(parents=True)
     (vault_root / "projects" / "project-a" / "wiki" / "overview.md").write_text("managed output", encoding="utf-8")
@@ -75,10 +135,12 @@ def test_source_sync_task_imports_only_non_managed_obsidian_notes(tmp_path, monk
 
         assert result["status"] == "completed"
         assert result["sync"]["scanned"] == 1
+        assert result["sync"]["evidence_mirror"]["created"] == 1
         assert result["sync"]["wiki_pages"] == 1
         assert result["sync"]["wiki_index"]["indexed"] == 1
         assert repo.get_run("project-a", run.id)["status"] == "completed"
-        assert repo.list_sources("project-a")[0]["origin"] == "research.md"
+        assert any(source["origin"] == "research.md" for source in repo.list_sources("project-a"))
+        assert (vault_root / "projects" / "project-a" / "01_Sources" / "bsc-evidence" / "horizon-test-1.md").is_file()
     finally:
         repo.close()
 
@@ -552,6 +614,30 @@ def test_schedule_reconciler_requeues_unproven_source_sync_claim(tmp_path, monke
         repo.close()
 
 
+def test_schedule_reconciler_includes_abandoned_publication_recovery(tmp_path, monkeypatch):
+    repo = WikiRepository(db_path=str(tmp_path / "schedule-publish-recovery.db"))
+    calls = []
+
+    class _PublicationRecovery:
+        def __init__(self, received_repo):
+            assert received_repo is repo
+
+        def recover_abandoned_publications(self, *, now, timeout_seconds):
+            calls.append((now, timeout_seconds))
+            return {"recovered": 1, "failed": 0}
+
+    monkeypatch.setattr("app.tasks.knowledge_tasks.WikiRepository", lambda: repo)
+    monkeypatch.setattr("app.tasks.knowledge_tasks.WikiCommandService", _PublicationRecovery)
+    try:
+        current = datetime(2026, 7, 21, 13, 5, tzinfo=timezone.utc)
+        result = reconcile_knowledge_schedules(current)
+
+        assert result == {"queued": 0, "duplicates": 0, "failures": 0, "recovered": 1}
+        assert calls == [(current, 120)]
+    finally:
+        repo.close()
+
+
 def test_quality_task_runs_project_lint_and_persisted_evaluation(tmp_path, monkeypatch):
     from app.knowledge.wiki_rules import build_default_agents_rules
 
@@ -577,7 +663,13 @@ def test_quality_task_runs_project_lint_and_persisted_evaluation(tmp_path, monke
         source_ids=[],
     )
     WikiEvaluator(repo).save_case(
-        project_id="project-a", case_id="citation", case_type="citation", expected={"source_ids": [source["id"]]}
+        project_id="project-a",
+        case_id="citation",
+        case_type="citation",
+        expected={
+            "source_ids": [source["id"]],
+            "scope_paths": ["wiki/concepts/approval.md"],
+        },
     )
     run = KnowledgeRun(project_id="project-a", run_type="knowledge_lint_eval", trigger="manual")
     repo.create_run(run)
@@ -589,5 +681,35 @@ def test_quality_task_runs_project_lint_and_persisted_evaluation(tmp_path, monke
         assert result["lint"]["valid"] is True
         assert result["evaluation"]["status"] == "passed"
         assert repo.get_run("project-a", run.id)["output_refs"]["evaluation"]["score"] == 1.0
+    finally:
+        repo.close()
+
+
+def test_wiki_maintenance_without_eligible_evidence_completes_as_auditable_noop(tmp_path, monkeypatch):
+    from app.knowledge.wiki_rules import build_default_agents_rules
+
+    root = tmp_path / "vault"
+    project_root = root / "projects" / "project-a"
+    project_root.mkdir(parents=True)
+    (project_root / "AGENTS.md").write_text(build_default_agents_rules("project-a"), encoding="utf-8")
+    repo = WikiRepository(db_path=str(tmp_path / "tasks-maintenance-noop.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    run = KnowledgeRun(project_id="project-a", run_type="wiki_maintenance", trigger="schedule")
+    repo.create_run(run)
+    monkeypatch.setattr("app.tasks.knowledge_tasks.settings.OBSIDIAN_VAULT_ROOT", str(root))
+    try:
+        result = execute_knowledge_run("project-a", run.id, repository=repo)
+
+        assert result == {
+            "status": "completed",
+            "run_id": run.id,
+            "outcome": "no_eligible_sources",
+        }
+        persisted = repo.get_run("project-a", run.id)
+        assert persisted["status"] == "completed"
+        assert persisted["output_refs"]["outcome"] == "no_eligible_sources"
+        assert GrowthRepository.borrow(repo).list_failure_records("project-a", run_id=run.id) == []
+        events = repo.list_run_events(project_id="project-a", run_id=run.id)
+        assert any(event["event_type"] == "knowledge.wiki.maintenance.noop" for event in events)
     finally:
         repo.close()

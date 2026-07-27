@@ -297,3 +297,298 @@ Live Horizon endpoint/API credentials and a real Wiki-maintenance LLM provider r
 - Celery queue proof: run `b320e0a6eb2c` automatically imported the scheduled-task artifact from `enriched_items.json` with accepted=2 and created=2. Forced due reconciliation then created schedule run `ab286a9a4fa6`, completed it as an idempotent skip, and advanced the next run to `2026-07-22T09:00:00+00:00`.
 - Focused automation, scheduler, task, producer, and Compose contracts: `28 passed`, with one existing Starlette/httpx deprecation warning. Runtime project `horizon-radar` contains five immutable evidence records after the live proofs.
 - Expanded knowledge/integration/API/Celery/producer regression: `275 passed, 5 skipped`, with one existing Starlette/httpx deprecation warning. Compileall, Compose config, and `git diff --check` pass.
+
+## Isolated Workspace Revalidation (2026-07-26)
+
+### Defect Corrected
+
+- The Studio `Runtime access key` field could be rejected even when the target API accepted that key. `vite.config.ts` let a generic `.env` `API_KEY` silently override the key typed into Studio and let file-level proxy targets outrank the process-level target used by `start_isolated_studio.ps1`.
+- The proxy now uses only an explicit process-level `BSC_LOCAL_API_KEY` for server-managed loopback authentication, gives explicit process targets precedence over file defaults, and forwards a caller's `Authorization` header when no managed local key is configured.
+- `start_isolated_studio.ps1` clears the managed-key variable so browser acceptance always exercises the visible runtime-key control instead of inheriting an unrelated developer credential.
+
+### Evidence
+
+- `src/viteProxyAuth.test.ts`: 4 passing cases verify target precedence, no generic `API_KEY` fallback, explicit managed-key behavior, and production disabling.
+- `npm.cmd run check`: passed after the proxy changes.
+- Targeted backend regression passed: `66 passed` across Compose contracts, fixture isolation, growth distillation, knowledge tasks, and knowledge-workspace API tests.
+- Full frontend regression passed: `14` test files and `113` tests. Production build completed, and lint completed with `0 errors` plus `203` pre-existing warnings.
+- `docker compose config --quiet`, `git diff --check`, Docker API `/live` and `/ready` (`200`), and Docker Worker `celery inspect ping` (`pong`) passed.
+- A standalone full `pytest -q` attempt exceeded 304 seconds while separate user/workflow single-file pytest processes were active. It is not recorded as passing; the targeted suite above is the verification used for this change.
+- Direct authenticated request through `http://127.0.0.1:5190/knowledge/workspaces/browser-demo` returned `200` with `vault.connection.state=ready`, `sources=2`, and `runs=2`. The API was a temporary SQLite fixture backed by a temporary Vault and the known test key `browser-verification`.
+- Desktop Studio acceptance verified authenticated project access, a ready Vault, page-to-citation-to-SHA-256 source provenance, two-operation proposal Diff, completed and failed durable runs with ordered events, graph filtering/node navigation, weekly three-document output with stable source cutoff, and the revision-history control.
+- Mobile acceptance at `390x844` reported `documentWidth=384` and `bodyWidth=384`, so there was no horizontal overflow. Selecting the weekly bundle, switching `Navigate -> Workspace`, and returning preserved the selected `2026-W30` bundle and its stored documents.
+- Visual inspection reached the health-trend region: five `306x180` ECharts canvases rendered source capture and proposal outcome series. The local application console contained no error entries.
+
+### Boundary Statement
+
+- This revalidation did not read a user Vault, Obsidian plugin code, `.env`, or external credentials. It did not claim a real Horizon import or a real Wiki LLM-maintenance run. Those integrations remain governed external runtime configuration, while their unavailable states remain visible in Studio.
+
+## Lint Dependency Remediation (2026-07-26)
+
+- Corrected `ProposalReview` state-reset dependencies in `src/components/KnowledgeWorkspace.tsx`. The effect now depends on stable `proposalId` and `proposalSourceIds` values rather than indirectly reading the full mutable proposal object. This preserves reset behavior when the selected proposal or its evidence changes, without a stale or over-broad Hook dependency.
+- Targeted component verification: `npm.cmd run test:frontend -- src/components/KnowledgeWorkspace.test.tsx` -> `1` file, `9` tests passed.
+- Complete frontend verification: `npm.cmd run test:frontend` -> `14` files, `113` tests passed; `npm.cmd run check` and `npm.cmd run build` passed.
+- `npm.cmd run lint` completed with `0` errors and `202` pre-existing warnings. The corrected Knowledge workspace Hook warning is absent. The known production chunk-size advisory remains non-blocking.
+- No full Python regression was claimed in this remediation because a prior full run exceeded its time limit while other workflows were active. This frontend-only correction did not change backend behavior.
+
+## Real Wiki Maintenance Dependency Audit (2026-07-26)
+
+### Runtime Evidence
+
+- Rebuilt and deployed the current Knowledge image to the local Docker stack. `bsc-backend` is healthy on `8002`; PostgreSQL and Redis are healthy; the Celery Worker and Beat are running. `GET /live` and `GET /ready` both returned `200`, and `celery inspect ping` returned `pong`.
+- Ran a real `wiki_maintenance` task for the mapped default project. Run `7d28107fad20` selected seven eligible sources and constructed a governed 12,451-character maintenance context. It did not use mock content and did not publish a synthetic proposal.
+- The configured DeepSeek provider returned HTTP `402 Payment Required`. The persisted terminal state is `unavailable`, with the redacted error `Wiki LLM provider is unavailable (payment_required)`, failure code `wiki_llm_payment_required`, and four ordered durable events ending in `knowledge.run.unavailable`.
+- The provider boundary is now typed: upstream payment, credential, network, rate-limit, and model availability failures are reported as dependency availability outcomes; malformed LLM proposals and request-shape problems remain compiler failures. No upstream body or credential is stored in a run, event, test, or worklog.
+
+### Verification
+
+- `tests/knowledge/test_wiki_llm_provider.py tests/knowledge/test_knowledge_tasks.py`: `24 passed`.
+- `tests/promptops/test_promptops.py tests/test_sop_llm_client.py tests/api/test_knowledge_workspace_api.py`: `48 passed`.
+- Knowledge regression: `66 passed, 1 skipped`; `compileall app`, `docker compose config --quiet`, and `git diff --check` passed.
+- Browser inspection of the local Studio confirms the unauthenticated state is explicit: it displays `Studio access required` and the API response `authentication required`; it does not claim that the protected default project has been synced. The runtime access key was not read from local configuration or entered into the browser.
+
+### Remaining External Gate
+
+- A paid DeepSeek balance or an explicitly configured alternative real model is required before another maintenance run can produce a reviewable Wiki proposal, pass lint/evaluation, and enter the publish gate. This worklog does not mark that downstream evidence chain complete.
+
+## Horizon Daily Capture Reconciliation (2026-07-26)
+
+- Windows task `BSC-Horizon-Daily-Radar` executed at `07:30:01` local time with result `0`; its next scheduled run is `2026-07-27 07:30:00` and it has no missed executions.
+- The latest native Horizon artifact `run-20260725T233005Z-974f0eb9` contains four filtered items, plus immutable raw/scored stages. Its ready stage is `filtered`: source collection and deterministic filtering completed, while model-based enrichment degraded because the external provider cannot be paid for at present.
+- Reconciled the BSC consumer through the real Celery queue, creating run `987a9ee64fc6`. It produced the durable event sequence `queued -> execution_assigned -> running -> horizon.capture.skipped -> completed` and returned `no_new_artifact` rather than duplicating evidence.
+- The idempotent skip is backed by the project ledger: the latest Horizon run ID was already imported. The default project currently contains 59 immutable source records, of which 52 are `horizon_signal` records. This is runtime evidence for the native Horizon run-store to BSC evidence integration, not a fixture or a file-existence assertion.
+
+## Obsidian Source-Sync Runtime Proof (2026-07-26)
+
+- The persistent default-project `source_sync` schedule ran at `23:50` local time. Durable run `0c1f5c1095fe` completed with ordered `queued -> execution_dispatched -> running -> wiki.snapshot.synced -> source.sync.completed -> completed` events.
+- It scanned six declared project files, created zero duplicate source records, recognized six existing content hashes as duplicates, skipped one managed/empty boundary item, and rejected or blocked nothing.
+- The BSC-to-Obsidian evidence mirror verified 55 eligible records: `created=0`, `updated=0`, `unchanged=55`, `conflicts=0`; four non-eligible records were intentionally not projected. The on-disk `01_Sources/bsc-evidence/` mirror contains 55 Markdown records.
+- The same execution indexed six governed Wiki/AGENTS files and found no D-layer output feedback to register. This is the expected honest result while no new user-authored Obsidian material or real production outputs have appeared.
+
+## DeepSeek Recovery and Governed Publication (2026-07-26)
+
+### Runtime Results
+
+- After the provider balance was restored, a direct DeepSeek structured call returned HTTP 200 and a real `wiki_maintenance` execution produced proposal `fcf98725f2d1`. Its four governed operations passed lint with no findings.
+- An earlier manual publication was interrupted by an API-container recreation. The proposal was left `approved` and run `567a6ed61d70` was still `running`, without the intended Wiki page in either the Vault or publication index. This was treated as an atomicity defect, not as a successful publish.
+- Publication recovery now reconciles stale `wiki_publish` runs against the authoritative Vault. It completes runs only if every typed filesystem effect is present; otherwise it changes `validating` or legacy `approved` proposals to retryable `failed` and records `abandoned_publish`.
+- Reconciliation correctly changed `fcf98725f2d1` to `failed` and `567a6ed61d70` to `failed` with `failure.code=abandoned_publish`. No uncommitted concept page was present in `D:\bsc\bsc\projects\default\wiki`.
+- The same proposal was then republished through the normal manual gate. Publication run `7eef12bddfad` completed with evaluation score `1.0`; proposal status is `published`; `wiki/concepts/workplace-sop-models.md` now exists in the mounted Obsidian Vault; the database contains seven governed pages and 17 active citation links; the proposal evidence is `processed`.
+- A queued post-publication `source_sync` verification run `2a4b6721dacf` completed. It found six duplicate managed project notes, updated seven evidence mirrors, indexed seven Wiki pages, and reported no rejected, blocked, or index failures.
+
+### Retrieval and Maintenance Evidence
+
+- The initial live SOP context build selected the published `wiki/concepts/workplace-sop-models.md` page and its evidence, but revealed that legacy reranking assumed every repository owned `get_project`. `WikiRepository` does not, so retrieval fell back after an `AttributeError`.
+- `get_reranker` now capability-checks `get_project` before reading project-level reranker configuration. Wiki-backed retrieval falls back to the configured global reranker without an exception. Regression tests for reranking, context packs, and retrieval passed: `14 passed`.
+- After redeployment, the live default-project context build was 11,977 characters and included both the published SOP page and an immutable source. No rerank-fallback error was emitted.
+- A further governed maintenance run `826a77d4a3e7` terminated before any model call with `no eligible sources selected`. The live source ledger contains 31 `validated`, 9 `processed`, 1 `rejected`, and 18 `superseded` records, with no `eligible` records. This is the intended anti-repeat boundary: community or untriaged Horizon signals cannot be silently promoted to trusted evidence merely to make a model run.
+
+### Verification and Deployment
+
+- Focused publication recovery regression: `tests/knowledge/test_proposal_gate.py tests/knowledge/test_wiki_commands.py tests/knowledge/test_scheduler.py tests/knowledge/test_knowledge_tasks.py -q` -> `46 passed`.
+- Rebuilt the local API, Worker, and Beat images without changing PostgreSQL, Redis, or the mounted Vault. `docker compose ps`, `GET /live`, and `GET /ready` confirm all services are healthy at `http://127.0.0.1:8002`.
+- `git diff --check` remains clean apart from existing line-ending advisories. The worktree intentionally still contains broader uncommitted work; no unrelated file was staged or reverted.
+
+### Existing Automation Cross-Check
+
+- The `growth_daily` schedule is enabled for `17:00 Asia/Shanghai`, following the `08:00` Horizon capture schedule; weekly distillation remains enabled for Friday `17:30`, and Wiki maintenance for `17:15`. This ordering gives new signals a project-profile triage pass before scheduled Wiki maintenance.
+- Latest generated daily growth run `c1f7d03f0c87` is runtime evidence of the complete A/B/C/D loop. It wrote `distillations/每周蒸馏/2026-W30/每日增量/2026-07-26.md`, used 213 bounded inputs, and recorded one successful `deepseek-v4-pro` `knowledge_distillation` call through PromptOps (`2,992` reported tokens, including `1,664` cached and `1,073` reasoning tokens). The audit is attached to the run as `prompt_049dcbecc4ef4761b9c099a1c510fa1b`.
+- That daily run's declared Obsidian/plugin sync triaged 37 records with `eligible=6` and `pending_review=31` at execution time. The later explicit triage pass produced the same conservative result for the current 31 pending signals: 30 archive decisions and one non-admitted reference candidate. No source was promoted by a template or a model assertion alone.
+
+## DeepSeek Runtime Closure And PostgreSQL Retrieval Repair (2026-07-27)
+
+### Real Runtime Evidence
+
+- DeepSeek is configured and the model balance is usable. A real weekly growth run `65be57b07369` completed through Celery for `default` and generated the durable `2026-W31` bundle under `D:\bsc\bsc\projects\default\distillations\每周蒸馏\2026-W31`.
+- The run persisted five governed documents, a source cutoff, input fingerprint, and a `knowledge.growth.model.completed` event. PromptOps recorded one completed `deepseek-v4-pro` `knowledge_distillation` call (`prompt_580b36fe0dda4bffa547a938ce4f5397`) with 2,918 reported tokens and no retry.
+- A manual maintenance run `906ffd9e85ea` completed as the intended auditable no-op when no currently eligible source exists. Its event stream ends with `knowledge.wiki.maintenance.noop`; it created no failure record and did not bypass source-admission policy merely to invoke a model.
+- A real project-scoped SOP composition completed through PromptOps using `deepseek-v4-pro`. The resulting SOP had a growth context pack with three immutable source references and three published-Wiki page references; the redacted audit ledger records six context references and one provider call.
+- The protected live workspace endpoint was requested in-process with the configured key, without printing or reading it into this worklog. It returned HTTP 200 for `default`, with Vault state `ready`, 114 source records, five durable schedules, and retained run history.
+
+### Defects Corrected
+
+- PostgreSQL schema setup now uses a session-scoped advisory lock around the complete knowledge migration rather than a transaction-scoped lock. This closes the observed concurrent `CREATE INDEX IF NOT EXISTS` deadlock during independent repository process initialization.
+- `KeywordBackend` now detects PostgreSQL before attempting SQLite FTS5 `MATCH`/`bm25`. PostgreSQL follows the existing project-scoped lexical `LIKE` path directly, so valid SOP context retrieval does not emit a syntax error and silently degrade first.
+
+### Verification
+
+- Focused regression: `./.venv/Scripts/python.exe -m pytest tests/knowledge/test_wiki_schema.py tests/knowledge/test_keyword.py tests/knowledge/test_knowledge_tasks.py -q` -> `28 passed`, with one existing Starlette/httpx deprecation warning.
+- Rebuilt and deployed API, Worker, and Beat. API `/ready` returned 200 and Celery ping returned `pong`.
+- Three concurrent fresh repository processes each completed schema initialization after deployment. A real PostgreSQL retrieval returned five scoped chunks, and a subsequent real SOP generation completed without a new `knowledge_fts MATCH` or `bm25(knowledge_fts)` PostgreSQL log entry.
+
+### Deliberate Boundary
+
+- The currently empty eligible-source set means the next Wiki maintenance cycle will remain a completed no-op until a source passes the project-specific admission policy. This is correct: the weekly growth and SOP paths may consume the governed project context, but they cannot auto-promote rejected, validated, or superseded evidence into publishable Wiki claims.
+
+## Weekly Retry Repair And DeepSeek Daily Proof (2026-07-27)
+
+### Defect Corrected
+
+- A retried `weekly_distillation` run could recalculate its period from the current date when the retry dispatcher did not resend the optional `week` argument. `execute_knowledge_run` now persists the explicitly supplied week before execution, and the distillation handler resolves its period in the order: dispatcher argument, persisted run input, current ISO week. A retry therefore remains bound to the original cutoff and output bundle rather than writing into a later week.
+
+### Verification And Deployment
+
+- Targeted retry and repository suite: `31 passed` across Celery retry, repository, and knowledge-task tests.
+- Broader knowledge regression: `554 passed, 3 skipped` across `tests/knowledge`, growth-Celery, knowledge-Celery, and workspace API coverage.
+- Rebuilt `bsc-backend`, `celery-worker`, and `celery-beat` without replacing PostgreSQL, Redis, or the mounted Vault. The API is healthy on `http://127.0.0.1:8002`; PostgreSQL and Redis are healthy; Worker and Beat are running.
+
+### Real Runtime Evidence
+
+- Submitted daily growth run `cfe345f15bf9` through the authenticated project API. It was processed by Celery and completed with the durable event sequence `queued -> execution_assigned -> growth.started -> obsidian_sync.completed -> model.completed -> distillation.completed -> completed`.
+- The run scanned the declared Obsidian bridge and retained the truthful plugin state: one configured Clipper export was already captured; other configured import/export plugins remain `awaiting_export` until their first real files appear.
+- PromptOps recorded one completed DeepSeek `deepseek-v4-pro` `knowledge_distillation` call (`prompt_3dedfdd4e0934223b6232fde8f2420e9`) with no retry. The governed daily artifact was written to `distillations/每周蒸馏/2026-W31/每日增量/2026-07-27.md`.
+- Manual review confirmed the artifact is source-cited, distinguishes evidence from project implications, and records its unresolved question and next verification action. It is a daily knowledge increment, not a published Wiki claim or a substitute for a multi-source research report.
+
+## DeepSeek Pro Semantic Triage And Reference-Only Authoring Gate (2026-07-27)
+
+### Real Runtime Evidence
+
+- The manual semantic-triage path was exercised against immutable Horizon source `25fca60224c4` through the protected local API. No credential, raw source body, or provider response body was logged.
+- The first implementation routed this lightweight task to `deepseek-v4-flash` when `KNOWLEDGE_GROWTH_LLM_MODEL` was empty, despite the project-level `DEEPSEEK_MODEL` being `deepseek-v4-pro`. The evaluator now inherits the configured DeepSeek model only for a DeepSeek-backed workspace; other providers retain PromptOps routing.
+- A real Pro request exposed a second integration defect: the previous 900-token completion budget could be consumed by model reasoning and leave an empty final JSON response. A same-input, no-persistence diagnostic passed at 1,800 tokens. The governed manual evaluator now reserves 1,800 tokens and persists a stable provider failure category when a structured call is unavailable.
+- Semantic evaluator revision `semantic-source-triage-v3` completed through DeepSeek Pro in 20,100 ms. PromptOps run `prompt_078c7033ae6749f9a07fdab2052743ba` recorded model `deepseek-v4-pro`; the source received relevance=75, value=70, freshness=95, outputability=70, connectedness=80, priority=77, reliability pass, and disposition `reference`.
+- The source was explicitly moved to `eligible` through the protected API for a controlled proposal test. Maintenance run `2c55e47eba9f` produced draft proposal `9b021089aa1c`; automatic publication was disabled and the proposal remained `review_required`.
+
+### Quality Correction
+
+- Manual proposal review found a substantive quality mismatch: a secondary source whose model review required primary-system-card verification had been expanded into strong durable claims. Lint alone was valid, but the proposal did not satisfy the project evidence threshold for standalone publication.
+- Proposal `9b021089aa1c` was explicitly rejected. It was never published, no generated Wiki page was written to the Obsidian Vault, and no source was marked processed from that proposal.
+- `reference` now means searchable and reviewable evidence only. It returns `project_triage_reference_requires_corroboration` to authoring paths, preventing a single reference from independently driving Wiki compilation, growth distillation, candidate extraction, or method creation. Only current, reliable `knowledge_candidate` decisions can author durable knowledge; reference material requires corroborating candidate evidence.
+- Post-deployment maintenance run `31820d260466` proved the rule on the real project: the source remains `eligible` for traceability, its authoring reason is `project_triage_reference_requires_corroboration`, and the Celery task completed as `no_eligible_sources` with publication `not_applicable`.
+
+### Verification And Deployment
+
+- Python knowledge regression: `530 passed, 3 skipped`; knowledge/growth API regression: `40 passed`; frontend Knowledge workspace regression: `16 passed`; `npm.cmd run check` and `git diff --check` passed.
+- Rebuilt only `bsc-backend`, `celery-worker`, and `celery-beat`. API `http://127.0.0.1:8002/live` returned 200, PostgreSQL/Redis remained healthy, and `celery inspect ping` returned `pong` from one Worker.
+
+## DeepSeek-Funded Proposal Quality Gate (2026-07-27)
+
+### Runtime Safety Action
+
+- After DeepSeek balance recovery, a real candidate-source maintenance run created draft `71d679ad2614`. Lint passed, but human review found the Wiki prose repeated a context-budget disclosure (the source excerpt was truncated) and included non-evidence popularity data. The proposal was rejected through the authenticated local API before publication. It never wrote a Vault page or altered source status.
+
+### Compiler Hardening
+
+- The Wiki compiler now rejects both the canonical `CONTEXT_EXCERPT` marker and Chinese restatements such as `源摘录内容被截断` or `原始资料不完整`. This prevents a provider from laundering a bounded-context warning into durable knowledge. The regression suite covers English and Chinese variants; a complete visible evidence statement with immutable inline citation remains required for every automatic content operation.
+
+## Horizon Discovery To Primary Evidence Boundary (2026-07-27)
+
+- Root-cause review showed that Horizon discovery records can contain both source excerpts and Horizon-owned rationale or engagement metadata. These fields are useful for prioritization, but are not publishable factual evidence.
+- New Horizon imports keep the selected item content and source URL in the immutable discovery record while retaining AI summary, rationale, and scores only as labeled metadata. A `horizon_signal` remains searchable and triageable, but now always requires an independently captured primary source before it can author a Wiki proposal.
+- The Workspace now exposes a governed public HTTPS primary-capture endpoint. It blocks credentials, private/reserved addresses, non-default HTTPS ports, unsafe redirects, oversized bodies, and non-text content; it records the requested/final URL, response SHA-256, content type, and extraction revision. The resulting `primary_web` evidence is review-only until its project-specific triage passes and an operator explicitly promotes its status.
+- Focused compiler, source-triage, Horizon-import, and primary-web-capture regressions passed (`43 passed`); the full API contract verification and local Docker deployment remain the next steps before a live primary-source proof is recorded.
+- Live public-web verification found transient upstream connection failures from GitHub despite successful direct retries. Primary capture now retries only retryable transport failures a bounded number of times; it never retries a security rejection, invalid redirect, non-text response, or oversized body, and it still persists nothing until a complete response is captured.
+- The first real primary-source proposal (`c9aa93581925`) was lint-clean but rejected during human quality review because it translated an MCP glossary without a project-specific decision, workflow change, or operating boundary. This is recorded as a quality failure, not a successful Wiki result. Manual maintenance now accepts bounded source selection and task constraints, forwards them into the deterministic context pack, and the model schema explicitly rejects generic source recaps in favor of a named project integration, applicability boundary, and next validation action.
+- A constrained maintenance run `fd59698a5bde` failed without creating a proposal when the model cited an old page's unrelated source ID. The compiler retained the hard provenance rejection. Its prompt now enumerates the only allowed immutable source IDs and states that page citations are navigation context rather than permission to reuse their evidence. The next retry uses ASCII-escaped JSON transport for Chinese task constraints so shell encoding cannot alter the stored instruction.
+- A subsequent two-source draft `63ce7283f09f` was rejected after lint found invalid `type` frontmatter. Review also showed derived page snapshots had consumed the bounded context before selected source evidence, causing the model to treat implementation facts as incomplete. `ContextPackBuilder` now supports evidence-first ordering; Wiki maintenance uses it so rules and task constraints are followed by selected immutable sources, with pages admitted only from remaining budget.
+
+## DeepSeek MCP Gateway Decision And Quality-Path Repair (2026-07-27)
+
+### Real Runtime Evidence
+
+- Docker API, PostgreSQL, Redis, Celery Worker, and Beat were healthy before execution. A direct DeepSeek Pro Wiki-maintenance call completed through Celery; the provider returned HTTP 200 and no credential or response body was written to this record.
+- First draft `29dff07fce0f` passed mechanical lint but was rejected before publication: it inferred an unsupported sampling policy and used an invalid `tools/list` validation. This is retained as an auditable rejection and did not modify the Vault.
+- A second constrained DeepSeek run `bcc94868e8e7` created draft `89eb270733e2` from only the official MCP architecture record `c9a36eba7694` and the BSC implementation snapshot `cb2f17ebf938`. Lint passed with no findings.
+- Live MCP transport checks confirmed unauthenticated `/api/mcp` returns HTTP 401 and an authorized JSON-RPC `initialize` returns a valid result. The BSC evidence mirror for `cb2f17ebf938` has matching database fingerprint, rendered fingerprint, and Vault file hash with the managed read-only marker.
+- Project isolation and non-destructive projection regressions passed (`4 passed`). The proposal then published through the normal Proposal Gate as `89eb270733e2`, evaluation score `1.0`, without override. It created `wiki/decisions/mcp-gateway-project-boundary.md`, updated the ledgers, and rebuilt the searchable Wiki index to eight pages.
+
+### Quality Gate Repair
+
+- The first post-publication whole-project lint/eval run truthfully failed: lint was valid, but evaluation was `not_applicable` because all evaluation cases were path-scoped and the whole-project task omitted candidate page paths.
+- Added two project-local regression cases for the published decision: cited source IDs and required content/citation constraints. The task still returned `not_applicable`, proving the integration gap was in the executor rather than the newly added data.
+- `knowledge_lint_eval` now passes the authoritative published page paths into `WikiEvaluator`. The quality-task regression now uses a scoped evaluation case, so it fails if those paths are removed again.
+
+### Verification Before Redeploy
+
+- `tests/knowledge/test_knowledge_tasks.py`, `tests/knowledge/test_wiki_evaluator.py`, `tests/knowledge/test_proposal_gate.py`, `tests/knowledge/test_obsidian_source_projection.py`, and `tests/integration/test_knowledge_mcp_e2e.py`: `41 passed` with one existing Starlette/httpx deprecation warning.
+- `compileall app` and `git diff --check` passed. API, Worker, and Beat were rebuilt without replacing PostgreSQL, Redis, or the mounted Vault; `/ready` returned dependency status `ok` and Celery ping returned `pong`.
+- The redeployed full-project quality run `595a8addbc4b` completed: lint is valid, evaluation passed with score `1.0`, and evaluation coverage is `1.0`. The published page has an identical SHA-256 in the BSC database and mapped Vault, and the persisted graph contains its two `wiki_cites_source` plus two `decision_uses_evidence` edges.
+
+## DeepSeek SOP Projection And D-Layer Runtime Proof (2026-07-27)
+
+### Defect Corrected
+
+- A real DeepSeek Agent OS run exposed a Studio projection defect: the runtime did create a typed `DeliverableArtifact(kind="sop")`, but `runtime_response_to_project_state` discarded it and displayed generic `workflow` entries as SOPs. The resulting UI object had no title, sections, actions, evidence gaps, or citations even though those fields existed in the artifact graph.
+- The projection now gives authored SOP deliverables priority over the generic workflow fallback. It retains the exact title, summary, differentiators, sections, actions, evidence gaps, and model-returned direct source references. Governed context references are displayed separately as provenance and do not falsely inflate direct citation coverage.
+- The SOP capability prompt now receives the original project brief as well as the business model. It requires source references to exactly match identifiers present in the governed brief and requires unsupported facts to remain in `evidence_gaps`.
+
+### Real Runtime Evidence
+
+- A live `deepseek-v4-pro` SOP capability run used the default project's growth context and published-Wiki provenance. It produced a Chinese `BSC` knowledge-operations SOP with seven sections and seven executable actions, including the primary-capture `403` handling boundary, proposal review, daily growth, weekly distillation, and Obsidian feedback.
+- The model cited only official MCP source `c9a36eba7694`, which was present in its governed context. It explicitly recorded unavailable source `22053520b666` as an evidence gap rather than inventing support. The projected SOP had citation coverage `1.0`, no invalid source references, and a distinct context record with four Wiki page IDs.
+- The same generated deliverable was registered through `OutputCompletionBridge` as output `70c270356bd568366b9c197f`, audit run `9b3f0fbbf3c9d969f9d833a3`. It is intentionally `registered`, not accepted or reusable: it awaits real usage evaluation and feedback before any method or Wiki promotion.
+- The resulting Obsidian file exists at `outputs/2026/70c270356bd568366b9c197f/bsc-knowledge-operations-sop-art_72bf484f9ed7.md`. Its SHA-256 matches the registry, and inspection confirmed the direct source reference, `403` procedure, and evidence-gap section are present.
+
+### Verification And Operational Boundary
+
+- Regression: `tests/test_capability_deliverables.py`, `tests/orchestrator/test_runtime_engine.py`, `tests/integration/test_growth_output_bridges.py`, and `tests/integration/test_growth_sop_context.py` -> `16 passed`.
+- A direct primary capture of the official OpenAI incident URL still returned upstream HTTP `403`; no incomplete primary source was persisted and no Horizon signal was promoted as a substitute.
+- During two broad `/agent/analyze` / asynchronous orchestration attempts, Docker event history showed an external `SIGTERM`, container destroy, and replacement image while the work was executing. The system correctly marked interrupted sessions as `worker_restarted`; this was not treated as a completed SOP. The successful single-capability proof above was isolated from that concurrent deployment and performed after confirming the replacement image contained the corrected source.
+
+## Failure Ledger Reconciliation After DeepSeek Recovery (2026-07-27)
+
+### Audit Basis
+
+- The live health snapshot was read from the PostgreSQL-backed ledger: eight Wiki pages, 118 source records, 21 active citations, citation coverage `1.0`, no dangling or stale citations, no pending proposal, and a latest Wiki evaluation score of `1.0`.
+- Three historical open failure records were inspected together with their immutable run event streams. This audit does not rewrite a failed run, delete its evidence, or convert it to success.
+- The three currently uncited eligible records remain deliberately uncited: two are Horizon discovery signals and one is a BSC artifact. None will be used to manufacture a Wiki page or improve a dashboard counter. Horizon signals still require independent primary capture and current project-triage admission; the artifact still requires provenance review.
+
+### Reconciliation Decision
+
+- `51159ab172f943b8a3e157d9`: the compiler rejected an unknown source ID before creating a proposal or writing a Vault page. The non-existent ID was confirmed absent. Subsequent provenance-bounded compilations completed without the defect, so the historical incident can be closed without retrying stale input.
+- `c5ce64121d96450ca5b17d33`: the old `no eligible sources selected` record was a normal business no-op incorrectly represented as a compiler failure. Current maintenance preserves the same admission boundary as completed `no_eligible_sources` work and never promotes evidence merely to invoke a model.
+- `982eff74cdfb449cb33d9ffc`: the provider's earlier invalid structured response remains attached to its failed run. Later governed DeepSeek Pro executions completed successfully, so the incident can be closed as recovered without replaying historical input or treating the original run as successful.
+
+### Applied Result
+
+- The three failure records were resolved through the durable repository lifecycle with actor `system:knowledge-reconciliation` and `retry_scheduled=false`. The original run statuses remain `failed`; their event logs and diagnostic evidence are retained.
+- A post-write ledger query returned zero remaining open failure records. This changes operational incident state only; it does not claim that a rejected proposal, an unavailable source, or a former model response became valid knowledge.
+
+## Obsidian Evidence Projection Draft Review (2026-07-27)
+
+- A live Celery `wiki_maintenance` run `3cb7ef24c7cb` used DeepSeek Pro with only the complete implementation snapshot `f4adf06369c9`. It created draft `ab103273dc80`; automatic publication remained disabled.
+- The draft was rejected after manual source-level review. It correctly preserved the no-plugin-execution boundary, but incorrectly claimed that an MCP `/mcp` route returns immutable source bodies. The snapshot proves `ObsidianSourceProjection` is a BSC-managed read-only Vault projection; it does not prove that MCP route behavior. The actual HTTP prefix is `/api/mcp`, and route behavior was outside the selected evidence.
+- The rejection is persisted in the proposal's review summary with the factual reasons and a constrained next action. No Wiki page, index entry, log entry, source lifecycle change, or Vault file was written by the rejected proposal.
+
+### Corrected Publication
+
+- A second bounded DeepSeek Pro draft `484459a4099f` was also rejected before publication. It improved the scope but conflated `source_id` with `content_hash` and overstated the read-only label as a technical prohibition on all local edits. The review records those exact corrections rather than accepting a near miss.
+- A manually reviewed proposal `326eb084cc98` was then created from the same complete implementation snapshot. It documents only the implemented projection lifecycle: database authority, managed frontmatter, the `metadata.sync=obsidian` duplicate-prevention rule, and conflict-on-divergence behavior. It explicitly excludes import success, plugin execution, plugin export capture, and output-feedback claims.
+- The proposal passed Wiki lint with no findings. Two project-scoped evaluation cases were registered before publication: required citation of `f4adf06369c9`, and required `metadata.sync=obsidian`, `content_hash`, and `conflicts` constraints.
+- Manual publication run `5f8bc1a5c9c7` completed without an override. The Proposal Gate recorded evaluation score and coverage `1.0`, updated the search index to nine pages, and published `wiki/decisions/bsc-managed-evidence-projection.md`.
+- Final database-to-Vault verification used the configured `/vault/projects/default` mapping, corresponding to `D:\bsc\bsc\projects\default` on the host. The published page exists, its filesystem SHA-256 equals database hash `d212dc7196ede5dcb6de8da1a6cf45f0274b7cadb2e1ebb3a634ce06db66e538`, and it has an active citation to `f4adf06369c9`.
+- Focused regression `tests/knowledge/test_obsidian_source_projection.py tests/knowledge/test_wiki_commands.py tests/knowledge/test_proposal_gate.py -q` passed: `22 passed` with one existing dependency deprecation warning. Current health has nine pages, 25 active citations, full citation coverage, no dangling or stale citations, no pending proposals, and no open failures.
+
+## Horizon Producer And Scheduled Capture Live Acceptance (2026-07-27)
+
+### Producer Evidence
+
+- Horizon at `D:\bsc\horizon` is configured to use `deepseek-v4-pro` through `DEEPSEEK_API_KEY`; the credential was only resolved at runtime and was never written to this worklog, command output, or a new configuration file.
+- A direct native MCP pipeline run `run-20260726T233008Z-68b25bf3` fetched 8 public candidates, scored all 8 with DeepSeek, and retained 4 `filtered` records. It completed with GitHub, Hacker News, and RSS inputs. Google News and Reddit connection failures remained source-level diagnostics; they were not represented as successful collection.
+- Protected API capture run `16ab4117ba55` consumed that exact staged artifact from the mounted run-store. Celery recorded the full queued, assigned, running, capture-completed, and completed event sequence. It accepted and created 4 `horizon_signal` records, mirrored all four into `01_Sources/bsc-evidence/`, and left every new source `validated` with `primary_capture_required=true`.
+
+### Durable Schedule Evidence
+
+- The production entry point `scripts/run_horizon_pipeline.py` was executed with Horizon's own virtual environment and `--no-enrich`. Run `run-20260726T233902Z-ad2b72ef` fetched 8, scored 8, retained 4, wrote `producer-state.json`, and completed without degradation. Skipping enrichment is intentional for the radar-to-evidence path: BSC imports the grounded item URL/content as a discovery signal and does not treat generated background prose as primary evidence.
+- Windows Scheduled Task `BSC-Horizon-Producer` is registered for 07:45 daily, runs the bounded producer with a 10-minute execution limit, starts when available, and ignores overlapping instances. It uses interactive local-user logon, so the Windows user session must be available; this is not a headless cloud scheduler claim.
+- The task was started immediately for verification. It exited with code 0 and produced `run-20260726T234347Z-e2389f94` with 8 fetched, 8 scored, and 4 retained items. Its next natural execution is scheduled for 2026-07-28 07:45 local time.
+- The existing BSC persistent `horizon_capture` schedule remains at 08:00 Asia/Shanghai, after the producer window. Discovery-mode capture run `620f3932f5ac` automatically selected the newest task-produced run, observed 4 items, accepted all 4, created 2 new sources, and recorded 2 idempotent duplicates. The 2 new sources were projected to Obsidian evidence files and still require independent primary capture before authoring.
+
+### Remaining Operational Limits
+
+- Horizon source availability is intentionally visible in every producer run. Google News and Reddit were unreachable in the live runs, while the successful GitHub, Hacker News, and RSS stages still formed a valid partial collection. No failed source was silently replaced with model-generated content.
+- The scheduled chain now has real producer and consumer proof. Its next unattended natural execution depends on the local Windows interactive session and the existing Docker API, Worker, Beat, PostgreSQL, Redis, shared run-store, and Horizon source network paths remaining available.
+
+## Governed Encoding Repair And Mobile Acceptance (2026-07-27)
+
+### Published repair
+
+- A historical encoding defect was found in the published `wiki/decisions/bsc-managed-evidence-projection.md` page and `wiki/index.md`; the Vault files contained literal question marks and a stale escaped navigation line.
+- A replacement proposal `e885d717250d` was created from the existing processed implementation snapshot `f4adf06369c9`. It replaced the decision and index, appended the audit log, and received the automatic overview operation required by the Wiki contract.
+- Proposal lint passed with no findings. The publication run `51d8722a61ed` passed the persisted evaluation with score `1.0`, committed atomically, and rebuilt the search index with no indexing failures. The decision page now states the database-authoritative projection boundary, `metadata.sync=obsidian` duplicate prevention, hash-based `conflicts`, and the limit that plugin installation is not export execution.
+
+### Mobile defect and verification
+
+- The authorized Studio was checked at a 390x844 viewport against live PostgreSQL-backed data. The first inspection exposed a real CSS defect: the mobile Vault tree had a 190px height limit but no internal overflow, so its decision links spilled into the Evidence list.
+- `src/index.css` now gives the bounded mobile Vault tree `overflow: auto` and `overscroll-behavior: contain`. Frontend component tests passed (`10 passed`) and TypeScript check passed.
+- After a live page reload, the tree measured 190px client height and 336px content height, with the Evidence header below the tree and the first evidence card below that header. The document width was 384px with no horizontal overflow. Studio access, Vault readiness, Horizon run-store status, plugin bridge status, 100% citation coverage, and the repaired Chinese decision title were all visible from live data.

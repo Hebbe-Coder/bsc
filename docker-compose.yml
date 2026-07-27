@@ -17,15 +17,16 @@ services:
       - RAG_LLM_PROVIDER=${RAG_LLM_PROVIDER:-deepseek}
       - ALLOW_MOCK_LLM_IN_PRODUCTION=${ALLOW_MOCK_LLM_IN_PRODUCTION:-false}
       - CACHE_TYPE=redis
-      - REDIS_URL=redis://redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379/0
       - EVENT_BACKEND=redis
       - DB_TYPE=postgresql
       - DB_PATH=/data/bsc_cloud.db
-      - DB_URL=postgresql://${POSTGRES_USER:-bsc}:${POSTGRES_PASSWORD:-bsc}@postgres:5432/${POSTGRES_DB:-bsc}
-      - CELERY_ENABLED=${CELERY_ENABLED:-false}
+      - DB_URL=postgresql://${POSTGRES_USER:-bsc}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-bsc}
+      - DBOS_DATA_ROOT=/data/dbos
+      - CELERY_ENABLED=${CELERY_ENABLED:-true}
       - CELERY_KNOWLEDGE_QUEUE=bsc_docker_knowledge
-      - CELERY_BROKER_URL=${COMPOSE_CELERY_BROKER_URL:-redis://redis:6379/2}
-      - CELERY_RESULT_BACKEND=${COMPOSE_CELERY_RESULT_BACKEND:-redis://redis:6379/3}
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379/2
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379/3
       - KNOWLEDGE_WIKI_ENABLED=${KNOWLEDGE_WIKI_ENABLED:-false}
       - KNOWLEDGE_OBSIDIAN_SYNC_ENABLED=${KNOWLEDGE_OBSIDIAN_SYNC_ENABLED:-false}
       - KNOWLEDGE_SCHEDULES_ENABLED=${KNOWLEDGE_SCHEDULES_ENABLED:-false}
@@ -34,6 +35,9 @@ services:
       - KNOWLEDGE_MCP_WRITE_ENABLED=${KNOWLEDGE_MCP_WRITE_ENABLED:-false}
       - KNOWLEDGE_WIKI_AUTO_PUBLISH_ENABLED=${KNOWLEDGE_WIKI_AUTO_PUBLISH_ENABLED:-false}
       - KNOWLEDGE_WIKI_LLM_PROVIDER=${KNOWLEDGE_WIKI_LLM_PROVIDER:-}
+      - KNOWLEDGE_WIKI_LLM_TIMEOUT_SECONDS=${KNOWLEDGE_WIKI_LLM_TIMEOUT_SECONDS:-90}
+      - KNOWLEDGE_WIKI_LLM_MAX_ATTEMPTS=${KNOWLEDGE_WIKI_LLM_MAX_ATTEMPTS:-1}
+      - KNOWLEDGE_GROWTH_LLM_TIMEOUT_SECONDS=${KNOWLEDGE_GROWTH_LLM_TIMEOUT_SECONDS:-150}
       - HORIZON_ENABLED=${HORIZON_ENABLED:-false}
       - HORIZON_API_BASE_URL=${HORIZON_API_BASE_URL:-}
       - HORIZON_API_KEY=${HORIZON_API_KEY:-}
@@ -61,7 +65,8 @@ services:
       
       - API_KEY=${API_KEY:?API_KEY must be set for production}
       
-      - RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-false}
+      - RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-true}
+      - RATE_LIMIT_BACKEND=redis
       - SIGNATURE_ENABLED=${SIGNATURE_ENABLED:-false}
       
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-["http://localhost:8000"]}
@@ -98,12 +103,13 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set}"]
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$$REDIS_PASSWORD\" ping"]
       interval: 5s
       timeout: 3s
       retries: 12
@@ -113,12 +119,10 @@ services:
 
   postgres:
     image: postgres:16-alpine
-    ports:
-      - "${POSTGRES_PORT:-5433}:5432"
     environment:
       - POSTGRES_DB=${POSTGRES_DB:-bsc}
       - POSTGRES_USER=${POSTGRES_USER:-bsc}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-bsc}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
     volumes:
       # Keep the pre-cutover volume untouched for rollback. The active runtime
       # starts from a fresh, Compose-owned PostgreSQL cluster and is populated
@@ -141,14 +145,15 @@ services:
     environment:
       - CELERY_ENABLED=true
       - CELERY_KNOWLEDGE_QUEUE=bsc_docker_knowledge
-      - CELERY_BROKER_URL=${COMPOSE_CELERY_BROKER_URL:-redis://redis:6379/2}
-      - CELERY_RESULT_BACKEND=${COMPOSE_CELERY_RESULT_BACKEND:-redis://redis:6379/3}
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379/2
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379/3
       - CACHE_TYPE=redis
-      - REDIS_URL=redis://redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379/0
       - EVENT_BACKEND=redis
       - DB_TYPE=postgresql
       - DB_PATH=/data/bsc_cloud.db
-      - DB_URL=postgresql://${POSTGRES_USER:-bsc}:${POSTGRES_PASSWORD:-bsc}@postgres:5432/${POSTGRES_DB:-bsc}
+      - DB_URL=postgresql://${POSTGRES_USER:-bsc}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-bsc}
+      - RATE_LIMIT_BACKEND=redis
       - OBSIDIAN_VAULT_ROOT=/vault
       - KNOWLEDGE_WIKI_ENABLED=true
       - KNOWLEDGE_OBSIDIAN_SYNC_ENABLED=${KNOWLEDGE_OBSIDIAN_SYNC_ENABLED:-false}
@@ -158,6 +163,9 @@ services:
       - KNOWLEDGE_MCP_WRITE_ENABLED=${KNOWLEDGE_MCP_WRITE_ENABLED:-false}
       - KNOWLEDGE_WIKI_AUTO_PUBLISH_ENABLED=${KNOWLEDGE_WIKI_AUTO_PUBLISH_ENABLED:-false}
       - KNOWLEDGE_WIKI_LLM_PROVIDER=${KNOWLEDGE_WIKI_LLM_PROVIDER:-}
+      - KNOWLEDGE_WIKI_LLM_TIMEOUT_SECONDS=${KNOWLEDGE_WIKI_LLM_TIMEOUT_SECONDS:-90}
+      - KNOWLEDGE_WIKI_LLM_MAX_ATTEMPTS=${KNOWLEDGE_WIKI_LLM_MAX_ATTEMPTS:-1}
+      - KNOWLEDGE_GROWTH_LLM_TIMEOUT_SECONDS=${KNOWLEDGE_GROWTH_LLM_TIMEOUT_SECONDS:-150}
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
       - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
       - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-deepseek-chat}
@@ -202,14 +210,15 @@ services:
     environment:
       - CELERY_ENABLED=true
       - CELERY_KNOWLEDGE_QUEUE=bsc_docker_knowledge
-      - CELERY_BROKER_URL=${COMPOSE_CELERY_BROKER_URL:-redis://redis:6379/2}
-      - CELERY_RESULT_BACKEND=${COMPOSE_CELERY_RESULT_BACKEND:-redis://redis:6379/3}
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379/2
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379/3
       - CACHE_TYPE=redis
-      - REDIS_URL=redis://redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379/0
       - EVENT_BACKEND=redis
       - DB_TYPE=postgresql
       - DB_PATH=/data/bsc_cloud.db
-      - DB_URL=postgresql://${POSTGRES_USER:-bsc}:${POSTGRES_PASSWORD:-bsc}@postgres:5432/${POSTGRES_DB:-bsc}
+      - DB_URL=postgresql://${POSTGRES_USER:-bsc}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-bsc}
+      - RATE_LIMIT_BACKEND=redis
       - OBSIDIAN_VAULT_ROOT=/vault
       - KNOWLEDGE_WIKI_ENABLED=true
       - KNOWLEDGE_OBSIDIAN_SYNC_ENABLED=${KNOWLEDGE_OBSIDIAN_SYNC_ENABLED:-false}

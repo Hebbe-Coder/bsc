@@ -167,6 +167,35 @@ def test_plugin_status_marks_interactive_importers_without_claiming_a_saved_dest
     }
 
 
+def test_plugin_status_distinguishes_an_empty_route_from_an_unprocessed_export(tmp_path):
+    root = tmp_path / "vault"
+    project_root = root / "projects" / "project-a"
+    export_root = project_root / "00_Inbox" / "web-clipper"
+    export_root.mkdir(parents=True)
+    (project_root / "bsc-plugins.json").write_text(
+        '{"plugins":[{"id":"obsidian-clipper","name":"Obsidian Clipper","adapter":"filesystem_drop","input_paths":["00_Inbox/web-clipper"]}]}',
+        encoding="utf-8",
+    )
+    manifest = ObsidianPluginManifest.load(project_root)
+    manifest.set_trust(project_root, plugin_ids=["obsidian-clipper"], trusted=True, actor_id="test", reason="fixture")
+
+    empty = ObsidianPluginManifest.load(project_root).public_status(project_root=project_root, vault_root=root)["plugins"][0]
+
+    assert empty["status"] == "awaiting_export"
+    assert empty["capture_state"] == "ready_for_first_export"
+    assert empty["export_observation"] == {"state": "empty", "file_count": 0, "latest_modified_at": ""}
+
+    (export_root / ".sync.lock").write_text("ignored", encoding="utf-8")
+    (export_root / "article.md").write_text("An external export awaiting source sync", encoding="utf-8")
+    detected = ObsidianPluginManifest.load(project_root).public_status(project_root=project_root, vault_root=root)["plugins"][0]
+
+    assert detected["status"] == "awaiting_export"
+    assert detected["capture_state"] == "files_detected_pending_capture"
+    assert detected["export_observation"]["state"] == "files_detected"
+    assert detected["export_observation"]["file_count"] == 1
+    assert detected["export_observation"]["latest_modified_at"]
+
+
 def test_obsidian_sync_accepts_the_documented_obsidian_inbox_and_source_layout(tmp_path):
     root = tmp_path / "vault"
     root.mkdir()

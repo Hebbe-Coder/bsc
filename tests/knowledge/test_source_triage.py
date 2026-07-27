@@ -1,8 +1,16 @@
 from app.knowledge.growth_contracts import ProjectKnowledgeProfile, TriageDisposition
 from app.knowledge.growth_repository import GrowthRepository
 import pytest
+from types import SimpleNamespace
 
-from app.knowledge.source_triage import SourceTriageService, TriageEvaluation
+from app.core.config import settings
+from app.promptops import PromptOpsError
+from app.knowledge.source_triage import (
+    SemanticSourceTriageEvaluator,
+    SourceTriageService,
+    TriageEvaluation,
+    source_admission_reason,
+)
 from app.knowledge.wiki_contracts import SourceRecord, SourceStatus
 from app.knowledge.wiki_source_capture import CapturedSourceInput, SourceCaptureService
 
@@ -170,6 +178,66 @@ def test_unadmitted_legacy_horizon_signal_returns_to_review(tmp_path):
         repo.close()
 
 
+def test_reference_evidence_requires_corroboration_before_authoring(tmp_path):
+    repo = GrowthRepository(db_path=str(tmp_path / "triage-reference-corroboration.db"))
+    try:
+        repo.save_profile(ProjectKnowledgeProfile(project_id="project-a"), actor_id="owner")
+        repo.create_source(
+            SourceRecord(
+                id="reference-source",
+                project_id="project-a",
+                source_type="horizon_signal",
+                content_hash="9" * 64,
+                raw_content="A useful but secondary report.",
+                status=SourceStatus.VALIDATED,
+                trust_level="trusted",
+                metadata={
+                    "admission_gate": "project_triage",
+                    **{key: 70 for key in ("relevance", "value", "freshness", "outputability", "connectedness")},
+                },
+            )
+        )
+
+        result = SourceTriageService(repo).triage_source("project-a", "reference-source")
+        source = repo.get_source("project-a", "reference-source")
+
+        assert result["disposition"] == TriageDisposition.REFERENCE.value
+        assert source["status"] == SourceStatus.ELIGIBLE.value
+        assert source_admission_reason(repo, "project-a", source) == "project_triage_reference_requires_corroboration"
+    finally:
+        repo.close()
+
+
+def test_horizon_candidate_requires_an_independent_primary_capture_before_authoring(tmp_path):
+    repo = GrowthRepository(db_path=str(tmp_path / "triage-horizon-primary-capture.db"))
+    try:
+        repo.save_profile(ProjectKnowledgeProfile(project_id="project-a"), actor_id="owner")
+        repo.create_source(
+            SourceRecord(
+                id="horizon-candidate",
+                project_id="project-a",
+                source_type="horizon_signal",
+                content_hash="8" * 64,
+                raw_content="A high-value radar discovery, not independently captured source evidence.",
+                status=SourceStatus.VALIDATED,
+                trust_level="trusted",
+                metadata={
+                    "admission_gate": "project_triage",
+                    **{key: 90 for key in ("relevance", "value", "freshness", "outputability", "connectedness")},
+                },
+            )
+        )
+
+        result = SourceTriageService(repo).triage_source("project-a", "horizon-candidate")
+        source = repo.get_source("project-a", "horizon-candidate")
+
+        assert result["disposition"] == TriageDisposition.KNOWLEDGE_CANDIDATE.value
+        assert source["status"] == SourceStatus.ELIGIBLE.value
+        assert source_admission_reason(repo, "project-a", source) == "horizon_signal_requires_independent_primary_capture"
+    finally:
+        repo.close()
+
+
 def test_preeligible_source_can_record_profile_bound_triage_without_lifecycle_regression(tmp_path):
     repo = GrowthRepository(db_path=str(tmp_path / "triage-preeligible.db"))
     try:
@@ -272,6 +340,96 @@ class _FailingEvaluator:
 
     def evaluate(self, *, source, profile):
         raise RuntimeError("Bearer evaluator-secret-123456789")
+
+
+class _SemanticPromptOps:
+    def __init__(self):
+        self.requests = []
+
+    def run_structured(self, request):
+        self.requests.append(request)
+        return SimpleNamespace(
+            run_id="prompt_semantic_triage",
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            usage=SimpleNamespace(latency_ms=123),
+            output={
+                "relevance": 92,
+                "value": 86,
+                "freshness": 75,
+                "outputability": 88,
+                "connectedness": 84,
+                "reasons": [
+                    "The source directly addresses AI coding-agent workflow evaluation for this project's knowledge-system scope.",
+                    "The source is a secondary report, so primary-session details should be verified before using it as a factual authority.",
+                ],
+            },
+        )
+
+
+def test_semantic_triage_is_audited_and_never_auto_admits_a_source(tmp_path, monkeypatch):
+    repo = GrowthRepository(db_path=str(tmp_path / "semantic-triage.db"))
+    previous_provider = settings.KNOWLEDGE_WIKI_LLM_PROVIDER
+    previous_model = settings.KNOWLEDGE_GROWTH_LLM_MODEL
+    previous_deepseek_model = settings.DEEPSEEK_MODEL
+    settings.KNOWLEDGE_WIKI_LLM_PROVIDER = "deepseek"
+    settings.KNOWLEDGE_GROWTH_LLM_MODEL = ""
+    settings.DEEPSEEK_MODEL = "deepseek-v4-pro"
+    try:
+        repo.save_profile(
+            ProjectKnowledgeProfile(project_id="project-a", research_domains=["AI agents", "knowledge management"]),
+            actor_id="owner",
+        )
+        repo.create_source(
+            SourceRecord(
+                id="semantic-source",
+                project_id="project-a",
+                source_type="horizon_signal",
+                content_hash="7" * 64,
+                raw_content="A report on AI coding-agent workflows and evidence-backed maintenance practices.",
+                status=SourceStatus.VALIDATED,
+                trust_level="reviewed",
+                metadata={"admission_gate": "project_triage"},
+            )
+        )
+        promptops = _SemanticPromptOps()
+
+        result = SourceTriageService(
+            repo,
+            evaluator=SemanticSourceTriageEvaluator(promptops=promptops),
+        ).triage_source("project-a", "semantic-source", apply_admission=False)
+
+        assert result["evaluator_revision"] == "semantic-source-triage-v3"
+        assert result["disposition"] == TriageDisposition.KNOWLEDGE_CANDIDATE.value
+        assert result["priority"] >= 80
+        assert "prompt_run=prompt_semantic_triage" in result["reasons"]
+        assert repo.get_source("project-a", "semantic-source")["status"] == SourceStatus.VALIDATED.value
+        assert promptops.requests[0].context_refs == (
+            "source:semantic-source@" + "7" * 64,
+            "profile:project-a@1",
+        )
+        assert promptops.requests[0].model_override == "deepseek-v4-pro"
+        assert promptops.requests[0].max_tokens == 1_800
+    finally:
+        settings.KNOWLEDGE_WIKI_LLM_PROVIDER = previous_provider
+        settings.KNOWLEDGE_GROWTH_LLM_MODEL = previous_model
+        settings.DEEPSEEK_MODEL = previous_deepseek_model
+        repo.close()
+
+
+def test_semantic_triage_persists_a_safe_provider_failure_category(monkeypatch):
+    class UnavailablePromptOps:
+        def run_structured(self, _request):
+            raise PromptOpsError("structured_response_invalid")
+
+    monkeypatch.setattr(settings, "KNOWLEDGE_WIKI_LLM_PROVIDER", "deepseek")
+    evaluation = SemanticSourceTriageEvaluator(promptops=UnavailablePromptOps()).evaluate(
+        source={"id": "source-a", "content_hash": "a" * 64, "raw_content": "evidence"},
+        profile=ProjectKnowledgeProfile(project_id="project-a"),
+    )
+
+    assert evaluation.status == "unavailable"
+    assert evaluation.reasons == ["provider_failure=structured_response_invalid"]
 
 
 def test_optional_evaluator_unavailability_is_persisted_without_eligibility(tmp_path):

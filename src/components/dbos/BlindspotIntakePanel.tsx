@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowRight, FileOutput, RefreshCw, RotateCcw, Sparkles, Undo2 } from 'lucide-react';
 
 import {
@@ -24,12 +24,14 @@ type Props = {
   projectId: string;
   sessionId?: string;
   disabled?: boolean;
+  initialRequestText?: string;
+  autoStart?: boolean;
   onMissionConverted: (missionId: string) => void;
 };
 
-export function BlindspotIntakePanel({ projectId, sessionId = '', disabled = false, onMissionConverted }: Props) {
+export function BlindspotIntakePanel({ projectId, sessionId = '', disabled = false, initialRequestText = '', autoStart = false, onMissionConverted }: Props) {
   const [availability, setAvailability] = useState<boolean | null>(null);
-  const [requestText, setRequestText] = useState('');
+  const [requestText, setRequestText] = useState(initialRequestText);
   const [intake, setIntake] = useState<DbosIntake | null>(null);
   const [question, setQuestion] = useState<DbosIntakeQuestion | null>(null);
   const [revisions, setRevisions] = useState<DbosIntakeRevision[]>([]);
@@ -37,6 +39,7 @@ export function BlindspotIntakePanel({ projectId, sessionId = '', disabled = fal
   const [approved, setApproved] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const autoStartKeyRef = useRef('');
 
   // A persisted session is scoped to one project. Never carry its review state into a new scope.
   useEffect(() => {
@@ -46,7 +49,11 @@ export function BlindspotIntakePanel({ projectId, sessionId = '', disabled = fal
     setAnswer('');
     setApproved(false);
     setError('');
-  }, [projectId, sessionId]);
+    if (!sessionId) {
+      setRequestText(initialRequestText);
+      autoStartKeyRef.current = '';
+    }
+  }, [initialRequestText, projectId, sessionId]);
 
   const run = async (operation: () => Promise<void>) => {
     setBusy(true);
@@ -100,6 +107,22 @@ export function BlindspotIntakePanel({ projectId, sessionId = '', disabled = fal
     await loadRevisions(created.artifact_id);
     if (created.phase === 'clarifying') await loadQuestion(created.artifact_id);
   });
+
+  useEffect(() => {
+    const request = initialRequestText.trim();
+    if (!autoStart || !request || availability !== true || sessionId || intake || busy || !projectId.trim()) return;
+    const requestKey = `${projectId}:${request}`;
+    if (autoStartKeyRef.current === requestKey) return;
+    autoStartKeyRef.current = requestKey;
+    setRequestText(request);
+    void run(async () => {
+      const created = await createDbosIntake(projectId, request);
+      setIntake(created);
+      setQuestion(null);
+      await loadRevisions(created.artifact_id);
+      if (created.phase === 'clarifying') await loadQuestion(created.artifact_id);
+    });
+  }, [autoStart, availability, busy, initialRequestText, intake, loadQuestion, loadRevisions, projectId, run, sessionId]);
 
   const resolve = (action: 'clarify' | 'direct' | 'help') => void run(async () => {
     if (!intake) return;

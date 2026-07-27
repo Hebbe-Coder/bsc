@@ -12,6 +12,9 @@ if (Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyCon
 }
 
 # vite.config.ts gives this process-level target precedence over .env defaults.
+# This process is used for isolated browser acceptance. It must not inherit an
+# unrelated developer proxy key that would replace the temporary UI credential.
+$env:BSC_LOCAL_API_KEY = ""
 $command = "set `"VITE_API_PROXY_TARGET=$ApiTarget`" && call npm.cmd run dev -- --host 127.0.0.1 --port $Port"
 $startInfo = @{
     FilePath = $env:ComSpec

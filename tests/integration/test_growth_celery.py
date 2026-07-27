@@ -174,7 +174,11 @@ def test_growth_daily_syncs_declared_obsidian_exports_before_distillation(tmp_pa
         )
         plugins = {item["id"]: item for item in result["sync"]["plugins"]["plugins"]}
         readwise = plugins["readwise"]
-        assert {key: value for key, value in readwise.items() if key != "trusted_at"} == {
+        assert {
+            key: value
+            for key, value in readwise.items()
+            if key not in {"trusted_at", "export_observation"}
+        } == {
             "id": "readwise",
             "name": "Readwise",
             "adapter": "filesystem_drop",
@@ -184,14 +188,22 @@ def test_growth_daily_syncs_declared_obsidian_exports_before_distillation(tmp_pa
             "path_status": "ready",
             "runtime_configuration": {"state": "declared_only", "detail_code": "no_readonly_settings_probe"},
             "status": "captured",
+            "capture_state": "captured",
             "captured_sources": 1,
             "registered_outputs": 0,
             "last_captured_at": plugin_source["captured_at"],
             "last_registered_at": "",
         }
         assert readwise["trusted_at"]
+        assert readwise["export_observation"]["state"] == "files_detected"
+        assert readwise["export_observation"]["file_count"] == 1
+        assert readwise["export_observation"]["latest_modified_at"]
         hyperframes = plugins["hyperframes"]
-        assert {key: value for key, value in hyperframes.items() if key != "trusted_at"} == {
+        assert {
+            key: value
+            for key, value in hyperframes.items()
+            if key not in {"trusted_at", "export_observation"}
+        } == {
             "id": "hyperframes",
             "name": "HyperFrames",
             "adapter": "filesystem_output",
@@ -201,12 +213,16 @@ def test_growth_daily_syncs_declared_obsidian_exports_before_distillation(tmp_pa
             "path_status": "ready",
             "runtime_configuration": {"state": "declared_only", "detail_code": "no_readonly_settings_probe"},
             "status": "registered_output",
+            "capture_state": "registered_output",
             "captured_sources": 0,
             "registered_outputs": 1,
             "last_captured_at": "",
             "last_registered_at": repo.list_outputs("project-a")[0]["created_at"],
         }
         assert hyperframes["trusted_at"]
+        assert hyperframes["export_observation"]["state"] == "files_detected"
+        assert hyperframes["export_observation"]["file_count"] == 1
+        assert hyperframes["export_observation"]["latest_modified_at"]
         assert repo.get_source("project-a", "trusted-preexisting")["status"] == "eligible"
         assert repo.get_source("project-a", "trusted-low-priority")["status"] == "validated"
         assert plugin_source["status"] == "validated"

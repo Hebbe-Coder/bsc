@@ -10,7 +10,11 @@ class ProjectSpecificLLM:
     last_mode = "real"
     last_usage = None
 
+    def __init__(self):
+        self.prompts = []
+
     async def generate(self, prompt: str) -> str:
+        self.prompts.append(prompt)
         if "Process Designer" in prompt:
             return """{
               "title": "New-media content signal loop",
@@ -18,7 +22,8 @@ class ProjectSpecificLLM:
               "differentiators": ["Audience-signal gate before drafting"],
               "sections": [{"title": "Signal triage", "details": ["Score audience questions before assigning a topic"]}],
               "actions": [{"title": "Select weekly signal", "owner": "Audience editor", "trigger": "Friday review", "action": "Rank questions by repeat demand", "output": "ranked editorial brief", "metric": "three validated themes", "timebox": "45 minutes"}],
-              "evidence_gaps": ["No baseline retention data yet"]
+              "evidence_gaps": ["No baseline retention data yet"],
+              "source_refs": ["source-editorial-01"]
             }"""
         return """{
           "title": "Pilot decision brief",
@@ -41,7 +46,8 @@ def test_sop_and_report_outputs_are_persisted_as_project_specific_deliverables(t
     assert report.output_artifact_types == [ArtifactType.DELIVERABLE]
 
     store = ArtifactGraphStore(str(tmp_path / "artifacts"))
-    backend = NanobotAgentBackend(store, llm_service=ProjectSpecificLLM())
+    llm = ProjectSpecificLLM()
+    backend = NanobotAgentBackend(store, llm_service=llm)
 
     async def execute_deliverables():
         sop_result = await backend.execute(sop, "New-media content operations", "project-1")
@@ -60,3 +66,6 @@ def test_sop_and_report_outputs_are_persisted_as_project_specific_deliverables(t
     assert [item["kind"] for item in deliverables] == ["sop", "decision_brief"]
     assert deliverables[0]["actions"][0]["trigger"] == "Friday review"
     assert deliverables[0]["differentiators"] == ["Audience-signal gate before drafting"]
+    assert deliverables[0]["evidence_refs"] == ["source-editorial-01"]
+    assert "PROJECT BRIEF" in llm.prompts[0]
+    assert "New-media content operations" in llm.prompts[0]

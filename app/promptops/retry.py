@@ -15,6 +15,11 @@ RETRYABLE_CATEGORIES = frozenset(
         "network_error",
         "server_error",
         "transport_timeout",
+        # The structured client has already attempted its bounded JSON repair.
+        # A fresh provider sampling can still recover an intermittent empty or
+        # unsupported completion payload, so allow one outer retry only.
+        "response_payload_invalid",
+        "structured_response_invalid",
     }
 )
 RATE_LIMIT_CATEGORY = "rate_limited"
@@ -40,9 +45,10 @@ def decide_retry(
 ) -> RetryDecision:
     """Retry only transient failures within a small, explicit budget.
 
-    Client/configuration, policy, request-shape, and structured-output errors
-    are deliberately terminal. The upstream sampler follows the same rule:
-    retries repair transport conditions, not invalid work.
+    Client configuration, policy, and request-shape errors are terminal. An
+    invalid structured response is different: no business action has occurred,
+    the request is already governed, and one fresh sample can repair an
+    intermittent provider payload without widening authority or retry budget.
     """
 
     normalized = category.strip().lower()

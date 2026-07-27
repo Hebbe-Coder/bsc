@@ -1,6 +1,7 @@
 import base64
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,7 @@ from app.knowledge.growth_contracts import (
 )
 from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.output_registry import OutputRegistry
+from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus, SourceRecord, SourceStatus
 from app.knowledge.wiki_source_capture import CapturedSourceInput, SourceCaptureService
 from app.main import app
@@ -963,6 +965,80 @@ def test_schedules_runs_and_distillations_are_truthful(growth_api, monkeypatch):
     assert run.status_code == 200
     assert run.json()["data"]["run"]["status"] == "unavailable"
     assert repo.get_run("project-a", run.json()["data"]["run"]["run_id"])["status"] == "unavailable"
+
+
+def test_scheduler_availability_cache_is_scoped_to_broker_runtime_and_probes(monkeypatch):
+    first_runtime = object()
+    second_runtime = object()
+    probes: list[str] = []
+
+    monkeypatch.setattr(settings, "KNOWLEDGE_SCHEDULES_ENABLED", True)
+    monkeypatch.setattr(settings, "CELERY_BROKER_URL", "redis://first.test:6379/0")
+    monkeypatch.setattr(growth_api_module, "get_celery_app", lambda: first_runtime)
+    monkeypatch.setattr(growth_api_module, "is_celery_real", lambda: True)
+    monkeypatch.setattr(
+        growth_api_module,
+        "is_celery_broker_available",
+        lambda: probes.append("first") or True,
+    )
+    growth_api_module._reset_scheduler_availability_cache()
+    try:
+        assert growth_api_module._scheduler_available() is True
+        assert growth_api_module._scheduler_available() is True
+        assert probes == ["first"]
+
+        monkeypatch.setattr(settings, "CELERY_BROKER_URL", "redis://second.test:6379/0")
+        assert growth_api_module._scheduler_available() is True
+        assert probes == ["first", "first"]
+
+        monkeypatch.setattr(growth_api_module, "get_celery_app", lambda: second_runtime)
+        assert growth_api_module._scheduler_available() is True
+        assert probes == ["first", "first", "first"]
+
+        monkeypatch.setattr(
+            growth_api_module,
+            "is_celery_broker_available",
+            lambda: probes.append("replacement") or False,
+        )
+        assert growth_api_module._scheduler_available() is False
+        assert probes == ["first", "first", "first", "replacement"]
+    finally:
+        growth_api_module._reset_scheduler_availability_cache()
+
+
+def test_growth_distillation_api_shows_current_revision_until_history_is_requested(growth_api):
+    client, repo = growth_api
+    repo.configure_vault("project-a", "projects/project-a")
+    path = "distillations/weekly/2026-W30/summary.md"
+    old_hash = "a" * 64
+    current_hash = "b" * 64
+    FilesystemWikiVault(settings.OBSIDIAN_VAULT_ROOT, "project-a", "projects/project-a").commit({
+        path: "# Current summary\n",
+        "distillations/weekly/2026-W30/manifest.json": json.dumps({"input_hash": current_hash}),
+        f"distillations/weekly/2026-W30/revisions/{old_hash}/summary.md": "# Archived summary\n",
+    })
+    old = repo.record_growth_distillation(
+        project_id="project-a", period="2026-W30", kind="weekly", input_hash=old_hash, paths=[path], manifest={}
+    )
+    current = repo.record_growth_distillation(
+        project_id="project-a", period="2026-W30", kind="weekly", input_hash=current_hash, paths=[path], manifest={}
+    )
+
+    listed = client.get("/knowledge/growth/project-a/distillations", headers=_headers())
+    history = client.get("/knowledge/growth/project-a/distillations?include_history=true", headers=_headers())
+    archived_detail = client.get(f"/knowledge/growth/project-a/distillations/{old['id']}", headers=_headers())
+    current_detail = client.get(f"/knowledge/growth/project-a/distillations/{current['id']}", headers=_headers())
+
+    assert listed.status_code == 200
+    assert [item["id"] for item in listed.json()["data"]["distillations"]] == [current["id"]]
+    assert listed.json()["data"]["distillations"][0]["revision_count"] == 2
+    assert history.status_code == 200
+    history_by_id = {item["id"]: item for item in history.json()["data"]["distillations"]}
+    assert set(history_by_id) == {old["id"], current["id"]}
+    assert history_by_id[old["id"]]["current"] is False
+    assert history_by_id[current["id"]]["current"] is True
+    assert archived_detail.json()["data"]["distillation"]["current"] is False
+    assert current_detail.json()["data"]["distillation"]["current"] is True
 
 
 def test_idempotent_growth_run_persists_one_celery_assignment(monkeypatch, tmp_path):

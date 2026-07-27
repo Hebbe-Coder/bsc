@@ -65,6 +65,29 @@ def test_context_pack_keeps_a_bounded_source_excerpt_when_pages_consume_the_budg
     assert "large-prd:excerpted_for_budget" in pack.omitted_refs
 
 
+def test_context_pack_can_prioritize_full_source_evidence_over_derived_pages():
+    rules = parse_project_rules(build_default_agents_rules("project-a"))
+    pack = ContextPackBuilder(max_characters=1_800).build(
+        project_id="project-a",
+        rules=rules,
+        pages=[{
+            "id": "page-a",
+            "project_id": "project-a",
+            "content": "Derived context. " * 120,
+        }],
+        sources=[{
+            "id": "source-a",
+            "project_id": "project-a",
+            "raw_content": "Primary evidence must remain visible before older derived pages are considered. " * 8,
+        }],
+        sources_first=True,
+    )
+
+    assert pack.source_ids == ("source-a",)
+    assert "Primary evidence must remain visible" in pack.rendered
+    assert "page-a" in pack.omitted_refs
+
+
 class CandidateRetriever:
     def __init__(self):
         self.calls = []

@@ -31,6 +31,7 @@ SUPPORTED_CAPTURE_TYPES = frozenset(
         "manual_upload",
         "upload",
         "browser_clip",
+        "primary_web",
         "obsidian_import",
         "obsidian_markdown",
         "obsidian_file",

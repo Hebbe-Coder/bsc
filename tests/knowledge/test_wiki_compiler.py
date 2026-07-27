@@ -149,7 +149,51 @@ def test_compiler_rejects_rule_context_without_real_evidence(tmp_path):
         repo.close()
 
 
-def test_compiler_rejects_context_excerpt_artifacts_in_proposed_wiki_prose(tmp_path):
+def test_compiler_prompt_names_only_selected_evidence_as_citable(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "compiler-allowed-evidence.db"))
+    source = _eligible_source(repo)
+    provider = FakeCompilerProvider(
+        {
+            "operations": [
+                {
+                    "operation": "create",
+                    "path": "wiki/concepts/approval.md",
+                    "content": f"---\ntitle: Approval\nkind: concept\n---\n\nProject decision. [source:{source['id']}]",
+                    "source_ids": [source["id"]],
+                }
+            ],
+        }
+    )
+    try:
+        WikiCompiler(repo, provider).compile_maintenance(
+            project_id="project-a",
+            source_ids=[source["id"]],
+            trigger="manual",
+            rules_text=build_default_agents_rules("project-a"),
+            page_snapshots=[
+                {
+                    "project_id": "project-a",
+                    "path": "wiki/existing.md",
+                    "content": "Old page. [source:other-page-evidence]",
+                }
+            ],
+        )
+
+        assert f"only allowed immutable source IDs for inline citations and source_ids are: {source['id']}" in provider.prompts[0]
+        assert "Existing Wiki page citations are navigation context" in provider.prompts[0]
+    finally:
+        repo.close()
+
+
+@pytest.mark.parametrize(
+    "artifact",
+    [
+        "content truncated in source",
+        "源摘录内容被截断",
+        "原始资料不完整，请查阅原文",
+    ],
+)
+def test_compiler_rejects_context_excerpt_artifacts_in_proposed_wiki_prose(tmp_path, artifact):
     repo = WikiRepository(db_path=str(tmp_path / "compiler-context-artifact.db"))
     source = _eligible_source(repo)
     provider = FakeCompilerProvider(
@@ -160,7 +204,7 @@ def test_compiler_rejects_context_excerpt_artifacts_in_proposed_wiki_prose(tmp_p
                     "path": "wiki/concepts/approval.md",
                     "content": (
                         "---\ntitle: Approval\nkind: concept\n---\n\n"
-                        f"Approval is required (content truncated in source). [source:{source['id']}]"
+                        f"Approval is required ({artifact}). [source:{source['id']}]"
                     ),
                     "source_ids": [source["id"]],
                 }

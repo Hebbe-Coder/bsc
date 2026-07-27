@@ -4,7 +4,7 @@ import pytest
 
 from app.agent.state import ProjectDraft
 from app.orchestrator.contracts import EventType
-from app.orchestrator.runtime_engine import RuntimeOrchestratorEngine
+from app.orchestrator.runtime_engine import RuntimeOrchestratorEngine, runtime_response_to_project_state
 from app.orchestrator.sse import SessionEventBus
 
 
@@ -190,3 +190,55 @@ def test_runtime_engine_does_not_send_context_keywords_to_legacy_runner(draft_re
     assert captured["project_id"] == "runtime-project"
     assert "context_policy" not in captured
     assert "context_items" not in captured
+
+
+def test_runtime_projection_prefers_authored_sop_over_generic_workflow():
+    response = _success_response()
+    response["runtime"]["knowledge_context"] = {
+        "context_pack_id": "context-1",
+        "source_ids": ["source-primary-1"],
+        "page_ids": ["page-decision-1"],
+    }
+    response["report"]["deliverables"] = [{
+        "artifact_id": "deliverable-sop-1",
+        "kind": "sop",
+        "title": "Evidence-led Horizon intake SOP",
+        "summary": "Capture primary evidence before durable publication.",
+        "differentiators": ["A Horizon signal cannot author a Wiki page alone"],
+        "sections": [{"title": "Primary capture", "details": ["Capture the official source"]}],
+        "actions": [{
+            "title": "Capture primary evidence",
+            "owner": "Knowledge operator",
+            "trigger": "Horizon candidate admitted",
+            "action": "Capture and triage the public primary source",
+            "output": "Reviewable primary evidence",
+            "metric": "No Horizon-only publication",
+            "timebox": "1 business day",
+        }],
+        "evidence_gaps": ["Official source is inaccessible"],
+        "evidence_refs": ["source-primary-1"],
+    }]
+
+    state = runtime_response_to_project_state(
+        session_id="projection-sop",
+        idea="Build the evidence loop",
+        response=response,
+    )
+
+    sop = state["sop"]["sops"]
+    assert len(sop) == 1
+    assert sop[0]["id"] == "deliverable-sop-1"
+    assert sop[0]["title"] == "Evidence-led Horizon intake SOP"
+    assert sop[0]["actions"][0]["trigger"] == "Horizon candidate admitted"
+    assert sop[0]["source_ref"] == ["source-primary-1"]
+    assert sop[0]["context_ref"] == {
+        "context_pack_id": "context-1",
+        "source_ids": ["source-primary-1"],
+        "page_ids": ["page-decision-1"],
+    }
+    assert state["sop"]["_citation_coverage"] == {
+        "coverage": 1.0,
+        "covered": 1,
+        "total": 1,
+        "flagged": [],
+    }

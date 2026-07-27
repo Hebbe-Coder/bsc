@@ -279,7 +279,7 @@ def runtime_response_to_project_state(
         "_artifact_graph": graph,
         "_runtime": runtime,
     }
-    sop_items = _sop_projection(report, decisions)
+    sop_items = _sop_projection(report, decisions, runtime)
 
     return {
         "session_id": session_id,
@@ -415,7 +415,23 @@ def _roles_projection(report: dict[str, Any]) -> list[dict[str, Any]]:
 def _sop_projection(
     report: dict[str, Any],
     decisions: list[dict[str, Any]],
+    runtime: dict[str, Any],
 ) -> list[dict[str, Any]]:
+    deliverables = [
+        item
+        for item in _list(report.get("deliverables"))
+        if isinstance(item, dict) and str(item.get("kind") or "").lower() == "sop"
+    ]
+    if not deliverables:
+        graph = _dict(report.get("_artifact_graph"))
+        deliverables = [
+            item
+            for item in _list(graph.get("deliverables"))
+            if isinstance(item, dict) and str(item.get("kind") or "").lower() == "sop"
+        ]
+    if deliverables:
+        return [_deliverable_sop_projection(item, runtime) for item in deliverables]
+
     workflow = _workflow_projection(report)
     if workflow:
         return workflow
@@ -428,6 +444,36 @@ def _sop_projection(
         }
         for idx, decision in enumerate(decisions)
     ]
+
+
+def _deliverable_sop_projection(
+    deliverable: dict[str, Any],
+    runtime: dict[str, Any],
+) -> dict[str, Any]:
+    """Keep the authored SOP intact instead of substituting generic workflow items."""
+    knowledge_context = _dict(runtime.get("knowledge_context"))
+    direct_refs = _string_values(deliverable.get("evidence_refs"))
+    context_sources = _string_values(knowledge_context.get("source_ids"))
+    context_pages = _string_values(knowledge_context.get("page_ids"))
+    return {
+        "id": str(deliverable.get("artifact_id") or deliverable.get("id") or ""),
+        "title": str(deliverable.get("title") or deliverable.get("label") or "Project SOP"),
+        "summary": str(deliverable.get("summary") or ""),
+        "differentiators": _string_values(deliverable.get("differentiators")),
+        "sections": _object_values(deliverable.get("sections")),
+        "actions": _object_values(deliverable.get("actions")),
+        "evidence_gaps": _string_values(deliverable.get("evidence_gaps")),
+        # These are claim-level references explicitly returned by the model.
+        "source_ref": direct_refs,
+        # Context is provenance, not a replacement for a direct citation.
+        "context_ref": {
+            "context_pack_id": str(
+                deliverable.get("context_pack_id") or knowledge_context.get("context_pack_id") or ""
+            ),
+            "source_ids": context_sources,
+            "page_ids": context_pages,
+        },
+    }
 
 
 def _constraint_projection(item: dict[str, Any]) -> dict[str, Any]:
@@ -535,6 +581,14 @@ def _dict(value: Any) -> dict[str, Any]:
 
 def _list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
+
+
+def _string_values(value: Any) -> list[str]:
+    return [str(item) for item in _list(value) if str(item).strip()]
+
+
+def _object_values(value: Any) -> list[dict[str, Any]]:
+    return [item for item in _list(value) if isinstance(item, dict)]
 
 
 def _accepts_keyword(callable_obj, keyword: str) -> bool:

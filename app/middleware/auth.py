@@ -49,13 +49,17 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         bearer = _extract_bearer(request)
+        # RequestSignatureMiddleware runs before this middleware and stores the
+        # authenticated key only after HMAC verification succeeds.
+        signed_api_key = getattr(request.state, "signed_api_key", "")
+        credential = bearer or signed_api_key
         supports_browser_session = (
             request.url.path.startswith("/api/orchestrate")
             or request.url.path == "/agent/analyze"
         )
         principal = (
-            _principal_from_bearer(bearer)
-            if bearer
+            _principal_from_bearer(credential)
+            if credential
             else _principal_from_cookie(request) if supports_browser_session else None
         )
         issued_cookie = False
@@ -147,6 +151,24 @@ def resolve_knowledge_auth(api_key: str, repo=None) -> Optional[Tuple[str, str]]
     return _resolve_project_key(api_key, repo=repo)
 
 
+def _resolve_project_tenant(project_id: str, repo=None) -> str | None:
+    """Resolve the tenant bound to an already-authenticated project key."""
+    from app.repositories.knowledge_repository import KnowledgeRepository
+
+    repository = repo or KnowledgeRepository()
+    owns_repository = repo is None
+    try:
+        project = repository.get_project(project_id)
+        tenant_id = str(project.get("tenant_id") or "").strip() if project else ""
+        return tenant_id or None
+    except Exception:
+        logger.warning("project tenant lookup failed; preserving legacy default tenant", exc_info=True)
+        return None
+    finally:
+        if owns_repository:
+            repository.close()
+
+
 def _principal_from_bearer(api_key: str | None) -> AuthPrincipal | None:
     if not api_key:
         return None
@@ -154,9 +176,15 @@ def _principal_from_bearer(api_key: str | None) -> AuthPrincipal | None:
     if auth is None:
         return None
     role, project_id = auth
+    tenant_id = settings.DEFAULT_TENANT_ID
+    if project_id:
+        # Project-aware services still verify the project exists in this tenant.
+        # Retaining the default here keeps legacy resolver integrations working
+        # while a project repository is unavailable during an isolated request.
+        tenant_id = _resolve_project_tenant(project_id) or tenant_id
     return AuthPrincipal(
         role=role,
-        tenant_id=settings.DEFAULT_TENANT_ID,
+        tenant_id=tenant_id,
         project_id=project_id,
         principal_id=hashlib.sha256(api_key.encode("utf-8")).hexdigest(),
         browser_session_id="",

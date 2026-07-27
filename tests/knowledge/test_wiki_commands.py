@@ -1,7 +1,41 @@
+from datetime import datetime, timedelta, timezone
+
+from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.wiki_commands import WikiCommandService
+from app.knowledge.wiki_contracts import KnowledgeRun, ProposalStatus, RunStatus
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_rules import build_default_agents_rules
 from app.knowledge.wiki_source_capture import CapturedSourceInput, SourceCaptureService
+
+
+def test_command_capture_immediately_projects_bsc_owned_source_into_obsidian(tmp_path, monkeypatch):
+    vault_root = tmp_path / "vault"
+    project_root = vault_root / "projects" / "project-a"
+    project_root.mkdir(parents=True)
+    monkeypatch.setattr("app.knowledge.wiki_commands.settings.OBSIDIAN_VAULT_ROOT", str(vault_root))
+    repo = WikiRepository(db_path=str(tmp_path / "commands-projection.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    try:
+        result = WikiCommandService(repo).capture_source(
+            {
+                "project_id": "project-a",
+                "source_type": "manual_upload",
+                "origin": "operator-note",
+                "raw_content": "This is a real operator observation.",
+                "trust_level": "reviewed",
+            },
+            actor_id="test",
+        )
+        source = result["source"]
+        mirror = repo.get_run("project-a", result["run_id"])["output_refs"]["evidence_mirror"]
+        target = project_root / "01_Sources" / "bsc-evidence" / f"{source['id']}.md"
+
+        assert mirror["status"] == "completed"
+        assert mirror["created"] == 1
+        assert target.is_file()
+        assert "This is a real operator observation." in target.read_text(encoding="utf-8")
+    finally:
+        repo.close()
 
 
 def test_command_service_creates_lints_and_publishes_only_through_project_vault(tmp_path, monkeypatch):
@@ -61,6 +95,51 @@ def test_command_service_creates_lints_and_publishes_only_through_project_vault(
         assert any(edge["edge_type"] == "wiki_cites_source" for edge in repo.list_graph_edges("project-a"))
         assert not (vault_root / "wiki").exists()
         assert not (vault_root / "projects" / "project-a").exists()
+    finally:
+        repo.close()
+
+
+def test_command_service_revises_an_overview_link_without_appending_a_duplicate(tmp_path, monkeypatch):
+    vault_root = tmp_path / "vault"
+    project_root = vault_root / "clients" / "acme"
+    (project_root / "wiki" / "concepts").mkdir(parents=True)
+    initial_page = "---\ntitle: Approval\nkind: concept\n---\nApproval is required. [source:source-a]\n"
+    (project_root / "AGENTS.md").write_text(build_default_agents_rules("project-a"), encoding="utf-8")
+    (project_root / "wiki" / "concepts" / "approval.md").write_text(initial_page, encoding="utf-8")
+    (project_root / "wiki" / "overview.md").write_text(
+        "---\ntitle: Overview\nkind: brief\n---\n- [[wiki/concepts/approval.md]]\n", encoding="utf-8"
+    )
+    (project_root / "wiki" / "index.md").write_text("# Index\n- [[wiki/concepts/approval.md]]\n", encoding="utf-8")
+    (project_root / "wiki" / "log.md").write_text("# Log\n", encoding="utf-8")
+    monkeypatch.setattr("app.knowledge.wiki_commands.settings.OBSIDIAN_VAULT_ROOT", str(vault_root))
+    repo = WikiRepository(db_path=str(tmp_path / "commands-overview.db"))
+    repo.configure_vault("project-a", "clients/acme")
+    source = SourceCaptureService(repo).capture(
+        CapturedSourceInput(
+            project_id="project-a", source_type="manual_upload", origin="brief.md",
+            raw_content="Approval remains mandatory.", trust_level="trusted",
+        )
+    ).source
+    service = WikiCommandService(repo)
+    try:
+        proposal = service.create_proposal(
+            {
+                "project_id": "project-a",
+                "source_ids": [source["id"]],
+                "operations": [
+                    {
+                        "operation": "replace", "path": "wiki/concepts/approval.md",
+                        "content": "---\ntitle: Approval\nkind: concept\n---\nApproval remains mandatory. [source:%s]\n" % source["id"],
+                        "source_ids": [source["id"]],
+                    },
+                    {"operation": "append", "path": "wiki/index.md", "content": "\n- Approval revision recorded\n", "source_ids": [source["id"]]},
+                    {"operation": "append", "path": "wiki/log.md", "content": "\n- Revised approval. [source:%s]\n" % source["id"], "source_ids": [source["id"]]},
+                ],
+            }
+        )
+
+        assert all(operation["path"] != "wiki/overview.md" for operation in proposal["operations"])
+        assert service.lint_proposal(project_id="project-a", proposal_id=proposal["id"])["valid"] is True
     finally:
         repo.close()
 
@@ -195,5 +274,98 @@ def test_command_service_restores_a_prior_revision_through_a_new_gated_proposal(
         service.publish_proposal(project_id="project-a", proposal_id=rollback["id"])
         assert repo.get_page_content("project-a", page["id"])["content"] == version_one
         assert len(repo.list_page_revisions("project-a", page["id"])) == 3
+    finally:
+        repo.close()
+
+
+def test_command_service_recovers_an_interrupted_publish_when_all_effects_reached_the_vault(tmp_path, monkeypatch):
+    vault_root = tmp_path / "vault"
+    project_root = vault_root / "projects" / "project-a"
+    project_root.mkdir(parents=True)
+    (project_root / "AGENTS.md").write_text(build_default_agents_rules("project-a"), encoding="utf-8")
+    monkeypatch.setattr("app.knowledge.wiki_commands.settings.OBSIDIAN_VAULT_ROOT", str(vault_root))
+    repo = WikiRepository(db_path=str(tmp_path / "commands-publish-recovery.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    source = SourceCaptureService(repo).capture(
+        CapturedSourceInput(
+            project_id="project-a", source_type="manual_upload", origin="brief.md",
+            raw_content="Approval is mandatory.", trust_level="trusted",
+        )
+    ).source
+    service = WikiCommandService(repo)
+    try:
+        proposal = service.create_proposal(
+            {
+                "project_id": "project-a", "source_ids": [source["id"]], "rationale": "Record approval.",
+                "operations": [
+                    {"operation": "create", "path": "wiki/concepts/approval.md", "content": "---\ntitle: Approval\nkind: concept\n---\nApproval is mandatory. [source:%s]" % source["id"], "source_ids": [source["id"]]},
+                    {"operation": "append", "path": "wiki/index.md", "content": "\n- [[wiki/concepts/approval.md]]\n", "source_ids": [source["id"]]},
+                    {"operation": "append", "path": "wiki/log.md", "content": "\n- Approval added. [source:%s]\n" % source["id"], "source_ids": [source["id"]]},
+                ],
+            }
+        )
+        repo.update_proposal_status("project-a", proposal["id"], ProposalStatus.VALIDATING)
+        vault = FilesystemWikiVault(vault_root, "project-a", "projects/project-a")
+        vault.commit(vault.stage(service._proposal("project-a", proposal["id"])))
+        run = KnowledgeRun(
+            project_id="project-a", run_type="wiki_publish", trigger="manual", status=RunStatus.RUNNING,
+            input_refs={"proposal_id": proposal["id"]},
+        )
+        repo.create_run(run)
+        repo._execute("UPDATE knowledge_runs SET updated_at=? WHERE id=?", ("2026-07-20T00:00:00+00:00", run.id))
+        repo._commit()
+
+        result = service.recover_abandoned_publications(
+            now=datetime(2026, 7, 22, 10, 0, tzinfo=timezone.utc), timeout_seconds=60
+        )
+
+        assert result == {"recovered": 1, "failed": 0}
+        assert repo.get_proposal("project-a", proposal["id"])["status"] == "published"
+        assert repo.get_run("project-a", run.id)["status"] == "completed"
+        assert repo.get_source("project-a", source["id"])["status"] == "processed"
+    finally:
+        repo.close()
+
+
+def test_command_service_makes_an_uncommitted_interrupted_publish_retryable(tmp_path, monkeypatch):
+    vault_root = tmp_path / "vault"
+    project_root = vault_root / "projects" / "project-a"
+    project_root.mkdir(parents=True)
+    (project_root / "AGENTS.md").write_text(build_default_agents_rules("project-a"), encoding="utf-8")
+    monkeypatch.setattr("app.knowledge.wiki_commands.settings.OBSIDIAN_VAULT_ROOT", str(vault_root))
+    repo = WikiRepository(db_path=str(tmp_path / "commands-publish-recovery-failed.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    source = SourceCaptureService(repo).capture(
+        CapturedSourceInput(
+            project_id="project-a", source_type="manual_upload", origin="brief.md",
+            raw_content="Approval is mandatory.", trust_level="trusted",
+        )
+    ).source
+    service = WikiCommandService(repo)
+    try:
+        proposal = service.create_proposal(
+            {
+                "project_id": "project-a", "source_ids": [source["id"]], "rationale": "Record approval.",
+                "operations": [{"operation": "create", "path": "wiki/concepts/approval.md", "content": "---\ntitle: Approval\nkind: concept\n---\nApproval is mandatory. [source:%s]" % source["id"], "source_ids": [source["id"]]}],
+            }
+        )
+        repo.update_proposal_status("project-a", proposal["id"], ProposalStatus.VALIDATING)
+        run = KnowledgeRun(
+            project_id="project-a", run_type="wiki_publish", trigger="manual", status=RunStatus.RUNNING,
+            input_refs={"proposal_id": proposal["id"]},
+        )
+        repo.create_run(run)
+        repo._execute("UPDATE knowledge_runs SET updated_at=? WHERE id=?", ("2026-07-20T00:00:00+00:00", run.id))
+        repo._commit()
+
+        result = service.recover_abandoned_publications(
+            now=datetime(2026, 7, 22, 10, 0, tzinfo=timezone.utc), timeout_seconds=60
+        )
+
+        assert result == {"recovered": 0, "failed": 1}
+        assert repo.get_proposal("project-a", proposal["id"])["status"] == "failed"
+        assert repo.get_proposal("project-a", proposal["id"])["eval_summary"]["publication_error"] == "abandoned_publish_recovered"
+        assert repo.get_run("project-a", run.id)["output_refs"]["failure"]["code"] == "abandoned_publish"
+        assert repo.get_source("project-a", source["id"])["status"] == "eligible"
     finally:
         repo.close()

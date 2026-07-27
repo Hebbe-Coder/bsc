@@ -41,10 +41,14 @@ def test_horizon_import_preserves_run_score_and_original_evidence(tmp_path):
         assert source["status"] == "validated"
         assert source["metadata"]["horizon_run_id"] == "horizon-run-1"
         assert source["metadata"]["admission_gate"] == "project_triage"
+        assert source["metadata"]["evidence_role"] == "discovery_signal"
+        assert source["metadata"]["primary_capture_required"] is True
         assert source["metadata"]["ai_score"] == 8.4
         assert source["metadata"]["title"] == "Agent systems"
         assert source["metadata"]["task_families"] == ["context_mapping"]
         assert "Primary article content." in source["raw_content"]
+        assert "Horizon rationale:" not in source["raw_content"]
+        assert "Horizon summary:" not in source["raw_content"]
         attempts = repo.list_source_capture_attempts("project-a", run_id="knowledge-capture-run-1")
         assert len(attempts) == 1
         assert attempts[0]["source_id"] == source["id"]

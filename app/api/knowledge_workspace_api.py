@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -23,6 +23,13 @@ from app.knowledge.wiki_bootstrap import WikiBootstrapError, WikiBootstrapServic
 from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus, SourceStatus
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.growth_repository import GrowthRepository
+from app.knowledge.growth_distillation_revisions import growth_distillation_revision_metadata
+from app.knowledge.source_triage import (
+    SemanticSourceTriageEvaluator,
+    SourceTriageService,
+    current_project_triage_decisions,
+)
+from app.knowledge.primary_web_capture import PrimaryWebCapture, PrimaryWebCaptureError
 from app.knowledge.wiki_source_capture import InvalidSourceTransition, SourceCaptureService
 from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
@@ -66,6 +73,12 @@ class SourceCaptureRequest(BaseModel):
     vault_path: str = ""
     trust_level: str = "untrusted"
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PrimaryWebCaptureRequest(BaseModel):
+    project_id: str = Field(min_length=1)
+    url: str = Field(min_length=1, max_length=2_048)
+    discovered_from_source_id: str = Field(default="", max_length=128)
 
 
 class VaultMappingRequest(BaseModel):
@@ -116,6 +129,8 @@ class ScheduleRequest(BaseModel):
 class RunNowRequest(BaseModel):
     project_id: str = Field(min_length=1)
     job_type: str = Field(min_length=1)
+    source_ids: list[str] = Field(default_factory=list, max_length=64)
+    task_constraints: list[str] = Field(default_factory=list, max_length=24)
 
 
 class HorizonCaptureRequest(BaseModel):
@@ -481,6 +496,48 @@ def capture_workspace_source(
         raise _command_error(exc) from exc
 
 
+@router.post("/sources/capture-web")
+def capture_primary_web_source(
+    payload: PrimaryWebCaptureRequest, request: Request, repo: WikiRepository = Depends(get_wiki_repository)
+):
+    """Capture a public primary page without promoting the originating radar signal."""
+    project_id = _enforce_project_access(request, payload.project_id, write=True)
+    try:
+        discovery_source_id = payload.discovered_from_source_id.strip()
+        if discovery_source_id:
+            discovery = repo.get_source(project_id, discovery_source_id)
+            if not discovery or discovery.get("source_type") != "horizon_signal":
+                raise ValueError("discovered_from_source_id must reference a Horizon signal in this project")
+        captured = PrimaryWebCapture().capture(payload.url)
+        metadata = {
+            "title": captured.title,
+            "admission_gate": "project_triage",
+            "evidence_role": "primary_capture",
+            "discovered_from_source_id": discovery_source_id,
+            "fetch": {
+                "requested_url": captured.requested_url,
+                "final_url": captured.final_url,
+                "content_type": captured.content_type,
+                "response_sha256": captured.response_sha256,
+                "extraction_revision": captured.extraction_revision,
+            },
+        }
+        result = WikiCommandService(repo).capture_source(
+            {
+                "project_id": project_id,
+                "source_type": "primary_web",
+                "origin": captured.final_url,
+                "raw_content": captured.content,
+                "trust_level": "reviewed",
+                "metadata": metadata,
+            },
+            actor_id="http",
+        )
+        return ApiResponse.ok({"source": _source_view(result["source"]), "created": result["created"], "run_id": result["run_id"]})
+    except (PrimaryWebCaptureError, ValueError, WikiCommandError) as exc:
+        raise _command_error(exc) from exc
+
+
 @router.post("/sources/feishu/import")
 def import_workspace_feishu_export(
     payload: FeishuImportRequest, request: Request, repo: WikiRepository = Depends(get_wiki_repository)
@@ -540,6 +597,50 @@ def read_workspace_source(source_id: str, request: Request, project_id: str, rep
     if not source:
         raise HTTPException(status_code=404, detail="knowledge source not found")
     return ApiResponse.ok({"source": _source_view(source)})
+
+
+@router.get("/sources/{source_id}/triage")
+def read_workspace_source_triage(
+    source_id: str,
+    request: Request,
+    project_id: str,
+    repo: WikiRepository = Depends(get_wiki_repository),
+):
+    """Return the active profile-bound admission recommendation without raw evidence."""
+    project_id = _enforce_project_access(request, project_id)
+    if not repo.get_source(project_id, source_id):
+        raise HTTPException(status_code=404, detail="knowledge source not found")
+    decision = current_project_triage_decisions(repo, project_id).get(source_id)
+    return ApiResponse.ok({"triage": decision})
+
+
+@router.post("/sources/{source_id}/semantic-triage")
+def semantic_triage_workspace_source(
+    source_id: str,
+    request: Request,
+    project_id: str,
+    repo: WikiRepository = Depends(get_wiki_repository),
+):
+    """Create a review-only semantic triage record for one immutable source.
+
+    This endpoint intentionally does not transition source lifecycle state. A
+    project operator must still approve a passing recommendation before Wiki
+    maintenance can use the source.
+    """
+    project_id = _enforce_project_access(request, project_id, write=True)
+    try:
+        service = SourceTriageService(repo, evaluator=SemanticSourceTriageEvaluator())
+        triage = service.triage_source(project_id, source_id, apply_admission=False)
+        source = repo.get_source(project_id, source_id)
+        return ApiResponse.ok(
+            {
+                "source": _source_view(source) if source else None,
+                "triage": triage,
+                "admission": "explicit_approval_required",
+            }
+        )
+    except (KeyError, ValueError) as exc:
+        raise _command_error(exc) from exc
 
 
 @router.post("/sources/{source_id}/status")
@@ -770,11 +871,22 @@ def workspace_schedules(request: Request, project_id: str, repo: WikiRepository 
 
 
 @router.get("/distillations")
-def list_workspace_distillations(request: Request, project_id: str, repo: WikiRepository = Depends(get_wiki_repository)):
+def list_workspace_distillations(
+    request: Request,
+    project_id: str,
+    include_history: bool = Query(default=False),
+    repo: WikiRepository = Depends(get_wiki_repository),
+):
     project_id = _enforce_project_access(request, project_id)
     records = [_legacy_distillation_view(record) for record in repo.list_distillations(project_id)]
     if isinstance(repo, GrowthRepository):
-        records.extend(_growth_distillation_view(record) for record in repo.list_growth_distillations(project_id, limit=500))
+        records.extend(
+            _growth_distillation_views(
+                repo,
+                repo.list_growth_distillations(project_id, limit=500),
+                include_history=include_history,
+            )
+        )
     records.sort(key=lambda record: (str(record.get("created_at") or ""), str(record.get("period") or "")), reverse=True)
     return ApiResponse.ok({"distillations": records, "count": len(records)})
 
@@ -813,7 +925,23 @@ def run_workspace_job(
 ):
     project_id = _enforce_project_access(request, payload.project_id, write=True)
     try:
-        run = WikiCommandService(repo).start_run(project_id=project_id, job_type=payload.job_type, trigger="http")
+        source_ids = list(dict.fromkeys(str(item).strip() for item in payload.source_ids if str(item).strip()))
+        task_constraints = list(dict.fromkeys(str(item).strip() for item in payload.task_constraints if str(item).strip()))
+        if (source_ids or task_constraints) and payload.job_type != "wiki_maintenance":
+            raise ValueError("source_ids and task_constraints are only supported for wiki_maintenance")
+        if any(len(item) > 128 for item in source_ids):
+            raise ValueError("source_ids entries must be at most 128 characters")
+        if any(len(item) > 2_000 for item in task_constraints):
+            raise ValueError("task_constraints entries must be at most 2000 characters")
+        run = WikiCommandService(repo).start_run(
+            project_id=project_id,
+            job_type=payload.job_type,
+            trigger="http",
+            input_refs={
+                **({"source_ids": source_ids} if source_ids else {}),
+                **({"task_constraints": task_constraints} if task_constraints else {}),
+            },
+        )
         return ApiResponse.ok(run)
     except (ValueError, WikiCommandError) as exc:
         raise _command_error(exc) from exc
@@ -871,7 +999,13 @@ def read_workspace_distillation(
             documents = _read_growth_distillation_documents(repo, growth)
         except WikiCommandError as exc:
             raise _command_error(exc) from exc
-        return ApiResponse.ok({"distillation": _growth_distillation_view(growth), "documents": documents})
+        views = _growth_distillation_views(
+            repo,
+            repo.list_growth_distillations(project_id, limit=500),
+            include_history=True,
+        )
+        view = next((item for item in views if item.get("id") == distillation_id), _growth_distillation_view(growth))
+        return ApiResponse.ok({"distillation": view, "documents": documents})
     raise _command_error(WikiCommandError("weekly distillation not found"))
 
 
@@ -888,7 +1022,33 @@ def _legacy_distillation_view(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _growth_distillation_view(record: dict[str, Any]) -> dict[str, Any]:
+def _growth_distillation_views(
+    repo: GrowthRepository,
+    records: list[dict[str, Any]],
+    *,
+    include_history: bool,
+) -> list[dict[str, Any]]:
+    metadata = growth_distillation_revision_metadata(repo, records, vault_root=str(settings.OBSIDIAN_VAULT_ROOT or ""))
+    views: list[dict[str, Any]] = []
+    for record in records:
+        revision = metadata.get(str(record.get("id") or ""), {"current": True, "revision_count": 1})
+        if include_history or bool(revision["current"]):
+            views.append(
+                _growth_distillation_view(
+                    record,
+                    current=bool(revision["current"]),
+                    revision_count=int(revision["revision_count"]),
+                )
+            )
+    return views
+
+
+def _growth_distillation_view(
+    record: dict[str, Any],
+    *,
+    current: bool = True,
+    revision_count: int = 1,
+) -> dict[str, Any]:
     manifest = record.get("manifest") if isinstance(record.get("manifest"), dict) else {}
     paths = [str(path) for path in record.get("paths") or [] if str(path)]
     period = str(record.get("period") or "")
@@ -906,6 +1066,8 @@ def _growth_distillation_view(record: dict[str, Any]) -> dict[str, Any]:
         "source_cutoff": str(manifest.get("source_cutoff") or ""),
         "status": str(record.get("status") or ""),
         "created_at": str(record.get("created_at") or ""),
+        "current": current,
+        "revision_count": revision_count,
         "manifest": manifest,
         "generation": manifest.get("generation") if isinstance(manifest.get("generation"), dict) else {},
     }

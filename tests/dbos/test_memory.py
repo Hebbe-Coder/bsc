@@ -10,6 +10,25 @@ from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.wiki_contracts import SourceRecord, SourceStatus
 
 
+def test_dbos_sop_planning_context_keeps_governed_pages_and_excludes_raw_sources():
+    sections = (
+        "## [profile:3]\nKnowledge-system profile.",
+        "## [rules:abc]\nPublished Wiki rules.",
+        "## [task:request]\nCreate a cited knowledge SOP.",
+        "## [page:page-a@revision-a]\nPublished knowledge concept.",
+        "## [source:source-a@hash-a]\nRaw Horizon source body must not enter the SOP prompt.",
+        "## [output:output-a@revision-a]\nAn old output must not become a new template.",
+    )
+
+    rendered = KnowledgeMemoryAdapter._sop_planning_context(sections)
+
+    assert "Knowledge-system profile" in rendered
+    assert "Published Wiki rules" in rendered
+    assert "Published knowledge concept" in rendered
+    assert "Raw Horizon source body" not in rendered
+    assert "old output" not in rendered
+
+
 def test_dbos_reads_only_same_project_approved_methods_and_writes_feedback_memory(tmp_path):
     knowledge = GrowthRepository(db_path=str(tmp_path / "growth.db"))
     store = ArtifactGraphStore(str(tmp_path / "artifacts"), project_id="project-a")
@@ -172,6 +191,10 @@ def test_dbos_compiles_from_governed_knowledge_signals_without_reading_bodies(tm
                 "industry": "ecommerce",
                 "organization_stage": "growth",
                 "goal": "restore conversion",
+                # This scenario verifies deterministic knowledge-signal
+                # lineage, not model refinement. Keep it isolated from a
+                # developer's configured live SOP provider.
+                "sop_generation_mode": "deterministic",
             },
         )
 

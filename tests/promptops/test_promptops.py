@@ -91,6 +91,38 @@ class _RetryClient(_Client):
         return {"status": "accepted"}
 
 
+class _InvalidStructuredClient(_Client):
+    """Simulates a provider client after its own JSON repair has failed."""
+
+    def __init__(self, *, attempt: int, model: str, output: dict | None) -> None:
+        super().__init__(model=model)
+        self.attempt = attempt
+        self.output = output
+        self.last_structured_failure = ""
+        self.last_call_usages: list[ModelUsage] = []
+
+    def reset_usage_tracking(self) -> None:
+        self.last_call_usages = []
+        self.last_structured_failure = ""
+
+    def chat_structured(self, **kwargs):
+        self.calls.append(kwargs)
+        self.last_call_usages = [
+            ModelUsage(
+                provider="deepseek",
+                model=self.model,
+                prompt_tokens=10,
+                completion_tokens=5,
+                total_tokens=15,
+                reported=True,
+                complete=True,
+            )
+        ]
+        if self.output is None:
+            self.last_structured_failure = "response_payload_invalid"
+        return self.output
+
+
 def _request(**updates) -> PromptRequest:
     base = {
         "project_id": "project-a",
@@ -274,6 +306,65 @@ def test_promptops_retries_a_transient_failure_under_one_run_and_folds_usage(tmp
     assert {record["run_id"] for record in records} == {run.run_id}
     assert records[-1]["provider_total_tokens"] == 33
     assert records[-1]["retry_categories"] == ["server_error"]
+
+
+def test_promptops_retries_an_invalid_structured_payload_before_falling_back(tmp_path):
+    clients: list[_InvalidStructuredClient] = []
+    delays: list[float] = []
+
+    def factory(**kwargs):
+        client = _InvalidStructuredClient(
+            attempt=len(clients) + 1,
+            model=kwargs["model"],
+            output=None if not clients else {"status": "accepted"},
+        )
+        clients.append(client)
+        return client
+
+    audit = PromptAuditStore(tmp_path / "audit")
+    run = PromptOps(
+        audit_store=audit,
+        client_factory=factory,
+        sleep_func=delays.append,
+    ).run_structured(_request())
+
+    assert len(clients) == 2
+    assert delays == [0.5]
+    assert run.output == {"status": "accepted"}
+    assert run.attempt_count == 2
+    assert run.retry_count == 1
+    assert run.retry_categories == ("response_payload_invalid",)
+    assert run.usage.total_tokens == 30
+    assert [record["status"] for record in audit.list("project-a")] == ["retrying", "completed"]
+
+
+def test_promptops_records_terminal_invalid_payload_after_the_bounded_retry(tmp_path):
+    clients: list[_InvalidStructuredClient] = []
+
+    def factory(**kwargs):
+        client = _InvalidStructuredClient(
+            attempt=len(clients) + 1,
+            model=kwargs["model"],
+            output=None,
+        )
+        clients.append(client)
+        return client
+
+    audit = PromptAuditStore(tmp_path / "audit")
+    with pytest.raises(PromptOpsError) as exc_info:
+        PromptOps(
+            audit_store=audit,
+            client_factory=factory,
+            sleep_func=lambda _delay: None,
+        ).run_structured(_request())
+
+    assert exc_info.value.category == "response_payload_invalid"
+    assert len(clients) == 2
+    records = audit.list("project-a")
+    assert [record["status"] for record in records] == ["retrying", "failed"]
+    assert records[-1]["error_category"] == "response_payload_invalid"
+    assert records[-1]["attempt_count"] == 2
+    assert records[-1]["retry_count"] == 1
 
 
 def test_promptops_does_not_retry_non_transient_configuration_errors(tmp_path):

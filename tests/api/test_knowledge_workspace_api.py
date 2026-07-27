@@ -2,13 +2,16 @@ import json
 
 from fastapi.testclient import TestClient
 
+from app.api import knowledge_workspace_api
 from app.api.knowledge_workspace_api import get_wiki_repository
 from app.core.config import settings
 from app.main import app
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.growth_repository import GrowthRepository
+from app.knowledge.source_triage import TriageEvaluation
 from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus
 from app.knowledge.wiki_source_capture import CapturedSourceInput, SourceCaptureService
+from app.knowledge.primary_web_capture import PrimaryWebCaptureResult
 from app.knowledge.wiki_sync import ObsidianSyncService
 from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.wiki_rules import build_default_agents_rules
@@ -35,6 +38,162 @@ def test_workspace_api_requires_scope_and_redacts_raw_evidence(tmp_path):
         assert "raw_content" not in source
         assert status.json()["data"]["vault"]["configured"] is True
         assert status.json()["data"]["vault"]["vault_path"] == "projects/project-a"
+    finally:
+        settings.API_KEY = previous_key
+        app.dependency_overrides.clear()
+        repo.close()
+
+
+def test_workspace_semantic_triage_is_review_only_and_queryable(tmp_path, monkeypatch):
+    repo = GrowthRepository(db_path=str(tmp_path / "workspace-semantic-triage.db"))
+    captured = SourceCaptureService(repo).capture(
+        CapturedSourceInput(
+            project_id="project-a",
+            source_type="horizon_signal",
+            origin="https://example.com/agent-workflow",
+            raw_content="A governed AI agent workflow report.",
+            trust_level="reviewed",
+            metadata={"admission_gate": "project_triage"},
+        )
+    )
+
+    class SemanticEvaluator:
+        revision = "semantic-source-triage-v1"
+
+        def evaluate(self, *, source, profile):
+            return TriageEvaluation(
+                relevance=90,
+                value=85,
+                freshness=80,
+                outputability=88,
+                connectedness=82,
+                evaluator_revision=self.revision,
+                reasons=["Project-specific fit is strong."],
+            )
+
+    previous_key = settings.API_KEY
+    settings.API_KEY = "workspace-admin"
+    monkeypatch.setattr(knowledge_workspace_api, "SemanticSourceTriageEvaluator", SemanticEvaluator)
+    app.dependency_overrides[get_wiki_repository] = lambda: repo
+    client = TestClient(app)
+    headers = {"Authorization": "Bearer workspace-admin"}
+    try:
+        response = client.post(
+            f"/knowledge/sources/{captured.source['id']}/semantic-triage?project_id=project-a",
+            headers=headers,
+        )
+
+        assert response.status_code == 200
+        payload = response.json()["data"]
+        assert payload["admission"] == "explicit_approval_required"
+        assert payload["triage"]["disposition"] == "knowledge_candidate"
+        assert "raw_content" not in payload["source"]
+        assert repo.get_source("project-a", captured.source["id"])["status"] == "validated"
+
+        current = client.get(
+            f"/knowledge/sources/{captured.source['id']}/triage?project_id=project-a",
+            headers=headers,
+        )
+        assert current.status_code == 200
+        assert current.json()["data"]["triage"]["id"] == payload["triage"]["id"]
+    finally:
+        settings.API_KEY = previous_key
+        app.dependency_overrides.clear()
+        repo.close()
+
+
+def test_workspace_capture_web_creates_reviewable_primary_evidence_linked_to_a_horizon_signal(tmp_path, monkeypatch):
+    repo = GrowthRepository(db_path=str(tmp_path / "workspace-primary-web-capture.db"))
+    vault_root = tmp_path / "vault"
+    vault_root.mkdir()
+    repo.configure_vault("project-a", "clients/acme")
+    discovery = SourceCaptureService(repo).capture(
+        CapturedSourceInput(
+            project_id="project-a",
+            source_type="horizon_signal",
+            origin="https://radar.example/item/42",
+            raw_content="Radar discovery only.",
+            trust_level="reviewed",
+            metadata={"admission_gate": "project_triage", "evidence_role": "discovery_signal"},
+        )
+    ).source
+
+    class Capturer:
+        def capture(self, url):
+            assert url == "https://publisher.example/evidence"
+            return PrimaryWebCaptureResult(
+                requested_url=url,
+                final_url=url,
+                title="Independent primary evidence",
+                content="# Independent primary evidence\n\nSource URL: https://publisher.example/evidence\n\nA complete independent primary record with enough material for review.",
+                content_type="text/html",
+                response_sha256="a" * 64,
+            )
+
+    previous_key = settings.API_KEY
+    previous_root = settings.OBSIDIAN_VAULT_ROOT
+    settings.API_KEY = "workspace-admin"
+    settings.OBSIDIAN_VAULT_ROOT = str(vault_root)
+    monkeypatch.setattr(knowledge_workspace_api, "PrimaryWebCapture", Capturer)
+    app.dependency_overrides[get_wiki_repository] = lambda: repo
+    client = TestClient(app)
+    try:
+        response = client.post(
+            "/knowledge/sources/capture-web",
+            headers={"Authorization": "Bearer workspace-admin"},
+            json={
+                "project_id": "project-a",
+                "url": "https://publisher.example/evidence",
+                "discovered_from_source_id": discovery["id"],
+            },
+        )
+
+        assert response.status_code == 200
+        source = response.json()["data"]["source"]
+        assert source["source_type"] == "primary_web"
+        assert source["status"] == "validated"
+        assert "raw_content" not in source
+        persisted = repo.get_source("project-a", source["id"])
+        assert persisted["metadata"]["evidence_role"] == "primary_capture"
+        assert persisted["metadata"]["discovered_from_source_id"] == discovery["id"]
+        assert persisted["metadata"]["fetch"]["response_sha256"] == "a" * 64
+    finally:
+        settings.API_KEY = previous_key
+        settings.OBSIDIAN_VAULT_ROOT = previous_root
+        app.dependency_overrides.clear()
+        repo.close()
+
+
+def test_workspace_maintenance_run_persists_scoped_sources_and_task_constraints(tmp_path, monkeypatch):
+    repo = WikiRepository(db_path=str(tmp_path / "workspace-maintenance-inputs.db"))
+    previous_key = settings.API_KEY
+    settings.API_KEY = "workspace-admin"
+    app.dependency_overrides[get_wiki_repository] = lambda: repo
+    captured = {}
+
+    def start_run(self, **kwargs):
+        captured.update(kwargs)
+        return {"status": "queued", "run_id": "maintenance-run"}
+
+    monkeypatch.setattr(knowledge_workspace_api.WikiCommandService, "start_run", start_run)
+    client = TestClient(app)
+    try:
+        response = client.post(
+            "/knowledge/runs",
+            headers={"Authorization": "Bearer workspace-admin"},
+            json={
+                "project_id": "project-a",
+                "job_type": "wiki_maintenance",
+                "source_ids": ["source-a", "source-a", "source-b"],
+                "task_constraints": ["Map the source to the project boundary.", "Map the source to the project boundary."],
+            },
+        )
+
+        assert response.status_code == 200
+        assert captured["input_refs"] == {
+            "source_ids": ["source-a", "source-b"],
+            "task_constraints": ["Map the source to the project boundary."],
+        }
     finally:
         settings.API_KEY = previous_key
         app.dependency_overrides.clear()
@@ -492,6 +651,8 @@ def test_workspace_lists_and_reads_growth_distillations_from_the_mapped_vault(tm
                     "source_cutoff": "2026-07-24T09:00:00+00:00",
                     "status": "generated",
                     "created_at": record["created_at"],
+                    "current": True,
+                    "revision_count": 1,
                     "manifest": record["manifest"],
                     "generation": record["manifest"]["generation"],
                 }
@@ -542,12 +703,32 @@ def test_workspace_reads_the_archived_files_for_a_previous_growth_revision(tmp_p
     client = TestClient(app)
     headers = {"Authorization": "Bearer workspace-admin"}
     try:
+        listed = client.get("/knowledge/distillations?project_id=project-a", headers=headers)
+        assert listed.status_code == 200
+        assert [item["id"] for item in listed.json()["data"]["distillations"]] == [current["id"]]
+        assert listed.json()["data"]["distillations"][0]["current"] is True
+        assert listed.json()["data"]["distillations"][0]["revision_count"] == 2
+
+        history = client.get(
+            "/knowledge/distillations?project_id=project-a&include_history=true",
+            headers=headers,
+        )
+        assert history.status_code == 200
+        history_by_id = {item["id"]: item for item in history.json()["data"]["distillations"]}
+        assert set(history_by_id) == {old["id"], current["id"]}
+        assert history_by_id[old["id"]]["current"] is False
+        assert history_by_id[current["id"]]["current"] is True
+
         archived_detail = client.get(f"/knowledge/distillations/{old['id']}?project_id=project-a", headers=headers)
         current_detail = client.get(f"/knowledge/distillations/{current['id']}?project_id=project-a", headers=headers)
 
         assert archived_detail.status_code == 200
+        assert archived_detail.json()["data"]["distillation"]["current"] is False
+        assert archived_detail.json()["data"]["distillation"]["revision_count"] == 2
         assert archived_detail.json()["data"]["documents"] == {path: "# Archived summary\n\n[source:source-old]\n"}
         assert current_detail.status_code == 200
+        assert current_detail.json()["data"]["distillation"]["current"] is True
+        assert current_detail.json()["data"]["distillation"]["revision_count"] == 2
         assert current_detail.json()["data"]["documents"] == {path: "# Current summary\n\n[source:source-current]\n"}
     finally:
         settings.API_KEY = previous_key

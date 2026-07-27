@@ -218,6 +218,11 @@ class LLMService:
         return None
 
     def _get_provider_for_agent(self, system_prompt: str) -> str:
+        # Explicit mock mode is a hard execution policy, not a fallback
+        # preference. Agent-specific defaults must not turn an offline test
+        # or local dry run back into a real provider request.
+        if self.force_mock or self.provider == ProviderType.MOCK.value:
+            return ProviderType.MOCK.value
         agent_type = self._get_agent_type(system_prompt)
         if agent_type == AgentType.ANALYSIS.value:
             return settings.ANALYSIS_PROVIDER

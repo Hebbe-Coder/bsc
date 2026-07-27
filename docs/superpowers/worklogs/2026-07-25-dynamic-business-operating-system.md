@@ -994,3 +994,298 @@ Artifact Graph, BusinessRuntime, A/B/C/D knowledge loop, API and workspace.
 - The current isolated API and Studio processes are verification-only local
   processes. Existing worktree changes remain uncommitted and were not staged,
   reverted, or combined with unrelated work.
+
+## Continuation: Published-Wiki Adaptive SOP Closure (2026-07-26)
+
+### Observed Failure And Correction
+
+- A real public synthetic Mission first proved that the legacy full context
+  was too large for reliable SOP composition. The model either timed out during
+  JSON repair or returned a valid JSON object using the common nested
+  `phases[].tasks[]` shape, which the compiler rejected before specificity
+  evaluation. The fallback was honest, but the resulting deterministic text
+  was still too generic for the intended knowledge-workbench use case.
+- `KnowledgeMemoryAdapter` now projects a dedicated SOP context containing
+  only project profile, `AGENTS.md`, the current Mission, published Wiki pages
+  and published methods. It excludes A-layer source bodies, project-context
+  captures, accepted output prose and feedback. Raw evidence remains in the
+  context reference ledger for audit; it is not treated as an SOP template.
+- The adaptive compiler now requires only model-authored `title`,
+  `deliverable` and `metric` fields per existing task slot. Deterministic
+  triggers, decision points, risks, checks and retrospectives remain intact
+  unless the model supplies a materially specific optional replacement.
+- Added a strict nested-task compatibility normalizer. It accepts tasks inside
+  their declared phase only when every task ID maps to that same immutable
+  baseline phase. The normalizer cannot add, remove, move or rename a task,
+  capability, phase or lineage edge.
+- The prompt revision is now `dbos-adaptive-sop-v7`, so future audit records
+  do not conflate the old full-context behavior with this bounded published
+  Wiki composition path.
+
+### Real Model Evidence
+
+- Executed `art_24140ae5d6c7` through the current DBOS service using only a
+  public synthetic AI knowledge-radar Mission. The run was not confirmed and
+  executed no business capability.
+- Result: `adaptive_compilation.status=completed`, routing evaluation passed,
+  DeepSeek `deepseek-v4-pro`, one provider call, zero retries, `57152 ms`,
+  `4399` prompt tokens, `4202` completion tokens and `8601` total tokens.
+- The provenance references contain the governed context pack, both published
+  Wiki concept pages and admitted source IDs. Specificity passed with no
+  unmatched phase or task. All six deterministic risk and decision-point
+  fields remained present after model refinement.
+- The returned task titles are mission-specific Chinese operating actions for
+  Horizon signals, reviewed Obsidian Wiki knowledge and weekly review cadence;
+  they are not a generic PRD/SOP title substitution.
+
+### Verification
+
+| Check | Result |
+| --- | --- |
+| Published-Wiki prompt boundary, raw-source/output exclusion | `tests/dbos/test_memory.py` passed. |
+| Compact model output, immutable-governance preservation, nested phase-task normalization | `tests/dbos/test_adaptive_compiler.py` passed. |
+| PromptOps structured request governance | `tests/promptops/test_promptops.py` passed. |
+| Combined focused regression | `24 passed` in `1.00s`. |
+| Live provider-backed service flow | `completed` with the model evidence above. |
+
+### Remaining Runtime Boundary
+
+- The current-source API is running locally on `8008`. Existing Vite processes
+  on `5180` and `5185` still retain older private proxy targets/credentials and
+  can resolve a different DBOS ledger. This was verified by comparing their
+  mission lists with `art_24140ae5d6c7`; they are not a valid acceptance
+  surface for this continuation.
+- No private local proxy key was read, exported or persisted to force those
+  inherited browser processes onto the current API. A freshly authorized Studio
+  proxy must be started with the existing local runtime key before browser
+  acceptance can truthfully be marked current-source complete.
+- No files were staged, committed, reverted or mixed with the substantial
+  pre-existing worktree changes.
+
+## Continuation: Governed Distillation Revision Projection (2026-07-26)
+
+### Observed Failure And Correction
+
+- The growth repository correctly preserved multiple input-hash revisions under
+  the same daily or weekly period, and the Vault correctly archived replaced
+  files. The workspace list, however, flattened every revision into the
+  default reader list. This made a single user-visible weekly bundle appear as
+  several current records.
+- `GET /knowledge/distillations` now returns only the current revision for
+  each `kind + period` by default. `include_history=true` explicitly returns
+  the archived revisions. Every growth projection includes `current` and
+  `revision_count`; legacy distillation behavior is unchanged.
+- Currentness is determined from the managed Vault marker: weekly bundles use
+  `manifest.json` input hash and daily bundles use their managed input-hash
+  marker. When a Vault marker is unavailable, the newest immutable record is
+  the conservative fallback rather than fabricating a filesystem state.
+- The detail endpoint uses the same projection as the list endpoint. An
+  archived document therefore remains readable from its revision directory and
+  is truthfully returned as `current=false` with the shared revision count.
+- Studio now loads current bundles by default. The `Revision history` toggle
+  explicitly refetches archival revisions and labels each historical record;
+  hiding history clears a selected archival document so no hidden revision is
+  left on screen.
+
+### Verification
+
+| Check | Result |
+| --- | --- |
+| Workspace API revision semantics | `tests/api/test_knowledge_workspace_api.py`: 16 passed. |
+| Archived document details | The test proved the archived file is read from `revisions/<input_hash>/` and returned with `current=false`, while the current Vault file is `current=true`. |
+| Studio client query boundary | `src/api/knowledgeWorkspaceApi.test.ts` asserts history is opt-in through `include_history=true`. |
+| Reader control | `src/components/KnowledgeWorkspace.test.tsx` asserts the revision-history checkbox state and callback. |
+| Type safety | `npm.cmd run check`: passed. |
+
+### Remaining Runtime Boundary
+
+- Browser acceptance remains pending a newly authorized current-source Studio
+  process. Existing inherited Vite processes are intentionally not reused
+  because they may point at stale API ledgers; no private proxy credential was
+  read to override them.
+- No source evidence, Vault note, plugin code or credential was read or
+  altered for this correction. The change only repairs presentation of already
+  persisted, governed distillation revisions.
+
+### Cross-Workspace Closure
+
+- Follow-up audit found that the growth workbench used its own
+  `/knowledge/growth/{project_id}/distillations` contract and would otherwise
+  have continued to flatten revisions. Currentness calculation now lives in
+  `app/knowledge/growth_distillation_revisions.py` and is shared by both the
+  knowledge workspace and growth APIs.
+- The growth endpoint follows the same default/explicit-history contract and
+  includes the same `current` and `revision_count` metadata in both list and
+  detail projections. Its React client recognizes the metadata while retaining
+  the existing review-stage interface.
+
+| Cross-workspace check | Result |
+| --- | --- |
+| Knowledge workspace plus growth API regression | `tests/api/test_knowledge_workspace_api.py tests/api/test_growth_api.py`: 38 passed. |
+| Growth/knowledge Studio client regression | `src/api/growthApi.test.ts src/api/knowledgeWorkspaceApi.test.ts src/components/KnowledgeWorkspace.test.tsx`: 36 passed. |
+| Type safety after shared metadata | `npm.cmd run check`: passed. |
+| Python static compilation | `python -m py_compile` for the shared module and both API modules: passed. |
+
+- `ruff` is not installed in the current virtual environment, so no lint result
+  is claimed. The focused runtime tests and Python compilation above remain the
+  recorded verification evidence.
+
+## Continuation: Obsidian Plugin Bridge Empty-Directory Diagnosis (2026-07-26)
+
+### Observed Runtime State
+
+- The managed Vault is mounted in the production API, Worker, and Beat
+  containers. The `default` project has a persisted `source_sync` schedule at
+  `*/5 * * * *`, enabled, and its latest execution completed successfully.
+- The five declared bridge directories are real, trusted, and reachable from
+  the runtime. `obsidian-clipper`, `xiaohongshu-importer`, and `realclaudian`
+  have saved destinations that match their governed bridge paths. `docxer` and
+  `obsidian-importer` are correctly classified as interactive-destination
+  plugins, which choose the folder at each import rather than persisting a
+  global target.
+- Each bridge directory contained zero visible candidate files at verification.
+  This is not a mount, permission, scheduler, or path mismatch failure: the
+  installed plugins have not yet produced their first external export. No
+  BSC-created placeholder was written or represented as a plugin export.
+
+### Correction
+
+- Plugin workspace status now preserves the compatible provenance status
+  (`awaiting_export` or `awaiting_output`) while adding a bounded,
+  content-free observation: `capture_state`, candidate file count, and latest
+  observed modification time. The observer never reads filenames or document
+  bodies, ignores hidden/transient files and symlinks, and caps its count.
+- A healthy empty path is now `ready_for_first_export` or
+  `ready_for_first_output`. A real file that appears before a scheduled sync is
+  `files_detected_pending_capture` or
+  `files_detected_pending_registration`. Neither state claims a source or
+  output exists before the normal governed sync pipeline records it.
+- Studio renders a route as online with no external file yet, or as a detected
+  file awaiting Sync, instead of presenting the normal empty state as an
+  ambiguous connection failure.
+
+### Verification
+
+| Check | Result |
+| --- | --- |
+| Plugin observation and workspace API | `pytest tests/knowledge/test_wiki_sync.py tests/api/test_knowledge_workspace_api.py -q`: `30 passed, 1 skipped`. |
+| Studio type and focused UI tests | `npm run check` and `npm run test:frontend -- src/components/KnowledgeWorkspace.test.tsx src/api/knowledgeWorkspaceApi.test.ts`: `15 passed`. |
+| Static and diff checks | `python -m compileall -q app/knowledge` and `git diff --check`: passed. |
+| Docker runtime | Rebuilt and recreated API, Worker and Beat. API `/health` returned `200`; PostgreSQL and Redis were healthy. |
+| Live bridge readback | Clipper, Xiaohongshu, Docxer, Importer: `ready_for_first_export`, `0` observed files. Claudian: `ready_for_first_output`, `0` observed files. |
+
+### Remaining External Boundary
+
+- A plugin bridge becomes captured only when the actual plugin performs a
+  normal export or import into its already configured folder. BSC must not
+  synthesize that external action or label its own source mirror as a plugin
+  export. The next scheduled `source_sync` will process a real source export;
+  output registration follows the same governed sync run for Claudian.
+
+## Obsidian Clipper First-Export Activation (2026-07-26)
+
+- **Real plugin execution:** the installed `obsidian-clipper` was invoked through
+  its registered `obsidian://obsidian-clipper` protocol handler for the `bsc`
+  Vault. Obsidian itself wrote
+  `projects/default/00_Inbox/web-clipper/bsc.local.md`; this is not a BSC file
+  placeholder and proves the plugin destination agrees with the governed bridge.
+- **Governed capture:** authorized source-sync run `cf011cd97d67` completed via
+  the deployed Celery path with `scanned=6`, `created=1`, `duplicates=5`,
+  `blocked=0`, Wiki index refresh `indexed=6`, and no output-registration
+  attempt. The resulting immutable source `e33bc987798b` is attributed to
+  `obsidian_plugin:obsidian-clipper`.
+- **Test-data containment:** the exported note is explicitly a bridge health
+  check rather than research or business evidence. Its source lifecycle was
+  transitioned to `rejected` immediately after capture, so it cannot be used by
+  Wiki synthesis, Dynamic SOP context, or weekly distillation while still
+  retaining auditable proof that the bridge worked.
+- **Live readback:** `GET /knowledge/workspaces/default` reports Vault `ready`,
+  scheduler `celery`, and `obsidian-clipper` as `captured` with one observed
+  export and one captured source. The remaining four plugins truthfully remain
+  `ready_for_first_export` or `ready_for_first_output` until their own real
+  import/export action occurs.
+- **Studio recovery:** a new loopback-only Studio process was started at
+  `http://127.0.0.1:5180/` with its Vite proxy holding the existing local
+  runtime credential server-side. Its authenticated workspace request returned
+  `200` and the Clipper state `captured`; no API key is exposed to browser code.
+
+## Default-Adaptive Compilation And Current Studio Acceptance (2026-07-26)
+
+### Correction
+
+- Studio already sent `context.sop_generation_mode=adaptive`, but direct
+  REST/MCP Mission creation without that optional field took the deterministic
+  baseline even when a configured DeepSeek provider was available. This was a
+  direct route back to template-like SOPs for non-Studio callers.
+- `DBOSService` now uses adaptive composition by default only when the selected
+  SOP provider has a configured key. `adaptive` remains an explicit request;
+  `deterministic`, `baseline`, and `off` are explicit opt-outs. Unknown modes
+  fail closed to the deterministic baseline. The compiler remains bounded by
+  the immutable phase/task/capability graph and its existing fallback metadata.
+- Rebuilt the deployed `bsc-backend` container. The active API is
+  `http://127.0.0.1:8002`; the restarted Studio proxy is
+  `http://127.0.0.1:5180` and keeps the authorization key server-side.
+
+### Real Acceptance Evidence
+
+- Created the no-mode Mission `art_5d83f8784bbf` for a seven-day
+  Horizon-to-content workflow. Its context omitted `sop_generation_mode`, so
+  it proves the new default rather than Studio's explicit flag. It supplied two
+  declared evidence records, named owners and release authority, no-external-
+  write constraints, daily cited-topic metrics, and Friday distillation gates.
+- Actual DeepSeek run `prompt_5e72e2c3e02944c6bd47ec0ac6c15d7a` completed with
+  one provider call, no retries, a governed context pack, two published Wiki
+  pages, and one admitted source. `adaptive_compilation=completed`; reference
+  specificity passed with `9/9` anchors and no unmatched phase or task.
+- The resulting Dynamic SOP covered Horizon signal verification,
+  evidence/release authority, and a seven-day daily-inspection plus Friday-
+  distillation cadence. Tasks required source boundaries, unsupported-claim
+  stop conditions, three cited candidate topics daily, content-owner approval,
+  and only verified evidence in weekly distillation.
+- Browser acceptance at `http://127.0.0.1:5180` rendered persisted model
+  evidence (`deepseek / deepseek-v4-pro`, `1 provider / 1 reported`, `9 / 9`
+  anchors), task-level knowledge lineage, a 12-node reasoning graph, and
+  disabled execution controls. The acceptance Mission was stopped with zero
+  executions. Earlier baseline-only acceptance Mission `art_b9947cf35a66` was
+  also stopped with zero executions.
+
+### Verification
+
+| Check | Result |
+| --- | --- |
+| DBOS adaptive policy regression | `./.venv/Scripts/python.exe -m pytest tests/dbos/test_adaptive_compiler.py -q`: 10 passed. |
+| DBOS API and governed-knowledge regression | `./.venv/Scripts/python.exe -m pytest tests/dbos/test_adaptive_compiler.py tests/dbos/test_memory.py tests/api/test_dbos_api.py -q`: 16 passed. The knowledge-lineage scenario explicitly chooses `deterministic`, so a developer's live provider cannot turn a deterministic unit test into a metered model call. |
+| Studio request contract | `npm run test:frontend -- --run src/components/dbos/BusinessControlCenter.test.tsx`: 11 passed. |
+| Production frontend build | `npm run build`: passed; Vite emitted only existing chunk-size guidance. |
+| Rebuilt API | Compose API container healthy; `/live` returned `200`. |
+| Default-mode real compile | Mode omitted; persisted adaptive status completed with four context references and zero executions. |
+
+### Observed Performance Boundary
+
+- The provider-backed compile completed correctly but reported `208691 ms` and
+  `8508` total tokens (including `3393` reasoning tokens). The synchronous
+  caller timed out at 150 seconds while the server safely completed the
+  non-side-effecting compilation. This is a real interactive latency defect,
+  not a successful fast-path claim. The Mission persisted only after
+  completion and could not execute without later explicit confirmation and a
+  task decision.
+
+## Studio Authorization Recovery (2026-07-27)
+
+- The Studio on `5185` displayed `local proxy` but returned `401` after a Vite
+  restart. The backend was healthy; the local key matched `API_KEY`; the defect
+  was that the restarted Vite process had not inherited its server-side proxy
+  credential.
+- Added `scripts/start_authorized_studio.ps1`. It reads the existing local
+  development proxy key, injects it only into the spawned Vite process, pins
+  the proxy target to the local Docker API, and never prints the credential.
+- Replaced the stale Studio process and verified, through the same `5185`
+  origin used by the browser, that `GET /agent/health` and
+  `GET /api/dbos/missions?project_id=default` return `200`. Browser readback
+  showed `local proxy`, `Local proxy authentication`, and `SSE ready`.
+- The previous `new media operations` analysis did not fail at the provider:
+  the API completed it in `220890 ms` with status `200` after the old UI
+  `180000 ms` budget aborted the browser request. The Studio request budget is
+  now `600000 ms` by default, with `VITE_AGENT_OS_TIMEOUT` as an explicit
+  local override. A later asynchronous job/status surface remains the durable
+  solution for interactive progress and reconnection.

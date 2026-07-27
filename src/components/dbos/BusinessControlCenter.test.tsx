@@ -58,6 +58,22 @@ describe('BusinessControlCenter', () => {
     expect(screen.getByRole('button', { name: /confirm 2 capabilities/i })).toBeVisible();
   });
 
+  it('keeps an operations action focused on its exact durable DBOS record', () => {
+    render(<BusinessControlCenter onClose={vi.fn()} initialProjectId="project-a" initialArtifactId="risk-a" initialData={{
+      ...center,
+      reasoning_graph: {
+        ...center.reasoning_graph,
+        nodes: [...center.reasoning_graph.nodes, { id: 'risk-a', type: 'risk', label: 'Budget risk', status: 'open' }],
+        edges: [{ source: 'mission-a', target: 'risk-a' }],
+      },
+    }} />);
+
+    const inspector = screen.getByLabelText('Focused artifact inspector');
+    expect(inspector).toHaveTextContent('Budget risk');
+    expect(inspector).toHaveTextContent('risk-a');
+    expect(inspector).toHaveTextContent('Persisted connections');
+  });
+
   it('renders persisted adaptive-model evidence instead of inferring model activity', () => {
     render(<BusinessControlCenter onClose={vi.fn()} initialProjectId="project-a" initialData={{
       ...center,
@@ -253,6 +269,9 @@ describe('BusinessControlCenter', () => {
     fireEvent.change(screen.getByLabelText('Intent'), { target: { value: 'Recover activation with evidence.' } });
     fireEvent.click(screen.getByRole('button', { name: 'Create diagnosis' }));
 
+    expect(dbosApi.createDBOSMission).toHaveBeenCalledWith(expect.objectContaining({
+      context: expect.objectContaining({ sop_generation_mode: 'adaptive' }),
+    }));
     expect(await screen.findByRole('status')).toHaveTextContent('Compiling a dynamic operating system from declared evidence and project context...');
     expect(screen.getByRole('button', { name: /compiling a dynamic operating system/i })).toBeDisabled();
 

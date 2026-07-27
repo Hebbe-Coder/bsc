@@ -8,14 +8,14 @@ import {
 } from 'lucide-react';
 import {
   configureKnowledgePlugins, configureKnowledgeSchedule, configureKnowledgeVault, fetchKnowledgeGraph, fetchKnowledgeHealth, fetchKnowledgeHealthTrend,
-  fetchKnowledgePage, fetchKnowledgePages, fetchKnowledgeProposals, fetchKnowledgeRunEvents,
+  fetchKnowledgePage, fetchKnowledgePages, fetchKnowledgeProposals, fetchKnowledgeRunEvents, fetchKnowledgeSourceTriage,
   fetchKnowledgeRuns, fetchKnowledgeSchedules, fetchKnowledgeSources, fetchKnowledgeWorkspace, importFeishuKnowledgeExport, initializeKnowledgeWorkspace,
   fetchWeeklyDistillation, fetchWeeklyDistillations, lintKnowledgeProposal, publishKnowledgeProposal,
   rejectKnowledgeProposal, restoreKnowledgePageRevision, retryKnowledgeRun, runKnowledgeJob, saveKnowledgeEvaluationCase, setKnowledgePluginTrust, setKnowledgeScheduleState,
-  streamKnowledgeRunEvents, transitionKnowledgeSource,
+  semanticTriageKnowledgeSource, streamKnowledgeRunEvents, transitionKnowledgeSource,
   type FeishuKnowledgeExport, type KnowledgeEvaluationCaseInput, type KnowledgeGraphNode, type KnowledgeHealth, type KnowledgeWorkspaceData,
   type KnowledgePage, type KnowledgePageDetail, type KnowledgePluginBridge, type KnowledgeProposal, type KnowledgeRun,
-  type KnowledgeRunEvent, type KnowledgeSchedule, type KnowledgeSource,
+  type KnowledgeRunEvent, type KnowledgeSchedule, type KnowledgeSource, type KnowledgeSourceTriage,
   type WeeklyDistillation, type WeeklyDistillationDetail,
 } from '../api/knowledgeWorkspaceApi';
 import { useKnowledgeWorkspaceStore, type KnowledgeProposalBaselines } from '../store/knowledgeWorkspaceStore';
@@ -62,10 +62,10 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
   const {
     projectId, workspace, sources, runs, schedules, graph, proposals, pages, distillations, health, trend,
     selectedPage, selectedSource, selectedProposal, selectedRun, selectedDistillation, proposalBaselines,
-    runEvents, centerView, mobilePane, graphEdgeType, graphNodeType, graphNodeStatus, error, actionMessage,
+    runEvents, centerView, mobilePane, graphEdgeType, graphNodeType, graphNodeStatus, pendingNavigationTargetId, error, actionMessage,
     loading, actionBusy, setProjectId, beginLoad, applyLoad, failLoad, setSelectedPage, setSelectedSource,
     setSelectedProposal, setSelectedRun, setSelectedDistillation, setProposalBaselines, clearRunEvents,
-    appendRunEvents, setCenterView, setMobilePane, setGraphEdgeType, setGraphNodeType, setGraphNodeStatus,
+    appendRunEvents, setCenterView, setMobilePane, setGraphEdgeType, setGraphNodeType, setGraphNodeStatus, clearNavigationTarget,
     setError, setActionMessage, setActionBusy,
   } = useKnowledgeWorkspaceStore();
   const [isCompactViewport, setIsCompactViewport] = useState(() => window.matchMedia('(max-width: 780px)').matches);
@@ -77,6 +77,8 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
   const [pluginName, setPluginName] = useState('');
   const [pluginAdapter, setPluginAdapter] = useState<KnowledgePluginBridge['adapter']>('filesystem_drop');
   const [pluginPaths, setPluginPaths] = useState('00_Inbox/custom');
+  const [includeDistillationHistory, setIncludeDistillationHistory] = useState(false);
+  const [selectedSourceTriage, setSelectedSourceTriage] = useState<KnowledgeSourceTriage | null>(null);
   const feishuExportInput = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async (graphFilter = graphEdgeType) => {
@@ -85,7 +87,7 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
     try {
       const [nextWorkspace, nextSources, nextRuns, nextGraph, nextSchedules, nextProposals, nextPages, nextDistillations, nextHealth, nextTrend] = await Promise.all([
         fetchKnowledgeWorkspace(projectId), fetchKnowledgeSources(projectId), fetchKnowledgeRuns(projectId), fetchKnowledgeGraph(projectId, graphFilter),
-        fetchKnowledgeSchedules(projectId), fetchKnowledgeProposals(projectId), fetchKnowledgePages(projectId), fetchWeeklyDistillations(projectId),
+        fetchKnowledgeSchedules(projectId), fetchKnowledgeProposals(projectId), fetchKnowledgePages(projectId), fetchWeeklyDistillations(projectId, includeDistillationHistory),
         fetchKnowledgeHealth(projectId), fetchKnowledgeHealthTrend(projectId),
       ]);
       applyLoad(version, requestedProject, {
@@ -103,14 +105,14 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
     } catch (reason) {
       failLoad(version, requestedProject, reason instanceof Error ? reason.message : 'Knowledge workspace failed to load');
     }
-  }, [applyLoad, beginLoad, failLoad, graphEdgeType, projectId]);
+  }, [applyLoad, beginLoad, failLoad, graphEdgeType, includeDistillationHistory, projectId]);
 
   useEffect(() => { void load(graphEdgeType); }, [graphEdgeType, load, runtimeAccessKey]);
   useEffect(() => {
     if (workspace?.vault.vault_path) setVaultPath(workspace.vault.vault_path);
   }, [workspace?.vault.vault_path]);
   useEffect(() => {
-    if (loading || selectedPage || !pages.length) return undefined;
+    if (loading || pendingNavigationTargetId || selectedPage || !pages.length) return undefined;
     const page = selectDefaultKnowledgePage(pages);
     if (!page) return undefined;
     let active = true;
@@ -118,7 +120,41 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
       .then((detail) => { if (active) setSelectedPage(detail); })
       .catch((reason: unknown) => { if (active) setError(reason instanceof Error ? reason.message : 'Published page failed to load'); });
     return () => { active = false; };
-  }, [loading, pages, projectId, selectedPage, setError, setSelectedPage]);
+  }, [loading, pages, pendingNavigationTargetId, projectId, selectedPage, setError, setSelectedPage]);
+  useEffect(() => {
+    if (loading || !pendingNavigationTargetId) return undefined;
+    const targetId = pendingNavigationTargetId;
+    const source = sources.find((item) => item.id === targetId);
+    if (source) {
+      setSelectedSource(source); setSelectedSourceTriage(null); setCenterView('page'); setMobilePane('inspector'); clearNavigationTarget();
+      return undefined;
+    }
+    const proposal = proposals.find((item) => item.id === targetId);
+    if (proposal) {
+      setSelectedProposal(proposal); setCenterView('proposal'); setMobilePane('main'); clearNavigationTarget();
+      return undefined;
+    }
+    const run = runs.find((item) => item.id === targetId);
+    if (run) {
+      setSelectedRun(run); setCenterView('run'); setMobilePane('main'); clearNavigationTarget();
+      return undefined;
+    }
+    const page = pages.find((item) => item.id === targetId);
+    if (page) {
+      let active = true;
+      void fetchKnowledgePage(projectId, page.id).then((detail) => {
+        if (!active) return;
+        setSelectedPage(detail); setCenterView('page'); setMobilePane('main'); clearNavigationTarget();
+      }).catch((reason: unknown) => {
+        if (!active) return;
+        setError(reason instanceof Error ? reason.message : 'Requested Wiki page failed to load'); clearNavigationTarget();
+      });
+      return () => { active = false; };
+    }
+    setActionMessage(`The requested operations record (${targetId}) is no longer available in this project.`);
+    clearNavigationTarget();
+    return undefined;
+  }, [clearNavigationTarget, loading, pages, pendingNavigationTargetId, projectId, proposals, runs, setActionMessage, setCenterView, setError, setMobilePane, setSelectedPage, setSelectedProposal, setSelectedRun, setSelectedSource, sources]);
   useEffect(() => {
     const query = window.matchMedia('(max-width: 780px)');
     const sync = () => setIsCompactViewport(query.matches);
@@ -193,9 +229,20 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
     try { setSelectedDistillation(await fetchWeeklyDistillation(projectId, item.id)); setCenterView('distillation'); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Weekly distillation failed to load'); }
   };
+  const setDistillationHistory = (includeHistory: boolean) => {
+    setIncludeDistillationHistory(includeHistory);
+    if (!includeHistory && selectedDistillation?.distillation.record_type === 'growth' && selectedDistillation.distillation.current === false) {
+      setSelectedDistillation(null);
+    }
+  };
   const inspectSource = (sourceId: string) => {
     const source = sources.find((item) => item.id === sourceId);
-    if (source) setSelectedSource(source);
+    if (!source) return;
+    setSelectedSource(source);
+    setSelectedSourceTriage(null);
+    void fetchKnowledgeSourceTriage(projectId, source.id)
+      .then(({ triage }) => setSelectedSourceTriage(triage))
+      .catch(() => setSelectedSourceTriage(null));
   };
   const followWikiLink = (path: string) => {
     const normalized = path.endsWith('.md') ? path : `${path}.md`;
@@ -215,6 +262,12 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
   const promoteSource = (source: KnowledgeSource) => withAction(async () => {
     await transitionKnowledgeSource(projectId, source.id, 'eligible');
     showMessage(`Evidence approved for governed synthesis: ${source.origin || source.id}.`);
+    await load();
+  });
+  const analyzeSource = (source: KnowledgeSource) => withAction(async () => {
+    const result = await semanticTriageKnowledgeSource(projectId, source.id);
+    setSelectedSourceTriage(result.triage);
+    showMessage(`Semantic review recorded: ${result.triage.disposition} / priority ${result.triage.priority}. Approval remains explicit.`);
     await load();
   });
   const lintProposal = (proposal: KnowledgeProposal) => withAction(async () => {
@@ -446,7 +499,7 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
         <summary>
           <span className="eyebrow"><Link2 size={14} /> OBSIDIAN PLUGIN EXPORTS</span>
           <strong>{pluginCount} configured</strong>
-          <small>{connectedPluginCount ? `${connectedPluginCount} bridge${connectedPluginCount === 1 ? '' : 's'} active` : readyPluginRouteCount ? `${readyPluginRouteCount} folders ready, awaiting export` : 'Declare an export bridge'}</small>
+          <small>{connectedPluginCount ? `${connectedPluginCount} bridge${connectedPluginCount === 1 ? '' : 's'} active` : pluginRoutesVerified ? `${readyPluginRouteCount}/${pluginCount} routes verified; no external export yet` : readyPluginRouteCount ? `${readyPluginRouteCount}/${pluginCount} folders ready; remaining routes need setup` : 'Declare an export bridge'}</small>
         </summary>
         <div><span className="eyebrow">OBSIDIAN PLUGIN EXPORTS</span><h3>Connect exported notes and output feedback.</h3><p>Evidence bridges read only declared <code>00_Inbox/</code>, <code>01_Sources/</code>, <code>raw/</code>, or <code>inbox/</code> folders. Output bridges copy only declared <code>04_Outputs/</code> or <code>outputs/</code> files into pending D-layer review. BSC does not inspect or execute <code>.obsidian</code> plugin code.</p><small>Horizon uses the native radar channel below, not a plugin-folder bridge. Claudian is an Obsidian-to-Codex companion. Markdown formatter and HyperFrames use an output bridge; their files never become reusable context until evaluation and feedback accept them.</small></div>
         <div className="knowledge-plugin-setup__actions">
@@ -525,12 +578,12 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
             ><Background gap={22} size={1} /><Controls showInteractive={false} /></ReactFlow> : <Empty text="No persisted relationships match the selected graph filters." />}</div>
             {(graph.truncated || filteredGraphNodes.length > maxNodes) && <p className="knowledge-limit-note">Showing a bounded relationship slice ({flowNodes.length} nodes / {graph.edges.length} of {graph.total} edges). Narrow the filters to inspect another slice.</p>}
           </section>}
-          {centerView === 'distillation' && <DistillationReader records={distillations} selected={selectedDistillation} onSelect={inspectDistillation} />}
+          {centerView === 'distillation' && <DistillationReader records={distillations} selected={selectedDistillation} onSelect={inspectDistillation} includeHistory={includeDistillationHistory} onIncludeHistoryChange={setDistillationHistory} />}
         </main>
 
         <aside className="knowledge-pane knowledge-pane--inspector" aria-label="Evidence and health inspector">
           <PaneHeader title="Source inspector" detail={selectedSource?.status || 'select evidence'} />
-          {selectedSource ? <SourceInspector source={selectedSource} busy={actionBusy} canWrite={canWrite} onApprove={promoteSource} /> : <Empty text="Select evidence to inspect immutable provenance, policy state, and capture metadata." />}
+          {selectedSource ? <SourceInspector source={selectedSource} triage={selectedSourceTriage} busy={actionBusy} canWrite={canWrite} onApprove={promoteSource} onAnalyze={analyzeSource} /> : <Empty text="Select evidence to inspect immutable provenance, policy state, and capture metadata." />}
           <PaneHeader title="Automation" detail={`${schedules.length} schedules`} />
           <div className="knowledge-list">{schedules.length ? schedules.map((schedule) => <div className="knowledge-schedule" key={schedule.id}><div><strong>{schedule.job_type}</strong><small>{schedule.cron} / {schedule.timezone}</small><small>{schedule.enabled ? `Next ${formatTimestamp(schedule.next_run_at)}` : schedule.scheduler_available ? 'Paused' : 'Scheduler unavailable; manual execution only'}</small><small>Last result: {schedule.last_result ? `${schedule.last_result.status} / ${formatTimestamp(schedule.last_result.updated_at)}` : 'not run'}</small></div><div className="knowledge-schedule__actions"><button className="icon-button" disabled={actionBusy || !canWrite} title={`Run ${schedule.job_type} now`} aria-label={`Run ${schedule.job_type} now`} onClick={() => void runJob(schedule.job_type)}><Play size={14} /></button><button className="icon-button" disabled={actionBusy || !canWrite || !schedule.scheduler_available} title={schedule.enabled ? 'Pause schedule' : 'Enable schedule'} aria-label={schedule.enabled ? 'Pause schedule' : 'Enable schedule'} onClick={() => void toggleSchedule(schedule)}>{schedule.enabled ? <Pause size={14} /> : <Clock3 size={14} />}</button></div></div>) : <Empty text={workspace?.scheduler.available ? 'No schedules configured for this project.' : 'Durable scheduling is unavailable. Manual governed runs remain available.'} />}</div>
           <form className="knowledge-schedule-form" onSubmit={createSchedule}><label>Job<select value={scheduleJobType} onChange={(event) => { const selected = KNOWLEDGE_JOB_OPTIONS.find((option) => option.id === event.target.value); setScheduleJobType(event.target.value); if (selected) setScheduleCron(selected.defaultCron); }} disabled={workspace?.features.schedules === false}>{KNOWLEDGE_JOB_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label><label>Cron<input value={scheduleCron} onChange={(event) => setScheduleCron(event.target.value)} aria-label="Schedule cron" disabled={workspace?.features.schedules === false} /></label><button disabled={actionBusy || !canWrite || workspace?.features.schedules === false} type="submit"><Clock3 size={14} /> Save cadence</button></form>
@@ -568,8 +621,10 @@ function PluginBridgeTable({ plugins, busy, canWrite, onEdit, onRemove, onTrust 
     const count = outputBridge ? plugin.registered_outputs : plugin.captured_sources;
     const timestamp = outputBridge ? plugin.last_registered_at : plugin.last_captured_at;
     const pathReady = plugin.path_status === 'ready';
-    const waitingLabel = !trusted ? (plugin.trust_state === 'configuration_changed' ? 'bridge changed; trust again' : plugin.trust_state === 'unavailable' ? 'trust record unavailable' : 'awaiting read approval') : pathReady ? (outputBridge ? 'bridge verified; awaiting output' : 'bridge verified; awaiting external export') : plugin.path_status === 'missing' ? 'export folder missing' : 'folder unavailable';
-    const waitingDetail = !trusted ? 'BSC will not read this declared path until the exact configuration is approved.' : pathReady ? `${pluginRuntimeDetail(plugin)} No ${outputBridge ? 'output has been registered' : 'export has been captured'} yet.` : `Folder status: ${plugin.path_status}`;
+    const detectedFiles = plugin.export_observation?.file_count ?? 0;
+    const filesAwaitingSync = plugin.capture_state === 'files_detected_pending_capture' || plugin.capture_state === 'files_detected_pending_registration';
+    const waitingLabel = !trusted ? (plugin.trust_state === 'configuration_changed' ? 'bridge changed; trust again' : plugin.trust_state === 'unavailable' ? 'trust record unavailable' : 'awaiting read approval') : filesAwaitingSync ? `${detectedFiles} file${detectedFiles === 1 ? '' : 's'} detected; Sync pending` : pathReady ? (outputBridge ? 'bridge online; no output file yet' : 'bridge online; no external file yet') : plugin.path_status === 'missing' ? 'export folder missing' : 'folder unavailable';
+    const waitingDetail = !trusted ? 'BSC will not read this declared path until the exact configuration is approved.' : filesAwaitingSync ? `${pluginRuntimeDetail(plugin)} The next Sync run will register the detected file without changing its original content.` : pathReady ? `${pluginRuntimeDetail(plugin)} This route is ready; a Sync run will capture the first external file automatically.` : `Folder status: ${plugin.path_status}`;
     return <div key={plugin.id} role="listitem"><div><strong>{plugin.name}</strong><small>{plugin.id} / {outputBridge ? 'output feedback' : 'evidence import'} / {plugin.input_paths.join(', ')}</small></div><span className={connected ? 'is-ready' : 'is-pending'}>{connected ? (outputBridge ? `${count} pending output${count === 1 ? '' : 's'}` : `${count} captured`) : waitingLabel}</span><small>{timestamp ? `Last ${formatTimestamp(timestamp)}` : waitingDetail}</small><div className="knowledge-plugin-table__actions"><button type="button" className="icon-button" disabled={busy || !canWrite} title={trusted ? `Revoke ${plugin.name} read approval` : `Approve ${plugin.name} declared paths`} aria-label={trusted ? `Revoke ${plugin.name} read approval` : `Approve ${plugin.name} declared paths`} onClick={() => void onTrust(plugin, !trusted)}>{trusted ? <ShieldCheck size={14} /> : <ShieldCheck size={14} />}</button><button type="button" className="icon-button" disabled={busy || !canWrite} title={`Edit ${plugin.name} bridge`} aria-label={`Edit ${plugin.name} bridge`} onClick={() => onEdit(plugin)}><Pencil size={14} /></button><button type="button" className="icon-button is-danger" disabled={busy || !canWrite} title={`Remove ${plugin.name} bridge`} aria-label={`Remove ${plugin.name} bridge`} onClick={() => void onRemove(plugin.id)}><Trash2 size={14} /></button></div></div>;
   })}</div>;
 }
@@ -623,13 +678,15 @@ export function ProposalReview({ proposal, baselines, busy, canWrite, onLint, on
   const [evaluationConstraints, setEvaluationConstraints] = useState('');
   const [evaluationSourceIds, setEvaluationSourceIds] = useState('');
   const [requireCitations, setRequireCitations] = useState(true);
+  const proposalId = proposal?.id || '';
+  const proposalSourceIds = proposal?.source_ids.join(', ') || '';
   useEffect(() => {
-    setEvaluationCaseId(proposal ? `${proposal.id}-content` : '');
+    setEvaluationCaseId(proposalId ? `${proposalId}-content` : '');
     setEvaluationType('content');
     setEvaluationConstraints('');
-    setEvaluationSourceIds(proposal?.source_ids.join(', ') || '');
+    setEvaluationSourceIds(proposalSourceIds);
     setRequireCitations(true);
-  }, [proposal?.id]);
+  }, [proposalId, proposalSourceIds]);
   if (!proposal) return <section className="knowledge-reader-empty"><GitPullRequest size={26} /><h3>Select a proposal</h3><p>Review each persisted operation against its current page body before asking the governed publication gate to apply it.</p></section>;
   const canAct = canWrite && ['draft', 'failed'].includes(proposal.status);
   const saveBaseline = (event: React.FormEvent<HTMLFormElement>) => {
@@ -660,10 +717,10 @@ function RunTimeline({ runs, selectedRun, events, busy, onSelect, onRetry }: { r
   return <section className="run-timeline"><header className="knowledge-content-header"><div><span className="eyebrow">RUN LEDGER</span><h3>{selectedRun ? selectedRun.run_type : 'Select a governed run'}</h3><p>{selectedRun ? `${selectedRun.status} / ${selectedRun.trigger}` : 'Runs remain durable even after an SSE reconnect.'}</p></div>{selectedRun && <span className={`run-status run-status--${selectedRun.status}`}>{selectedRun.status}</span>}</header><div className="run-timeline__body"><nav>{runs.length ? runs.map((run) => <button key={run.id} className={selectedRun?.id === run.id ? 'is-selected' : ''} onClick={() => onSelect(run)}><span>{run.status}</span><strong>{run.run_type}</strong><small>{formatTimestamp(run.created_at)}</small></button>) : <Empty text="No governed knowledge run has been recorded yet." />}</nav><section>{selectedRun ? <><div className="run-summary"><p><strong>Trigger:</strong> {selectedRun.trigger}</p>{selectedRun.retry_of && <p><strong>Retry of:</strong> {selectedRun.retry_of}</p>}{selectedRun.error && <p className="run-error"><strong>Error:</strong> {selectedRun.error}</p>}{['failed', 'unavailable', 'cancelled'].includes(selectedRun.status) && <button disabled={busy} onClick={() => onRetry(selectedRun)}><RotateCcw size={14} /> Retry through the normal pipeline</button>}</div><ol className="run-events">{events.length ? events.map((event) => <li key={event.id}><span>{event.sequence}</span><div><strong>{event.event_type}</strong><small>{formatTimestamp(event.created_at)}</small><code>{Object.keys(event.payload).length ? JSON.stringify(event.payload) : 'No event payload'}</code></div></li>) : <Empty text="This run has no persisted events yet." />}</ol></> : <Empty text="Select a run to inspect its durable ordered events." />}</section></div></section>;
 }
 
-export function DistillationReader({ records, selected, onSelect }: { records: WeeklyDistillation[]; selected: WeeklyDistillationDetail | null; onSelect: (item: WeeklyDistillation) => void }) {
+export function DistillationReader({ records, selected, onSelect, includeHistory = false, onIncludeHistoryChange }: { records: WeeklyDistillation[]; selected: WeeklyDistillationDetail | null; onSelect: (item: WeeklyDistillation) => void; includeHistory?: boolean; onIncludeHistoryChange?: (includeHistory: boolean) => void }) {
   const documentEntries = selected ? Object.entries(selected.documents) : [];
   const selectedPeriod = selected?.distillation.period || selected?.distillation.week;
-  return <section className="distillation-reader"><header className="knowledge-content-header"><div><span className="eyebrow">KNOWLEDGE DISTILLATION</span><h3>{selectedPeriod || 'Choose a governed bundle'}</h3><p>{selected ? `${selected.distillation.kind || 'weekly'} / source cutoff ${selected.distillation.source_cutoff}` : 'Daily and weekly bundles are generated from governed project evidence.'}</p></div><FileClock size={20} /></header><div className="distillation-reader__body"><nav>{records.length ? records.map((item) => <button key={item.id} className={selected?.distillation.id === item.id ? 'is-selected' : ''} onClick={() => onSelect(item)}><span>{item.kind || 'weekly'} / {item.status}</span><strong>{item.period || item.week}</strong><small>{formatTimestamp(item.created_at)}</small></button>) : <Empty text="No source-backed knowledge distillation has been generated." />}</nav><section>{documentEntries.length ? documentEntries.map(([path, content]) => <article key={path}><h4>{path.split('/').at(-1)}</h4><pre>{content}</pre></article>) : <Empty text="Select a bundle to read its stored evidence-backed documents." />}</section></div></section>;
+  return <section className="distillation-reader"><header className="knowledge-content-header"><div><span className="eyebrow">KNOWLEDGE DISTILLATION</span><h3>{selectedPeriod || 'Choose a governed bundle'}</h3><p>{selected ? `${selected.distillation.kind || 'weekly'} / source cutoff ${selected.distillation.source_cutoff}` : 'Daily and weekly bundles are generated from governed project evidence.'}</p></div><div className="distillation-reader__header-actions"><label className="distillation-history-toggle"><input type="checkbox" checked={includeHistory} onChange={(event) => onIncludeHistoryChange?.(event.target.checked)} disabled={!onIncludeHistoryChange} /> Revision history</label><FileClock size={20} /></div></header><div className="distillation-reader__body"><nav>{records.length ? records.map((item) => <button key={item.id} className={selected?.distillation.id === item.id ? 'is-selected' : ''} onClick={() => onSelect(item)}><span>{item.kind || 'weekly'} / {item.status}{item.current === false ? ' / historical' : ''}</span><strong>{item.period || item.week}</strong><small>{formatTimestamp(item.created_at)}{(item.revision_count ?? 1) > 1 ? ` / ${item.revision_count} revisions` : ''}</small></button>) : <Empty text="No source-backed knowledge distillation has been generated." />}</nav><section>{documentEntries.length ? documentEntries.map(([path, content]) => <article key={path}><h4>{path.split('/').at(-1)}</h4><pre>{content}</pre></article>) : <Empty text="Select a bundle to read its stored evidence-backed documents." />}</section></div></section>;
 }
 
 export function EvidenceRecord({ source, selected, onSelect }: { source: KnowledgeSource; selected: boolean; onSelect: (source: KnowledgeSource) => void }) {
@@ -675,11 +732,25 @@ export function EvidenceRecord({ source, selected, onSelect }: { source: Knowled
   </button>;
 }
 
-export function SourceInspector({ source, busy, canWrite, onApprove }: { source: KnowledgeSource; busy: boolean; canWrite: boolean; onApprove: (source: KnowledgeSource) => void }) {
+export function SourceInspector({
+  source,
+  triage = null,
+  busy,
+  canWrite,
+  onApprove,
+  onAnalyze,
+}: {
+  source: KnowledgeSource;
+  triage?: KnowledgeSourceTriage | null;
+  busy: boolean;
+  canWrite: boolean;
+  onApprove: (source: KnowledgeSource) => void;
+  onAnalyze?: (source: KnowledgeSource) => void;
+}) {
   const presentation = describeKnowledgeSource(source);
   const curated = Boolean(source.metadata.curated || source.metadata.user_annotation || source.metadata.annotation);
   const pluginName = typeof source.metadata.plugin_name === 'string' ? source.metadata.plugin_name : source.metadata.obsidian_plugin;
-  return <section className="source-inspector"><span className={`source-status source-status--${source.status}`}>{source.status}</span><h3>{presentation.headline}</h3><p className="source-inspector__provenance">{presentation.provenance}{presentation.score ? ` / signal ${presentation.score}` : ''}</p><dl><div><dt>Type</dt><dd>{presentation.typeLabel}</dd></div>{pluginName ? <div><dt>Plugin export</dt><dd>{String(pluginName)}</dd></div> : null}<div><dt>Origin</dt><dd>{presentation.origin}</dd></div><div><dt>Trust</dt><dd>{source.trust_level}</dd></div><div><dt>Captured</dt><dd>{formatTimestamp(source.captured_at)}</dd></div><div><dt>SHA-256</dt><dd>{source.content_hash}</dd></div><div><dt>Vault path</dt><dd>{source.vault_path || 'external or API import'}</dd></div><div><dt>Interpretation</dt><dd>{curated ? 'Curated opinion or user annotation' : 'Immutable evidence record'}</dd></div></dl>{source.supersedes_id && <p className="source-supersedes">Supersedes source {source.supersedes_id}</p>}{source.status === 'validated' && <button disabled={busy || !canWrite} onClick={() => onApprove(source)}><CheckCircle2 size={14} /> Approve for synthesis</button>}</section>;
+  return <section className="source-inspector"><span className={`source-status source-status--${source.status}`}>{source.status}</span><h3>{presentation.headline}</h3><p className="source-inspector__provenance">{presentation.provenance}{presentation.score ? ` / signal ${presentation.score}` : ''}</p><dl><div><dt>Type</dt><dd>{presentation.typeLabel}</dd></div>{pluginName ? <div><dt>Plugin export</dt><dd>{String(pluginName)}</dd></div> : null}<div><dt>Origin</dt><dd>{presentation.origin}</dd></div><div><dt>Trust</dt><dd>{source.trust_level}</dd></div><div><dt>Captured</dt><dd>{formatTimestamp(source.captured_at)}</dd></div><div><dt>SHA-256</dt><dd>{source.content_hash}</dd></div><div><dt>Vault path</dt><dd>{source.vault_path || 'external or API import'}</dd></div><div><dt>Interpretation</dt><dd>{curated ? 'Curated opinion or user annotation' : 'Immutable evidence record'}</dd></div></dl>{triage && <div className="source-triage"><h4>Project fit review</h4><dl><div><dt>Recommendation</dt><dd>{triage.disposition} / priority {triage.priority}</dd></div><div><dt>Reliability gate</dt><dd>{triage.reliability_pass ? 'passed' : 'not passed'}</dd></div><div><dt>Evaluator</dt><dd>{triage.evaluator_revision} / {triage.evaluator_status}</dd></div><div><dt>Scores</dt><dd>R {triage.relevance} V {triage.value} F {triage.freshness} O {triage.outputability} C {triage.connectedness}</dd></div></dl><ul>{triage.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul></div>}{source.supersedes_id && <p className="source-supersedes">Supersedes source {source.supersedes_id}</p>}{source.status === 'validated' && <div className="source-inspector__actions">{onAnalyze && <button disabled={busy || !canWrite} onClick={() => onAnalyze(source)} title="Use the configured model to record a project-specific recommendation without changing source status"><Sparkles size={14} /> Analyze semantic fit</button>}<button disabled={busy || !canWrite} onClick={() => onApprove(source)}><CheckCircle2 size={14} /> Approve for synthesis</button></div>}</section>;
 }
 
 function HealthInspector({ health }: { health: KnowledgeHealth | null }) { if (!health) return <Empty text="Health records are unavailable until the workspace loads." />; return <div className="health-inspector"><HealthRow label="Dangling citations" value={health.dangling_citation_count} /><HealthRow label="Stale citations" value={health.stale_citation_count} /><HealthRow label="Stale pages" value={health.stale_page_ids.length} /><HealthRow label="Orphan pages" value={health.orphan_page_ids.length} /><HealthRow label="Uncited eligible evidence" value={health.uncited_eligible_source_ids.length} /><HealthRow label="Pending proposals" value={health.pending_proposal_ids.length} /><HealthRow label="Contradictions" value={health.contradiction_count} /></div>; }

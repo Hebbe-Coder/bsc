@@ -9,6 +9,8 @@ Implements token bucket algorithm per IP and API key.
     RATE_LIMIT_ENABLED=True     # 是否启用限流
 """
 from __future__ import annotations
+import hashlib
+import logging
 import time
 import asyncio
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -16,6 +18,51 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
+
+
+_REDIS_TOKEN_BUCKET_SCRIPT = """
+local value = redis.call('HMGET', KEYS[1], 'tokens', 'updated_at')
+local now = tonumber(ARGV[1])
+local rate = tonumber(ARGV[2])
+local burst = tonumber(ARGV[3])
+local ttl = tonumber(ARGV[4])
+local tokens = tonumber(value[1]) or burst
+local updated_at = tonumber(value[2]) or now
+tokens = math.min(burst, tokens + math.max(0, now - updated_at) * rate)
+local allowed = 0
+if tokens >= 1 then
+    tokens = tokens - 1
+    allowed = 1
+end
+redis.call('HSET', KEYS[1], 'tokens', tokens, 'updated_at', now)
+redis.call('EXPIRE', KEYS[1], ttl)
+return {allowed, math.floor(tokens)}
+"""
+
+
+class RedisTokenBucket:
+    """Atomic token buckets shared by every application worker."""
+
+    def __init__(self, redis_url: str) -> None:
+        from redis import Redis
+
+        self._client = Redis.from_url(redis_url, socket_connect_timeout=2, socket_timeout=2)
+
+    def consume(self, identifier: str, path: str, rate: int, burst: int) -> tuple[bool, int]:
+        key_hash = hashlib.sha256(f"{identifier}\n{path}".encode("utf-8")).hexdigest()
+        ttl_seconds = max(60, int((max(1, burst) / max(1, rate)) * 2) + 1)
+        result = self._client.eval(
+            _REDIS_TOKEN_BUCKET_SCRIPT,
+            1,
+            f"bsc:rate-limit:{key_hash}",
+            time.time(),
+            rate,
+            burst,
+            ttl_seconds,
+        )
+        return bool(int(result[0])), max(0, int(result[1]))
 
 
 class TokenBucket:
@@ -65,16 +112,20 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._rate = rate or settings.RATE_LIMIT_RATE
         self._burst = burst or settings.RATE_LIMIT_BURST
         self._enabled = settings.RATE_LIMIT_ENABLED
+        self._backend = str(settings.RATE_LIMIT_BACKEND).lower()
+        self._distributed_bucket = (
+            RedisTokenBucket(settings.REDIS_URL) if self._backend == "redis" else None
+        )
+
+    def _limits_for_path(self, path: str) -> tuple[int, int]:
+        path_config = self._PATH_RATE_LIMITS.get(path)
+        if path_config:
+            return path_config["rate"], path_config["burst"]
+        return self._rate, self._burst
     
     async def _get_bucket(self, key: str, path: str = "") -> TokenBucket:
         async with self._lock:
-            rate = self._rate
-            burst = self._burst
-            
-            path_config = self._PATH_RATE_LIMITS.get(path)
-            if path_config:
-                rate = path_config["rate"]
-                burst = path_config["burst"]
+            rate, burst = self._limits_for_path(path)
             
             if key not in self._buckets:
                 self._buckets[key] = TokenBucket(rate, burst)
@@ -94,7 +145,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if auth_header.startswith("Bearer "):
             api_key = auth_header[7:]
             if api_key:
-                return f"key_{api_key[:16]}"
+                return f"key_{hashlib.sha256(api_key.encode('utf-8')).hexdigest()}"
+        signed_api_key = getattr(request.state, "signed_api_key", "")
+        if signed_api_key:
+            return f"key_{hashlib.sha256(signed_api_key.encode('utf-8')).hexdigest()}"
         
         client_ip = request.client.host if request.client else "unknown"
         return f"ip_{client_ip}"
@@ -111,6 +165,22 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if path.startswith("/api/files"):
             return True
         return False
+
+    async def _consume(self, identifier: str, path: str) -> tuple[bool, int, int, int] | None:
+        rate, burst = self._limits_for_path(path)
+        if self._distributed_bucket is not None:
+            try:
+                allowed, remaining = await asyncio.to_thread(
+                    self._distributed_bucket.consume, identifier, path, rate, burst
+                )
+                return allowed, remaining, rate, burst
+            except Exception:
+                logger.exception("distributed rate limiter is unavailable")
+                if settings.is_production:
+                    return None
+
+        bucket = await self._get_bucket(identifier, path)
+        return bucket.consume(), bucket.get_remaining(), bucket.rate, bucket.burst
     
     async def dispatch(self, request: Request, call_next):
         if not self._enabled:
@@ -121,11 +191,22 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         
         identifier = self._get_identifier(request)
-        bucket = await self._get_bucket(identifier, path)
+        limit = await self._consume(identifier, path)
+        if limit is None:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "success": False,
+                    "error": {
+                        "code": "RATE_LIMIT_UNAVAILABLE",
+                        "message": "Request protection is temporarily unavailable.",
+                    },
+                },
+            )
+        allowed, remaining, rate, burst = limit
         
-        if not bucket.consume():
-            remaining = bucket.get_remaining()
-            retry_after = max(1, int((1 - remaining / bucket.burst) * 60))
+        if not allowed:
+            retry_after = max(1, int((1 - remaining / burst) * 60))
             
             return JSONResponse(
                 status_code=429,
@@ -136,22 +217,22 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                         "message": "Too many requests. Please retry later.",
                         "retry_after_sec": retry_after,
                         "rate_limit": {
-                            "rate": bucket.rate,
-                            "burst": bucket.burst,
+                            "rate": rate,
+                            "burst": burst,
                             "remaining": remaining,
                         },
                     }
                 },
                 headers={
                     "Retry-After": str(retry_after),
-                    "X-RateLimit-Rate": str(bucket.rate),
-                    "X-RateLimit-Burst": str(bucket.burst),
+                    "X-RateLimit-Rate": str(rate),
+                    "X-RateLimit-Burst": str(burst),
                     "X-RateLimit-Remaining": str(remaining),
                 },
             )
         
         response = await call_next(request)
-        response.headers["X-RateLimit-Rate"] = str(bucket.rate)
-        response.headers["X-RateLimit-Burst"] = str(bucket.burst)
-        response.headers["X-RateLimit-Remaining"] = str(bucket.get_remaining())
+        response.headers["X-RateLimit-Rate"] = str(rate)
+        response.headers["X-RateLimit-Burst"] = str(burst)
+        response.headers["X-RateLimit-Remaining"] = str(remaining)
         return response

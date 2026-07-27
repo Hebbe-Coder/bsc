@@ -234,6 +234,17 @@ def test_chat_structured_returns_none_on_persistent_failure():
 
     c = SOPLLMClient(provider="deepseek", api_key="sk", http_client=_FakeClient(handler))
     assert c.chat_structured("你是分析师", "数据") is None
+    assert c.last_structured_failure == "response_payload_invalid"
+    assert c.last_response_shape == {
+        "payload_type": "dict",
+        "payload_keys": ["choices"],
+        "choices_type": "list",
+        "choice_type": "dict",
+        "choice_keys": ["message"],
+        "message_type": "dict",
+        "message_keys": ["content"],
+        "content_type": "str",
+    }
 
 
 def test_unknown_provider_raises():

@@ -30,6 +30,12 @@ def _iso(value: datetime | None) -> str:
     return value.astimezone(timezone.utc).isoformat()
 
 
+def _run_event_advisory_lock_key(project_id: str, run_id: str) -> int:
+    """Return a stable PostgreSQL transaction lock key for one run ledger."""
+    digest = hashlib.sha256(f"knowledge-run-event|{project_id}|{run_id}".encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], byteorder="big", signed=True)
+
+
 class PublicationConflictError(ValueError):
     """Raised when the persisted Wiki changed after a proposal snapshot was built."""
 
@@ -810,13 +816,54 @@ class WikiRepository(BaseRepository):
         )
         return self.get_run(project_id, run_id) or {}
 
+    def update_run_input_refs(self, project_id: str, run_id: str, input_refs: dict[str, Any]) -> dict:
+        """Persist normalized executor inputs before a run can be retried."""
+        self._execute(
+            "UPDATE knowledge_runs SET input_refs_json=?,updated_at=? WHERE project_id=? AND id=?",
+            (self._json_dumps(input_refs), self._now(), project_id, run_id),
+        )
+        self._commit()
+        return self.get_run(project_id, run_id) or {}
+
+    def claim_run_execution(self, *, project_id: str, run_id: str) -> bool:
+        """Atomically claim a queued run before an executor performs any work."""
+        now = self._now()
+        cursor = self._execute(
+            "UPDATE knowledge_runs SET status=?,error='',started_at=?,completed_at='',updated_at=? "
+            "WHERE project_id=? AND id=? AND status=?",
+            (RunStatus.RUNNING.value, now, now, project_id, run_id, RunStatus.QUEUED.value),
+        )
+        claimed = bool(getattr(cursor, "rowcount", 0))
+        self._commit()
+        if claimed:
+            self.append_run_event(
+                project_id=project_id,
+                run_id=run_id,
+                event_type="knowledge.run.running",
+                payload={"status": RunStatus.RUNNING.value, "error": "", "output_refs": {}},
+            )
+        return claimed
+
     def append_run_event(self, *, project_id: str, run_id: str, event_type: str, payload: dict[str, Any] | None = None) -> dict:
         """Append an ordered, project-scoped event that can be replayed after reconnect."""
+        encoded_payload = self._json_dumps(payload or {})
+        if getattr(self._get_connection(), "dialect", "sqlite") == "postgresql":
+            # Queue dispatch and a fast worker can append at the same instant.
+            # Serialize only this run's sequence allocation until the commit below.
+            self._execute("SELECT pg_advisory_xact_lock(?)", (_run_event_advisory_lock_key(project_id, run_id),))
         exists = self._execute(
             "SELECT 1 FROM knowledge_runs WHERE project_id=? AND id=?", (project_id, run_id)
         ).fetchone()
         if not exists:
             raise ValueError("knowledge run not found")
+        existing = self._execute(
+            "SELECT * FROM knowledge_run_events WHERE project_id=? AND run_id=? AND event_type=? "
+            "AND payload_json=? ORDER BY sequence DESC LIMIT 1",
+            (project_id, run_id, event_type, encoded_payload),
+        ).fetchone()
+        if existing:
+            self._commit()
+            return self._decode(existing, ("payload_json",)) or {}
         row = self._execute(
             "SELECT COALESCE(MAX(sequence),0)+1 AS next_sequence FROM knowledge_run_events WHERE project_id=? AND run_id=?",
             (project_id, run_id),
@@ -826,7 +873,7 @@ class WikiRepository(BaseRepository):
         created_at = self._now()
         self._execute(
             "INSERT INTO knowledge_run_events (id,project_id,run_id,sequence,event_type,payload_json,created_at) VALUES (?,?,?,?,?,?,?)",
-            (event_id, project_id, run_id, sequence, event_type, self._json_dumps(payload or {}), created_at),
+            (event_id, project_id, run_id, sequence, event_type, encoded_payload, created_at),
         )
         self._commit()
         return {

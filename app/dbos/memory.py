@@ -41,6 +41,14 @@ _PAGE_KIND_TASK_FAMILIES = {
     "decision": "decision_design",
     "sop": "operating_cadence",
 }
+_SOP_CONTEXT_HEADERS = (
+    "## [profile:",
+    "## [rules:",
+    "## [task:",
+    "## [page:",
+    "## [method:",
+)
+_SOP_CONTEXT_MAX_CHARACTERS = 8_000
 
 
 class KnowledgeMemoryAdapter:
@@ -114,10 +122,26 @@ class KnowledgeMemoryAdapter:
                 "availability": "available",
                 "context_pack_id": pack.revision,
                 "refs": refs[:128],
-                "rendered": pack.rendered,
+                "rendered": KnowledgeMemoryAdapter._sop_planning_context(pack.rendered_sections),
             }
         except Exception:
             return {"availability": "unavailable", "reason": "planning_context_unavailable", "context_pack_id": "", "refs": [], "rendered": ""}
+
+    @staticmethod
+    def _sop_planning_context(sections: Iterable[str]) -> str:
+        """Project published Wiki knowledge into a bounded SOP-only prompt context."""
+        included: list[str] = []
+        used = 0
+        for section in sections:
+            value = str(section or "").strip()
+            if not value or not value.startswith(_SOP_CONTEXT_HEADERS):
+                continue
+            separator = 2 if included else 0
+            if used + separator + len(value) > _SOP_CONTEXT_MAX_CHARACTERS:
+                continue
+            included.append(value)
+            used += separator + len(value)
+        return "\n\n".join(included)
 
     def matching_methods(self, context: dict[str, Any], task_family: str) -> list[dict[str, Any]]:
         methods = [item for item in context.get("methods") or [] if isinstance(item, dict)]

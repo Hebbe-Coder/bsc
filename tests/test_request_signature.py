@@ -58,3 +58,18 @@ def test_signature_enabled_accepts_valid_signature(monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == {"ok": True}
+
+
+def test_valid_signature_authenticates_through_the_full_application(monkeypatch):
+    from app.main import app
+
+    api_key = "signature-test-key"
+    monkeypatch.setattr(settings, "API_KEY", api_key)
+    monkeypatch.setattr(settings, "SIGNATURE_ENABLED", True)
+
+    response = TestClient(app).get(
+        "/api/mcp/compatibility",
+        headers={"Authorization": _signature_header(api_key, "/api/mcp/compatibility")},
+    )
+
+    assert response.status_code == 200

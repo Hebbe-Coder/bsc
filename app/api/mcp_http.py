@@ -46,6 +46,9 @@ _TOOL_HANDLERS = {
     "knowledge_growth_distillation": server.knowledge_growth_distillation,
     "knowledge_growth_triage": server.knowledge_growth_triage,
     "knowledge_growth_weekly_distill": server.knowledge_growth_weekly_distill,
+    "knowledge_operations_portfolio": server.knowledge_operations_portfolio,
+    "knowledge_operations_project": server.knowledge_operations_project,
+    "knowledge_operations_graph": server.knowledge_operations_graph,
     "dbos_create_mission": server.dbos_create_mission,
     "dbos_diagnose_mission": server.dbos_diagnose_mission,
     "dbos_confirm_mission": server.dbos_confirm_mission,
@@ -84,6 +87,11 @@ _GROWTH_TOOLS = {
     "knowledge_growth_distillation",
     "knowledge_growth_triage",
     "knowledge_growth_weekly_distill",
+}
+_OPERATIONS_TOOLS = {
+    "knowledge_operations_portfolio",
+    "knowledge_operations_project",
+    "knowledge_operations_graph",
 }
 _GROWTH_WRITE_ONLY_TOOLS = {
     "knowledge_growth_review",
@@ -380,6 +388,25 @@ _TOOL_SPECS = {
         "description": "Run an idempotent project weekly distillation.",
         "properties": {"project_id": {"type": "string"}, "week": {"type": "string"}, "source_cutoff": {"type": "string"}},
         "required": ["project_id", "week", "source_cutoff"],
+    },
+    "knowledge_operations_portfolio": {
+        "description": "Read tenant-admin knowledge operations metrics and action queue.",
+        "properties": {},
+    },
+    "knowledge_operations_project": {
+        "description": "Read one authorized project's knowledge operations cockpit.",
+        "properties": {"project_id": {"type": "string", "minLength": 1, "maxLength": 128}},
+        "required": ["project_id"],
+    },
+    "knowledge_operations_graph": {
+        "description": "Read a bounded lifecycle graph projection for one authorized project.",
+        "properties": {
+            "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "mission_id": {"type": "string", "maxLength": 128},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 500},
+            "cursor": {"type": "string", "maxLength": 512},
+        },
+        "required": ["project_id"],
     },
     "dbos_create_mission": {
         "description": "Create a project-scoped DBOS mission that requires review before execution.",
@@ -816,7 +843,9 @@ def _request_api_key(request: Request) -> str:
     authorization = request.headers.get("authorization", "")
     if authorization.lower().startswith("bearer "):
         return authorization[7:].strip()
-    return request.headers.get("x-api-key", "")
+    return request.headers.get("x-api-key", "") or str(
+        getattr(request.state, "signed_api_key", "")
+    )
 
 
 def _require_http_auth(api_key: str) -> None:

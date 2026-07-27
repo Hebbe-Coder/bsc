@@ -192,6 +192,31 @@ def test_gate_failure_leaves_vault_proposal_and_sources_unchanged(tmp_path):
         repo.close()
 
 
+def test_gate_does_not_mark_a_proposal_approved_before_the_publication_commits(tmp_path):
+    class InterruptedVault(InMemoryWikiVault):
+        def commit(self, _staged):
+            raise KeyboardInterrupt("simulated host shutdown")
+
+    repo = WikiRepository(db_path=str(tmp_path / "gate-interrupted-publication.db"))
+    vault = InterruptedVault()
+    source = _source(repo)
+    proposal = _proposal(source["id"])
+    repo.create_proposal(proposal)
+    WikiEvaluator(repo).save_case(
+        project_id="project-a", case_id="citation", case_type="citation", expected={"source_ids": [source["id"]]}
+    )
+    try:
+        with pytest.raises(KeyboardInterrupt, match="host shutdown"):
+            ProposalGate(repo, vault).publish(proposal=proposal, rules_text=build_default_agents_rules("project-a"))
+
+        persisted = repo.get_proposal("project-a", proposal.id)
+        assert persisted["status"] == "validating"
+        assert persisted["eval_summary"]["evaluation"]["status"] == "passed"
+        assert repo.get_source("project-a", source["id"])["status"] == "eligible"
+    finally:
+        repo.close()
+
+
 def test_gate_rejects_a_compiled_snapshot_after_the_project_wiki_changes(tmp_path):
     repo = WikiRepository(db_path=str(tmp_path / "gate-revision.db"))
     vault = InMemoryWikiVault({"AGENTS.md": "rules", "wiki/index.md": "# Index\n", "wiki/log.md": "# Log\n"})

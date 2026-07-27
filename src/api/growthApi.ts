@@ -265,6 +265,8 @@ export type GrowthDistillation = GrowthRecord & {
   week?: string;
   paths?: string[];
   source_cutoff?: string;
+  current?: boolean;
+  revision_count?: number;
   generation?: GrowthGenerationProvenance;
   manifest?: { generation?: GrowthGenerationProvenance };
 };

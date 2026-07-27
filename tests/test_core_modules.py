@@ -72,7 +72,9 @@ class TestLLMServiceRouting:
         """分析类Agent应路由到ANALYSIS_PROVIDER（设计默认deepseek）"""
         monkeypatch.setattr(settings, "ANALYSIS_PROVIDER", "deepseek")
         system_prompt = "你是SOP Agent"
-        provider = mock_llm_service._get_provider_for_agent(system_prompt)
+        from app.services.llm_service import LLMService
+
+        provider = LLMService(provider="deepseek")._get_provider_for_agent(system_prompt)
 
         assert provider == "deepseek"
 
@@ -80,9 +82,25 @@ class TestLLMServiceRouting:
         """生成类Agent应路由到GENERATION_PROVIDER（设计默认doubao）"""
         monkeypatch.setattr(settings, "GENERATION_PROVIDER", "doubao")
         system_prompt = "你是Business Understanding Agent"
-        provider = mock_llm_service._get_provider_for_agent(system_prompt)
+        from app.services.llm_service import LLMService
+
+        provider = LLMService(provider="deepseek")._get_provider_for_agent(system_prompt)
 
         assert provider == "doubao"
+
+    def test_mock_mode_overrides_agent_specific_provider_routing(self, mock_llm_service, monkeypatch):
+        monkeypatch.setattr(settings, "ANALYSIS_PROVIDER", "deepseek")
+        monkeypatch.setattr(settings, "GENERATION_PROVIDER", "doubao")
+
+        assert mock_llm_service._get_provider_for_agent("浣犳槸SOP Agent") == "mock"
+        assert mock_llm_service._get_provider_for_agent("浣犳槸Business Understanding Agent") == "mock"
+
+    def test_explicit_mock_mode_wins_for_recognized_agent_prompts(self, mock_llm_service):
+        analysis_prompt = "\u4f60\u662fSOP Agent"
+        generation_prompt = "\u4f60\u662fBusiness Understanding Agent"
+
+        assert mock_llm_service._get_provider_for_agent(analysis_prompt) == "mock"
+        assert mock_llm_service._get_provider_for_agent(generation_prompt) == "mock"
 
     def test_agent_type_detection(self, mock_llm_service):
         """测试Agent类型检测"""

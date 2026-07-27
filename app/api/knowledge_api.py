@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, UploadFile, File, Form, Request, HTTPException
 from app.core.document_parser import parse_document
 from app.api.response import ApiResponse
+from app.core.config import settings
 from app.knowledge.service import KnowledgeService
 
 router = APIRouter(prefix="/knowledge", tags=["Knowledge"])
@@ -93,8 +94,16 @@ async def ingest(
     pid = _enforce_project_access(request, project_id, write=True)
     role, _ = _role_and_project(request)
     # 自动建 project（仅 admin；project_admin 的项目已存在）
-    if pid and role == "admin" and not service.repo.get_project(pid):
-        service.repo.create_project(pid, title or pid, {}, {})
+    if pid and role == "admin" and not service.repo.get_project_for_tenant(
+        pid, str(getattr(request.state, "tenant_id", settings.DEFAULT_TENANT_ID))
+    ):
+        service.repo.create_project(
+            pid,
+            title or pid,
+            {},
+            {},
+            tenant_id=str(getattr(request.state, "tenant_id", settings.DEFAULT_TENANT_ID)),
+        )
 
     units = []
     parse_errors = []
@@ -144,12 +153,19 @@ class IssueKeyRequest(BaseModel):
 @router.post("/projects")
 def create_project(
     req: CreateProjectRequest,
+    request: Request,
     _admin: bool = Depends(require_admin),
     service: KnowledgeService = Depends(get_knowledge_service),
 ):
     """admin 创建项目并一次性返回 project_admin 明文 key。"""
     pid = f"proj_{secrets.token_hex(6)}"
-    service.repo.create_project(pid, req.name, req.metadata, {})
+    service.repo.create_project(
+        pid,
+        req.name,
+        req.metadata,
+        {},
+        tenant_id=str(getattr(request.state, "tenant_id", settings.DEFAULT_TENANT_ID)),
+    )
     plaintext = f"sk-{secrets.token_urlsafe(24)}"
     service.repo.create_project_key(
         hashlib.sha256(plaintext.encode()).hexdigest(), pid, "project_admin", "owner")
@@ -160,11 +176,14 @@ def create_project(
 def issue_project_key(
     project_id: str,
     req: IssueKeyRequest,
+    request: Request,
     _admin: bool = Depends(require_admin),
     service: KnowledgeService = Depends(get_knowledge_service),
 ):
     """admin 为已存在项目签发 key。"""
-    if service.repo.get_project(project_id) is None:
+    if service.repo.get_project_for_tenant(
+        project_id, str(getattr(request.state, "tenant_id", settings.DEFAULT_TENANT_ID))
+    ) is None:
         return ApiResponse.not_found("项目不存在")
     if req.role not in ("project_admin", "project_reader"):
         return ApiResponse.error("role 须为 project_admin/project_reader", code=400)

@@ -24,11 +24,13 @@ from app.knowledge.scheduler import KnowledgeScheduler
 from app.knowledge.growth_scheduler import GrowthScheduleCoordinator
 from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.obsidian_output_sync import ObsidianOutputSyncService
+from app.knowledge.obsidian_source_projection import ObsidianSourceProjection
 from app.knowledge.wiki_sync import ObsidianSyncService
 from app.knowledge.wiki_compiler import WikiCompilationError, WikiCompiler
 from app.knowledge.proposal_gate import ProposalGateError
 from app.knowledge.wiki_index import WikiSearchIndex
-from app.knowledge.wiki_llm_provider import SOPWikiCompilerProvider
+from app.knowledge.wiki_llm_provider import SOPWikiCompilerProvider, WikiLLMProviderError
+from app.knowledge.wiki_commands import WikiCommandService
 from app.knowledge.growth_contracts import KnowledgeFailureCode, KnowledgeFailureRecord
 from app.knowledge.wiki_contracts import RunStatus
 from app.knowledge.wiki_repository import WikiRepository
@@ -55,6 +57,21 @@ def classify_knowledge_failure(exc: Exception) -> KnowledgeFailure:
     message = str(exc).lower()
     if isinstance(exc, HorizonClientError):
         return KnowledgeFailure("transient_dependency", "horizon_unavailable", True)
+    if isinstance(exc, WikiLLMProviderError):
+        dependency_categories = {
+            "credential_rejected",
+            "model_unavailable",
+            "network_error",
+            "payment_required",
+            "provider_not_configured",
+            "rate_limited",
+            "request_failed",
+            "server_error",
+            "transport_timeout",
+        }
+        retryable = exc.category in {"network_error", "rate_limited", "request_failed", "server_error", "transport_timeout"}
+        category = "dependency" if exc.category in dependency_categories else "compiler"
+        return KnowledgeFailure(category, f"wiki_llm_{exc.category}", retryable)
     if isinstance(exc, WikiCompilationError):
         return KnowledgeFailure("compiler", "compiler_failed", False)
     if isinstance(exc, ProposalGateError) or "publication gate" in message:
@@ -68,6 +85,22 @@ def classify_knowledge_failure(exc: Exception) -> KnowledgeFailure:
     if "not configured" in message or "required" in message:
         return KnowledgeFailure("configuration", "configuration_missing", False)
     return KnowledgeFailure("transient_dependency", "unexpected_dependency_failure", True)
+
+
+def _sync_evidence_mirror(repo: WikiRepository, project_id: str) -> dict:
+    """Project BSC-owned evidence into Obsidian when that boundary is available.
+
+    Horizon ingestion is still useful without a local Vault. Mirror failures are
+    therefore recorded alongside capture results instead of erasing immutable
+    evidence or misreporting it as a completed Vault projection.
+    """
+    if not settings.OBSIDIAN_VAULT_ROOT or not repo.get_vault(project_id):
+        return {"status": "unavailable", "reason": "vault_not_configured"}
+    try:
+        report = ObsidianSourceProjection(repo, Path(settings.OBSIDIAN_VAULT_ROOT)).sync(project_id=project_id)
+        return {"status": "completed", **report}
+    except (OSError, ValueError, ProposalGateError):
+        return {"status": "failed", "reason": "vault_projection_failed"}
 
 
 def _record_terminal_failure(
@@ -161,6 +194,14 @@ def execute_knowledge_run(
                 "duplicate": True,
                 "output_refs": run.get("output_refs") or {},
             }
+        if run["run_type"] == "weekly_distillation" and week:
+            input_refs = dict(run.get("input_refs") or {})
+            if input_refs.get("week") != week:
+                run = repo.update_run_input_refs(
+                    project_id,
+                    run_id,
+                    {**input_refs, "week": week},
+                )
         growth_run = run["run_type"] in {"growth_daily", "growth_weekly_distillation"}
         if growth_run and not settings.KNOWLEDGE_GROWTH_ENABLED:
             return _record_terminal_failure(
@@ -188,7 +229,14 @@ def execute_knowledge_run(
                 week=week,
                 repository=repo,
             )
-        repo.update_run_status(project_id, run_id, RunStatus.RUNNING)
+        if not repo.claim_run_execution(project_id=project_id, run_id=run_id):
+            current = repo.get_run(project_id, run_id) or run
+            return {
+                "status": current["status"],
+                "run_id": run_id,
+                "duplicate": True,
+                "output_refs": current.get("output_refs") or {},
+            }
         if run["run_type"] == "source_sync":
             if not settings.KNOWLEDGE_OBSIDIAN_SYNC_ENABLED:
                 return _record_terminal_failure(
@@ -210,6 +258,7 @@ def execute_knowledge_run(
                     failure=KnowledgeFailure("configuration", "vault_not_configured", False),
             )
             report = ObsidianSyncService(repo, Path(settings.OBSIDIAN_VAULT_ROOT)).sync(project_id=project_id)
+            report["evidence_mirror"] = _sync_evidence_mirror(repo, project_id)
             managed_vault = FilesystemWikiVault(Path(settings.OBSIDIAN_VAULT_ROOT), project_id, mapping["vault_path"])
             if managed_vault.project_root.is_dir():
                 snapshot = managed_vault.contents
@@ -298,6 +347,9 @@ def execute_knowledge_run(
                     items=response.items,
                     capture_run_id=run_id,
                 )
+                mirror = _sync_evidence_mirror(repo, project_id)
+                if mirror["status"] != "unavailable":
+                    report["evidence_mirror"] = mirror
             except HorizonRunStoreEmptyError:
                 report = {"accepted": 0, "created": 0, "duplicates": 0, "rejected": 0, "skipped": True}
                 repo.append_run_event(
@@ -410,16 +462,43 @@ def execute_knowledge_run(
                     trigger=run["trigger"],
                     rules_text=rules_path.read_text(encoding="utf-8"),
                     actor_id="knowledge-task",
+                    task_constraints=[
+                        str(item).strip()
+                        for item in run["input_refs"].get("task_constraints") or []
+                        if str(item).strip()
+                    ],
                     page_snapshots=page_snapshots,
                 )
             except WikiCompilationError as exc:
                 reason = str(exc)
-                status = RunStatus.UNAVAILABLE if "real KNOWLEDGE_WIKI_LLM_PROVIDER" in reason else RunStatus.FAILED
+                if reason == "no eligible sources selected":
+                    output_refs = {
+                        "outcome": "no_eligible_sources",
+                        "publication": {"status": "not_applicable"},
+                    }
+                    repo.append_run_event(
+                        project_id=project_id,
+                        run_id=run_id,
+                        event_type="knowledge.wiki.maintenance.noop",
+                        payload={"outcome": "no_eligible_sources"},
+                    )
+                    repo.update_run_status(
+                        project_id,
+                        run_id,
+                        RunStatus.COMPLETED,
+                        output_refs=output_refs,
+                    )
+                    return {
+                        "status": "completed",
+                        "run_id": run_id,
+                        "outcome": "no_eligible_sources",
+                    }
                 failure = (
                     KnowledgeFailure("configuration", "wiki_llm_provider_not_configured", False)
-                    if status is RunStatus.UNAVAILABLE
+                    if "real KNOWLEDGE_WIKI_LLM_PROVIDER" in reason
                     else classify_knowledge_failure(exc)
                 )
+                status = RunStatus.UNAVAILABLE if failure.category in {"configuration", "dependency"} else RunStatus.FAILED
                 return _record_terminal_failure(
                     repo,
                     project_id=project_id,
@@ -517,6 +596,7 @@ def execute_knowledge_run(
                 candidate={
                     "source_ids": candidate_sources,
                     "retrieved_source_ids": candidate_sources,
+                    "paths": [str(page["path"]) for page in pages if str(page.get("path") or "")],
                     "content": "\n".join(page["content"] for page in pages),
                 },
             )
@@ -589,7 +669,11 @@ def execute_knowledge_run(
         rule_revision = hashlib.sha256(
             rules_path.read_bytes() if rules_path.exists() else b""
         ).hexdigest()
-        selected_week = week or _iso_week()
+        selected_week = (
+            week
+            or str(run["input_refs"].get("week") or "").strip()
+            or _iso_week()
+        )
         pages = []
         for page in repo.list_pages(project_id):
             content = repo.get_page_content(project_id, page["id"])
@@ -734,6 +818,11 @@ def reconcile_knowledge_schedules(now: datetime | None = None) -> dict:
             else {"recovered": 0, "failures": 0}
         )
         failures += growth_recovery["failures"]
+        publication_recovery = WikiCommandService(repo).recover_abandoned_publications(
+            now=current,
+            timeout_seconds=min(max(60, settings.CELERY_TASK_TIMEOUT), 120),
+        )
+        failures += publication_recovery["failed"]
         recovered = scheduler.recover_abandoned_runs(now=current, timeout_seconds=max(60, settings.CELERY_TASK_TIMEOUT))
         growth_scheduler = GrowthScheduleCoordinator(repo, scheduler_available=True)
         for schedule in repo.list_due_schedules(current.isoformat()):
@@ -819,7 +908,7 @@ def reconcile_knowledge_schedules(now: datetime | None = None) -> dict:
             "queued": queued,
             "duplicates": duplicates,
             "failures": failures,
-            "recovered": len(recovered) + growth_recovery["recovered"],
+            "recovered": len(recovered) + growth_recovery["recovered"] + publication_recovery["recovered"],
         }
     finally:
         repo.close()

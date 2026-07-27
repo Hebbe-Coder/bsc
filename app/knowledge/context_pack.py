@@ -55,6 +55,7 @@ class ContextPackBuilder:
         evaluations: Iterable[dict[str, Any]] = (),
         weekly_distillation: dict[str, Any] | None = None,
         retrieval_refs: Iterable[str] = (),
+        sources_first: bool = False,
     ) -> ContextPack:
         if rules.project_id != project_id:
             raise ValueError("rules must be project scoped")
@@ -64,9 +65,13 @@ class ContextPackBuilder:
             for index, text in enumerate(task_constraints, start=1)
             if text.strip()
         )
-        sections.extend(self._records("decision", "Decision", project_id, decisions, "content"))
-        sections.extend(self._records("page", "Wiki Page", project_id, pages, "content"))
-        sections.extend(self._records("source", "Evidence", project_id, sources, "raw_content"))
+        source_sections = self._records("source", "Evidence", project_id, sources, "raw_content")
+        page_sections = [
+            *self._records("decision", "Decision", project_id, decisions, "content"),
+            *self._records("page", "Wiki Page", project_id, pages, "content"),
+        ]
+        sections.extend(source_sections if sources_first else page_sections)
+        sections.extend(page_sections if sources_first else source_sections)
         sections.extend(self._records("evaluation", "Quality Evaluation", project_id, evaluations, "content"))
         if weekly_distillation:
             sections.extend(self._records("distillation", "Weekly Distillation", project_id, [weekly_distillation], "content"))

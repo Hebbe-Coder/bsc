@@ -261,12 +261,14 @@ RISKS: {risks}
 Output JSON: {{"constraints": [{{"constraint": "...", "type": "...", "hard_limit": true, "workaround": "..."}}]}}""",
 
     "sop_design": """You are a Process Designer. Build a project-specific operating procedure, not a generic template.
-Use only stated facts and the project knowledge in the input. Separate every missing fact into evidence_gaps; do not invent a market, role, metric, or baseline.
+Use only stated facts and the governed project knowledge in the brief. Separate every missing fact into evidence_gaps; do not invent a market, role, metric, baseline, source, or system behavior.
+
+PROJECT BRIEF (the current request and its governed knowledge context): {input_text}
 
 BUSINESS MODEL: {business_model}
 
-Output exactly one JSON object: {{"kind":"sop","title":"...","summary":"...","differentiators":["specific decision or operating constraint"],"sections":[{{"title":"...","details":["..."]}}],"actions":[{{"title":"...","owner":"...","trigger":"...","action":"...","output":"...","metric":"...","timebox":"..."}}],"evidence_gaps":["..."]}}.
-Each action must be executable and must expose its trigger, accountable owner, output and success measure.""",
+Output exactly one JSON object: {{"kind":"sop","title":"...","summary":"...","differentiators":["specific decision or operating constraint"],"sections":[{{"title":"...","details":["..."]}}],"actions":[{{"title":"...","owner":"...","trigger":"...","action":"...","output":"...","metric":"...","timebox":"..."}}],"evidence_gaps":["..."],"source_refs":["exact source id from PROJECT BRIEF"]}}.
+Each action must be executable and must expose its trigger, accountable owner, output and success measure. source_refs may contain only exact source identifiers present in PROJECT BRIEF; use an empty list when no direct source supports the SOP and explain that limit in evidence_gaps.""",
 
     "strategy_analysis": """You are a Strategy Analyst. Form a project-specific strategic path from the available business artifacts and project knowledge.
 Do not reuse generic expansion or pilot advice. Identify the distinctive bet, the evidence that supports it, and the uncertainty that could invalidate it.
@@ -736,6 +738,7 @@ class NanobotAgentBackend:
                 sections=_object_list(data.get("sections")),
                 actions=_object_list(data.get("actions")),
                 evidence_gaps=_string_list(data.get("evidence_gaps")),
+                evidence_refs=_string_list(data.get("source_refs")),
             ))
 
         return results

@@ -143,6 +143,17 @@ describe('knowledge workspace state', () => {
     expect(useKnowledgeWorkspaceStore.getState().mobilePane).toBe('inspector');
     expect(useKnowledgeWorkspaceStore.getState().selectedRun?.id).toBe('run-a');
   });
+
+  it('keeps an explicit operations target only for the selected project', () => {
+    const store = useKnowledgeWorkspaceStore.getState();
+    store.setProjectId('project-a');
+    store.setNavigationTarget('proposal-a');
+
+    expect(useKnowledgeWorkspaceStore.getState().pendingNavigationTargetId).toBe('proposal-a');
+    useKnowledgeWorkspaceStore.getState().setProjectId('project-b');
+
+    expect(useKnowledgeWorkspaceStore.getState().pendingNavigationTargetId).toBe('');
+  });
 });
 
 describe('growth workspace state', () => {

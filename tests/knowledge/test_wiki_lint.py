@@ -74,6 +74,37 @@ def test_lint_allows_a_frontmatter_free_append_to_an_existing_page():
     assert report.valid is True
 
 
+def test_lint_allows_a_replacement_without_overview_churn_when_navigation_already_exists():
+    report = WikiLint().lint_proposal(
+        _proposal(
+            WikiOperation(
+                operation=WikiOperationType.REPLACE,
+                path="wiki/concepts/approval.md",
+                content="---\ntitle: Approval\nkind: concept\n---\nApproval remains required. [source:source-a]",
+                source_ids=["source-a"],
+            ),
+            WikiOperation(
+                operation=WikiOperationType.APPEND,
+                path="wiki/index.md",
+                content="\n- [[wiki/concepts/approval.md]] revised\n",
+                source_ids=["source-a"],
+            ),
+            WikiOperation(
+                operation=WikiOperationType.APPEND,
+                path="wiki/log.md",
+                content="\n- Revised approval concept. [source:source-a]\n",
+                source_ids=["source-a"],
+            ),
+        ),
+        rules=parse_project_rules(build_default_agents_rules("project-a")),
+        source_ids={"source-a"},
+        existing_paths={"wiki/concepts/approval.md", "wiki/index.md", "wiki/overview.md", "wiki/log.md"},
+        existing_contents={"wiki/overview.md": "# Overview\n- [[wiki/concepts/approval.md]]\n"},
+    )
+
+    assert report.findings == ()
+
+
 def test_lint_allows_an_uncited_overview_audit_append_for_archive_only_repairs():
     report = WikiLint().lint_proposal(
         _proposal(

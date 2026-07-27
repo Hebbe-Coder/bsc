@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { KnowledgePage, KnowledgeProposal, KnowledgeSource, WeeklyDistillation, WeeklyDistillationDetail } from '../api/knowledgeWorkspaceApi';
@@ -95,11 +95,15 @@ describe('KnowledgeWorkspace focused components', () => {
   });
 
   it('renders a persisted growth bundle with its governed documents', () => {
-    render(<DistillationReader records={[growthDistillation]} selected={growthDistillationDetail} onSelect={vi.fn()} />);
+    const setHistory = vi.fn();
+    render(<DistillationReader records={[growthDistillation]} selected={growthDistillationDetail} onSelect={vi.fn()} includeHistory onIncludeHistoryChange={setHistory} />);
 
     expect(screen.getByRole('heading', { name: '2026-W30' })).toBeVisible();
     expect(screen.getByText('Project-specific summary', { exact: false })).toBeVisible();
     expect(screen.getByText('weekly / generated')).toBeVisible();
+    expect(screen.getByRole('checkbox', { name: 'Revision history' })).toBeChecked();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Revision history' }));
+    expect(setHistory).toHaveBeenCalledWith(false);
   });
 
   it('keeps proposal controls visible but disabled for a reader', () => {
@@ -131,6 +135,27 @@ describe('KnowledgeWorkspace focused components', () => {
     expect(screen.getByRole('button', { name: /approve for synthesis/i })).toBeDisabled();
     expect(screen.getByText(source.content_hash)).toBeVisible();
     expect(screen.getByText('Readwise Export')).toBeVisible();
+  });
+
+  it('shows a semantic project-fit recommendation without replacing explicit approval', () => {
+    const analyze = vi.fn();
+    const approve = vi.fn();
+    const { container } = render(<SourceInspector source={source} busy={false} canWrite triage={{
+      id: 'triage-a', project_id: 'project-a', source_id: source.id, profile_revision: 1,
+      relevance: 92, value: 86, freshness: 75, outputability: 88, connectedness: 84,
+      priority: 86, reliability_pass: true, disposition: 'knowledge_candidate',
+      reasons: ['The source addresses this project\'s AI-agent workflow scope.', 'prompt_run=prompt_semantic_triage'],
+      evaluator_revision: 'semantic-source-triage-v1', evaluator_status: 'completed', latency_ms: 123,
+      created_at: '2026-07-27T00:00:00Z',
+    }} onApprove={approve} onAnalyze={analyze} />);
+    const inspector = within(container.querySelector('.source-inspector') as HTMLElement);
+
+    expect(inspector.getByText('Project fit review')).toBeVisible();
+    expect(inspector.getByText('knowledge_candidate / priority 86')).toBeVisible();
+    fireEvent.click(inspector.getByRole('button', { name: /analyze semantic fit/i }));
+    expect(analyze).toHaveBeenCalledWith(source);
+    fireEvent.click(inspector.getByRole('button', { name: /approve for synthesis/i }));
+    expect(approve).toHaveBeenCalledWith(source);
   });
 
   it('makes long Horizon evidence scannable while retaining its original origin only for inspection', () => {

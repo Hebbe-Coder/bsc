@@ -175,3 +175,21 @@ def test_dbos_api_requires_confirmation_and_projects_real_control_center(monkeyp
     projected = client.get(f"/api/dbos/missions/{mission_id}/control-center", params={"project_id": payload["project_id"]})
     assert projected.status_code == 200
     assert projected.json()["health"]["external_worker_runs_interrupted"] == 1
+
+
+def test_dbos_service_reopens_the_same_project_ledger_after_a_new_service_instance(monkeypatch, tmp_path):
+    from app.api import dbos_api
+
+    monkeypatch.setattr(dbos_api, "DBOS_DATA_ROOT", tmp_path / "durable-dbos")
+    first = dbos_api.dbos_service_for("durable-project")
+    mission = first.create_mission(
+        project_id="durable-project",
+        title="Persistent Mission",
+        intake_mode="business",
+        intent="Verify the durable Artifact Graph root.",
+        context={"role": "operator", "industry": "services", "goal": "verify persistence"},
+    )
+
+    second = dbos_api.dbos_service_for("durable-project")
+
+    assert [item["artifact_id"] for item in second.list_missions()] == [mission.artifact_id]

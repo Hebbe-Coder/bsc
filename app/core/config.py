@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     RATE_LIMIT_RATE: int = 30
     RATE_LIMIT_BURST: int = 60
     RATE_LIMIT_ENABLED: bool = True
+    # Local development can use the in-process bucket. Production Compose uses
+    # Redis so concurrent workers share one abuse-control budget.
+    RATE_LIMIT_BACKEND: str = "memory"
 
     SIGNATURE_ENABLED: bool = False
     SIGNATURE_TTL: int = 300
@@ -163,7 +166,18 @@ class Settings(BaseSettings):
     HORIZON_MAX_RESPONSE_BYTES: int = 2_000_000
     HORIZON_ALLOW_PRIVATE_NETWORK: bool = False
     KNOWLEDGE_WIKI_LLM_PROVIDER: str = ""
+    # Wiki compilation uses a larger evidence context than conversational
+    # requests. Keep its request budget isolated from generic LLM calls.
+    KNOWLEDGE_WIKI_LLM_TIMEOUT_SECONDS: float = 90.0
+    KNOWLEDGE_WIKI_LLM_MAX_ATTEMPTS: int = 1
     KNOWLEDGE_GROWTH_LLM_MODEL: str = ""
+    # Weekly distillation can legitimately need a longer provider read budget
+    # than interactive chat while keeping the general LLM timeout unchanged.
+    KNOWLEDGE_GROWTH_LLM_TIMEOUT_SECONDS: float = 150.0
+    # DBOS stores its auditable Artifact Graph as JSON files. Docker points
+    # this root at the durable /data volume; local development keeps a
+    # project-relative default for backwards compatibility.
+    DBOS_DATA_ROOT: str = "data/dbos"
 
     CELERY_ENABLED: bool = False
     CELERY_BROKER_URL: str = "redis://localhost:6379/0"

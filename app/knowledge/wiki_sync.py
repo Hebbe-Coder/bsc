@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_source_capture import CapturedSourceInput, SourceCaptureService
 from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
+from app.knowledge.obsidian_source_projection import is_managed_evidence_path
 
 
 class ObsidianSyncService:
@@ -228,5 +229,7 @@ class ObsidianSyncService:
             return True
         if project_root and parts[:len(project_root)] == project_root:
             project_relative = parts[len(project_root):]
+            if is_managed_evidence_path(project_relative):
+                return True
             return not ObsidianPluginManifest.is_syncable_knowledge_path(project_relative)
         return any(parts[:len(root)] == root for root in managed_roots or {("projects",)})

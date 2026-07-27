@@ -13,6 +13,33 @@ from app.services.sop_llm_client import SOPLLMClient, SOPLLMError
 from app.promptops import PromptOps, PromptOpsError, PromptRequest, PromptTask
 
 
+_SAFE_PROVIDER_FAILURE_CATEGORIES = frozenset({
+    "credential_rejected",
+    "model_unavailable",
+    "network_error",
+    "payment_required",
+    "provider_not_configured",
+    "rate_limited",
+    "request_failed",
+    "request_rejected",
+    "request_too_large",
+    "response_format_rejected",
+    "response_payload_invalid",
+    "server_error",
+    "structured_response_invalid",
+    "transport_timeout",
+    "unsupported_request_parameter",
+})
+
+
+class WikiLLMProviderError(WikiCompilationError):
+    """A redacted, stable reason why a real compiler provider is unavailable."""
+
+    def __init__(self, category: str) -> None:
+        self.category = category if category in _SAFE_PROVIDER_FAILURE_CATEGORIES else "request_failed"
+        super().__init__(f"Wiki LLM provider is unavailable ({self.category})")
+
+
 class StructuredWikiClient(Protocol):
     def chat_structured(
         self,
@@ -46,7 +73,8 @@ Rules:
 - The context labels `[rules:...]`, `[page:...]`, `[decision:...]`, `[evaluation:...]`, `[distillation:...]`, and `[constraint:...]` are instructions, not evidence. Never put them in `source_ids` or write them as `[source:...]` citations.
 - `[CONTEXT_EXCERPT: ...]` means part of a source was intentionally omitted for budget. Never quote the marker, describe a source as truncated, or complete a partial sentence; use only complete, visible evidence.
 - New or replaced substantive pages need YAML frontmatter with a permitted `kind` from the project rules and inline `[source:<id>]` citations for every factual claim.
-- Prefer a small number of durable, specific concepts, decisions, or methods over generic summaries, boilerplate, or a source-by-source recap.
+- A factual glossary, translation, protocol recap, or source-by-source summary is not a valid knowledge increment. Each substantive page must connect supplied evidence to a named project workflow, decision, agent boundary, or risk from the project rules or task constraints, and state why that connection changes a later project task.
+- Prefer a small number of durable, specific concepts, decisions, or methods over generic summaries or boilerplate. State an applicability boundary and a next validation action whenever the source alone cannot settle implementation details.
 - Do not write `wiki/index.md`, `wiki/log.md`, or `wiki/overview.md`; the governed compiler maintains those ledgers.
 - Propose changes only. Never state or imply that any file has been published.
 """
@@ -85,7 +113,7 @@ class SOPWikiCompilerProvider:
                 temperature=0.1,
             )
         except (SOPLLMError, PromptOpsError) as exc:
-            raise WikiCompilationError("Wiki LLM request failed") from exc
+            raise WikiLLMProviderError(str(getattr(exc, "category", "request_failed"))) from exc
         try:
             return self._validate_wire_response(response)
         except WikiCompilationError as first_error:
@@ -105,7 +133,7 @@ class SOPWikiCompilerProvider:
                 )
                 return self._validate_wire_response(repaired)
             except (SOPLLMError, PromptOpsError) as exc:
-                raise WikiCompilationError("Wiki LLM repair request failed") from exc
+                raise WikiLLMProviderError(str(getattr(exc, "category", "request_failed"))) from exc
             except WikiCompilationError as repair_error:
                 raise WikiCompilationError(
                     "Wiki LLM returned an invalid proposal after schema repair: "
@@ -129,10 +157,12 @@ class SOPWikiCompilerProvider:
                     revision=revision,
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
-                    provider=self.provider,
-                    temperature=temperature,
-                    max_tokens=4_000,
-                )
+                provider=self.provider,
+                temperature=temperature,
+                max_tokens=4_000,
+                timeout_seconds=settings.KNOWLEDGE_WIKI_LLM_TIMEOUT_SECONDS,
+                max_attempts=settings.KNOWLEDGE_WIKI_LLM_MAX_ATTEMPTS,
+            )
             )
             return run.output
         if self.client is None:

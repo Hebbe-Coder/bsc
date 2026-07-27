@@ -2,6 +2,7 @@
 from typing import Optional, List, Dict, Any
 
 from .base_repository import BaseRepository
+from app.core.config import settings
 
 
 class KnowledgeRepository(BaseRepository):
@@ -12,8 +13,10 @@ class KnowledgeRepository(BaseRepository):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         from app.core.migrations import ensure_persistence_schema
+        from app.knowledge.schema import ensure_schema
 
         ensure_persistence_schema(self._get_connection())
+        ensure_schema(self)
     ROLE_PERMISSIONS = {
         "owner": ["read", "write", "delete", "invite", "compile", "upload"],
         "editor": ["read", "write", "compile", "upload"],
@@ -215,15 +218,20 @@ class KnowledgeRepository(BaseRepository):
 
     # ---- 生产级加固：项目 / 项目密钥 / benchmark ----
     def create_project(self, project_id: str, name: str, metadata: dict = None,
-                       rerank_config: dict = None) -> dict:
+                       rerank_config: dict = None, *, tenant_id: str = "") -> dict:
         """Upsert (INSERT OR REPLACE) a project, preserving the original created_at."""
+        tenant = (tenant_id or settings.DEFAULT_TENANT_ID).strip()
+        if not tenant:
+            raise ValueError("tenant_id is required")
         existing = self.get_project(project_id)
+        if existing and existing.get("tenant_id") != tenant:
+            raise ValueError("project ID is already bound to another tenant")
         created_at = existing["created_at"] if existing else self._now()
         self._execute(
-            "INSERT INTO knowledge_projects (id,name,created_at,metadata,rerank_config) "
-            "VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
+            "INSERT INTO knowledge_projects (id,tenant_id,name,created_at,metadata,rerank_config) "
+            "VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
             "name=excluded.name, metadata=excluded.metadata, rerank_config=excluded.rerank_config",
-            (project_id, name, created_at, self._json_dumps(metadata or {}),
+            (project_id, tenant, name, created_at, self._json_dumps(metadata or {}),
              self._json_dumps(rerank_config or {})),
         )
         self._commit()
@@ -247,6 +255,37 @@ class KnowledgeRepository(BaseRepository):
             d["metadata"] = self._json_loads(d.get("metadata", "{}"))
             d["rerank_config"] = self._json_loads(d.get("rerank_config", "{}"))
             result.append(d)
+        return result
+
+    def get_project_for_tenant(self, project_id: str, tenant_id: str) -> Optional[dict]:
+        tenant = tenant_id.strip()
+        if not tenant:
+            return None
+        row = self._execute(
+            "SELECT * FROM knowledge_projects WHERE id=? AND tenant_id=?",
+            (project_id, tenant),
+        ).fetchone()
+        if not row:
+            return None
+        value = self._row_to_dict(row)
+        value["metadata"] = self._json_loads(value.get("metadata", "{}"))
+        value["rerank_config"] = self._json_loads(value.get("rerank_config", "{}"))
+        return value
+
+    def list_projects_for_tenant(self, tenant_id: str) -> List[dict]:
+        tenant = tenant_id.strip()
+        if not tenant:
+            return []
+        rows = self._execute(
+            "SELECT * FROM knowledge_projects WHERE tenant_id=? ORDER BY created_at DESC, id DESC",
+            (tenant,),
+        ).fetchall()
+        result = []
+        for row in rows:
+            value = self._row_to_dict(row)
+            value["metadata"] = self._json_loads(value.get("metadata", "{}"))
+            value["rerank_config"] = self._json_loads(value.get("rerank_config", "{}"))
+            result.append(value)
         return result
 
     def create_project_key(self, key_hash: str, project_id: str, role: str,

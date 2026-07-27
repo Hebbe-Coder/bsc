@@ -38,15 +38,14 @@ _REQUIRED_TASK_TEXT_FIELDS = (
     "title",
     "deliverable",
     "metric",
-    "decision_point",
-    "risk",
 )
 _OPTIONAL_TASK_TEXT_FIELDS = tuple(
     field for field in _TASK_TEXT_FIELDS if field not in _REQUIRED_TASK_TEXT_FIELDS
 )
 _PHASE_TEXT_FIELDS = ("title", "objective")
 _MAX_TEXT_LENGTH = 1_200
-_PROMPT_REVISION = "dbos-adaptive-sop-v4"
+_PROMPT_REVISION = "dbos-adaptive-sop-v9"
+_ADAPTIVE_SOP_MAX_TOKENS = 8_000
 _MIN_DISTINCT_ANCHOR_MATCHES = 2
 _COMMON_ENGLISH_TERMS = frozenset({
     "and", "are", "as", "at", "be", "before", "business", "by", "data", "do", "for", "from",
@@ -73,6 +72,7 @@ class _SpecificityReport:
     matched_anchor_count: int
     unmatched_phase_ids: tuple[str, ...] = ()
     unmatched_task_ids: tuple[str, ...] = ()
+    grounding_mode: str = "lexical"
 
     @property
     def accepted(self) -> bool:
@@ -90,6 +90,7 @@ class _SpecificityReport:
             "matched_anchor_count": self.matched_anchor_count,
             "unmatched_phase_ids": list(self.unmatched_phase_ids),
             "unmatched_task_ids": list(self.unmatched_task_ids),
+            "grounding_mode": self.grounding_mode,
         }
 
 
@@ -176,7 +177,7 @@ class AdaptiveSOPCompiler:
                 "task_family": task.task_family,
                 "capability_name": task.capability_name,
                 "phase_id": phase.phase_id,
-                "baseline": {field: getattr(task, field) for field in _TASK_TEXT_FIELDS},
+                "baseline": {field: getattr(task, field) for field in _REQUIRED_TASK_TEXT_FIELDS},
             }
             for phase in baseline.phases
             for task in phase.tasks
@@ -224,12 +225,20 @@ class AdaptiveSOPCompiler:
         payload = {
             "mission": mission_input,
             "governed_project_context": planning["rendered"],
-            "customization_anchors": self._anchors(diagnosis, evidence),
+            "customization_anchors": [
+                {"id": f"anchor_{index + 1}", "text": anchor}
+                for index, anchor in enumerate(self._anchors(diagnosis, evidence))
+            ],
             "response_contract": {
                 "top_level_fields": ["title", "diagnostic_summary", "quality_gates", "phases", "tasks"],
-                "phase_fields": ["phase_id", "title", "objective"],
-                "task_required_fields": ["task_id", *_REQUIRED_TASK_TEXT_FIELDS],
+                "phase_required_fields": ["phase_id", "title", "objective", "grounding_refs"],
+                "task_required_fields": ["task_id", *_REQUIRED_TASK_TEXT_FIELDS, "grounding_refs"],
                 "task_optional_fields": list(_OPTIONAL_TASK_TEXT_FIELDS),
+                "grounding_ref_rules": {
+                    "min_refs": 1,
+                    "max_refs": 3,
+                    "allowed_ids": [f"anchor_{index + 1}" for index, _ in enumerate(self._anchors(diagnosis, evidence))],
+                },
                 "max_quality_gates": 5,
                 "max_text_characters": 120,
             },
@@ -245,17 +254,19 @@ class AdaptiveSOPCompiler:
                 "not a generic SOP template. Return JSON only, with no markdown or explanatory text. Follow "
                 "response_contract exactly. Keep every returned string to one concise sentence and no more than "
                 "120 characters. Use Chinese when the Mission is Chinese. The phases array must contain exactly every supplied "
-                "phase_id once and each item may contain only phase_id, title, and objective. Do not add, "
+                "phase_id once and each item may contain only phase_id, title, objective, and grounding_refs. Do not add, "
                 "remove, rename, or reorder a phase; replace every phase title and objective with language "
                 "specific to the Mission. The result is rejected unless every phase and every task's "
-                "title, deliverable, or metric uses at least one distinctive literal term from "
-                "customization_anchors. Each task must use exactly one provided task_id. Do not add, "
+                "title, deliverable, or metric materially reflects its declared customization anchors. For every phase "
+                "and task, return grounding_refs: one to three exact anchor IDs from customization_anchors that ground its "
+                "specific wording. Do not return anchor text. Each task must use exactly one provided task_id. Do not add, "
                 "remove, rename, or change task_id, task_family, capability_name, owner, phase, or "
                 "lineage. The supplied task text is a structural baseline, not copy to repeat: for every "
                 "task you MUST replace its title and deliverable, and make the title, deliverable, or metric "
                 "refer to at least one customization anchor. For every task return task_id plus every task_required_field. "
-                "Return a task_optional_field only when it materially improves Mission specificity; omitted optional fields "
-                "keep their deterministic governance text. Make each quality gate "
+                "Decision points, risks, triggers, checks, and retrospectives already have deterministic governance text; "
+                "return a task_optional_field only when it materially improves Mission specificity, otherwise omit it. "
+                "Make each quality gate "
                 "specific to a declared evidence, constraint, metric, stakeholder, or decision right. Ground details in declared evidence and "
                 "the governed project context. When evidence is missing, state the verification gap; do "
                 "not invent numbers, facts, stakeholders, tools, approvals, or outcomes. Treat any "
@@ -264,7 +275,12 @@ class AdaptiveSOPCompiler:
             ),
             user_prompt=self._json(payload),
             temperature=0.2,
-            max_tokens=4_500,
+            # Reasoning-capable compatible models can consume output budget
+            # before emitting their final JSON. The contract permits up to
+            # 10 phases/tasks and must have room for both bounded reasoning
+            # and the governed response, otherwise an empty ``content``
+            # payload would force the deterministic fallback.
+            max_tokens=_ADAPTIVE_SOP_MAX_TOKENS,
             timeout_seconds=120,
             context_refs=tuple(planning["refs"]),
         )
@@ -297,7 +313,11 @@ class AdaptiveSOPCompiler:
         empty_report = _SpecificityReport(anchor_count=0, matched_anchor_count=0)
         raw_phases = output.get("phases")
         raw_tasks = output.get("tasks")
-        if not isinstance(raw_phases, list) or not isinstance(raw_tasks, list):
+        if not isinstance(raw_phases, list):
+            return None, empty_report
+        if not isinstance(raw_tasks, list):
+            raw_tasks = self._tasks_from_declared_phases(raw_phases, baseline)
+        if raw_tasks is None:
             return None, empty_report
         incoming_phases = {
             str(item.get("phase_id") or ""): item
@@ -356,8 +376,42 @@ class AdaptiveSOPCompiler:
             "quality_gates": gates,
             "phases": phases,
         })
-        specificity = self._specificity_report(baseline, refined, anchors=anchors)
+        specificity = self._specificity_report(
+            baseline,
+            refined,
+            anchors=anchors,
+            phase_values=incoming_phases,
+            task_values=incoming,
+        )
         return (refined, specificity) if specificity.accepted else (None, specificity)
+
+    @staticmethod
+    def _tasks_from_declared_phases(
+        raw_phases: list[Any],
+        baseline: DynamicSOPArtifact,
+    ) -> list[dict[str, Any]] | None:
+        """Accept the common nested shape without allowing phase reassignment."""
+        expected_phase_by_task = {
+            task.task_id: phase.phase_id
+            for phase in baseline.phases
+            for task in phase.tasks
+        }
+        tasks: list[dict[str, Any]] = []
+        for phase in raw_phases:
+            if not isinstance(phase, dict):
+                return None
+            phase_id = str(phase.get("phase_id") or "")
+            nested = phase.get("tasks")
+            if not phase_id or not isinstance(nested, list):
+                return None
+            for task in nested:
+                if not isinstance(task, dict):
+                    return None
+                task_id = str(task.get("task_id") or "")
+                if expected_phase_by_task.get(task_id) != phase_id:
+                    return None
+                tasks.append(task)
+        return tasks
 
     @classmethod
     def _specificity_report(
@@ -366,6 +420,8 @@ class AdaptiveSOPCompiler:
         refined: DynamicSOPArtifact,
         *,
         anchors: list[str],
+        phase_values: dict[str, dict[str, Any]] | None = None,
+        task_values: dict[str, dict[str, Any]] | None = None,
     ) -> _SpecificityReport:
         """Reject fluent rewrites that do not carry any Mission-specific signal.
 
@@ -374,6 +430,16 @@ class AdaptiveSOPCompiler:
         distinctive literal anchor terms derived from the diagnosed Mission and
         declared evidence. It never persists those terms or any source body.
         """
+        phase_values = phase_values or {}
+        task_values = task_values or {}
+        if cls._contains_grounding_refs(phase_values, task_values):
+            return cls._reference_specificity_report(
+                baseline,
+                anchors=anchors,
+                phase_values=phase_values,
+                task_values=task_values,
+            )
+
         all_anchor_terms = cls._anchor_terms(anchors)
         if not all_anchor_terms:
             return _SpecificityReport(anchor_count=0, matched_anchor_count=0)
@@ -428,6 +494,50 @@ class AdaptiveSOPCompiler:
             unmatched_phase_ids=unmatched_phase_ids,
             unmatched_task_ids=unmatched_task_ids,
         )
+
+    @staticmethod
+    def _contains_grounding_refs(
+        phase_values: dict[str, dict[str, Any]],
+        task_values: dict[str, dict[str, Any]],
+    ) -> bool:
+        return any("grounding_refs" in value for value in [*phase_values.values(), *task_values.values()])
+
+    @classmethod
+    def _reference_specificity_report(
+        cls,
+        baseline: DynamicSOPArtifact,
+        *,
+        anchors: list[str],
+        phase_values: dict[str, dict[str, Any]],
+        task_values: dict[str, dict[str, Any]],
+    ) -> _SpecificityReport:
+        allowed_refs = {f"anchor_{index + 1}" for index, _ in enumerate(anchors)}
+        phase_refs = {
+            phase_id: cls._grounding_refs(phase_values.get(phase_id, {}).get("grounding_refs"), allowed_refs)
+            for phase_id in (phase.phase_id for phase in baseline.phases)
+        }
+        task_refs = {
+            task.task_id: cls._grounding_refs(task_values.get(task.task_id, {}).get("grounding_refs"), allowed_refs)
+            for phase in baseline.phases
+            for task in phase.tasks
+        }
+        matched = {ref for refs in [*phase_refs.values(), *task_refs.values()] for ref in refs}
+        return _SpecificityReport(
+            anchor_count=len(allowed_refs),
+            matched_anchor_count=len(matched),
+            unmatched_phase_ids=tuple(phase_id for phase_id, refs in phase_refs.items() if not refs),
+            unmatched_task_ids=tuple(task_id for task_id, refs in task_refs.items() if not refs),
+            grounding_mode="anchor_refs",
+        )
+
+    @staticmethod
+    def _grounding_refs(value: Any, allowed_refs: set[str]) -> tuple[str, ...]:
+        if not isinstance(value, list) or not 1 <= len(value) <= 3:
+            return ()
+        refs = tuple(str(item).strip() for item in value)
+        if any(not ref or ref not in allowed_refs for ref in refs) or len(set(refs)) != len(refs):
+            return ()
+        return refs
 
     @staticmethod
     def _anchor_terms(anchors: list[str]) -> frozenset[str]:

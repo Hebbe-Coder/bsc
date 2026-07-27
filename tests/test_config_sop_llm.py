@@ -16,3 +16,7 @@ def test_kimi_config_defaults():
 
 def test_semantic_growth_distillation_defaults_to_disabled():
     assert type(settings).model_fields["KNOWLEDGE_GROWTH_SEMANTIC_DISTILLATION_ENABLED"].default is False
+
+
+def test_growth_distillation_has_an_isolated_long_request_budget():
+    assert type(settings).model_fields["KNOWLEDGE_GROWTH_LLM_TIMEOUT_SECONDS"].default == 150.0

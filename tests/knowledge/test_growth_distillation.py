@@ -30,6 +30,16 @@ from app.knowledge.wiki_rules import build_default_agents_rules
 _CUTOFF_SAFE_TIME = datetime(2026, 7, 23, tzinfo=timezone.utc)
 
 
+def _valid_weekly_document(label: str) -> str:
+    return (
+        f"## Evidence\n\n{label} is grounded in the retained source and must remain scoped to that evidence "
+        "rather than becoming a claim about unrecorded project work [source:source-a].\n\n"
+        "## Conditional recommendation\n\nThe project should turn this observation into a review item with a "
+        "named verification criterion before changing a workflow or publishing a conclusion [source:source-a].\n\n"
+        "## Open question\n\nThe evidence does not establish the responsible owner, the present system "
+        "state, or the outcome of a future experiment; those facts remain an Open question [source:source-a]."
+    )
+
 class _NarrativeProvider:
     def render(self, *, kind, project_id, period, context):
         if kind == "daily":
@@ -45,11 +55,11 @@ class _NarrativeProvider:
         names = GrowthDistillationService.WEEKLY_NARRATIVE_SLOTS
         return {
             "weekly": {
-                names[0]: "# This week\n\n[source:source-a] is the decisive evidence.",
-                names[1]: "# Knowledge actions\n\nReview [source:source-a].",
-                names[2]: "# Content creation\n\nUse [source:source-a] for a review-gate explainer.",
-                names[3]: "# Next context\n\n[source:source-a] remains available.",
-                names[4]: "# Method iteration\n\n[source:source-a] requires evaluation before promotion.",
+                names[0]: _valid_weekly_document("This week decisive evidence"),
+                names[1]: _valid_weekly_document("Knowledge-action evidence"),
+                names[2]: _valid_weekly_document("Content-creation evidence"),
+                names[3]: _valid_weekly_document("Next-context evidence"),
+                names[4]: _valid_weekly_document("Method-iteration evidence"),
             }
         }
 
@@ -120,7 +130,7 @@ class _PartialNarrativeProvider:
         slots = GrowthDistillationService.WEEKLY_NARRATIVE_SLOTS
         return {
             "weekly": {
-                slots[0]: "## Bespoke summary\n\n[source:source-a] changes the project decision context.",
+                slots[0]: _valid_weekly_document("Bespoke summary"),
                 slots[1]: "## Uncited action\n\nFollow up next week.",
                 slots[2]: "## Uncited content\n\nDraft a useful article.",
                 slots[3]: "## Uncited context\n\nContinue the review.",
@@ -129,13 +139,42 @@ class _PartialNarrativeProvider:
         }
 
 
+class _UnsupportedProjectStateNarrativeProvider:
+    def render(self, *, kind, project_id, period, context):
+        if kind == "daily":
+            return _NarrativeProvider().render(kind=kind, project_id=project_id, period=period, context=context)
+        slots = GrowthDistillationService.WEEKLY_NARRATIVE_SLOTS
+        weekly = {slot: _valid_weekly_document(f"{slot} evidence") for slot in slots}
+        weekly[slots[0]] += "\n\n## Unsupported status\n\nThis week we decided to migrate BSC to a new tool protocol [source:source-a]."
+        return {"weekly": weekly}
+
+
+class _RetryableNarrativeProvider:
+    supports_quality_retry = True
+
+    def __init__(self) -> None:
+        self.feedback: list[str] = []
+
+    def render(self, *, kind, project_id, period, context, quality_feedback=""):
+        self.feedback.append(quality_feedback)
+        if quality_feedback:
+            return _NarrativeProvider().render(kind=kind, project_id=project_id, period=period, context=context)
+        return _UnsupportedProjectStateNarrativeProvider().render(
+            kind=kind,
+            project_id=project_id,
+            period=period,
+            context=context,
+        )
+
+
 def test_configured_narrative_provider_prefers_growth_model_override(monkeypatch):
     captured = {}
 
     class _Client:
-        def __init__(self, *, provider, model):
+        def __init__(self, *, provider, model, timeout=None):
             captured["provider"] = provider
             captured["model"] = model
+            captured["timeout"] = timeout
             self.model = model
             self.last_structured_failure = ""
 
@@ -154,6 +193,7 @@ def test_configured_narrative_provider_prefers_growth_model_override(monkeypatch
     monkeypatch.setattr(settings, "KNOWLEDGE_WIKI_LLM_PROVIDER", "deepseek")
     monkeypatch.setattr(settings, "SOP_LLM_PROVIDER", "mock")
     monkeypatch.setattr(settings, "KNOWLEDGE_GROWTH_LLM_MODEL", "growth-specific-model")
+    monkeypatch.setattr(settings, "KNOWLEDGE_GROWTH_LLM_TIMEOUT_SECONDS", 135.0)
     monkeypatch.setattr("app.services.sop_llm_client.SOPLLMClient", _Client)
 
     provider = ConfiguredDistillationNarrativeProvider()
@@ -166,7 +206,7 @@ def test_configured_narrative_provider_prefers_growth_model_override(monkeypatch
     )
 
     assert result["daily"]["headline"] == "Evidence retained for review"
-    assert captured == {"provider": "deepseek", "model": "growth-specific-model"}
+    assert captured == {"provider": "deepseek", "model": "growth-specific-model", "timeout": 135.0}
     assert provider.last_prompt_run.agent_manifest.context_refs == ("knowledge_run:growth-run-a",)
 
 
@@ -184,6 +224,17 @@ def test_validated_markdown_normalizes_structured_list_items_before_citation_val
         "- Draft one evidence-backed content angle from [source:source-a]."
     )
     assert "['Review" not in content
+
+
+def test_weekly_markdown_rejects_non_evidence_references_and_unsupported_state_claims():
+    context = {"citation_source_ids": ["source-a"]}
+    method_reference = _valid_weekly_document("Method reference") + "\n\n## Method\n\n[method:method-a] is not evidence."
+    unsupported_state = _valid_weekly_document("State claim") + (
+        "\n\n## Status\n\n\u7cfb\u7edf\u672a\u80fd\u5728\u5bfc\u5165\u9636\u6bb5\u8b66\u793a\u622a\u65ad\u6e90 [source:source-a]."
+    )
+
+    assert GrowthDistillationService._validated_weekly_markdown(method_reference, context) == ""
+    assert GrowthDistillationService._validated_weekly_markdown(unsupported_state, context) == ""
 
 
 def test_daily_narrative_requires_a_citation_in_every_evidence_section():
@@ -369,7 +420,7 @@ def test_daily_distillation_rejects_a_thin_cited_paragraph_and_uses_the_full_fal
         repo.close()
 
 
-def test_daily_distillation_prefers_current_admitted_horizon_evidence_when_budget_is_tight(tmp_path):
+def test_daily_distillation_prefers_current_primary_capture_over_horizon_discovery_when_budget_is_tight(tmp_path):
     root = tmp_path / "vault"
     root.mkdir()
     repo = GrowthRepository(db_path=str(tmp_path / "distillation-triage-priority.db"))
@@ -411,6 +462,29 @@ def test_daily_distillation_prefers_current_admitted_horizon_evidence_when_budge
             )
         )
         SourceTriageService(repo).triage_source("project-a", "horizon-current")
+        repo.create_source(
+            SourceRecord(
+                id="primary-current",
+                project_id="project-a",
+                source_type="primary_web",
+                content_hash="c" * 64,
+                raw_content="Independent primary capture that corroborates the current project signal. " * 300,
+                trust_level="reviewed",
+                status=SourceStatus.VALIDATED,
+                metadata={
+                    "admission_gate": "project_triage",
+                    "discovered_from_source_id": "horizon-current",
+                    "relevance": 100,
+                    "value": 100,
+                    "freshness": 100,
+                    "outputability": 100,
+                    "connectedness": 100,
+                },
+                captured_at=_CUTOFF_SAFE_TIME,
+                updated_at=_CUTOFF_SAFE_TIME,
+            )
+        )
+        SourceTriageService(repo).triage_source("project-a", "primary-current")
 
         result = GrowthDistillationService(
             repo,
@@ -423,8 +497,10 @@ def test_daily_distillation_prefers_current_admitted_horizon_evidence_when_budge
         )
 
         assert repo.get_source("project-a", "horizon-current")["status"] == SourceStatus.ELIGIBLE.value
-        assert "horizon-current" in result["manifest"]["context"]["source_ids"]
-        assert "horizon-current" in result["manifest"]["context"]["citation_source_ids"]
+        assert repo.get_source("project-a", "primary-current")["status"] == SourceStatus.ELIGIBLE.value
+        assert "horizon-current" not in result["manifest"]["context"]["source_ids"]
+        assert "primary-current" in result["manifest"]["context"]["source_ids"]
+        assert "primary-current" in result["manifest"]["context"]["citation_source_ids"]
     finally:
         repo.close()
 
@@ -502,6 +578,66 @@ def test_distillation_preserves_only_cited_llm_documents_and_records_hybrid_prov
         summary = (root / "projects" / "project-a" / result["paths"][0]).read_text(encoding="utf-8")
         assert "Bespoke summary" in summary
         assert "Uncited action" not in (root / "projects" / "project-a" / result["paths"][1]).read_text(encoding="utf-8")
+    finally:
+        repo.close()
+
+
+def test_weekly_distillation_rejects_unsupported_project_state_claims(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "distillation-unsupported-state.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        repo.create_source(SourceRecord(
+            id="source-a", project_id="project-a", source_type="article", content_hash="a" * 64,
+            raw_content="The source describes a tool protocol, not completed project work.",
+            trust_level="trusted", status=SourceStatus.ELIGIBLE,
+            captured_at=_CUTOFF_SAFE_TIME, updated_at=_CUTOFF_SAFE_TIME,
+        ))
+
+        result = GrowthDistillationService(
+            repo, root, narrative_provider=_UnsupportedProjectStateNarrativeProvider()
+        ).run_weekly("project-a", "2026-W30", source_cutoff="2026-07-24T09:00:00Z")
+
+        generation = result["manifest"]["generation"]
+        assert generation["mode"] == "hybrid"
+        assert GrowthDistillationService.WEEKLY_DOCUMENTS[0] in generation["fallback_documents"]
+        summary = (root / "projects" / "project-a" / result["paths"][0]).read_text(encoding="utf-8")
+        assert "we decided to migrate" not in summary
+        assert "The source describes a tool protocol" not in summary
+    finally:
+        repo.close()
+
+
+def test_weekly_distillation_retries_a_rejected_real_provider_draft_once(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "distillation-quality-retry.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        repo.create_source(SourceRecord(
+            id="source-a", project_id="project-a", source_type="article", content_hash="a" * 64,
+            raw_content="A governed review must distinguish evidence from proposed work.",
+            trust_level="trusted", status=SourceStatus.ELIGIBLE,
+            captured_at=_CUTOFF_SAFE_TIME, updated_at=_CUTOFF_SAFE_TIME,
+        ))
+        provider = _RetryableNarrativeProvider()
+
+        result = GrowthDistillationService(repo, root, narrative_provider=provider).run_weekly(
+            "project-a", "2026-W30", source_cutoff="2026-07-24T09:00:00Z"
+        )
+
+        generation = result["manifest"]["generation"]
+        assert len(provider.feedback) == 2
+        assert provider.feedback[0] == ""
+        assert "Rejected documents" in provider.feedback[1]
+        assert generation["mode"] == "llm"
+        assert generation["fallback_documents"] == []
+        assert generation["quality_retry_count"] == 1
+        assert all(
+            "we decided to migrate" not in (root / "projects" / "project-a" / path).read_text(encoding="utf-8")
+            for path in result["paths"]
+        )
     finally:
         repo.close()
 
@@ -678,6 +814,31 @@ def test_daily_revisions_are_owned_redacted_and_user_file_is_protected(tmp_path)
         with pytest.raises(ManagedContentConflictError, match="unmarked user-authored"):
             service.run_daily("project-a", "2026-07-23", source_cutoff="2026-07-23T09:00:00Z")
         assert other_date.read_text(encoding="utf-8") == "user-authored daily note"
+    finally:
+        repo.close()
+
+
+def test_daily_rerun_uses_the_disk_matched_record_when_same_day_timestamps_disagree(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "daily-rerun-order.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        service = GrowthDistillationService(repo, root)
+        first = service.run_daily("project-a", "2026-07-22", source_cutoff="2026-07-22T09:00:00Z")
+        second = service.run_daily("project-a", "2026-07-22", source_cutoff="2026-07-22T10:00:00Z")
+        repo._execute(
+            "UPDATE knowledge_growth_distillations SET created_at=? WHERE id=?",
+            ("2099-01-01T00:00:00Z", first["id"]),
+        )
+        repo._commit()
+
+        third = service.run_daily("project-a", "2026-07-22", source_cutoff="2026-07-22T11:00:00Z")
+
+        daily = root / "projects" / "project-a" / third["paths"][0]
+        archive = daily.parent / "revisions" / "2026-07-22" / f"{second['input_hash']}.md"
+        assert archive.exists()
+        assert third["input_hash"] != second["input_hash"]
     finally:
         repo.close()
 

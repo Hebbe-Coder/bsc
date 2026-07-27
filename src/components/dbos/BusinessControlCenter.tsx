@@ -24,6 +24,10 @@ import { BlindspotIntakePanel } from './BlindspotIntakePanel';
 type Props = {
   onClose: () => void;
   initialProjectId?: string;
+  initialMissionId?: string;
+  initialArtifactId?: string;
+  initialRequestText?: string;
+  autoStartIntake?: boolean;
   initialData?: DBOSControlCenter;
 };
 
@@ -48,12 +52,12 @@ function adaptiveCompilation(value: unknown): AdaptiveCompilation | undefined {
   return value && typeof value === 'object' ? value as AdaptiveCompilation : undefined;
 }
 
-function graphProjection(graph: DBOSControlCenter['reasoning_graph']): { nodes: Node[]; edges: Edge[] } {
+function graphProjection(graph: DBOSControlCenter['reasoning_graph'], focusedArtifactId = ''): { nodes: Node[]; edges: Edge[] } {
   const nodes = graph.nodes.map((node, index) => ({
     id: node.id,
     data: { label: node.label || node.id },
     position: { x: 30 + (index % 3) * 220, y: 32 + Math.floor(index / 3) * 110 },
-    className: `dbos-flow-node dbos-flow-node--${node.type}`,
+    className: `dbos-flow-node dbos-flow-node--${node.type}${node.id === focusedArtifactId ? ' is-focused' : ''}`,
     ariaLabel: `${node.type}: ${node.label}`,
   }));
   return {
@@ -76,9 +80,10 @@ function evidenceList(value: string): Array<{ source: string; finding: string; s
   ));
 }
 
-export function BusinessControlCenter({ onClose, initialProjectId = 'default', initialData }: Props) {
+export function BusinessControlCenter({ onClose, initialProjectId = 'default', initialMissionId = '', initialArtifactId = '', initialRequestText = '', autoStartIntake = false, initialData }: Props) {
   const [projectId, setProjectId] = useState(initialProjectId);
-  const [missionId, setMissionId] = useState(initialData?.mission.artifact_id ?? '');
+  const [missionId, setMissionId] = useState(initialData?.mission.artifact_id ?? initialMissionId);
+  const [focusedArtifactId, setFocusedArtifactId] = useState(initialArtifactId);
   const [missions, setMissions] = useState<DbosMission[]>([]);
   const [center, setCenter] = useState<DBOSControlCenter | null>(initialData ?? null);
   const [authorized, setAuthorized] = useState(() => capabilityList(initialData ?? null));
@@ -91,6 +96,8 @@ export function BusinessControlCenter({ onClose, initialProjectId = 'default', i
   const [activeIntakeSessionId, setActiveIntakeSessionId] = useState('');
   const currentProjectIdRef = useRef(projectId.trim());
   const refreshSequenceRef = useRef(0);
+  const initialLoadRef = useRef(false);
+  const refreshRef = useRef<(preferredMissionId?: string) => Promise<void>>(async () => undefined);
   const [draft, setDraft] = useState<MissionDraft>({
     title: '', intent: '', intake_mode: 'business', role: '', industry: '', organization_stage: '', goal: '', time_horizon: '',
     constraints: '', stakeholders: '', decision_rights: '', success_metrics: '', evidence: '',
@@ -124,8 +131,15 @@ export function BusinessControlCenter({ onClose, initialProjectId = 'default', i
       if (isCurrentRequest()) setBusy(false);
     }
   };
+  refreshRef.current = refresh;
 
-  useEffect(() => { if (!initialData) void refresh(); }, []);
+  useEffect(() => {
+    if (!initialData && !initialLoadRef.current) {
+      initialLoadRef.current = true;
+      void refreshRef.current();
+    }
+  }, [initialData]);
+  useEffect(() => { setFocusedArtifactId(initialArtifactId); }, [initialArtifactId]);
 
   const createAndDiagnose = async () => {
     setBusy(true); setError(''); setBusyLabel('Creating a diagnosis record...');
@@ -233,7 +247,9 @@ export function BusinessControlCenter({ onClose, initialProjectId = 'default', i
     if (!nextMissionId) { setMissionId(''); setCenter(null); setAuthorized([]); setActiveIntakeSessionId(''); return; }
     void refresh(nextMissionId);
   };
-  const graph = center ? graphProjection(center.reasoning_graph) : { nodes: [], edges: [] };
+  const graph = center ? graphProjection(center.reasoning_graph, focusedArtifactId) : { nodes: [], edges: [] };
+  const focusedGraphNode = focusedArtifactId ? center?.reasoning_graph.nodes.find((node) => node.id === focusedArtifactId) : undefined;
+  const focusedConnectionCount = focusedArtifactId ? (center?.reasoning_graph.edges.filter((edge) => edge.source === focusedArtifactId || edge.target === focusedArtifactId).length ?? 0) : 0;
   const tasks = center?.dynamic_sop?.phases.flatMap((phase) => phase.tasks) ?? [];
   const inspectedTask = tasks.find((task) => task.task_id === inspectedTaskId) ?? tasks[0];
   const inspectedExecution = inspectedTask ? center?.execution_results.find((item) => item.capability_name === inspectedTask.capability_name) : undefined;
@@ -266,7 +282,7 @@ export function BusinessControlCenter({ onClose, initialProjectId = 'default', i
           if (nextProjectId !== projectId) {
             currentProjectIdRef.current = nextProjectId.trim();
             refreshSequenceRef.current += 1;
-            setMissionId(''); setMissions([]); setCenter(null); setAuthorized([]); setActiveIntakeSessionId(''); setError('');
+            setMissionId(''); setFocusedArtifactId(''); setMissions([]); setCenter(null); setAuthorized([]); setActiveIntakeSessionId(''); setError('');
           }
           setProjectId(nextProjectId);
         }} disabled={busy} /></label>
@@ -278,7 +294,7 @@ export function BusinessControlCenter({ onClose, initialProjectId = 'default', i
 
     {error && <div className="dbos-alert" role="alert"><AlertTriangle size={16} /><span>{error}</span></div>}
 
-    {!center ? <><BlindspotIntakePanel projectId={projectId.trim()} disabled={busy} onMissionConverted={(nextMissionId) => { setActiveIntakeSessionId(''); setMissionId(nextMissionId); void refresh(nextMissionId); }} /><details className="dbos-manual-intake"><summary>Manual Mission</summary><form className="dbos-intake" aria-busy={busy} onSubmit={(event) => { event.preventDefault(); void createAndDiagnose(); }}>
+    {!center ? <><BlindspotIntakePanel projectId={projectId.trim()} disabled={busy} initialRequestText={initialRequestText} autoStart={autoStartIntake} onMissionConverted={(nextMissionId) => { setActiveIntakeSessionId(''); setMissionId(nextMissionId); void refresh(nextMissionId); }} /><details className="dbos-manual-intake"><summary>Manual Mission</summary><form className="dbos-intake" aria-busy={busy} onSubmit={(event) => { event.preventDefault(); void createAndDiagnose(); }}>
       <div className="dbos-intake__intro"><ShieldCheck size={22} /><div><strong>Start with a diagnosis, not an SOP title.</strong><span>The Mission stays non-executable until its capability grants are reviewed and confirmed.</span></div></div>
       {busyLabel && <div className="dbos-intake__status" role="status" aria-live="polite"><RefreshCw size={15} /><span>{busyLabel}</span></div>}
       <label>Mission title<input required value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label>
@@ -314,6 +330,7 @@ export function BusinessControlCenter({ onClose, initialProjectId = 'default', i
           {!terminal && <button type="button" className="dbos-governance-action" aria-label="Stop mission" title="Stop mission" onClick={() => void stopMission()} disabled={busy}><CircleStop size={15} />Stop mission</button>}
         </aside>
         <main className="dbos-main">
+          {focusedArtifactId && <section className="dbos-panel dbos-artifact-focus" aria-label="Focused artifact inspector"><header><span>ARTIFACT FOCUS</span><strong>{focusedGraphNode?.label || 'Record not present in this bounded mission graph'}</strong></header><dl><div><dt>Durable record</dt><dd>{focusedArtifactId}</dd></div><div><dt>Type</dt><dd>{focusedGraphNode?.type || 'unavailable'}</dd></div><div><dt>Status</dt><dd>{focusedGraphNode?.status || 'unavailable'}</dd></div><div><dt>Persisted connections</dt><dd>{focusedConnectionCount}</dd></div></dl><small>{focusedGraphNode ? 'Opened from a scoped operations action. Select another graph node to inspect a different durable record.' : 'The action target is retained, but it is outside the current bounded mission projection.'}</small></section>}
           <section className="dbos-panel"><header><span>DYNAMIC SOP</span><strong>{center.dynamic_sop?.title}</strong></header>{adaptive && <small className="dbos-compilation-status">{adaptiveStatus}</small>}{adaptiveModelRun && <dl className="dbos-model-run" aria-label="Model run evidence"><div><dt>Model run</dt><dd>{adaptiveModelRun.provider || 'provider'} / {adaptiveModelRun.model || 'model'}</dd></div><div><dt>Calls</dt><dd>{adaptiveModelRun.provider_calls ?? 0} provider / {adaptiveModelRun.reported_calls ?? 0} reported</dd></div><div><dt>Attempts</dt><dd>{adaptiveModelRun.attempt_count ?? 1}{adaptiveModelRun.retry_count ? ` with ${adaptiveModelRun.retry_count} retry` : ''}</dd></div><div><dt>Usage</dt><dd>{adaptiveModelRun.total_tokens == null ? 'unreported' : `${adaptiveModelRun.total_tokens} tokens`}{adaptiveModelRun.usage_complete ? '' : ' (partial)'}</dd></div><div><dt>Grounding</dt><dd>{adaptive.specificity ? `${adaptive.specificity.matched_anchor_count ?? 0} / ${adaptive.specificity.anchor_count ?? 0} anchors` : 'not evaluated'}</dd></div><div><dt>Latency</dt><dd>{adaptiveModelRun.latency_ms ? `${adaptiveModelRun.latency_ms} ms` : 'unreported'}</dd></div></dl>}<p className="dbos-objective">{center.dynamic_sop?.objective}</p>{center.dynamic_sop?.diagnostic_summary && <p className="dbos-diagnostic-summary">{center.dynamic_sop.diagnostic_summary}</p>}{center.dynamic_sop?.quality_gates?.length ? <ul className="dbos-quality-gates">{center.dynamic_sop.quality_gates.map((gate) => <li key={gate}>{gate}</li>)}</ul> : null}<div className="dbos-timeline">{center.dynamic_sop?.phases.map((phase) => <article key={phase.phase_id}><header><span>{phase.phase_id}</span><strong>{phase.title}</strong><small>{phase.objective}</small></header>{phase.tasks.map((task) => { const taskHasDecision = hasTaskDecision(task.task_id); const isManualRetry = hasInterruptedAttempt(task.capability_name); return <div className="dbos-task" key={task.task_id}><button type="button" className="dbos-task__inspect" aria-label={`Inspect ${task.title}`} onClick={() => setInspectedTaskId(task.task_id)}><strong>{task.title}</strong><span>{task.owner} - {task.deliverable}</span><small>{task.metric}</small></button><button type="button" aria-label={isManualRetry ? `Manually retry ${task.capability_name}` : `Execute ${task.capability_name}`} title={taskHasDecision ? (isManualRetry ? 'Manual retry after interrupted execution' : `Execute ${task.capability_name}`) : 'Record the task decision before execution'} disabled={busy || !confirmed || !authorized.includes(task.capability_name) || !taskHasDecision} onClick={() => void execute(task.capability_name)}><Play size={14} fill="currentColor" /></button></div>; })}</article>)}</div></section>
           {inspectedTask && <section className="dbos-panel dbos-task-inspector"><header><span>TASK INSPECTOR</span><strong>{inspectedTask.title}</strong></header><dl><div><dt>Owner and deliverable</dt><dd>{inspectedTask.owner} - {inspectedTask.deliverable}</dd></div><div><dt>Trigger and metric</dt><dd>{inspectedTask.trigger} - {inspectedTask.metric}</dd></div><div><dt>Decision and risk</dt><dd>{inspectedTask.decision_point} {inspectedTask.risk}</dd></div><div><dt>Check and learning loop</dt><dd>{inspectedTask.check} {inspectedTask.retrospect}</dd></div><div><dt>Lineage</dt><dd>{inspectedTask.parent_refs.join(', ')}</dd></div><div><dt>Execution / rollback</dt><dd>{inspectedExecution ? `${inspectedExecution.execution_status}${inspectedExecution.rollback?.status ? ` - rollback: ${String(inspectedExecution.rollback.status)}` : ''}` : 'Not executed'}{inspectedVerification ? ` - verification: ${inspectedVerification.verification_status}` : ''}</dd></div></dl>{inspectedExecution && ['completed', 'failed', 'rejected'].includes(String(inspectedExecution.execution_status)) && <button type="button" className="dbos-governance-action" aria-label={`Rollback ${inspectedExecution.capability_name}`} title="Rollback execution" onClick={() => void rollbackExecution(inspectedExecution.artifact_id, inspectedExecution.capability_name)} disabled={busy}><Undo2 size={15} />Rollback result</button>}</section>}
           <section className="dbos-panel dbos-panel--diagnosis"><header><span>DIAGNOSIS AND EVIDENCE</span><strong>{center.diagnosis?.coverage ? `${Math.round(center.diagnosis.coverage * 100)}% declared context coverage` : 'Awaiting diagnosis'}</strong></header><div className="dbos-evidence-grid"><article><strong>Success metrics</strong><ul>{center.diagnosis?.success_metrics?.map((item) => <li key={item}>{item}</li>) || <li>Not declared</li>}</ul></article><article><strong>Operating hypotheses</strong><ul>{center.diagnosis?.operating_hypotheses?.map((item) => <li key={item}>{item}</li>) || <li>Not generated</li>}</ul></article><article><strong>Evidence</strong><ul>{evidence.length ? evidence.map((item) => <li key={item.artifact_id}><b>{item.source}</b>{item.finding}</li>) : <li>No source-backed evidence declared.</li>}</ul></article><article><strong>Gaps and risks</strong><ul>{[...gaps, ...risks].length ? [...gaps, ...risks].slice(0, 6).map((item) => <li key={item.artifact_id}>{String(item.gap_statement || item.risk_statement || item.label || '')}</li>) : <li>No open items.</li>}</ul></article></div></section>
@@ -324,7 +341,7 @@ export function BusinessControlCenter({ onClose, initialProjectId = 'default', i
            <section className="dbos-panel dbos-panel--events"><header><span>ADVISOR REVIEW</span><strong>{center.advisor_reviews?.length ?? 0} recorded reviews</strong></header><button type="button" className="dbos-governance-action" aria-label="Run advisory review" title="Run advisory review" onClick={() => void requestAdvisorReview()} disabled={busy}><ClipboardCheck size={15} />Review mission</button>{center.advisor_reviews?.length ? <ol>{center.advisor_reviews.map((review) => <li key={review.artifact_id}><i data-status={review.advisor_status} /><div><strong>{review.verdict || review.advisor_status}</strong><small>{review.summary || review.error_category || review.advisor_status}</small>{review.findings?.length ? <ul>{review.findings.map((finding, index) => <li key={`${review.artifact_id}-${index}`}>{finding.severity}: {finding.statement}{finding.recommendation ? ` - ${finding.recommendation}` : ''}</li>)}</ul> : null}</div></li>)}</ol> : <p className="dbos-empty">No advisory review is recorded. A review can recommend changes but cannot authorize or execute a task.</p>}</section>
           {center.sop_routing_evaluation && <section className="dbos-panel dbos-panel--routing-evaluation"><header><span>ROUTING EVALUATION</span><strong>{center.sop_routing_evaluation.evaluation_status}</strong></header><p>{center.sop_routing_evaluation.positive_case_count} positive, {center.sop_routing_evaluation.near_negative_case_count} near-negative, {center.sop_routing_evaluation.holdout_case_count} isolated holdout cases.</p><p>Holdouts: {center.sop_routing_evaluation.holdout_passed ? 'passed' : 'failed'}.</p>{center.sop_routing_evaluation.findings?.length ? <ul>{center.sop_routing_evaluation.findings.map((finding) => <li key={finding}>{finding}</li>)}</ul> : <small>Versioned deterministic routing evidence is attached to this mission.</small>}</section>}
         </main>
-        <aside className="dbos-panel dbos-panel--graph"><header><span>REASONING GRAPH</span><strong>{graph.nodes.length} nodes</strong></header>{graph.nodes.length ? <div className="dbos-graph"><ReactFlow nodes={graph.nodes} edges={graph.edges} fitView nodesDraggable={false} minZoom={0.4} maxZoom={1.5}><Background gap={20} size={1} /><Controls showInteractive={false} /></ReactFlow></div> : <p className="dbos-empty">No persisted lineage is available.</p>}{center.runtime_context && <div className="dbos-runtime-context"><strong>CONTEXT SNAPSHOT</strong><dl><div><dt>Policy</dt><dd>{center.runtime_context.context_revision}</dd></div><div><dt>Budget</dt><dd>{center.runtime_context.estimated_tokens} / {center.runtime_context.context_window_tokens} tokens</dd></div><div><dt>Knowledge refs</dt><dd>{center.runtime_context.source_ids.length} sources, {center.runtime_context.method_ids.length} methods</dd></div></dl><small>{center.runtime_context.compaction_required ? 'Context requires review before model expansion.' : 'Redacted composition manifest recorded.'}</small></div>}<div className="dbos-feedback"><label>Outcome feedback<textarea value={feedback} onChange={(event) => setFeedback(event.target.value)} placeholder="What changed, what failed, and what should be reused?" /></label><button type="button" aria-label="Record feedback" title="Record feedback" onClick={() => void submitFeedback()} disabled={busy || !feedback.trim() || !center.execution_results.length}><Send size={15} /></button></div>{center.memories?.length ? <ul className="dbos-memory-list">{center.memories.map((memory) => <li key={String(memory.artifact_id || memory.statement || 'memory')}>{String(memory.statement || '')}</li>)}</ul> : null}</aside>
+        <aside className="dbos-panel dbos-panel--graph"><header><span>REASONING GRAPH</span><strong>{graph.nodes.length} nodes</strong></header>{graph.nodes.length ? <div className="dbos-graph"><ReactFlow nodes={graph.nodes} edges={graph.edges} fitView nodesDraggable={false} minZoom={0.4} maxZoom={1.5} onNodeClick={(_, node) => setFocusedArtifactId(node.id)}><Background gap={20} size={1} /><Controls showInteractive={false} /></ReactFlow></div> : <p className="dbos-empty">No persisted lineage is available.</p>}{center.runtime_context && <div className="dbos-runtime-context"><strong>CONTEXT SNAPSHOT</strong><dl><div><dt>Policy</dt><dd>{center.runtime_context.context_revision}</dd></div><div><dt>Budget</dt><dd>{center.runtime_context.estimated_tokens} / {center.runtime_context.context_window_tokens} tokens</dd></div><div><dt>Knowledge refs</dt><dd>{center.runtime_context.source_ids.length} sources, {center.runtime_context.method_ids.length} methods</dd></div></dl><small>{center.runtime_context.compaction_required ? 'Context requires review before model expansion.' : 'Redacted composition manifest recorded.'}</small></div>}<div className="dbos-feedback"><label>Outcome feedback<textarea value={feedback} onChange={(event) => setFeedback(event.target.value)} placeholder="What changed, what failed, and what should be reused?" /></label><button type="button" aria-label="Record feedback" title="Record feedback" onClick={() => void submitFeedback()} disabled={busy || !feedback.trim() || !center.execution_results.length}><Send size={15} /></button></div>{center.memories?.length ? <ul className="dbos-memory-list">{center.memories.map((memory) => <li key={String(memory.artifact_id || memory.statement || 'memory')}>{String(memory.statement || '')}</li>)}</ul> : null}</aside>
       </div>
     </>}
   </section>;

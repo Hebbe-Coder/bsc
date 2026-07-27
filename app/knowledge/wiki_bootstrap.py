@@ -26,6 +26,7 @@ class WikiBootstrapService:
         "00_Inbox/web-clipper",
         "00_Inbox/social",
         "01_Sources",
+        "01_Sources/bsc-evidence",
         "01_Sources/feishu",
         "01_Sources/docxer",
         "01_Sources/importer",

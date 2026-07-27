@@ -47,6 +47,7 @@ class WikiLint:
         rules: ProjectRules,
         source_ids: set[str],
         existing_paths: Iterable[str] = (),
+        existing_contents: dict[str, str] | None = None,
     ) -> WikiLintReport:
         findings: list[WikiLintFinding] = []
         operations = proposal.operations
@@ -64,7 +65,11 @@ class WikiLint:
             findings.append(self._finding("missing_index_update", "wiki/index.md", "Substantive changes require a Wiki index update."))
         if substantive and "wiki/log.md" not in proposal_paths:
             findings.append(self._finding("missing_log_update", "wiki/log.md", "Substantive changes require an append-only ledger entry."))
-        if substantive and "wiki/overview.md" not in proposal_paths:
+        if (
+            substantive
+            and "wiki/overview.md" not in proposal_paths
+            and not self._existing_overview_covers_replacements(substantive, existing_contents or {})
+        ):
             findings.append(self._finding("missing_overview_update", "wiki/overview.md", "Substantive changes require a project overview update."))
         for operation in operations:
             if operation.path == "AGENTS.md":
@@ -112,6 +117,19 @@ class WikiLint:
                 if normalized not in known_paths:
                     findings.append(self._finding("dangling_page_link", operation.path, f"Link target does not exist: {normalized}", normalized))
         return WikiLintReport(findings=tuple(findings))
+
+    @staticmethod
+    def _existing_overview_covers_replacements(
+        substantive: list,
+        existing_contents: dict[str, str],
+    ) -> bool:
+        """Avoid duplicate navigation entries when a linked page is only revised."""
+        overview = existing_contents.get("wiki/overview.md", "")
+        return bool(overview) and bool(substantive) and all(
+            operation.operation is WikiOperationType.REPLACE
+            and f"[[{operation.path}]]" in overview
+            for operation in substantive
+        )
 
     def lint_project(
         self,

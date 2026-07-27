@@ -152,8 +152,9 @@ def get_reranker(provider: Optional[str] = None, keys=None, model: str = None,
     if provider:
         return _build(provider, keys=keys, model=model)
     # 2. 传了 project_id 且 repo 非 None → 走项目配置。
-    if project_id and repo is not None:
-        proj = repo.get_project(project_id)
+    get_project = getattr(repo, "get_project", None) if repo is not None else None
+    if project_id and callable(get_project):
+        proj = get_project(project_id)
         cfg = (proj or {}).get("rerank_config") if proj else None
         if isinstance(cfg, dict) and cfg.get("enabled") and cfg.get("provider"):
             pkeys = keys

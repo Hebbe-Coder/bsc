@@ -12,6 +12,7 @@ from app.artifacts import (
 from app.dbos.adaptive_compiler import AdaptiveSOPCompiler
 from app.dbos.compiler import DynamicSOPCompiler
 from app.dbos.service import DBOSService
+from app.core.config import settings
 
 
 class RecordingPromptOps:
@@ -105,6 +106,7 @@ def test_adaptive_compiler_customizes_content_but_cannot_change_task_graph():
                 "phase_id": phase.phase_id,
                 "title": f"618 cart recovery: {phase.phase_id} the 12 percent loss",
                 "objective": f"Use the declared dashboard signal and zero-acquisition-spend constraint to govern {phase.phase_id} work.",
+                "grounding_refs": ["anchor_1", "anchor_2"],
             }
             for phase in baseline.phases
         ],
@@ -119,6 +121,7 @@ def test_adaptive_compiler_customizes_content_but_cannot_change_task_graph():
                 "risk": "Do not trade margin or inventory availability for an unverified conversion lift.",
                 "check": "Inspect the dashboard source and the experiment comparison before marking complete.",
                 "retrospect": "Record the observed lift, rejected hypothesis, and reusable decision condition.",
+                "grounding_refs": ["anchor_1", "anchor_2"],
             }
             for task_id, task in task_by_id.items()
         ],
@@ -154,13 +157,15 @@ def test_adaptive_compiler_customizes_content_but_cannot_change_task_graph():
     assert refined.metadata["adaptive_compilation"]["context_pack_id"] == "pack-1"
     assert "source:source-1" in promptops.requests[0].context_refs
     assert "Product-view to cart conversion fell 12 percent" in promptops.requests[0].user_prompt
-    assert promptops.requests[0].revision == "dbos-adaptive-sop-v4"
+    assert promptops.requests[0].revision == "dbos-adaptive-sop-v9"
+    assert promptops.requests[0].max_tokens == 8_000
     assert '"response_contract"' in promptops.requests[0].user_prompt
     assert refined.metadata["adaptive_compilation"]["specificity"]["status"] == "passed"
+    assert refined.metadata["adaptive_compilation"]["specificity"]["grounding_mode"] == "anchor_refs"
     assert refined.metadata["adaptive_compilation"]["model_run"] == {
         "run_id": "prompt-adaptive-1",
         "task": "sop_composition",
-        "revision": "dbos-adaptive-sop-v4",
+        "revision": "dbos-adaptive-sop-v9",
         "provider": "test-provider",
         "model": "test-model",
         "agent_manifest_fingerprint": "a" * 64,
@@ -177,6 +182,46 @@ def test_adaptive_compiler_customizes_content_but_cannot_change_task_graph():
         "retry_count": 1,
         "retry_categories": ["server_error"],
     }
+
+
+def test_adaptive_compiler_rejects_missing_or_unknown_anchor_references():
+    diagnosis, selection, evidence, baseline = _baseline()
+    output = {
+        "phases": [
+            {
+                "phase_id": phase.phase_id,
+                "title": f"618 cart recovery {phase.phase_id}",
+                "objective": "Use the cart-loss signal and zero-spend constraint for the next reviewed decision.",
+                "grounding_refs": ["anchor_1"],
+            }
+            for phase in baseline.phases
+        ],
+        "tasks": [
+            {
+                "task_id": task.task_id,
+                "title": f"Recover the 12 percent cart loss through {task.task_family}",
+                "deliverable": f"Reviewed {task.task_family} record for the 618 recovery decision",
+                "metric": "Cart conversion is compared with the four-week baseline.",
+                "grounding_refs": ["unknown_anchor"],
+            }
+            for phase in baseline.phases
+            for task in phase.tasks
+        ],
+    }
+
+    refined = AdaptiveSOPCompiler(RecordingPromptOps(output)).refine(
+        baseline,
+        diagnosis=diagnosis,
+        selection=selection,
+        evidence=evidence,
+        knowledge_context={},
+    )
+
+    metadata = refined.metadata["adaptive_compilation"]
+    assert metadata["status"] == "fallback"
+    assert metadata["reason"] == "model_output_not_grounded"
+    assert metadata["specificity"]["grounding_mode"] == "anchor_refs"
+    assert metadata["specificity"]["unmatched_task_ids"]
 
 
 def test_adaptive_compiler_falls_back_when_response_changes_the_task_contract():
@@ -326,8 +371,6 @@ def test_adaptive_compiler_accepts_compact_task_output_and_keeps_stable_governan
                 "title": f"Recover the 12 percent cart loss through {task.task_family}",
                 "deliverable": f"Reviewed {task.task_family} record for the 618 recovery decision",
                 "metric": "Cart conversion is compared with the four-week baseline.",
-                "decision_point": "The operations director accepts or reverses the bounded next action.",
-                "risk": "No acquisition spend or inventory trade-off is allowed without review.",
             }
             for phase in baseline.phases
             for task in phase.tasks
@@ -348,9 +391,50 @@ def test_adaptive_compiler_accepts_compact_task_output_and_keeps_stable_governan
     assert all(refined_by_id[key].title != baseline_by_id[key].title for key in baseline_by_id)
     assert all(refined_by_id[key].trigger == baseline_by_id[key].trigger for key in baseline_by_id)
     assert all(refined_by_id[key].check == baseline_by_id[key].check for key in baseline_by_id)
+    assert all(refined_by_id[key].decision_point == baseline_by_id[key].decision_point for key in baseline_by_id)
+    assert all(refined_by_id[key].risk == baseline_by_id[key].risk for key in baseline_by_id)
 
 
-def test_service_uses_adaptive_compilation_only_when_the_mission_requests_it(tmp_path):
+def test_adaptive_compiler_accepts_tasks_nested_under_their_declared_phases():
+    diagnosis, selection, evidence, baseline = _baseline()
+    output = {
+        "phases": [
+            {
+                "phase_id": phase.phase_id,
+                "title": f"618 cart recovery {phase.phase_id}",
+                "objective": "Use the declared cart-loss evidence for the next reviewed decision.",
+                "tasks": [
+                    {
+                        "task_id": task.task_id,
+                        "title": f"Resolve the 12 percent cart loss through {task.task_family}",
+                        "deliverable": f"Reviewed {task.task_family} record for the cart recovery decision",
+                        "metric": "Cart conversion is compared with the four-week baseline.",
+                    }
+                    for task in phase.tasks
+                ],
+            }
+            for phase in baseline.phases
+        ],
+    }
+
+    refined = AdaptiveSOPCompiler(RecordingPromptOps(output)).refine(
+        baseline,
+        diagnosis=diagnosis,
+        selection=selection,
+        evidence=evidence,
+        knowledge_context={},
+    )
+
+    assert refined.metadata["adaptive_compilation"]["status"] == "completed"
+    assert [phase.phase_id for phase in refined.phases] == [phase.phase_id for phase in baseline.phases]
+    assert all(
+        task.title.startswith("Resolve the 12 percent cart loss")
+        for phase in refined.phases
+        for task in phase.tasks
+    )
+
+
+def test_service_uses_adaptive_compilation_for_an_available_provider_unless_explicitly_disabled(tmp_path, monkeypatch):
     class RecordingAdaptiveCompiler:
         def __init__(self):
             self.calls = []
@@ -361,24 +445,61 @@ def test_service_uses_adaptive_compilation_only_when_the_mission_requests_it(tmp
                 "metadata": {"adaptive_compilation": {"status": "completed", "run_id": "fake"}},
             })
 
+    monkeypatch.setattr(settings, "SOP_LLM_PROVIDER", "deepseek")
+    monkeypatch.setattr(settings, "DEEPSEEK_API_KEY", "configured-key")
+
+    for mode, expected_calls in ((None, 1), ("auto", 1), ("adaptive", 1), ("deterministic", 0), ("baseline", 0), ("off", 0)):
+        store = ArtifactGraphStore(str(tmp_path / f"artifacts-{mode or 'default'}"), project_id="project-a", session_id="dbos")
+        adaptive = RecordingAdaptiveCompiler()
+        service = DBOSService(store=store, adaptive_compiler=adaptive)
+        context = {
+            "role": "product lead",
+            "industry": "AI SaaS",
+            "organization_stage": "growth",
+            "goal": "increase activation",
+        }
+        if mode is not None:
+            context["sop_generation_mode"] = mode
+        mission = service.create_mission(
+            project_id="project-a",
+            title=f"Specific product launch {mode or 'default'}",
+            intake_mode="business",
+            intent="Prepare an evidence-backed launch decision for the new AI onboarding flow.",
+            context=context,
+        )
+
+        flow = service.diagnose_and_compile(mission.artifact_id)
+
+        assert len(adaptive.calls) == expected_calls
+        if expected_calls:
+            assert flow.sop.metadata["adaptive_compilation"]["status"] == "completed"
+        else:
+            assert "adaptive_compilation" not in flow.sop.metadata
+
+
+def test_service_invokes_an_explicit_adaptive_request_even_without_a_configured_provider(tmp_path, monkeypatch):
+    class RecordingAdaptiveCompiler:
+        def __init__(self):
+            self.calls = []
+
+        def refine(self, baseline, **kwargs):
+            self.calls.append(kwargs)
+            return baseline
+
+    monkeypatch.setattr(settings, "SOP_LLM_PROVIDER", "mock")
+    monkeypatch.setattr(settings, "LLM_PROVIDER", "mock")
+    monkeypatch.setattr(settings, "DEEPSEEK_API_KEY", "")
     store = ArtifactGraphStore(str(tmp_path / "artifacts"), project_id="project-a", session_id="dbos")
     adaptive = RecordingAdaptiveCompiler()
     service = DBOSService(store=store, adaptive_compiler=adaptive)
     mission = service.create_mission(
         project_id="project-a",
-        title="Specific product launch",
+        title="Explicit adaptive launch diagnosis",
         intake_mode="business",
         intent="Prepare an evidence-backed launch decision for the new AI onboarding flow.",
-        context={
-            "role": "product lead",
-            "industry": "AI SaaS",
-            "organization_stage": "growth",
-            "goal": "increase activation",
-            "sop_generation_mode": "adaptive",
-        },
+        context={"sop_generation_mode": "adaptive"},
     )
 
-    flow = service.diagnose_and_compile(mission.artifact_id)
+    service.diagnose_and_compile(mission.artifact_id)
 
     assert len(adaptive.calls) == 1
-    assert flow.sop.metadata["adaptive_compilation"]["status"] == "completed"

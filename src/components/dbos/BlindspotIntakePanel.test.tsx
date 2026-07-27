@@ -54,6 +54,22 @@ describe('BlindspotIntakePanel', () => {
     expect(screen.getByText('Frame the work before a Mission exists')).toBeVisible();
   });
 
+  it('starts a non-executable clarification from a carried business request', async () => {
+    api.fetchDbosIntakeAvailability.mockResolvedValue({ enabled: true });
+    api.createDbosIntake.mockResolvedValue({ ...base, phase: 'clarifying' });
+    api.nextDbosIntakeQuestion.mockResolvedValue({
+      intake: { ...base, phase: 'clarifying' },
+      question: { question_id: 'qualify-role', phase: 'qualify', field: 'role', prompt: 'Who owns the outcome?', options: [] },
+    });
+    api.listDbosIntakeRevisions.mockResolvedValue({ revisions: [] });
+
+    render(<BlindspotIntakePanel projectId="project-a" initialRequestText="Recover store traffic in 30 days" autoStart onMissionConverted={vi.fn()} />);
+
+    await waitFor(() => expect(api.createDbosIntake).toHaveBeenCalledWith('project-a', 'Recover store traffic in 30 days'));
+    expect(await screen.findByText('Who owns the outcome?')).toBeVisible();
+    expect(api.convertDbosIntake).not.toHaveBeenCalled();
+  });
+
   it('uses one bounded question, preserves skip, selects a tier, and converts to a gated Mission', async () => {
     api.fetchDbosIntakeAvailability.mockResolvedValue({ enabled: true });
     api.createDbosIntake.mockResolvedValue({ ...base, phase: 'clarifying' });

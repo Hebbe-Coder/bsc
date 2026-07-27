@@ -42,6 +42,7 @@ from app.mcp.compatibility import build_compatibility_profile
 from app.mcp import wiki_tools
 from app.mcp import growth_tools
 from app.mcp import dbos_tools
+from app.mcp import operations_tools
 
 logger = logging.getLogger(__name__)
 
@@ -586,6 +587,64 @@ def _authorize_dbos_project(project_id: str, api_key: str = "", *, write: bool =
             raise PermissionError("project_reader is read-only for Dynamic Business OS")
         return
     raise PermissionError("invalid Dynamic Business OS access role")
+
+
+def _authorize_operations_project(project_id: str, api_key: str = "") -> tuple[str, str | None]:
+    """Apply the existing read-only project key semantics to operations reads."""
+    if not project_id or not project_id.strip():
+        raise ValueError("project_id is required")
+    role, scoped_project_id = _require_mcp_auth(api_key)
+    if role in {"admin", "reader"}:
+        return role, scoped_project_id
+    if role in {"project_admin", "project_reader", "system"} and scoped_project_id == project_id:
+        return role, scoped_project_id
+    raise PermissionError("no access to this project")
+
+
+def _operations_tenant(role: str, scoped_project_id: str | None) -> str:
+    """Global keys retain the default tenant; project keys use their bound tenant."""
+    if role in {"project_admin", "project_reader", "system"}:
+        if not scoped_project_id:
+            raise PermissionError("project principal is missing a project scope")
+        return operations_tools.project_tenant(scoped_project_id)
+    from app.core.config import settings
+
+    return settings.DEFAULT_TENANT_ID
+
+
+@mcp.tool()
+def knowledge_operations_portfolio(api_key: str = "") -> dict:
+    """Read tenant-admin portfolio metrics, quality states and next actions."""
+    role, _project_id = _require_mcp_auth(api_key)
+    if role != "admin":
+        raise PermissionError("portfolio operations require an admin key")
+    return operations_tools.portfolio()
+
+
+@mcp.tool()
+def knowledge_operations_project(project_id: str, api_key: str = "") -> dict:
+    """Read one authorized project's knowledge operations cockpit projection."""
+    role, scoped_project_id = _authorize_operations_project(project_id, api_key)
+    return operations_tools.project(project_id, tenant_id=_operations_tenant(role, scoped_project_id))
+
+
+@mcp.tool()
+def knowledge_operations_graph(
+    project_id: str,
+    mission_id: str = "",
+    limit: int = 200,
+    cursor: str = "",
+    api_key: str = "",
+) -> dict:
+    """Read one bounded, explainable lifecycle graph slice."""
+    role, scoped_project_id = _authorize_operations_project(project_id, api_key)
+    return operations_tools.graph(
+        project_id,
+        mission_id=mission_id,
+        limit=limit,
+        cursor=cursor,
+        tenant_id=_operations_tenant(role, scoped_project_id),
+    )
 
 
 _GROWTH_ACTION_PERMISSIONS = {

@@ -22,7 +22,7 @@ from app.dbos.external_worker import ExternalWorkerPolicyError
 
 
 router = APIRouter(prefix="/api/dbos", tags=["Dynamic Business OS"])
-DBOS_DATA_ROOT = Path("./data/dbos")
+DBOS_DATA_ROOT = Path(settings.DBOS_DATA_ROOT)
 _PROJECT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 

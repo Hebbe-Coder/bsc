@@ -15,6 +15,7 @@ from uuid import uuid4
 MANIFEST_FILENAME = "bsc-plugins.json"
 TRUST_FILENAME = "bsc-plugin-trust.json"
 _MAX_MANIFEST_BYTES = 64 * 1024
+_MAX_OBSERVED_EXPORT_FILES = 512
 _SOURCE_ADAPTER = "filesystem_drop"
 _OUTPUT_ADAPTER = "filesystem_output"
 _SUPPORTED_ADAPTERS = frozenset({_SOURCE_ADAPTER, _OUTPUT_ADAPTER})
@@ -400,10 +401,11 @@ class ObsidianPluginManifest:
             if plugin_id in registered_outputs and str(metadata.get("obsidian_adapter") or "") == _OUTPUT_ADAPTER:
                 registered_outputs[plugin_id].append(output)
 
-        return {
-            "configured": self.configured,
-            "supported_adapters": sorted(_SUPPORTED_ADAPTERS),
-            "plugins": [
+        plugin_statuses = []
+        for plugin in self.plugins:
+            observation = self._export_observation(plugin, project_root)
+            status = self._status(plugin, captured_sources[plugin.plugin_id], registered_outputs[plugin.plugin_id])
+            plugin_statuses.append(
                 {
                     "id": plugin.plugin_id,
                     "name": plugin.name,
@@ -414,7 +416,9 @@ class ObsidianPluginManifest:
                     "trust_actor": self.trusts.get(plugin.plugin_id).actor_id if self.trusts.get(plugin.plugin_id) else "",
                     "path_status": self._path_status(plugin, project_root),
                     "runtime_configuration": self._runtime_configuration(plugin, project_root, vault_root),
-                    "status": self._status(plugin, captured_sources[plugin.plugin_id], registered_outputs[plugin.plugin_id]),
+                    "status": status,
+                    "capture_state": self._capture_state(plugin, status, observation),
+                    "export_observation": observation,
                     "captured_sources": len(captured_sources[plugin.plugin_id]),
                     "registered_outputs": len(registered_outputs[plugin.plugin_id]),
                     "last_captured_at": max(
@@ -426,8 +430,12 @@ class ObsidianPluginManifest:
                         default="",
                     ),
                 }
-                for plugin in self.plugins
-            ],
+            )
+
+        return {
+            "configured": self.configured,
+            "supported_adapters": sorted(_SUPPORTED_ADAPTERS),
+            "plugins": plugin_statuses,
             "errors": [*self.errors, *self.trust_errors],
         }
 
@@ -442,6 +450,72 @@ class ObsidianPluginManifest:
         if plugin.adapter == _OUTPUT_ADAPTER:
             return "registered_output" if outputs else "awaiting_output"
         return "captured" if sources else "awaiting_export"
+
+    def _capture_state(self, plugin: ObsidianPlugin, status: str, observation: dict[str, Any]) -> str:
+        """Distinguish a healthy empty route from an unprocessed file drop.
+
+        The legacy ``status`` remains the authority for compatibility and
+        captured provenance. This additional state is observational only: it
+        never promotes a file to a source or output before the sync pipeline
+        has processed it.
+        """
+        if status in {"awaiting_trust", "trust_stale", "trust_unavailable"}:
+            return status
+        if status in {"captured", "registered_output"}:
+            return status
+        if observation["state"] in {"files_detected", "file_limit_reached"}:
+            return "files_detected_pending_registration" if plugin.adapter == _OUTPUT_ADAPTER else "files_detected_pending_capture"
+        if observation["state"] == "empty":
+            return "ready_for_first_output" if plugin.adapter == _OUTPUT_ADAPTER else "ready_for_first_export"
+        return "route_unavailable"
+
+    @staticmethod
+    def _export_observation(plugin: ObsidianPlugin, project_root: Path | None) -> dict[str, Any]:
+        """Count visible regular files without reading filenames or contents."""
+        empty = {"state": "unavailable", "file_count": 0, "latest_modified_at": ""}
+        if project_root is None:
+            return empty
+        try:
+            root = project_root.resolve()
+            if root.is_symlink() or not root.is_dir():
+                return empty
+            count = 0
+            latest_modified_at = ""
+            for configured_path in plugin.input_paths:
+                export_root = (root / PurePosixPath(configured_path)).resolve()
+                export_root.relative_to(root)
+                if export_root.is_symlink() or not export_root.is_dir():
+                    return empty
+                for candidate in export_root.rglob("*"):
+                    if candidate.is_symlink() or not candidate.is_file():
+                        continue
+                    relative = candidate.relative_to(export_root)
+                    if ObsidianPluginManifest._is_transient_export_file(relative):
+                        continue
+                    count += 1
+                    modified_at = datetime.fromtimestamp(candidate.stat().st_mtime, tz=timezone.utc).isoformat()
+                    if modified_at > latest_modified_at:
+                        latest_modified_at = modified_at
+                    if count >= _MAX_OBSERVED_EXPORT_FILES:
+                        return {
+                            "state": "file_limit_reached",
+                            "file_count": count,
+                            "latest_modified_at": latest_modified_at,
+                        }
+            return {
+                "state": "files_detected" if count else "empty",
+                "file_count": count,
+                "latest_modified_at": latest_modified_at,
+            }
+        except (OSError, ValueError):
+            return empty
+
+    @staticmethod
+    def _is_transient_export_file(relative: Path) -> bool:
+        if any(part.startswith(".") for part in relative.parts):
+            return True
+        name = relative.name.lower()
+        return name.startswith("~") or name.endswith((".tmp", ".temp", ".swp", ".lock"))
 
     @staticmethod
     def _runtime_configuration(

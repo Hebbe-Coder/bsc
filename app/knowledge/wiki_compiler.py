@@ -37,7 +37,10 @@ class WikiCompiler:
 
     _SOURCE_CITATION = re.compile(r"\[source:([^\]\s]+)\]")
     _CONTEXT_EXCERPT_ARTIFACT = re.compile(
-        r"\[CONTEXT_EXCERPT(?::[^\]]*)?\]|\bcontent\s+truncated\s+in\s+source\b",
+        r"\[CONTEXT_EXCERPT(?::[^\]]*)?\]"
+        r"|\bcontent\s+truncated\s+in\s+source\b"
+        r"|(?:源(?:资料|内容|摘录)|原始(?:资料|内容)|内容)(?:中|里)?(?:的)?(?:内容)?(?:已|被)?截断"
+        r"|(?:源(?:资料|内容|摘录)|原始(?:资料|内容))[^。；\n]{0,24}(?:不完整|不全)",
         re.IGNORECASE,
     )
     _NON_EVIDENCE_CONTEXT_KINDS = frozenset({
@@ -86,6 +89,9 @@ class WikiCompiler:
             task_constraints=constraints,
             pages=page_snapshots or [],
             sources=sources,
+            # Immutable evidence must be complete before derived page context
+            # is admitted, otherwise the model can infer missing source facts.
+            sources_first=True,
         )
         run = KnowledgeRun(
             project_id=project_id,
@@ -111,7 +117,7 @@ class WikiCompiler:
         )
         persisted_run = self.repository.create_run(run)
         try:
-            prompt = self._build_prompt(rules, context_pack, contradictions)
+            prompt = self._build_prompt(rules, context_pack, contradictions, sources)
             if getattr(self.provider, "project_scoped", False):
                 response = self.provider.compile_wiki(prompt, project_id=project_id)
             else:
@@ -167,16 +173,24 @@ class WikiCompiler:
         return selected
 
     @staticmethod
-    def _build_prompt(rules: ProjectRules, context_pack: ContextPack, contradictions: list[dict[str, str]]) -> str:
+    def _build_prompt(
+        rules: ProjectRules,
+        context_pack: ContextPack,
+        contradictions: list[dict[str, str]],
+        sources: list[dict[str, Any]],
+    ) -> str:
         contradiction_block = "\n".join(
             f"- {item['source_id']} contradicts {item['contradicts_source_id']} ({item['basis']})"
             for item in contradictions
         ) or "- None detected; do not invent a contradiction."
+        allowed_sources = ", ".join(str(source["id"]) for source in sources)
         return (
             "Compile the supplied project evidence into a reviewable Wiki proposal, not a generic summary. "
             "Distill reusable, project-specific concepts, decisions, or methods that improve a later task. "
             "Every factual statement must be traceable to supplied source IDs. Return only the proposal JSON schema "
-            "specified by the Wiki compiler; never claim any file has been published.\n\n"
+            "specified by the Wiki compiler; never claim any file has been published.\n"
+            f"The only allowed immutable source IDs for inline citations and source_ids are: {allowed_sources}. "
+            "Existing Wiki page citations are navigation context, not additional permitted evidence.\n\n"
             f"Rule revision: {rules.revision}\n\nContradiction candidates:\n{contradiction_block}\n\n{context_pack.rendered}"
         )
 

@@ -66,8 +66,6 @@ class HorizonImportService:
             content = "\n".join(
                 part for part in (
                     f"# {item.title}", item.content.strip(),
-                    f"Horizon summary: {item.ai_summary}" if item.ai_summary else "",
-                    f"Horizon rationale: {item.ai_reason}" if item.ai_reason else "",
                     f"URL: {item.url}",
                 ) if part
             )
@@ -91,6 +89,8 @@ class HorizonImportService:
                         "ai_tags": item.ai_tags,
                         "task_families": self._task_families(item),
                         "admission_gate": "project_triage",
+                        "evidence_role": "discovery_signal",
+                        "primary_capture_required": True,
                         "horizon_metadata": item.metadata,
                     },
                     capture_run_id=capture_run_id,

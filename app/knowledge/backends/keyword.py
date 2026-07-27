@@ -26,6 +26,11 @@ class KeywordBackend:
     def search(self, query: str, project_id: Optional[str] = None, limit: int = 20) -> List[str]:
         if not self.enabled or not query or not query.strip():
             return []
+        # ``knowledge_fts`` is a SQLite FTS5 virtual table only. PostgreSQL
+        # keeps a portable table projection, so SQLite MATCH/bm25 would only
+        # emit a database error before falling back to this lexical path.
+        if getattr(self.repo._get_connection(), "dialect", "sqlite") == "postgresql":
+            return self._like_search(query, project_id=project_id, limit=limit)
         import re as _re
         terms = [t for t in _re.split(r"\s+", query.strip()) if t]
         if not terms:
@@ -45,18 +50,21 @@ class KeywordBackend:
                 tuple(params)).fetchall()
             return [r["chunk_id"] for r in rows]
         except Exception:
-            try:
-                like = f"%{query}%"
-                sql = "SELECT c.id AS chunk_id FROM knowledge_chunks c WHERE c.content LIKE ?"
-                lparams: list = [like]
-                if project_id:
-                    sql += (" AND c.doc_id IN (SELECT id FROM knowledge_docs "
-                            "WHERE project_id=?)")
-                    lparams.append(project_id)
-                sql += " LIMIT ?"
-                lparams.append(limit)
-                rows = self.repo._execute(sql, tuple(lparams)).fetchall()
-                return [r["chunk_id"] for r in rows]
-            except Exception:
-                self.enabled = False
-                return []
+            return self._like_search(query, project_id=project_id, limit=limit)
+
+    def _like_search(self, query: str, *, project_id: Optional[str], limit: int) -> List[str]:
+        try:
+            like = f"%{query}%"
+            sql = "SELECT c.id AS chunk_id FROM knowledge_chunks c WHERE c.content LIKE ?"
+            params: list = [like]
+            if project_id:
+                sql += (" AND c.doc_id IN (SELECT id FROM knowledge_docs "
+                        "WHERE project_id=?)")
+                params.append(project_id)
+            sql += " LIMIT ?"
+            params.append(limit)
+            rows = self.repo._execute(sql, tuple(params)).fetchall()
+            return [row["chunk_id"] for row in rows]
+        except Exception:
+            self.enabled = False
+            return []

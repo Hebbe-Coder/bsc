@@ -3,9 +3,9 @@ from __future__ import annotations
 from collections.abc import Iterator
 from types import SimpleNamespace
 
-from app.promptops import PromptTask
+from app.promptops import PromptOpsError, PromptTask
 from app.knowledge.wiki_compiler import WikiCompiler
-from app.knowledge.wiki_llm_provider import SOPWikiCompilerProvider
+from app.knowledge.wiki_llm_provider import _WIKI_PROPOSAL_SCHEMA, SOPWikiCompilerProvider, WikiLLMProviderError
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_rules import build_default_agents_rules
 from app.knowledge.wiki_source_capture import CapturedSourceInput, SourceCaptureService
@@ -36,6 +36,23 @@ class RecordingPromptOps:
     def run_structured(self, request):
         self.requests.append(request)
         return SimpleNamespace(output=self.output)
+
+
+class FailingPromptOps:
+    def run_structured(self, _request):
+        raise PromptOpsError("payment_required")
+
+
+def test_provider_preserves_a_safe_external_failure_category():
+    provider = SOPWikiCompilerProvider(provider="deepseek", promptops=FailingPromptOps())
+
+    try:
+        provider.compile_wiki("[source:source-a] Evidence.", project_id="project-a")
+    except WikiLLMProviderError as exc:
+        assert exc.category == "payment_required"
+        assert str(exc) == "Wiki LLM provider is unavailable (payment_required)"
+    else:
+        raise AssertionError("expected the provider failure to be surfaced")
 
 
 def test_provider_repairs_missing_operation_and_compiles_a_reviewable_proposal(tmp_path):
@@ -94,6 +111,12 @@ def test_provider_repairs_missing_operation_and_compiles_a_reviewable_proposal(t
         repo.close()
 
 
+def test_provider_schema_requires_a_project_specific_increment():
+    assert "factual glossary" in _WIKI_PROPOSAL_SCHEMA
+    assert "named project workflow" in _WIKI_PROPOSAL_SCHEMA
+    assert "applicability boundary" in _WIKI_PROPOSAL_SCHEMA
+
+
 def test_provider_uses_promptops_with_project_scope_and_versioned_revision():
     valid = {
         "rationale": "Capture a durable project decision.",
@@ -120,3 +143,5 @@ def test_provider_uses_promptops_with_project_scope_and_versioned_revision():
     assert request.task == PromptTask.WIKI_COMPILATION
     assert request.revision == "wiki-proposal-v1"
     assert request.provider == "deepseek"
+    assert request.timeout_seconds == 90.0
+    assert request.max_attempts == 1

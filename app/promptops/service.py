@@ -86,6 +86,16 @@ class PromptOps:
                     temperature=request.temperature,
                     max_tokens=request.max_tokens,
                 )
+                if not isinstance(output, dict):
+                    # ``SOPLLMClient`` preserves a safe provider category for
+                    # its internal JSON-repair attempts. Treat a terminal
+                    # empty/unsupported result as a retryable response sample,
+                    # not as a successful loop exit that silently forces a
+                    # caller into deterministic fallback.
+                    category = str(
+                        getattr(client, "last_structured_failure", "") or "structured_response_invalid"
+                    )
+                    raise PromptOpsError(category, "Structured provider response was invalid")
                 break
             except Exception as exc:
                 # Inspect exception shape rather than importing a concrete

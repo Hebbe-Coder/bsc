@@ -9,6 +9,8 @@ import json
 import logging
 from pathlib import Path
 import re
+from threading import Lock
+from time import monotonic
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -17,7 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.api.growth_ws import public_event, stream_run_events, validate_event_cursor
 from app.api.response import ApiResponse
-from app.core.celery_app import is_celery_broker_available, is_celery_real
+from app.core.celery_app import get_celery_app, is_celery_broker_available, is_celery_real
 from app.core.config import settings
 from app.knowledge.capture_adapters import CaptureAdapter, redact_secrets
 from app.knowledge.feedback_router import FeedbackRouter
@@ -36,6 +38,7 @@ from app.knowledge.growth_contracts import (
 )
 from app.knowledge.candidate_extraction import CANDIDATE_EXTRACTION_RUN_TYPE, SourceCandidateExtractionService
 from app.knowledge.growth_distillation import GrowthDistillationService
+from app.knowledge.growth_distillation_revisions import growth_distillation_revision_metadata
 from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.method_detector import MethodDetector
 from app.knowledge.method_distillation import SOURCE_METHOD_DISTILLATION_RUN_TYPE, SourceMethodDistillationService
@@ -65,6 +68,9 @@ GROWTH_WORKSPACE_RUN_TYPES = GROWTH_JOB_TYPES | {
     CANDIDATE_EXTRACTION_RUN_TYPE,
     METHOD_EVOLUTION_RUN_TYPE,
 }
+SCHEDULER_AVAILABILITY_CACHE_TTL_SECONDS = 2.0
+_scheduler_availability_lock = Lock()
+_scheduler_availability_cache: tuple[tuple[object, ...], float, bool] | None = None
 
 
 def require_growth_enabled() -> None:
@@ -1494,13 +1500,20 @@ def list_distillations(
     project_id: str,
     request: Request,
     kind: Literal["daily", "weekly"] | None = None,
+    include_history: bool = Query(default=False),
     limit: int = Query(default=100, ge=1, le=MAX_PAGE_SIZE),
     cursor: str | None = Query(default=None, max_length=16),
     repo: GrowthRepository = Depends(get_growth_repository),
 ):
     project_id = _enforce_growth_access(request, project_id)
     records = _guard(lambda: repo.list_growth_distillations(project_id, kind=kind or "", limit=MAX_PAGE_SIZE))
-    page, pagination = _paginate([_public_record(item) for item in records], limit=limit, cursor=cursor)
+    metadata = growth_distillation_revision_metadata(repo, records, vault_root=str(settings.OBSIDIAN_VAULT_ROOT or ""))
+    visible = [
+        {**record, **metadata.get(str(record.get("id") or ""), {"current": True, "revision_count": 1})}
+        for record in records
+        if include_history or bool(metadata.get(str(record.get("id") or ""), {"current": True})["current"])
+    ]
+    page, pagination = _paginate([_public_record(item) for item in visible], limit=limit, cursor=cursor)
     return _ok(request, repo, project_id, {"distillations": page, "pagination": pagination})
 
 
@@ -1516,7 +1529,9 @@ def read_distillation(
     record = next((item for item in records if item.get("id") == distillation_id), None)
     if not record:
         raise _http_error(404, "growth_resource_not_found", "distillation not found in project")
-    return _ok(request, repo, project_id, {"distillation": _public_record(record)})
+    metadata = growth_distillation_revision_metadata(repo, records, vault_root=str(settings.OBSIDIAN_VAULT_ROOT or ""))
+    revision = metadata.get(str(record.get("id") or ""), {"current": True, "revision_count": 1})
+    return _ok(request, repo, project_id, {"distillation": _public_record({**record, **revision})})
 
 
 @project_router.post("/distillations/weekly")
@@ -1598,12 +1613,44 @@ def _availability(repo: GrowthRepository, project_id: str) -> dict[str, Any]:
     }
 
 
-def _scheduler_available() -> bool:
-    return bool(
-        settings.KNOWLEDGE_SCHEDULES_ENABLED
-        and is_celery_real()
-        and is_celery_broker_available()
+def _scheduler_availability_context() -> tuple[object, ...]:
+    """Identify the runtime whose scheduler status is safe to reuse briefly."""
+    return (
+        str(settings.CELERY_BROKER_URL or ""),
+        id(get_celery_app()),
+        id(is_celery_real),
+        id(is_celery_broker_available),
     )
+
+
+def _reset_scheduler_availability_cache() -> None:
+    """Clear the response-only availability cache for tests and runtime reconfiguration."""
+    global _scheduler_availability_cache
+    with _scheduler_availability_lock:
+        _scheduler_availability_cache = None
+
+
+def _scheduler_available() -> bool:
+    """Return a short-lived status for UI responses without probing Redis per request.
+
+    Submitting work deliberately retains its direct broker check in ``_start_run``.
+    This cache is only for the advisory availability field returned on every read.
+    """
+    global _scheduler_availability_cache
+    if not settings.KNOWLEDGE_SCHEDULES_ENABLED:
+        _reset_scheduler_availability_cache()
+        return False
+
+    context = _scheduler_availability_context()
+    now = monotonic()
+    with _scheduler_availability_lock:
+        cached = _scheduler_availability_cache
+        if cached and cached[0] == context and now - cached[1] < SCHEDULER_AVAILABILITY_CACHE_TTL_SECONDS:
+            return cached[2]
+
+        available = bool(is_celery_real() and is_celery_broker_available())
+        _scheduler_availability_cache = (context, now, available)
+        return available
 
 
 def _paginate(items: list[dict[str, Any]], *, limit: int, cursor: str | None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
