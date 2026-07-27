@@ -97,7 +97,12 @@ Roles are tenant and project-scoped. A project key resolves to the tenant that o
 | Retrieval and graph projections | Rebuildable acceleration and navigation | Search, ranking, citation graph, lifecycle graph, dashboard projections | Independent truth that can diverge from records and pages |
 | Dynamic Business OS / Artifact Graph | Business-runtime authority | Problems, reasoning, decisions, execution, risks, validations, memory | A replacement for the Wiki or a raw-source store |
 
-Horizon is an external intelligence adapter. It may discover and enrich candidates, but BSC remains responsible for project isolation, source admission, evidence preservation, citation validation, publication, and outcome feedback.
+Horizon and external workflow adapters such as n8n are intelligence-discovery
+surfaces. They may discover and enrich candidates, but BSC remains responsible
+for project isolation, source admission, evidence preservation, citation
+validation, publication, and outcome feedback. An adapter's score, LLM
+summary, Bitable row, notification card, or a successful HTTP response is a
+lead, never a verified knowledge claim.
 
 ### 4.2 Logical Layer Contract And Compatible Physical Paths
 
@@ -299,12 +304,151 @@ Every review action must identify the affected record, rationale, actor, timesta
 - Low-trust or incomplete signals may create research tasks but cannot directly create verified Wiki claims, methods, or SOP requirements.
 - Retention and deletion requests must preserve an audit-safe tombstone or policy record without exposing removed raw content.
 
-### FR-4 Horizon Intelligence Integration
+### FR-4 Horizon And External Intelligence Integration
 
 - Horizon runs are visible as bounded source batches with run ID, query/topic configuration reference, stages, item counts, failure state, and last successful capture time.
 - Every imported item retains URL, source metadata, Horizon score, stage, and run lineage.
 - The system displays source diversity and source-type mix; it does not equate a high Horizon score with factual correctness.
 - Horizon failures retry under a declared policy and remain visible as failed/unavailable runs. No blank success state is permitted.
+
+### FR-4.1 n8n Information-Aggregator Adapter
+
+The supplied `n8n信息聚合器.json` is a useful discovery-workflow baseline,
+not an importable knowledge authority. Its current 87-node design schedules a
+daily run at 08:00 and combines public RSS, Reddit, YouTube, X/Twitter, and
+TikTok/RapidAPI discovery with engagement filters, DeepSeek translation and
+classification, Feishu Bitable writes, and Feishu-card delivery. The exported
+workflow is inactive and its three generic notification HTTP nodes do not have
+configured target URLs. It therefore establishes neither a completed BSC
+import nor a verified knowledge run.
+
+The product retains the baseline's useful properties:
+
+- Multi-source, time-bounded discovery across official feeds, community
+  discussion, video, and social channels.
+- Explicit source-specific metadata such as publication time, author/channel,
+  canonical post URL, and observable engagement metrics.
+- Fast, project-configurable relevance triage and a concise daily briefing.
+- Optional human-facing Feishu notification after durable BSC processing.
+
+The product must not preserve its unsafe shortcuts:
+
+- A `60-80` word LLM translation/summary is a derivative. It cannot replace
+  the original title/body/media reference or become evidence for its own
+  factual claims.
+- Likes, views, reposts, comments, follower-normalized viral scores, and
+  "top" ranking are discovery signals only. They measure attention, not
+  authority, truth, or applicability to a project.
+- Direct Bitable writes, Markdown cards, and filesystem writes cannot bypass
+  BSC source admission, immutable storage, project isolation, citations, or
+  audit events.
+- Hard-coded `AI` queries, static account/channel lists, and inline JavaScript
+  node references are configuration, not product policy. Each project must
+  declare its own topics, source allow/deny rules, language, jurisdiction,
+  freshness window, and collection limits.
+- Third-party social/API payloads may be unavailable, incomplete, rate-limited,
+  rights-restricted, or later deleted. Their limitations must remain visible
+  on every derived source record.
+
+When enabled, n8n is a **discovery producer** with this exact direction:
+
+```text
+n8n schedule and provider credentials
+  -> source-specific fetch and bounded relevance filters
+  -> normalized SignalBatch over authenticated BSC ingress
+  -> BSC schema/authorization/idempotency validation
+  -> immutable capture or explicit lead-only/rejected decision
+  -> source assessment, corroboration, review queue, and optional proposal
+  -> BSC-owned daily brief / optional Feishu notification
+```
+
+n8n owns provider-specific credentials, request pacing, and raw external
+response handling inside its own credential store. BSC never reads or exports
+those credentials. BSC owns the receiving project key, authorization, source
+records, run ledger, and any subsequent knowledge lifecycle. A n8n credential
+may never be used as an implicit BSC credential, and a BSC project key must be
+scoped to exactly one project and only to the signal-ingress capability.
+
+### FR-4.2 Signal Batch Contract And Admission Rules
+
+An enabled n8n workflow must send only a versioned `SignalBatch` to a BSC
+project-scoped ingress. The receiver must reject unknown schema versions,
+missing project authorization, oversized batches, duplicate execution IDs,
+future-dated records outside policy tolerance, malformed URLs, and items whose
+declared provider conflicts with their origin URL.
+
+```json
+{
+  "adapter": "n8n-information-aggregator",
+  "adapter_version": "<workflow-version>",
+  "execution_id": "<n8n-execution-id>",
+  "collected_at": "2026-07-27T00:00:00Z",
+  "project_id": "<BSC-project-id>",
+  "items": [
+    {
+      "external_id": "<provider-stable-id>",
+      "provider": "rss|reddit|youtube|x|tiktok",
+      "source_class": "official|publisher|community|social|video",
+      "canonical_url": "https://...",
+      "published_at": "2026-07-27T00:00:00Z",
+      "observed_at": "2026-07-27T00:00:00Z",
+      "title": "<unmodified provider title when available>",
+      "excerpt": "<bounded provider excerpt>",
+      "author_or_channel": "<optional>",
+      "discovery_metrics": { "views": 0, "likes": 0, "comments": 0 },
+      "selection_reasons": ["within_freshness_window", "relevance_match"],
+      "source_limitations": ["social-post", "requires-primary-confirmation"],
+      "raw_payload_hash": "<hash or omitted when retention is prohibited>"
+    }
+  ]
+}
+```
+
+The following rules are mandatory:
+
+- BSC computes the idempotency key from project, adapter, execution identity,
+  external identity/canonical URL, and content hash. A replay returns the
+  original per-item decision; it does not create a second source or inflate
+  dashboard counts.
+- BSC resolves and normalizes a canonical URL where policy permits. It captures
+  the lawful original body, a restricted external reference, or a
+  `lead_only` record with a precise reason. It must never make an LLM summary
+  the immutable source body.
+- BSC separates `discovery_score`/engagement metrics from `trust_assessment`.
+  A social, community, or video lead that carries a factual claim enters a
+  primary-source-confirmation queue before it may support a high-impact claim.
+- Each returned item receives `captured`, `duplicate`, `lead_only`,
+  `rejected`, `partial`, or `failed`, plus a safe reason code and durable BSC
+  ID where created. n8n records this receipt for its operator report; it may
+  not infer success from a 2xx batch envelope alone.
+- Feishu Bitable and interactive-card delivery consume only the redacted,
+  BSC-owned daily brief after the receipt ledger is complete. They are mirrors
+  or notifications, never a second lifecycle database.
+
+### FR-4.3 Adapter Operations, Safety, And Quality Gates
+
+- One enabled adapter has a persisted configuration revision, project owner,
+  schedule/timezone, provider list, topic policy, rate limits, batch ceiling,
+  retention/right rules, feature flag, and rollback procedure.
+- The run ledger records `queued`, `running`, `partial`, `completed`,
+  `failed`, `unavailable`, or `cancelled`; it exposes source counts, duplicate
+  counts, lead-only counts, provider errors, rate-limit state, and the last
+  verified receipt. Missing provider credentials are `unavailable`, not zero
+  new information.
+- Failed delivery may retry only with the same execution identity and bounded
+  exponential backoff. A retry cannot re-fetch/overwrite an already admitted
+  original without a new capture event and audit relation.
+- Provider terms, robots/rate policy, deletion requests, copyright/sensitivity
+  restrictions, and user-configured source exclusions are evaluated before
+  raw-content retention or model processing.
+- LLM classification and translation retain model/provider/revision and input
+  provenance. They may improve triage or readability, but a human can inspect
+  the original provider fields, the derivative, and the decision separately.
+- Project-level relevance is evaluated against the active profile and
+  `AGENTS.md`; a generic global AI-news query cannot populate every project.
+- The adapter exposes no BSC raw source body, project list, vault path,
+  provider credential, Feishu credential, or prompt payload in its logs,
+  notifications, or retry records.
 
 ### FR-5 Wiki Compiler, Claims, And Contradictions
 
