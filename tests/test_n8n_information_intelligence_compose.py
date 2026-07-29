@@ -13,6 +13,7 @@ def test_n8n_is_opt_in_loopback_only_and_uses_a_durable_volume():
     assert "n8n-data:/home/node/.n8n" in n8n["volumes"]
     assert "./n8n/workflows:/opt/bsc-workflows:ro" in n8n["volumes"]
     assert "N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:-}" in n8n["environment"]
+    assert "N8N_RUNNERS_ENABLED=true" in n8n["environment"]
     assert "EXECUTIONS_DATA_SAVE_ON_SUCCESS=none" in n8n["environment"]
     assert "EXECUTIONS_DATA_SAVE_ON_ERROR=none" in n8n["environment"]
     assert "EXECUTIONS_DATA_SAVE_ON_PROGRESS=false" in n8n["environment"]
