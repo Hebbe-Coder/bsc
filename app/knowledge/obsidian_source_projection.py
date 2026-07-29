@@ -48,7 +48,15 @@ class ObsidianSourceProjection:
             raise ValueError("project Vault directory does not exist")
 
         selected = {str(source_id) for source_id in source_ids or () if str(source_id)}
-        report = {"eligible": 0, "created": 0, "updated": 0, "unchanged": 0, "skipped": 0, "conflicts": 0}
+        report = {
+            "eligible": 0,
+            "created": 0,
+            "updated": 0,
+            "adopted": 0,
+            "unchanged": 0,
+            "skipped": 0,
+            "conflicts": 0,
+        }
         for source in self.repository.list_sources(project_id):
             if selected and str(source["id"]) not in selected:
                 continue
@@ -78,7 +86,10 @@ class ObsidianSourceProjection:
         content = self._render(source)
         projected_hash = self._hash_text(content)
         metadata = dict(source.get("metadata") or {})
-        previous = metadata.get("obsidian_source_mirror")
+        stored_mirror = metadata.get("obsidian_source_mirror")
+        # Older captures can contain an empty object before a projection ledger
+        # was written. It carries no ownership information, so treat it as absent.
+        previous = stored_mirror if isinstance(stored_mirror, dict) and stored_mirror else None
         previous_path = str(previous.get("path") or "") if isinstance(previous, dict) else ""
         previous_hash = str(previous.get("projected_hash") or "") if isinstance(previous, dict) else ""
 
@@ -88,10 +99,15 @@ class ObsidianSourceProjection:
             actual_hash = self._file_hash(target)
             if actual_hash == projected_hash and previous_path == relative and previous_hash == actual_hash:
                 return "unchanged"
-            if previous_path != relative or previous_hash != actual_hash:
+            if actual_hash == projected_hash and previous is None:
+                # A prior BSC projection can predate the metadata ledger. Only
+                # adopt byte-for-byte matches; never replace a user-owned file.
+                outcome = "adopted"
+            elif previous_path != relative or previous_hash != actual_hash:
                 return "conflicts"
-            self._write_atomically(target, content)
-            outcome = "updated"
+            else:
+                self._write_atomically(target, content)
+                outcome = "updated"
         else:
             self._write_atomically(target, content)
             outcome = "created"
