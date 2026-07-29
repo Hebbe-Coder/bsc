@@ -12,6 +12,7 @@ from typing import Any
 from pathlib import Path
 
 from app.knowledge.information_intelligence_contracts import (
+    AVAILABLE_CONNECTORS,
     SignalBatch,
     SignalItem,
     SourceRegistryEntry,
@@ -45,6 +46,48 @@ class InformationIntelligenceService:
 
     def list_sources(self, project_id: str) -> list[dict[str, Any]]:
         return self.repository.list_information_source_registry(project_id)
+
+    def n8n_source_manifest(self, project_id: str, connector_type: str = "") -> dict[str, Any]:
+        """Return the minimum scoped source configuration a producer needs.
+
+        This is intentionally narrower than the operator overview: a
+        ``project_ingress`` credential can discover only its own enabled,
+        first-release feed configuration. It cannot inspect receipts, evidence,
+        other projects, derivatives, or unsupported connector configuration.
+        """
+        connector = connector_type.strip().lower()
+        if connector and connector not in AVAILABLE_CONNECTORS:
+            raise InformationIntelligenceError("connector is unavailable for the governed n8n manifest")
+
+        sources = []
+        for source in self.list_sources(project_id):
+            if not source.get("enabled") or source.get("availability") != "available":
+                continue
+            source_connector = str(source.get("connector_type") or "").strip().lower()
+            if source_connector not in AVAILABLE_CONNECTORS:
+                continue
+            if connector and source_connector != connector:
+                continue
+            sources.append(
+                {
+                    "id": str(source["id"]),
+                    "name": str(source["name"]),
+                    "connector_type": source_connector,
+                    "feed_url": str(source["feed_url"]),
+                    "channel_id": str(source.get("channel_id") or ""),
+                    "topics": list(source.get("topics") or []),
+                    "languages": list(source.get("languages") or []),
+                    "freshness_hours": int(source["freshness_hours"]),
+                    "retention_days": int(source["retention_days"]),
+                    "authority_tier": str(source["authority_tier"]),
+                }
+            )
+        return {
+            "project_id": project_id,
+            "connector_type": connector or "all_first_release",
+            "state": "ready" if sources else "no_available_sources",
+            "sources": sources,
+        }
 
     def ingest(self, batch: SignalBatch) -> dict[str, Any]:
         payload_hash = batch.payload_hash()

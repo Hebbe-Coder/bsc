@@ -73,6 +73,55 @@ def test_source_registry_reports_credential_bound_connectors_as_unavailable(tmp_
         repository.close()
 
 
+def test_n8n_manifest_contains_only_enabled_available_first_release_sources(tmp_path):
+    repository = WikiRepository(db_path=str(tmp_path / "intelligence-manifest.db"))
+    service = InformationIntelligenceService(repository)
+    try:
+        rss = service.register_source(_entry())
+        youtube = service.register_source(
+            SourceRegistryEntry(
+                project_id="project-a",
+                name="BSC video channel",
+                connector_type="youtube_channel_rss",
+                feed_url="https://www.youtube.com/feeds/videos.xml?channel_id=UC123",
+                channel_id="UC123",
+                authority_tier="primary",
+            )
+        )
+        service.register_source(
+            SourceRegistryEntry(
+                project_id="project-a",
+                name="Disabled feed",
+                connector_type="rss",
+                feed_url="https://example.com/disabled.xml",
+                enabled=False,
+            )
+        )
+        service.register_source(
+            SourceRegistryEntry(
+                project_id="project-a",
+                name="Unavailable social connector",
+                connector_type="reddit",
+                feed_url="https://www.reddit.com/r/example/.rss",
+            )
+        )
+
+        manifest = service.n8n_source_manifest("project-a")
+
+        assert manifest["state"] == "ready"
+        assert manifest["project_id"] == "project-a"
+        assert {source["id"] for source in manifest["sources"]} == {rss["id"], youtube["id"]}
+        assert all(set(source) <= {
+            "id", "name", "connector_type", "feed_url", "channel_id", "topics", "languages",
+            "freshness_hours", "retention_days", "authority_tier",
+        } for source in manifest["sources"])
+        assert [source["id"] for source in service.n8n_source_manifest("project-a", "rss")["sources"]] == [rss["id"]]
+        with pytest.raises(ValueError, match="unavailable"):
+            service.n8n_source_manifest("project-a", "reddit")
+    finally:
+        repository.close()
+
+
 def test_signal_batch_keeps_raw_evidence_and_derivatives_separate_and_replays_idempotently(tmp_path):
     repository = WikiRepository(db_path=str(tmp_path / "intelligence.db"))
     service = InformationIntelligenceService(repository)

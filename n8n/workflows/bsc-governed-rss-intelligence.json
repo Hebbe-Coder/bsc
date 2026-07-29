@@ -3,10 +3,10 @@
   "active": false,
   "settings": {
     "executionOrder": "v1",
-    "saveExecutionProgress": true,
-    "saveManualExecutions": true,
-    "saveExecutionDataSuccess": "all",
-    "saveExecutionDataError": "all",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": false,
+    "saveExecutionDataSuccess": "none",
+    "saveExecutionDataError": "none",
     "timezone": "Asia/Shanghai"
   },
   "nodes": [
@@ -16,7 +16,7 @@
       "name": "Manual run",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
-      "position": [-820, 120]
+      "position": [-1080, 120]
     },
     {
       "parameters": {
@@ -29,43 +29,73 @@
           ]
         }
       },
-      "id": "5a78f0fa-021b-4b2e-9ad9-501691b430b8",
+      "id": "5a78f0fa-021b-4e2e-9ad9-501691b430b8",
       "name": "08:00 Asia Shanghai (activate only after review)",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [-820, 280],
+      "position": [-1080, 280],
       "disabled": true
     },
     {
       "parameters": {
-        "url": "={{ $env.N8N_RSS_FEED_URL }}",
+        "method": "GET",
+        "url": "={{ $env.BSC_INFORMATION_SOURCE_MANIFEST_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.BSC_PROJECT_INGRESS_KEY }}" }
+          ]
+        },
         "options": {}
       },
       "id": "95d6a327-1d71-47d4-9ce2-2175420edc8e",
-      "name": "Read configured RSS feed",
-      "type": "n8n-nodes-base.rssFeedRead",
-      "typeVersion": 1,
-      "position": [-560, 120]
+      "name": "Load BSC source manifest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-840, 120]
     },
     {
       "parameters": {
-        "jsCode": "const text = String($json.content || $json.contentSnippet || $json.description || '').trim();\nconst title = String($json.title || 'Untitled RSS entry').trim();\nconst url = String($json.link || $json.guid || '').trim();\nif (!url) throw new Error('RSS entry has no canonical URL');\nif (!text) {\n  return [{ json: { title, url, lead_only: true, published_at: $json.isoDate || $json.pubDate || '' } }];\n}\nreturn [{ json: { title, url, raw_content: `# ${title}\\n\\n${text}`, lead_only: false, published_at: $json.isoDate || $json.pubDate || '' } }];"
+        "jsCode": "const envelope = $input.first().json;\nconst payload = envelope.data || envelope.body?.data || envelope.body || envelope;\nconst projectId = String(payload.project_id || '').trim();\nconst sources = Array.isArray(payload.sources) ? payload.sources : [];\nif (!projectId || !sources.length) throw new Error('BSC source manifest has no enabled RSS or YouTube Channel RSS source');\nreturn sources.map((source) => ({ json: { ...source, project_id: projectId }, pairedItem: { item: 0 } }));"
+      },
+      "id": "2d1a6385-6f49-45d1-9049-5f65e2ab13f1",
+      "name": "Expand enabled BSC sources",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-610, 120]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.feed_url }}",
+        "options": {}
       },
       "id": "0f9472e5-81ef-4b48-81e4-ba1d19c017e1",
+      "name": "Read registered RSS or YouTube Channel feed",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [-380, 120]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const entries = $input.all();\nreturn entries.flatMap((entry, index) => {\n  const source = $('Expand enabled BSC sources').itemMatching(index).json;\n  const rawPublishedAt = String(entry.json.isoDate || entry.json.pubDate || '').trim();\n  const publishedMs = Date.parse(rawPublishedAt);\n  const freshnessHours = Number(source.freshness_hours || 168);\n  if (Number.isFinite(publishedMs) && Number.isFinite(freshnessHours) && freshnessHours >= 0 && Date.now() - publishedMs > freshnessHours * 60 * 60 * 1000) return [];\n  const text = String(entry.json.content || entry.json.contentSnippet || entry.json.description || '').trim();\n  const title = String(entry.json.title || 'Untitled RSS entry').trim();\n  const url = String(entry.json.link || entry.json.guid || '').trim();\n  if (!url) throw new Error('RSS entry has no canonical URL');\n  return [{ json: { project_id: source.project_id, registry_id: source.id, connector_type: source.connector_type, title, url, raw_content: text ? `# ${title}\\n\\n${text}` : '', lead_only: !text, published_at: Number.isFinite(publishedMs) ? new Date(publishedMs).toISOString() : '', language: source.languages?.[0] || '' }, pairedItem: { item: index } }];\n});"
+      },
+      "id": "42fa61e5-ef83-45c5-8f43-4282d85aa6ad",
       "name": "Normalize evidence or lead only",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-340, 120]
+      "position": [-140, 120]
     },
     {
       "parameters": {
-        "jsCode": "const executionId = $execution.id;\nconst items = $input.all().map((entry, index) => ({\n  registry_id: $env.N8N_BSC_RSS_REGISTRY_ID,\n  external_id: `${entry.json.url}|${entry.json.published_at || index}`,\n  title: entry.json.title,\n  url: entry.json.url,\n  raw_content: entry.json.raw_content || '',\n  published_at: entry.json.published_at || '',\n  lead_only: Boolean(entry.json.lead_only),\n  discovery_metrics: { discovery_rank: index + 1 }\n}));\nif (!$env.N8N_BSC_PROJECT_ID || !$env.N8N_BSC_RSS_REGISTRY_ID) throw new Error('Set N8N_BSC_PROJECT_ID and N8N_BSC_RSS_REGISTRY_ID before running');\nconst payload = { schema_version: 'v1', project_id: $env.N8N_BSC_PROJECT_ID, batch_id: `rss-${executionId}`, execution_id: String(executionId), connector_type: 'rss', workflow_id: $workflow.id, collected_at: new Date().toISOString(), items };\nreturn [{ json: { body: JSON.stringify(payload) } }];"
+        "mode": "runOnceForAllItems",
+        "jsCode": "const executionId = String($execution.id);\nreturn $input.all().map((entry, index) => {\n  const item = entry.json;\n  const sequence = String(index);\n  if (!item.project_id || !item.registry_id || !item.connector_type) throw new Error('BSC source context is missing from the registered feed item');\n  const payload = { schema_version: 'v1', project_id: item.project_id, batch_id: `${item.connector_type}-${executionId}-${item.registry_id}-${sequence}`, execution_id: `${executionId}:${item.registry_id}:${sequence}`, connector_type: item.connector_type, workflow_id: $workflow.id, collected_at: new Date().toISOString(), items: [{ registry_id: item.registry_id, external_id: `${item.url}|${item.published_at || sequence}`, title: item.title, url: item.url, raw_content: item.raw_content || '', published_at: item.published_at || '', language: item.language || '', lead_only: Boolean(item.lead_only), discovery_metrics: { discovery_rank: Number(index) + 1 } }] };\n  return { json: { body: JSON.stringify(payload) }, pairedItem: { item: index } };\n});"
       },
       "id": "5e0e26a6-057c-4f50-8ece-1357c0546c78",
       "name": "Build BSC SignalBatch v1",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-100, 120]
+      "position": [100, 120]
     },
     {
       "parameters": {
@@ -81,7 +111,7 @@
       "name": "Sign exact SignalBatch body",
       "type": "n8n-nodes-base.crypto",
       "typeVersion": 1,
-      "position": [140, 120]
+      "position": [340, 120]
     },
     {
       "parameters": {
@@ -105,17 +135,18 @@
       "name": "Submit to BSC and require receipt",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [380, 120]
+      "position": [580, 120]
     },
     {
       "parameters": {
-        "jsCode": "const response = $json.body || $json;\nconst data = response.data || {};\nif (!data.batch_id || !Array.isArray(data.receipts)) throw new Error('BSC did not return a valid receipt');\nreturn [{ json: { batch_id: data.batch_id, receipt_count: data.receipt_count, replayed: data.replayed, status: data.status } }];"
+        "mode": "runOnceForAllItems",
+        "jsCode": "return $input.all().map((entry, index) => {\n  const response = entry.json.body || entry.json;\n  const data = response.data || {};\n  if (!data.batch_id || !Array.isArray(data.receipts)) throw new Error('BSC did not return a valid receipt');\n  return { json: { batch_id: data.batch_id, receipt_count: data.receipt_count, replayed: data.replayed, status: data.status }, pairedItem: { item: index } };\n});"
       },
       "id": "df9738d9-2ac9-4cf4-b1de-3d8c4d9089df",
       "name": "Validate BSC receipt before notification",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [620, 120]
+      "position": [820, 120]
     },
     {
       "parameters": {},
@@ -123,14 +154,16 @@
       "name": "Optional notification placeholder (disabled)",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
-      "position": [860, 120],
+      "position": [1060, 120],
       "disabled": true
     }
   ],
   "connections": {
-    "Manual run": { "main": [[{ "node": "Read configured RSS feed", "type": "main", "index": 0 }]] },
-    "08:00 Asia Shanghai (activate only after review)": { "main": [[{ "node": "Read configured RSS feed", "type": "main", "index": 0 }]] },
-    "Read configured RSS feed": { "main": [[{ "node": "Normalize evidence or lead only", "type": "main", "index": 0 }]] },
+    "Manual run": { "main": [[{ "node": "Load BSC source manifest", "type": "main", "index": 0 }]] },
+    "08:00 Asia Shanghai (activate only after review)": { "main": [[{ "node": "Load BSC source manifest", "type": "main", "index": 0 }]] },
+    "Load BSC source manifest": { "main": [[{ "node": "Expand enabled BSC sources", "type": "main", "index": 0 }]] },
+    "Expand enabled BSC sources": { "main": [[{ "node": "Read registered RSS or YouTube Channel feed", "type": "main", "index": 0 }]] },
+    "Read registered RSS or YouTube Channel feed": { "main": [[{ "node": "Normalize evidence or lead only", "type": "main", "index": 0 }]] },
     "Normalize evidence or lead only": { "main": [[{ "node": "Build BSC SignalBatch v1", "type": "main", "index": 0 }]] },
     "Build BSC SignalBatch v1": { "main": [[{ "node": "Sign exact SignalBatch body", "type": "main", "index": 0 }]] },
     "Sign exact SignalBatch body": { "main": [[{ "node": "Submit to BSC and require receipt", "type": "main", "index": 0 }]] },

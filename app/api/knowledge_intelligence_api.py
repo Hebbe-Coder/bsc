@@ -98,6 +98,23 @@ async def ingest_signal_batch(request: Request, repository: WikiRepository = Dep
         ) from exc
 
 
+@router.get("/n8n/source-manifest")
+def n8n_source_manifest(
+    request: Request,
+    connector_type: str = "",
+    repository: WikiRepository = Depends(get_intelligence_repository),
+):
+    """Expose only a project-ingress producer's enabled RSS configuration."""
+    project_id = _enforce_ingress_access(request, str(getattr(request.state, "knowledge_project_id", "") or ""))
+    try:
+        return ApiResponse.ok(_service(repository).n8n_source_manifest(project_id, connector_type))
+    except InformationIntelligenceError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "information_manifest_connector_invalid", "message": str(exc)},
+        ) from exc
+
+
 @router.get("/projects/{project_id}")
 def information_overview(
     project_id: str,

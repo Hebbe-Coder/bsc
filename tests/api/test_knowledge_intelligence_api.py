@@ -85,6 +85,80 @@ def test_project_ingress_key_can_submit_signed_batch_but_cannot_read_workspace(t
         repository.close()
 
 
+def test_project_ingress_key_can_read_only_its_enabled_feed_manifest(tmp_path, monkeypatch):
+    repository = WikiRepository(db_path=str(tmp_path / "intelligence-manifest-api.db"))
+    service = InformationIntelligenceService(repository)
+    rss = service.register_source(
+        {
+            "project_id": "project-a",
+            "name": "Engineering RSS",
+            "connector_type": "rss",
+            "feed_url": "https://example.com/feed.xml",
+        }
+    )
+    service.register_source(
+        {
+            "project_id": "project-a",
+            "name": "Disabled RSS",
+            "connector_type": "rss",
+            "feed_url": "https://example.com/disabled.xml",
+            "enabled": False,
+        }
+    )
+    service.register_source(
+        {
+            "project_id": "project-b",
+            "name": "Other project RSS",
+            "connector_type": "rss",
+            "feed_url": "https://example.com/other.xml",
+        }
+    )
+    monkeypatch.setattr(
+        auth,
+        "resolve_knowledge_auth",
+        lambda key, repo=None: ("project_ingress", "project-a") if key == "ingress-key" else None,
+    )
+    monkeypatch.setattr(settings, "KNOWLEDGE_INTELLIGENCE_ENABLED", True, raising=False)
+    app.dependency_overrides[knowledge_intelligence_api.get_intelligence_repository] = lambda: repository
+    client = TestClient(app)
+    try:
+        manifest = client.get(
+            "/knowledge/intelligence/n8n/source-manifest?connector_type=rss",
+            headers={"Authorization": "Bearer ingress-key"},
+        )
+        invalid = client.get(
+            "/knowledge/intelligence/n8n/source-manifest?connector_type=reddit",
+            headers={"Authorization": "Bearer ingress-key"},
+        )
+        overview = client.get("/knowledge/intelligence/projects/project-a", headers={"Authorization": "Bearer ingress-key"})
+
+        assert manifest.status_code == 200, manifest.text
+        assert manifest.json()["data"] == {
+            "project_id": "project-a",
+            "connector_type": "rss",
+            "state": "ready",
+            "sources": [
+                {
+                    "id": rss["id"],
+                    "name": "Engineering RSS",
+                    "connector_type": "rss",
+                    "feed_url": "https://example.com/feed.xml",
+                    "channel_id": "",
+                    "topics": [],
+                    "languages": [],
+                    "freshness_hours": 168,
+                    "retention_days": 90,
+                    "authority_tier": "untrusted",
+                }
+            ],
+        }
+        assert invalid.status_code == 422
+        assert overview.status_code == 403
+    finally:
+        app.dependency_overrides.clear()
+        repository.close()
+
+
 def test_unsigned_or_malformed_batches_are_never_accepted(tmp_path, monkeypatch):
     repository = WikiRepository(db_path=str(tmp_path / "intelligence-api.db"))
     monkeypatch.setattr(

@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 import json
 
-from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus
+from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus, SourceStatus
 from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
 from app.knowledge.wiki_repository import WikiRepository
@@ -238,6 +238,16 @@ def test_wiki_maintenance_task_is_unavailable_without_a_real_configured_llm(tmp_
     vault_root = tmp_path / "vault"
     vault_root.mkdir()
     repo.configure_vault("project-a", "projects/project-a")
+    source = SourceCaptureService(repo).capture(
+        CapturedSourceInput(
+            project_id="project-a",
+            source_type="manual_upload",
+            origin="provider-required.md",
+            raw_content="This eligible evidence requires a governed Wiki maintenance decision.",
+            trust_level="trusted",
+        )
+    ).source
+    assert source["status"] == SourceStatus.ELIGIBLE.value
     project_root = vault_root / "projects" / "project-a"
     project_root.mkdir(parents=True)
     (project_root / "AGENTS.md").write_text(
