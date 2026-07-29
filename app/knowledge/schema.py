@@ -213,6 +213,34 @@ _WIKI_SCHEMA = [
         root_cause TEXT DEFAULT '', minimal_structural_fix TEXT DEFAULT '', retryable INTEGER NOT NULL DEFAULT 0,
         status TEXT NOT NULL, resolution_json TEXT NOT NULL DEFAULT '{}',
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL)""",
+    """CREATE TABLE IF NOT EXISTS knowledge_information_source_registry (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL, name TEXT NOT NULL,
+        connector_type TEXT NOT NULL, feed_url TEXT NOT NULL, channel_id TEXT NOT NULL DEFAULT '',
+        topics_json TEXT NOT NULL DEFAULT '[]', languages_json TEXT NOT NULL DEFAULT '[]',
+        freshness_hours INTEGER NOT NULL, retention_days INTEGER NOT NULL,
+        authority_tier TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1,
+        availability TEXT NOT NULL, unavailable_reason TEXT NOT NULL DEFAULT '',
+        metadata_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        UNIQUE(project_id,connector_type,feed_url))""",
+    """CREATE TABLE IF NOT EXISTS knowledge_signal_batches (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL, batch_id TEXT NOT NULL,
+        execution_id TEXT NOT NULL, schema_version TEXT NOT NULL, connector_type TEXT NOT NULL,
+        workflow_id TEXT NOT NULL DEFAULT '', collected_at TEXT NOT NULL DEFAULT '',
+        payload_hash TEXT NOT NULL, run_id TEXT NOT NULL, status TEXT NOT NULL,
+        output_refs_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        UNIQUE(project_id,batch_id), UNIQUE(project_id,execution_id))""",
+    """CREATE TABLE IF NOT EXISTS knowledge_signal_receipts (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL, batch_id TEXT NOT NULL,
+        item_key TEXT NOT NULL, registry_id TEXT NOT NULL, external_id TEXT NOT NULL DEFAULT '',
+        canonical_url TEXT NOT NULL DEFAULT '', source_id TEXT NOT NULL DEFAULT '',
+        disposition TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL, UNIQUE(project_id,batch_id,item_key))""",
+    """CREATE TABLE IF NOT EXISTS knowledge_signal_derivatives (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL, source_id TEXT NOT NULL,
+        kind TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL DEFAULT '',
+        revision TEXT NOT NULL DEFAULT '', input_hash TEXT NOT NULL, content_hash TEXT NOT NULL,
+        content TEXT NOT NULL, metadata_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL,
+        UNIQUE(project_id,source_id,kind,provider,model,revision,input_hash,content_hash))""",
 ]
 
 
@@ -369,6 +397,12 @@ def _ensure_schema_unlocked(repo: Any, dialect: str) -> None:
         "CREATE INDEX IF NOT EXISTS idx_kw_failures_project_run ON knowledge_failure_records(project_id,run_id,event_sequence)",
         "CREATE INDEX IF NOT EXISTS idx_kw_failures_project_pattern ON knowledge_failure_records(project_id,diagnostic_pattern,created_at)",
         "CREATE INDEX IF NOT EXISTS idx_kw_lineage_edge ON knowledge_graph_edges(project_id,from_id,to_id,edge_type)",
+        "CREATE INDEX IF NOT EXISTS idx_kw_intelligence_registry_project ON knowledge_information_source_registry(project_id,enabled,availability)",
+        "CREATE INDEX IF NOT EXISTS idx_kw_signal_batches_project_created ON knowledge_signal_batches(project_id,created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_kw_signal_batches_project_run ON knowledge_signal_batches(project_id,run_id)",
+        "CREATE INDEX IF NOT EXISTS idx_kw_signal_receipts_project_created ON knowledge_signal_receipts(project_id,created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_kw_signal_receipts_project_source ON knowledge_signal_receipts(project_id,source_id)",
+        "CREATE INDEX IF NOT EXISTS idx_kw_signal_derivatives_project_source ON knowledge_signal_derivatives(project_id,source_id,created_at)",
     ):
         repo._execute(idx_sql)
 

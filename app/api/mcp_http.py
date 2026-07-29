@@ -49,6 +49,8 @@ _TOOL_HANDLERS = {
     "knowledge_operations_portfolio": server.knowledge_operations_portfolio,
     "knowledge_operations_project": server.knowledge_operations_project,
     "knowledge_operations_graph": server.knowledge_operations_graph,
+    "knowledge_information_overview": server.knowledge_information_overview,
+    "knowledge_information_receipts": server.knowledge_information_receipts,
     "dbos_create_mission": server.dbos_create_mission,
     "dbos_diagnose_mission": server.dbos_diagnose_mission,
     "dbos_confirm_mission": server.dbos_confirm_mission,
@@ -92,6 +94,10 @@ _OPERATIONS_TOOLS = {
     "knowledge_operations_portfolio",
     "knowledge_operations_project",
     "knowledge_operations_graph",
+}
+_INFORMATION_INTELLIGENCE_TOOLS = {
+    "knowledge_information_overview",
+    "knowledge_information_receipts",
 }
 _GROWTH_WRITE_ONLY_TOOLS = {
     "knowledge_growth_review",
@@ -396,6 +402,19 @@ _TOOL_SPECS = {
     "knowledge_operations_project": {
         "description": "Read one authorized project's knowledge operations cockpit.",
         "properties": {"project_id": {"type": "string", "minLength": 1, "maxLength": 128}},
+        "required": ["project_id"],
+    },
+    "knowledge_information_overview": {
+        "description": "Read an authorized project's source registry, BSC receipts, and honest information-intake counts.",
+        "properties": {"project_id": {"type": "string", "minLength": 1, "maxLength": 128}},
+        "required": ["project_id"],
+    },
+    "knowledge_information_receipts": {
+        "description": "Read bounded, authorized BSC signal receipts without source or derivative bodies.",
+        "properties": {
+            "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 500},
+        },
         "required": ["project_id"],
     },
     "knowledge_operations_graph": {
@@ -745,6 +764,8 @@ def _tool_list() -> list[dict[str, Any]]:
         enabled_names -= _GROWTH_TOOLS
     elif not settings.KNOWLEDGE_MCP_WRITE_ENABLED:
         enabled_names -= _GROWTH_WRITE_ONLY_TOOLS
+    if not settings.KNOWLEDGE_INTELLIGENCE_ENABLED:
+        enabled_names -= _INFORMATION_INTELLIGENCE_TOOLS
     if not settings.DYNAMIC_BUSINESS_OS_ENABLED:
         enabled_names -= _DBOS_TOOLS
     elif not settings.DBOS_BLINDSPOT_INTAKE_ENABLED:

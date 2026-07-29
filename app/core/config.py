@@ -151,6 +151,10 @@ class Settings(BaseSettings):
     KNOWLEDGE_WIKI_AUTO_PUBLISH_ENABLED: bool = False
     KNOWLEDGE_GROWTH_ENABLED: bool = False
     KNOWLEDGE_GROWTH_SEMANTIC_DISTILLATION_ENABLED: bool = False
+    # n8n is an optional discovery producer. BSC verifies this separate HMAC
+    # before a project_ingress key can submit a SignalBatch.
+    KNOWLEDGE_INTELLIGENCE_ENABLED: bool = False
+    KNOWLEDGE_INTELLIGENCE_INGRESS_SIGNING_SECRET: str = ""
     DYNAMIC_BUSINESS_OS_ENABLED: bool = True
     DBOS_BLINDSPOT_INTAKE_ENABLED: bool = True
     OBSIDIAN_VAULT_ROOT: str = ""

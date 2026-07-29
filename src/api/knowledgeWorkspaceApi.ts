@@ -171,6 +171,45 @@ export type KnowledgeHealthTrend = {
 };
 export type KnowledgeRunEvent = { id: string; project_id: string; run_id: string; sequence: number; event_type: string; payload: Record<string, unknown>; created_at: string };
 
+export type InformationRegistrySource = {
+  id: string;
+  project_id: string;
+  name: string;
+  connector_type: 'rss' | 'youtube_channel_rss' | 'x' | 'reddit' | 'youtube_data' | 'tiktok';
+  feed_url: string;
+  channel_id: string;
+  topics: string[];
+  languages: string[];
+  freshness_hours: number;
+  retention_days: number;
+  authority_tier: 'primary' | 'trusted' | 'community' | 'untrusted';
+  enabled: number | boolean;
+  availability: 'available' | 'unavailable';
+  unavailable_reason: string;
+  created_at: string;
+  updated_at: string;
+};
+export type InformationSignalReceipt = {
+  id: string;
+  project_id: string;
+  batch_id: string;
+  registry_id: string;
+  external_id: string;
+  canonical_url: string;
+  source_id: string;
+  disposition: 'captured' | 'lead_only' | 'rejected';
+  reason: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+export type KnowledgeInformationOverview = {
+  state: 'ready' | 'no_sources';
+  source_registry: InformationRegistrySource[];
+  receipts: InformationSignalReceipt[];
+  runs: KnowledgeRun[];
+  counts: { sources: number; available_sources: number; unavailable_sources: number; captured: number; lead_only: number; rejected: number };
+};
+
 export class KnowledgeRequestError extends Error {
   readonly code: string;
   readonly status: number;
@@ -209,6 +248,8 @@ export function setKnowledgeWorkspaceAccessKey(value: string) {
 }
 
 export const fetchKnowledgeWorkspace = (projectId: string) => request<KnowledgeWorkspaceData>(`/knowledge/workspaces/${encodeURIComponent(projectId)}`);
+export const fetchKnowledgeInformationOverview = (projectId: string) => request<KnowledgeInformationOverview>(`/knowledge/intelligence/projects/${encodeURIComponent(projectId)}`);
+export const createKnowledgeInformationSource = (projectId: string, source: Omit<InformationRegistrySource, 'id' | 'created_at' | 'updated_at' | 'availability' | 'unavailable_reason'>) => post<{ source: InformationRegistrySource }>(`/knowledge/intelligence/projects/${encodeURIComponent(projectId)}/sources`, source);
 export const configureKnowledgeVault = (projectId: string, vaultPath: string) => request<{ vault: KnowledgeWorkspaceData['vault'] }>(`/knowledge/workspaces/${encodeURIComponent(projectId)}/vault`, { method: 'PUT', body: JSON.stringify({ vault_path: vaultPath }) });
 export const configureKnowledgePlugins = (projectId: string, plugins: KnowledgePluginBridge[]) => request<KnowledgeWorkspaceData['plugins']>(`/knowledge/workspaces/${encodeURIComponent(projectId)}/plugins`, { method: 'PUT', body: JSON.stringify({ plugins }) });
 export const setKnowledgePluginTrust = (projectId: string, pluginIds: string[], trusted: boolean, reason = '') => request<KnowledgeWorkspaceData['plugins']>(`/knowledge/workspaces/${encodeURIComponent(projectId)}/plugins/trust`, { method: 'PUT', body: JSON.stringify({ plugin_ids: pluginIds, trusted, reason }) });

@@ -40,6 +40,7 @@ from mcp.server.fastmcp import FastMCP
 from app.middleware.auth import resolve_knowledge_auth
 from app.mcp.compatibility import build_compatibility_profile
 from app.mcp import wiki_tools
+from app.mcp import information_intelligence_tools
 from app.mcp import growth_tools
 from app.mcp import dbos_tools
 from app.mcp import operations_tools
@@ -522,6 +523,28 @@ def wiki_schedule(project_id: str, job_type: str, cron: str, timezone: str = "As
     """Persist a bounded Wiki maintenance schedule; it does not claim execution without Celery."""
     _authorize_wiki_project(project_id, api_key, write=True)
     return wiki_tools.wiki_schedule(project_id, job_type, cron, timezone)
+
+
+def _authorize_information_project(project_id: str, api_key: str = "") -> None:
+    from app.core.config import settings
+
+    if not settings.KNOWLEDGE_INTELLIGENCE_ENABLED:
+        raise PermissionError("Governed information intelligence is disabled by configuration")
+    _authorize_wiki_project(project_id, api_key)
+
+
+@mcp.tool()
+def knowledge_information_overview(project_id: str, api_key: str = "") -> dict:
+    """Read source registry state, BSC receipts and honest intake counts for one project."""
+    _authorize_information_project(project_id, api_key)
+    return information_intelligence_tools.overview(project_id)
+
+
+@mcp.tool()
+def knowledge_information_receipts(project_id: str, limit: int = 100, api_key: str = "") -> dict:
+    """Read bounded project signal receipts without exposing source or derivative bodies."""
+    _authorize_information_project(project_id, api_key)
+    return information_intelligence_tools.receipts(project_id, max(1, min(int(limit), 500)))
 
 
 def _authorize_growth_project(project_id: str, api_key: str = "", *, write: bool = False) -> None:

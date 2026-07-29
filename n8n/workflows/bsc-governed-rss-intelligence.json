@@ -1,0 +1,143 @@
+{
+  "name": "BSC Governed RSS Intelligence (Disabled by Default)",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "saveExecutionDataSuccess": "all",
+    "saveExecutionDataError": "all",
+    "timezone": "Asia/Shanghai"
+  },
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "9a474043-27a8-4c1c-984c-7192f6e6f501",
+      "name": "Manual run",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-820, 120]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      },
+      "id": "5a78f0fa-021b-4b2e-9ad9-501691b430b8",
+      "name": "08:00 Asia Shanghai (activate only after review)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-820, 280],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.N8N_RSS_FEED_URL }}",
+        "options": {}
+      },
+      "id": "95d6a327-1d71-47d4-9ce2-2175420edc8e",
+      "name": "Read configured RSS feed",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [-560, 120]
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = String($json.content || $json.contentSnippet || $json.description || '').trim();\nconst title = String($json.title || 'Untitled RSS entry').trim();\nconst url = String($json.link || $json.guid || '').trim();\nif (!url) throw new Error('RSS entry has no canonical URL');\nif (!text) {\n  return [{ json: { title, url, lead_only: true, published_at: $json.isoDate || $json.pubDate || '' } }];\n}\nreturn [{ json: { title, url, raw_content: `# ${title}\\n\\n${text}`, lead_only: false, published_at: $json.isoDate || $json.pubDate || '' } }];"
+      },
+      "id": "0f9472e5-81ef-4b48-81e4-ba1d19c017e1",
+      "name": "Normalize evidence or lead only",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-340, 120]
+    },
+    {
+      "parameters": {
+        "jsCode": "const executionId = $execution.id;\nconst items = $input.all().map((entry, index) => ({\n  registry_id: $env.N8N_BSC_RSS_REGISTRY_ID,\n  external_id: `${entry.json.url}|${entry.json.published_at || index}`,\n  title: entry.json.title,\n  url: entry.json.url,\n  raw_content: entry.json.raw_content || '',\n  published_at: entry.json.published_at || '',\n  lead_only: Boolean(entry.json.lead_only),\n  discovery_metrics: { discovery_rank: index + 1 }\n}));\nif (!$env.N8N_BSC_PROJECT_ID || !$env.N8N_BSC_RSS_REGISTRY_ID) throw new Error('Set N8N_BSC_PROJECT_ID and N8N_BSC_RSS_REGISTRY_ID before running');\nconst payload = { schema_version: 'v1', project_id: $env.N8N_BSC_PROJECT_ID, batch_id: `rss-${executionId}`, execution_id: String(executionId), connector_type: 'rss', workflow_id: $workflow.id, collected_at: new Date().toISOString(), items };\nreturn [{ json: { body: JSON.stringify(payload) } }];"
+      },
+      "id": "5e0e26a6-057c-4f50-8ece-1357c0546c78",
+      "name": "Build BSC SignalBatch v1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-100, 120]
+    },
+    {
+      "parameters": {
+        "action": "hmac",
+        "type": "SHA256",
+        "binaryData": false,
+        "value": "={{ $json.body }}",
+        "secret": "={{ $env.BSC_SIGNAL_SIGNING_SECRET }}",
+        "dataPropertyName": "signature",
+        "encoding": "hex"
+      },
+      "id": "6bf29d90-295f-4f7a-b0d4-0da344a42af6",
+      "name": "Sign exact SignalBatch body",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 1,
+      "position": [140, 120]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BSC_SIGNAL_INGRESS_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.BSC_PROJECT_INGRESS_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-BSC-Signal-Signature", "value": "={{ $json.signature }}" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.body }}",
+        "options": { "response": { "response": { "fullResponse": true } } }
+      },
+      "id": "8e7aaefb-3155-42c4-8911-51bdd6c48a89",
+      "name": "Submit to BSC and require receipt",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [380, 120]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $json.body || $json;\nconst data = response.data || {};\nif (!data.batch_id || !Array.isArray(data.receipts)) throw new Error('BSC did not return a valid receipt');\nreturn [{ json: { batch_id: data.batch_id, receipt_count: data.receipt_count, replayed: data.replayed, status: data.status } }];"
+      },
+      "id": "df9738d9-2ac9-4cf4-b1de-3d8c4d9089df",
+      "name": "Validate BSC receipt before notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [620, 120]
+    },
+    {
+      "parameters": {},
+      "id": "e6e13f93-917e-4ceb-8e7f-b8f6e90d9db1",
+      "name": "Optional notification placeholder (disabled)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [860, 120],
+      "disabled": true
+    }
+  ],
+  "connections": {
+    "Manual run": { "main": [[{ "node": "Read configured RSS feed", "type": "main", "index": 0 }]] },
+    "08:00 Asia Shanghai (activate only after review)": { "main": [[{ "node": "Read configured RSS feed", "type": "main", "index": 0 }]] },
+    "Read configured RSS feed": { "main": [[{ "node": "Normalize evidence or lead only", "type": "main", "index": 0 }]] },
+    "Normalize evidence or lead only": { "main": [[{ "node": "Build BSC SignalBatch v1", "type": "main", "index": 0 }]] },
+    "Build BSC SignalBatch v1": { "main": [[{ "node": "Sign exact SignalBatch body", "type": "main", "index": 0 }]] },
+    "Sign exact SignalBatch body": { "main": [[{ "node": "Submit to BSC and require receipt", "type": "main", "index": 0 }]] },
+    "Submit to BSC and require receipt": { "main": [[{ "node": "Validate BSC receipt before notification", "type": "main", "index": 0 }]] },
+    "Validate BSC receipt before notification": { "main": [[{ "node": "Optional notification placeholder (disabled)", "type": "main", "index": 0 }]] }
+  },
+  "pinData": {},
+  "meta": { "templateCredsSetupCompleted": false, "instanceId": "" },
+  "tags": []
+}

@@ -185,8 +185,8 @@ def issue_project_key(
         project_id, str(getattr(request.state, "tenant_id", settings.DEFAULT_TENANT_ID))
     ) is None:
         return ApiResponse.not_found("项目不存在")
-    if req.role not in ("project_admin", "project_reader"):
-        return ApiResponse.error("role 须为 project_admin/project_reader", code=400)
+    if req.role not in ("project_admin", "project_reader", "project_ingress"):
+        return ApiResponse.error("role 须为 project_admin/project_reader/project_ingress", code=400)
     plaintext = f"sk-{secrets.token_urlsafe(24)}"
     service.repo.create_project_key(
         hashlib.sha256(plaintext.encode()).hexdigest(), project_id, req.role, req.label)

@@ -21,6 +21,7 @@ from app.knowledge.wiki_contracts import (
     SourceStatus,
     WikiProposal,
 )
+from app.knowledge.information_intelligence_contracts import SourceRegistryEntry
 from app.repositories.base_repository import BaseRepository
 
 
@@ -131,6 +132,196 @@ class WikiRepository(BaseRepository):
             rows = self._execute(
                 "SELECT * FROM knowledge_sources WHERE project_id=? ORDER BY captured_at DESC, id DESC", (project_id,)
             ).fetchall()
+        return [self._decode(row, ("metadata_json",)) or {} for row in rows]
+
+    # Information-intelligence tables are deliberately separate from the Wiki
+    # lifecycle. The registry is discovery configuration; receipts are the
+    # audit ledger that connects an untrusted producer to BSC evidence.
+    def upsert_information_source_registry(
+        self,
+        entry: SourceRegistryEntry,
+        *,
+        availability: str,
+        unavailable_reason: str,
+    ) -> dict:
+        existing = self._execute(
+            "SELECT id FROM knowledge_information_source_registry WHERE project_id=? AND connector_type=? AND feed_url=?",
+            (entry.project_id, entry.connector_type, entry.feed_url),
+        ).fetchone()
+        now = self._now()
+        if existing:
+            registry_id = self._row_to_dict(existing)["id"]
+            self._execute(
+                "UPDATE knowledge_information_source_registry SET name=?,channel_id=?,topics_json=?,languages_json=?,freshness_hours=?,retention_days=?,authority_tier=?,enabled=?,availability=?,unavailable_reason=?,metadata_json=?,updated_at=? WHERE project_id=? AND id=?",
+                (
+                    entry.name, entry.channel_id, self._json_dumps(entry.topics), self._json_dumps(entry.languages),
+                    entry.freshness_hours, entry.retention_days, entry.authority_tier, int(entry.enabled), availability,
+                    unavailable_reason, self._json_dumps(entry.metadata), now, entry.project_id, registry_id,
+                ),
+            )
+        else:
+            registry_id = entry.id
+            self._execute(
+                "INSERT INTO knowledge_information_source_registry (id,project_id,name,connector_type,feed_url,channel_id,topics_json,languages_json,freshness_hours,retention_days,authority_tier,enabled,availability,unavailable_reason,metadata_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    registry_id, entry.project_id, entry.name, entry.connector_type, entry.feed_url, entry.channel_id,
+                    self._json_dumps(entry.topics), self._json_dumps(entry.languages), entry.freshness_hours,
+                    entry.retention_days, entry.authority_tier, int(entry.enabled), availability, unavailable_reason,
+                    self._json_dumps(entry.metadata), _iso(entry.created_at), now,
+                ),
+            )
+        self._commit()
+        return self.get_information_source_registry(entry.project_id, registry_id) or {}
+
+    def get_information_source_registry(self, project_id: str, registry_id: str) -> dict | None:
+        row = self._execute(
+            "SELECT * FROM knowledge_information_source_registry WHERE project_id=? AND id=?",
+            (project_id, registry_id),
+        ).fetchone()
+        return self._decode(row, ("topics_json", "languages_json", "metadata_json"))
+
+    def list_information_source_registry(self, project_id: str) -> list[dict]:
+        rows = self._execute(
+            "SELECT * FROM knowledge_information_source_registry WHERE project_id=? ORDER BY enabled DESC,name ASC,id ASC",
+            (project_id,),
+        ).fetchall()
+        return [self._decode(row, ("topics_json", "languages_json", "metadata_json")) or {} for row in rows]
+
+    def create_signal_batch(
+        self,
+        *,
+        project_id: str,
+        batch_id: str,
+        execution_id: str,
+        schema_version: str,
+        connector_type: str,
+        workflow_id: str,
+        collected_at: str,
+        payload_hash: str,
+        run_id: str,
+    ) -> dict:
+        record_id = self._generate_id()
+        now = self._now()
+        self._execute(
+            "INSERT INTO knowledge_signal_batches (id,project_id,batch_id,execution_id,schema_version,connector_type,workflow_id,collected_at,payload_hash,run_id,status,output_refs_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (record_id, project_id, batch_id, execution_id, schema_version, connector_type, workflow_id, collected_at,
+             payload_hash, run_id, "processing", self._json_dumps({}), now, now),
+        )
+        self._commit()
+        return self.get_signal_batch(project_id, batch_id) or {}
+
+    def get_signal_batch(self, project_id: str, batch_id: str) -> dict | None:
+        row = self._execute(
+            "SELECT * FROM knowledge_signal_batches WHERE project_id=? AND batch_id=?", (project_id, batch_id)
+        ).fetchone()
+        return self._decode(row, ("output_refs_json",))
+
+    def get_signal_batch_by_execution(self, project_id: str, execution_id: str) -> dict | None:
+        row = self._execute(
+            "SELECT * FROM knowledge_signal_batches WHERE project_id=? AND execution_id=?", (project_id, execution_id)
+        ).fetchone()
+        return self._decode(row, ("output_refs_json",))
+
+    def update_signal_batch_status(
+        self, project_id: str, batch_id: str, status: str, *, output_refs: dict[str, Any] | None = None
+    ) -> dict:
+        self._execute(
+            "UPDATE knowledge_signal_batches SET status=?,output_refs_json=?,updated_at=? WHERE project_id=? AND batch_id=?",
+            (status, self._json_dumps(output_refs or {}), self._now(), project_id, batch_id),
+        )
+        self._commit()
+        return self.get_signal_batch(project_id, batch_id) or {}
+
+    def create_signal_receipt(
+        self,
+        *,
+        project_id: str,
+        batch_id: str,
+        item_key: str,
+        registry_id: str,
+        external_id: str,
+        canonical_url: str,
+        source_id: str,
+        disposition: str,
+        reason: str,
+        metadata: dict[str, Any],
+    ) -> dict:
+        existing = self.get_signal_receipt(project_id, batch_id, item_key)
+        if existing:
+            return existing
+        receipt_id = self._generate_id()
+        self._execute(
+            "INSERT INTO knowledge_signal_receipts (id,project_id,batch_id,item_key,registry_id,external_id,canonical_url,source_id,disposition,reason,metadata_json,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (receipt_id, project_id, batch_id, item_key, registry_id, external_id, canonical_url, source_id,
+             disposition, reason, self._json_dumps(metadata), self._now()),
+        )
+        self._commit()
+        return self.get_signal_receipt(project_id, batch_id, item_key) or {}
+
+    def get_signal_receipt(self, project_id: str, batch_id: str, item_key: str) -> dict | None:
+        row = self._execute(
+            "SELECT * FROM knowledge_signal_receipts WHERE project_id=? AND batch_id=? AND item_key=?",
+            (project_id, batch_id, item_key),
+        ).fetchone()
+        return self._decode(row, ("metadata_json",))
+
+    def list_signal_receipts(self, project_id: str, batch_id: str = "", *, limit: int = 100) -> list[dict]:
+        params: list[Any] = [project_id]
+        query = "SELECT * FROM knowledge_signal_receipts WHERE project_id=?"
+        if batch_id:
+            query += " AND batch_id=?"
+            params.append(batch_id)
+        query += " ORDER BY created_at DESC,id DESC LIMIT ?"
+        params.append(max(1, min(int(limit), 500)))
+        rows = self._execute(query, tuple(params)).fetchall()
+        return [self._decode(row, ("metadata_json",)) or {} for row in rows]
+
+    def create_signal_derivative(
+        self,
+        *,
+        project_id: str,
+        source_id: str,
+        kind: str,
+        provider: str,
+        model: str,
+        revision: str,
+        input_hash: str,
+        content: str,
+        metadata: dict[str, Any],
+    ) -> dict:
+        if not self.get_source(project_id, source_id):
+            raise KeyError("signal derivative source is missing or belongs to another project")
+        content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        existing = self._execute(
+            "SELECT id FROM knowledge_signal_derivatives WHERE project_id=? AND source_id=? AND kind=? AND provider=? AND model=? AND revision=? AND input_hash=? AND content_hash=?",
+            (project_id, source_id, kind, provider, model, revision, input_hash, content_hash),
+        ).fetchone()
+        if existing:
+            return self.get_signal_derivative(project_id, self._row_to_dict(existing)["id"]) or {}
+        derivative_id = self._generate_id()
+        self._execute(
+            "INSERT INTO knowledge_signal_derivatives (id,project_id,source_id,kind,provider,model,revision,input_hash,content_hash,content,metadata_json,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (derivative_id, project_id, source_id, kind, provider, model, revision, input_hash, content_hash,
+             content, self._json_dumps(metadata), self._now()),
+        )
+        self._commit()
+        return self.get_signal_derivative(project_id, derivative_id) or {}
+
+    def get_signal_derivative(self, project_id: str, derivative_id: str) -> dict | None:
+        row = self._execute(
+            "SELECT * FROM knowledge_signal_derivatives WHERE project_id=? AND id=?", (project_id, derivative_id)
+        ).fetchone()
+        return self._decode(row, ("metadata_json",))
+
+    def list_signal_derivatives(self, project_id: str, source_id: str = "", *, limit: int = 100) -> list[dict]:
+        params: list[Any] = [project_id]
+        query = "SELECT * FROM knowledge_signal_derivatives WHERE project_id=?"
+        if source_id:
+            query += " AND source_id=?"
+            params.append(source_id)
+        query += " ORDER BY created_at DESC,id DESC LIMIT ?"
+        params.append(max(1, min(int(limit), 500)))
+        rows = self._execute(query, tuple(params)).fetchall()
         return [self._decode(row, ("metadata_json",)) or {} for row in rows]
 
     def create_source_capture_attempt(self, attempt: SourceCaptureAttempt) -> dict:

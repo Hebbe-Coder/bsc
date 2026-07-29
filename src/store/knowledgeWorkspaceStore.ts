@@ -18,7 +18,7 @@ import type {
   WeeklyDistillationDetail,
 } from '../api/knowledgeWorkspaceApi';
 
-export type KnowledgeCenterView = 'page' | 'proposal' | 'run' | 'graph' | 'distillation';
+export type KnowledgeCenterView = 'page' | 'proposal' | 'run' | 'graph' | 'distillation' | 'intelligence';
 export type KnowledgeMobilePane = 'tree' | 'main' | 'inspector';
 export type KnowledgeProposalBaselines = Record<string, string>;
 

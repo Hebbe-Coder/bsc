@@ -4,7 +4,7 @@ import 'reactflow/dist/style.css';
 import {
   AlertTriangle, BookOpen, CheckCircle2, ChevronRight, Clock3, Database, Download, FileClock,
   FileText, GitPullRequest, Link2, Network, Pause, Play, RefreshCw, RotateCcw,
-  Pencil, Search, ShieldCheck, Sparkles, Sprout, Trash2, Upload, WandSparkles, X,
+  Pencil, Radio, Search, ShieldCheck, Sparkles, Sprout, Trash2, Upload, WandSparkles, X,
 } from 'lucide-react';
 import {
   configureKnowledgePlugins, configureKnowledgeSchedule, configureKnowledgeVault, fetchKnowledgeGraph, fetchKnowledgeHealth, fetchKnowledgeHealthTrend,
@@ -19,6 +19,7 @@ import {
   type WeeklyDistillation, type WeeklyDistillationDetail,
 } from '../api/knowledgeWorkspaceApi';
 import { useKnowledgeWorkspaceStore, type KnowledgeProposalBaselines } from '../store/knowledgeWorkspaceStore';
+import { InformationOperationsPanel } from './knowledge/InformationOperationsPanel';
 import { resolveStudioAccessStatus } from './knowledgeWorkspaceAccess';
 import { describeKnowledgeSource, selectDefaultKnowledgePage } from './knowledgePresentation';
 
@@ -549,6 +550,7 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
             <ViewTab active={centerView === 'proposal'} onClick={() => setCenterView('proposal')} icon={<GitPullRequest size={14} />} label="Diff" />
             <ViewTab active={centerView === 'run'} onClick={() => setCenterView('run')} icon={<Clock3 size={14} />} label="Runs" />
             <ViewTab active={centerView === 'graph'} onClick={() => setCenterView('graph')} icon={<Network size={14} />} label="Graph" />
+            <ViewTab active={centerView === 'intelligence'} onClick={() => setCenterView('intelligence')} icon={<Radio size={14} />} label="Intel" />
             <ViewTab active={centerView === 'distillation'} onClick={() => setCenterView('distillation')} icon={<Sparkles size={14} />} label="Weekly" />
           </nav>
           {centerView === 'page' && <WikiReader page={selectedPage} pages={pages} busy={actionBusy} canWrite={canWrite} onCitation={inspectSource} onWikiLink={followWikiLink} onRestore={restoreRevision} />}
@@ -578,6 +580,7 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
             ><Background gap={22} size={1} /><Controls showInteractive={false} /></ReactFlow> : <Empty text="No persisted relationships match the selected graph filters." />}</div>
             {(graph.truncated || filteredGraphNodes.length > maxNodes) && <p className="knowledge-limit-note">Showing a bounded relationship slice ({flowNodes.length} nodes / {graph.edges.length} of {graph.total} edges). Narrow the filters to inspect another slice.</p>}
           </section>}
+          {centerView === 'intelligence' && <InformationOperationsPanel projectId={projectId} canWrite={canWrite} refreshToken={evidenceRefreshVersion} />}
           {centerView === 'distillation' && <DistillationReader records={distillations} selected={selectedDistillation} onSelect={inspectDistillation} includeHistory={includeDistillationHistory} onIncludeHistoryChange={setDistillationHistory} />}
         </main>
 
