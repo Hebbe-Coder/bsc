@@ -155,6 +155,8 @@ class Settings(BaseSettings):
     # before a project_ingress key can submit a SignalBatch.
     KNOWLEDGE_INTELLIGENCE_ENABLED: bool = False
     KNOWLEDGE_INTELLIGENCE_INGRESS_SIGNING_SECRET: str = ""
+    KNOWLEDGE_TESSERACT_PATH: str = ""
+    KNOWLEDGE_FFPROBE_PATH: str = ""
     DYNAMIC_BUSINESS_OS_ENABLED: bool = True
     DBOS_BLINDSPOT_INTAKE_ENABLED: bool = True
     OBSIDIAN_VAULT_ROOT: str = ""
@@ -168,6 +170,9 @@ class Settings(BaseSettings):
     HORIZON_STAGE_URL_TEMPLATE: str = "/api/runs/{run_id}/stages/{stage}"
     HORIZON_TIMEOUT_SECONDS: int = 20
     HORIZON_MAX_RESPONSE_BYTES: int = 2_000_000
+    # Automatic discovery is for fresh intelligence. Older artifacts remain
+    # available through an explicit run ID for deliberate backfill.
+    HORIZON_MAX_ARTIFACT_AGE_HOURS: int = 48
     HORIZON_ALLOW_PRIVATE_NETWORK: bool = False
     KNOWLEDGE_WIKI_LLM_PROVIDER: str = ""
     # Wiki compilation uses a larger evidence context than conversational
@@ -178,6 +183,11 @@ class Settings(BaseSettings):
     # Weekly distillation can legitimately need a longer provider read budget
     # than interactive chat while keeping the general LLM timeout unchanged.
     KNOWLEDGE_GROWTH_LLM_TIMEOUT_SECONDS: float = 150.0
+    # A growth run can perform one batch repair and one strict final repair
+    # after the initial request. Keep the whole Celery task independently
+    # bounded so provider recovery cannot leave a durable run active forever.
+    KNOWLEDGE_GROWTH_TASK_SOFT_TIMEOUT_SECONDS: int = 390
+    KNOWLEDGE_GROWTH_TASK_TIMEOUT_SECONDS: int = 420
     # DBOS stores its auditable Artifact Graph as JSON files. Docker points
     # this root at the durable /data volume; local development keeps a
     # project-relative default for backwards compatibility.

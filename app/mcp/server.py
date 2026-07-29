@@ -478,6 +478,20 @@ def wiki_graph(project_id: str, api_key: str = "") -> dict:
 
 
 @mcp.tool()
+def wiki_evidence(project_id: str, limit: int = 100, api_key: str = "") -> dict:
+    """Read bounded project evidence lineage with redacted metadata only."""
+    _authorize_wiki_project(project_id, api_key)
+    return wiki_tools.wiki_evidence(project_id, limit)
+
+
+@mcp.tool()
+def wiki_evidence_record(project_id: str, record_type: str, record_id: str, api_key: str = "") -> dict:
+    """Read one authorized evidence record without revealing source or derivative bodies."""
+    _authorize_wiki_project(project_id, api_key)
+    return wiki_tools.wiki_evidence_record(project_id, record_type, record_id)
+
+
+@mcp.tool()
 def wiki_read(project_id: str, page_id: str, api_key: str = "") -> dict:
     """Read a published, project-scoped Wiki page and its traceable citations."""
     _authorize_wiki_project(project_id, api_key)
@@ -1007,6 +1021,26 @@ def dbos_control_center(project_id: str, mission_id: str, api_key: str = "") -> 
     """Read mission state, reasoning lineage, execution evidence, and feedback memory."""
     _authorize_dbos_project(project_id, api_key)
     return dbos_tools.dbos_control_center(project_id, mission_id)
+
+
+@mcp.tool()
+def pbos_cockpit(project_id: str, api_key: str = "") -> dict:
+    """Read the evidence-backed Personal Growth Cockpit for one project."""
+    _authorize_dbos_project(project_id, api_key)
+    from app.api.dbos_api import dbos_service_for
+    from app.pbos import PBOSService
+    return {"ok": True, "data": PBOSService(dbos_service_for(project_id).store, project_id).cockpit()}
+
+
+@mcp.tool()
+def pbos_weekly_report(project_id: str, week: str = "", api_key: str = "") -> dict:
+    """Write an evidence-only PBOS weekly report to the configured Obsidian Vault."""
+    _authorize_dbos_project(project_id, api_key, write=True)
+    from pathlib import Path
+    from app.api.dbos_api import dbos_service_for
+    from app.core.config import settings
+    from app.pbos import PBOSReportService, PBOSService
+    return {"ok": True, "data": {"report": PBOSReportService(PBOSService(dbos_service_for(project_id).store, project_id), Path(settings.OBSIDIAN_VAULT_ROOT) / "projects" / project_id).weekly(week)}}
 
 
 @mcp.tool()

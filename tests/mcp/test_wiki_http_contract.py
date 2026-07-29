@@ -65,12 +65,16 @@ def test_http_json_rpc_calls_every_governed_wiki_tool_against_real_state(tmp_pat
         listed = client.post("/api/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
         assert initialized.json()["result"]["protocolVersion"]
         names = {item["name"] for item in listed.json()["result"]["tools"]}
-        assert {"wiki_guide", "wiki_search", "wiki_graph", "wiki_read", "wiki_propose_update", "wiki_lint", "wiki_apply_update", "wiki_distill", "wiki_schedule"} <= names
+        assert {"wiki_guide", "wiki_search", "wiki_graph", "wiki_evidence", "wiki_evidence_record", "wiki_read", "wiki_propose_update", "wiki_lint", "wiki_apply_update", "wiki_distill", "wiki_schedule"} <= names
 
         assert _call(client, "wiki_guide", {"project_id": "project-a"}, 2)["project_id"] == "project-a"
         assert _call(client, "wiki_search", {"project_id": "project-a", "query": "policy"}, 3)["count"] == 1
         assert _call(client, "wiki_graph", {"project_id": "project-a"}, 4)["count"] == 1
-        assert _call(client, "wiki_read", {"project_id": "project-a", "page_id": page["id"]}, 5)["page"]["id"] == page["id"]
+        evidence = _call(client, "wiki_evidence", {"project_id": "project-a"}, 5)
+        assert source["id"] in {item["id"] for item in evidence["sources"]}
+        assert "Approval requires a reviewer." not in str(evidence)
+        assert _call(client, "wiki_evidence_record", {"project_id": "project-a", "record_type": "source", "record_id": source["id"]}, 6)["record"]["id"] == source["id"]
+        assert _call(client, "wiki_read", {"project_id": "project-a", "page_id": page["id"]}, 7)["page"]["id"] == page["id"]
         proposal = _call(
             client,
             "wiki_propose_update",
@@ -84,16 +88,16 @@ def test_http_json_rpc_calls_every_governed_wiki_tool_against_real_state(tmp_pat
                     {"operation": "append", "path": "wiki/log.md", "content": f"\n- Approval added. [source:{source['id']}]\n", "source_ids": [source["id"]]},
                 ],
             },
-            6,
+            8,
         )["proposal"]
-        assert _call(client, "wiki_lint", {"project_id": "project-a", "proposal_id": proposal["id"]}, 7)["valid"] is True
-        assert _call(client, "wiki_apply_update", {"project_id": "project-a", "proposal_id": proposal["id"]}, 8)["status"] == "published"
-        assert _call(client, "wiki_distill", {"project_id": "project-a"}, 9)["status"] == "completed"
+        assert _call(client, "wiki_lint", {"project_id": "project-a", "proposal_id": proposal["id"]}, 9)["valid"] is True
+        assert _call(client, "wiki_apply_update", {"project_id": "project-a", "proposal_id": proposal["id"]}, 10)["status"] == "published"
+        assert _call(client, "wiki_distill", {"project_id": "project-a"}, 11)["status"] == "completed"
         schedule = _call(
             client,
             "wiki_schedule",
             {"project_id": "project-a", "job_type": "source_sync", "cron": "*/15 * * * *", "timezone": "Asia/Shanghai"},
-            10,
+            12,
         )
         assert schedule["job_type"] == "source_sync"
         assert schedule["enabled"] == 0

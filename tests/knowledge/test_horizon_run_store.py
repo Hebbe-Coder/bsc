@@ -1,4 +1,6 @@
 import json
+import os
+import time
 
 import pytest
 
@@ -6,6 +8,8 @@ from app.knowledge.horizon_client import HorizonClientError
 from app.knowledge.horizon_run_store import (
     HorizonRunStoreClient,
     HorizonRunStoreEmptyError,
+    HorizonRunStoreProducerFailureError,
+    HorizonRunStoreStaleArtifactError,
     resolve_horizon_run_store_location,
 )
 
@@ -68,3 +72,37 @@ def test_horizon_run_store_reports_no_new_artifact_after_exclusions(tmp_path):
 
     with pytest.raises(HorizonRunStoreEmptyError, match="No new"):
         HorizonRunStoreClient(runs_root=tmp_path).fetch_latest_stage(exclude_run_ids={"run-1"})
+
+
+def test_horizon_run_store_treats_completed_quiet_producer_state_as_no_artifact(tmp_path):
+    (tmp_path / "producer-state.json").write_text(
+        json.dumps({"status": "completed", "outcome": "no_items"}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(HorizonRunStoreEmptyError, match="No new"):
+        HorizonRunStoreClient(runs_root=tmp_path).fetch_latest_stage()
+
+
+def test_horizon_run_store_surfaces_newer_producer_failure_before_stale_backlog(tmp_path):
+    run_dir = tmp_path / "run-backlog"
+    run_dir.mkdir()
+    artifact = run_dir / "filtered_items.json"
+    artifact.write_text(json.dumps([{"id": "old"}]), encoding="utf-8")
+    os.utime(artifact, (time.time() - 3600, time.time() - 3600))
+    state = tmp_path / "producer-state.json"
+    state.write_text(json.dumps({"status": "failed", "error": "HZ_EMPTY_INPUT"}), encoding="utf-8")
+
+    with pytest.raises(HorizonRunStoreProducerFailureError, match="HZ_EMPTY_INPUT"):
+        HorizonRunStoreClient(runs_root=tmp_path).fetch_latest_stage()
+
+
+def test_horizon_run_store_rejects_stale_artifacts_for_automatic_discovery(tmp_path):
+    run_dir = tmp_path / "run-stale"
+    run_dir.mkdir()
+    artifact = run_dir / "filtered_items.json"
+    artifact.write_text(json.dumps([{"id": "stale"}]), encoding="utf-8")
+    os.utime(artifact, (time.time() - 7200, time.time() - 7200))
+
+    with pytest.raises(HorizonRunStoreStaleArtifactError, match="freshness limit"):
+        HorizonRunStoreClient(runs_root=tmp_path, max_artifact_age_hours=1).fetch_latest_stage()

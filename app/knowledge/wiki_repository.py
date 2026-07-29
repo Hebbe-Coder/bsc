@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import re
 from pathlib import Path
@@ -12,13 +12,17 @@ import yaml
 
 from app.knowledge.schema import ensure_schema
 from app.knowledge.wiki_contracts import (
+    ExtractionArtifact,
     KnowledgeGraphEdge,
     KnowledgeRun,
+    MediaAsset,
     ProposalStatus,
+    ReferenceLink,
     RunStatus,
     SourceCaptureAttempt,
     SourceRecord,
     SourceStatus,
+    TableArtifact,
     WikiProposal,
 )
 from app.knowledge.information_intelligence_contracts import SourceRegistryEntry
@@ -35,6 +39,17 @@ def _run_event_advisory_lock_key(project_id: str, run_id: str) -> int:
     """Return a stable PostgreSQL transaction lock key for one run ledger."""
     digest = hashlib.sha256(f"knowledge-run-event|{project_id}|{run_id}".encode("utf-8")).digest()
     return int.from_bytes(digest[:8], byteorder="big", signed=True)
+
+
+def _horizon_import_claim_id(
+    project_id: str,
+    horizon_run_id: str,
+    horizon_stage: str,
+    horizon_item_id: str,
+) -> str:
+    """Produce the stable primary key for one external Horizon signal import."""
+    payload = "|".join((project_id, horizon_run_id, horizon_stage, horizon_item_id))
+    return hashlib.sha256(f"horizon-import-claim|{payload}".encode("utf-8")).hexdigest()[:24]
 
 
 class PublicationConflictError(ValueError):
@@ -55,6 +70,28 @@ class WikiRepository(BaseRepository):
         for field in json_fields:
             value[field.removesuffix("_json")] = self._json_loads(value.pop(field, "{}"))
         return value
+
+    def list_workspace_projects_for_tenant(self, tenant_id: str) -> list[dict[str, Any]]:
+        """Return the bounded project picker projection for one tenant."""
+        tenant = str(tenant_id or "").strip()
+        if not tenant:
+            return []
+        rows = self._execute(
+            "SELECT id,name,created_at FROM knowledge_projects "
+            "WHERE tenant_id=? ORDER BY created_at DESC,id DESC",
+            (tenant,),
+        ).fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
+    def get_workspace_project_for_tenant(self, project_id: str, tenant_id: str) -> dict[str, Any] | None:
+        tenant = str(tenant_id or "").strip()
+        if not tenant:
+            return None
+        row = self._execute(
+            "SELECT id,name,created_at FROM knowledge_projects WHERE id=? AND tenant_id=?",
+            (project_id, tenant),
+        ).fetchone()
+        return self._row_to_dict(row) if row else None
 
     def configure_vault(self, project_id: str, vault_path: str, actor_id: str = "", metadata: dict | None = None) -> dict:
         now = self._now()
@@ -111,6 +148,162 @@ class WikiRepository(BaseRepository):
             (project_id, content_hash),
         ).fetchone()
         return self._decode(row, ("metadata_json",))
+
+    def get_horizon_import_claim(
+        self,
+        *,
+        project_id: str,
+        horizon_run_id: str,
+        horizon_stage: str,
+        horizon_item_id: str,
+    ) -> dict | None:
+        row = self._execute(
+            "SELECT * FROM knowledge_horizon_import_claims "
+            "WHERE project_id=? AND horizon_run_id=? AND horizon_stage=? AND horizon_item_id=?",
+            (project_id, horizon_run_id, horizon_stage, horizon_item_id),
+        ).fetchone()
+        return self._decode(row)
+
+    def claim_horizon_import(
+        self,
+        *,
+        project_id: str,
+        horizon_run_id: str,
+        horizon_stage: str,
+        horizon_item_id: str,
+        content_hash: str,
+        capture_run_id: str = "",
+        lease_seconds: int = 900,
+    ) -> dict[str, Any]:
+        """Atomically claim one external signal before creating immutable evidence.
+
+        A Horizon worker may be retried while another worker is still handling the
+        same staged artifact. The database unique key is the authority here; a
+        process-local check would allow both workers to create evidence. Claims
+        are leased so a process crash cannot permanently block a later retry.
+        """
+        now_at = datetime.now(timezone.utc)
+        now = _iso(now_at)
+        expires_at = _iso(now_at + timedelta(seconds=max(1, int(lease_seconds))))
+        claim_id = _horizon_import_claim_id(project_id, horizon_run_id, horizon_stage, horizon_item_id)
+        cursor = self._execute(
+            "INSERT INTO knowledge_horizon_import_claims "
+            "(id,project_id,horizon_run_id,horizon_stage,horizon_item_id,content_hash,capture_run_id,status,source_id,lease_expires_at,created_at,updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(project_id,horizon_run_id,horizon_stage,horizon_item_id) DO NOTHING",
+            (
+                claim_id,
+                project_id,
+                horizon_run_id,
+                horizon_stage,
+                horizon_item_id,
+                content_hash,
+                capture_run_id,
+                "claimed",
+                "",
+                expires_at,
+                now,
+                now,
+            ),
+        )
+        inserted = bool(getattr(cursor, "rowcount", 0))
+        self._commit()
+        if inserted:
+            claim = self.get_horizon_import_claim(
+                project_id=project_id,
+                horizon_run_id=horizon_run_id,
+                horizon_stage=horizon_stage,
+                horizon_item_id=horizon_item_id,
+            ) or {}
+            return {"claimed": True, "recovered": False, "claim": claim}
+
+        existing = self.get_horizon_import_claim(
+            project_id=project_id,
+            horizon_run_id=horizon_run_id,
+            horizon_stage=horizon_stage,
+            horizon_item_id=horizon_item_id,
+        )
+        if not existing:
+            raise RuntimeError("Horizon import claim disappeared before it could be read")
+        if existing["status"] == "completed":
+            return {"claimed": False, "recovered": False, "claim": existing}
+
+        reclaim = self._execute(
+            "UPDATE knowledge_horizon_import_claims "
+            "SET content_hash=?,capture_run_id=?,status='claimed',source_id='',lease_expires_at=?,updated_at=? "
+            "WHERE project_id=? AND horizon_run_id=? AND horizon_stage=? AND horizon_item_id=? "
+            "AND status='claimed' AND lease_expires_at<=?",
+            (
+                content_hash,
+                capture_run_id,
+                expires_at,
+                now,
+                project_id,
+                horizon_run_id,
+                horizon_stage,
+                horizon_item_id,
+                now,
+            ),
+        )
+        reclaimed = bool(getattr(reclaim, "rowcount", 0))
+        self._commit()
+        if reclaimed:
+            claim = self.get_horizon_import_claim(
+                project_id=project_id,
+                horizon_run_id=horizon_run_id,
+                horizon_stage=horizon_stage,
+                horizon_item_id=horizon_item_id,
+            ) or {}
+            return {"claimed": True, "recovered": True, "claim": claim}
+        return {"claimed": False, "recovered": False, "claim": existing}
+
+    def complete_horizon_import_claim(
+        self,
+        *,
+        project_id: str,
+        horizon_run_id: str,
+        horizon_stage: str,
+        horizon_item_id: str,
+        capture_run_id: str,
+        source_id: str,
+    ) -> bool:
+        """Bind a completed claim to the actual immutable source it produced."""
+        cursor = self._execute(
+            "UPDATE knowledge_horizon_import_claims "
+            "SET status='completed',source_id=?,lease_expires_at='',updated_at=? "
+            "WHERE project_id=? AND horizon_run_id=? AND horizon_stage=? AND horizon_item_id=? "
+            "AND capture_run_id=? AND status='claimed'",
+            (
+                source_id,
+                self._now(),
+                project_id,
+                horizon_run_id,
+                horizon_stage,
+                horizon_item_id,
+                capture_run_id,
+            ),
+        )
+        self._commit()
+        return bool(getattr(cursor, "rowcount", 0))
+
+    def release_horizon_import_claim(
+        self,
+        *,
+        project_id: str,
+        horizon_run_id: str,
+        horizon_stage: str,
+        horizon_item_id: str,
+        capture_run_id: str,
+    ) -> bool:
+        """Release an uncompleted claim after a capture failure so retries can run."""
+        cursor = self._execute(
+            "DELETE FROM knowledge_horizon_import_claims "
+            "WHERE project_id=? AND horizon_run_id=? AND horizon_stage=? AND horizon_item_id=? "
+            "AND capture_run_id=? AND status='claimed'",
+            (project_id, horizon_run_id, horizon_stage, horizon_item_id, capture_run_id),
+        )
+        self._commit()
+        return bool(getattr(cursor, "rowcount", 0))
 
     def find_latest_source_by_origin(self, project_id: str, source_type: str, origin: str) -> dict | None:
         if not origin:
@@ -316,6 +509,252 @@ class WikiRepository(BaseRepository):
     def list_signal_derivatives(self, project_id: str, source_id: str = "", *, limit: int = 100) -> list[dict]:
         params: list[Any] = [project_id]
         query = "SELECT * FROM knowledge_signal_derivatives WHERE project_id=?"
+        if source_id:
+            query += " AND source_id=?"
+            params.append(source_id)
+        query += " ORDER BY created_at DESC,id DESC LIMIT ?"
+        params.append(max(1, min(int(limit), 500)))
+        rows = self._execute(query, tuple(params)).fetchall()
+        return [self._decode(row, ("metadata_json",)) or {} for row in rows]
+
+    def register_media_asset(self, asset: MediaAsset) -> dict:
+        """Register immutable media metadata without copying its bytes."""
+        if not self.get_source(asset.project_id, asset.source_id):
+            raise KeyError("media asset source is missing or belongs to another project")
+        existing = self._execute(
+            "SELECT * FROM knowledge_media_assets WHERE project_id=? AND source_id=? AND byte_hash=? AND storage_ref=?",
+            (asset.project_id, asset.source_id, asset.byte_hash, asset.storage_ref),
+        ).fetchone()
+        if existing:
+            return self._decode(existing, ("metadata_json",)) or {}
+        self._execute(
+            "INSERT INTO knowledge_media_assets "
+            "(id,project_id,source_id,mime_type,byte_hash,byte_size,storage_ref,rights,access_state,metadata_json,created_at,updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                asset.id,
+                asset.project_id,
+                asset.source_id,
+                asset.mime_type,
+                asset.byte_hash,
+                asset.byte_size,
+                asset.storage_ref,
+                asset.rights,
+                asset.access_state.value,
+                self._json_dumps(asset.metadata),
+                _iso(asset.created_at),
+                _iso(asset.updated_at),
+            ),
+        )
+        self._commit()
+        return self.get_media_asset(asset.project_id, asset.id) or {}
+
+    def get_media_asset(self, project_id: str, asset_id: str) -> dict | None:
+        row = self._execute(
+            "SELECT * FROM knowledge_media_assets WHERE project_id=? AND id=?", (project_id, asset_id)
+        ).fetchone()
+        return self._decode(row, ("metadata_json",))
+
+    def list_media_assets(self, project_id: str, source_id: str = "", limit: int = 100) -> list[dict]:
+        params: list[Any] = [project_id]
+        query = "SELECT * FROM knowledge_media_assets WHERE project_id=?"
+        if source_id:
+            query += " AND source_id=?"
+            params.append(source_id)
+        query += " ORDER BY created_at DESC,id DESC LIMIT ?"
+        params.append(max(1, min(int(limit), 500)))
+        rows = self._execute(query, tuple(params)).fetchall()
+        return [self._decode(row, ("metadata_json",)) or {} for row in rows]
+
+    def create_extraction_artifact(self, artifact: ExtractionArtifact) -> dict:
+        """Persist a versioned derivative; regular reads intentionally omit content."""
+        if not self.get_source(artifact.project_id, artifact.source_id):
+            raise KeyError("extraction source is missing or belongs to another project")
+        asset = self.get_media_asset(artifact.project_id, artifact.asset_id)
+        if not asset or asset["source_id"] != artifact.source_id:
+            raise KeyError("extraction asset is missing or belongs to another source")
+        existing = self._execute(
+            "SELECT id FROM knowledge_extraction_artifacts WHERE project_id=? AND source_id=? AND asset_id=? "
+            "AND extractor=? AND extractor_revision=? AND input_hash=?",
+            (
+                artifact.project_id,
+                artifact.source_id,
+                artifact.asset_id,
+                artifact.extractor,
+                artifact.extractor_revision,
+                artifact.input_hash,
+            ),
+        ).fetchone()
+        if existing:
+            return self.get_extraction_artifact(artifact.project_id, self._row_to_dict(existing)["id"]) or {}
+        self._execute(
+            "INSERT INTO knowledge_extraction_artifacts "
+            "(id,project_id,source_id,asset_id,extractor,extractor_revision,input_hash,content_hash,content,status,error,metadata_json,created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                artifact.id,
+                artifact.project_id,
+                artifact.source_id,
+                artifact.asset_id,
+                artifact.extractor,
+                artifact.extractor_revision,
+                artifact.input_hash,
+                artifact.content_hash,
+                artifact.content,
+                artifact.status.value,
+                artifact.error,
+                self._json_dumps(artifact.metadata),
+                _iso(artifact.created_at),
+            ),
+        )
+        self._commit()
+        return self.get_extraction_artifact(artifact.project_id, artifact.id) or {}
+
+    def get_extraction_artifact(self, project_id: str, extraction_id: str) -> dict | None:
+        row = self._execute(
+            "SELECT id,project_id,source_id,asset_id,extractor,extractor_revision,input_hash,content_hash,status,error,metadata_json,created_at "
+            "FROM knowledge_extraction_artifacts WHERE project_id=? AND id=?",
+            (project_id, extraction_id),
+        ).fetchone()
+        return self._decode(row, ("metadata_json",))
+
+    def list_extraction_artifacts(self, project_id: str, source_id: str = "", limit: int = 100) -> list[dict]:
+        params: list[Any] = [project_id]
+        query = (
+            "SELECT id,project_id,source_id,asset_id,extractor,extractor_revision,input_hash,content_hash,status,error,metadata_json,created_at "
+            "FROM knowledge_extraction_artifacts WHERE project_id=?"
+        )
+        if source_id:
+            query += " AND source_id=?"
+            params.append(source_id)
+        query += " ORDER BY created_at DESC,id DESC LIMIT ?"
+        params.append(max(1, min(int(limit), 500)))
+        rows = self._execute(query, tuple(params)).fetchall()
+        return [self._decode(row, ("metadata_json",)) or {} for row in rows]
+
+    def latest_extraction_for_asset(
+        self,
+        project_id: str,
+        asset_id: str,
+        *,
+        extractor_revision: str = "",
+    ) -> dict | None:
+        """Return the newest bounded derivative for one project-owned asset."""
+        params: list[Any] = [project_id, asset_id]
+        query = (
+            "SELECT id,project_id,source_id,asset_id,extractor,extractor_revision,input_hash,content_hash,status,error,metadata_json,created_at "
+            "FROM knowledge_extraction_artifacts WHERE project_id=? AND asset_id=?"
+        )
+        if extractor_revision:
+            query += " AND extractor_revision=?"
+            params.append(extractor_revision)
+        query += " ORDER BY created_at DESC,id DESC LIMIT 1"
+        return self._decode(self._execute(query, tuple(params)).fetchone(), ("metadata_json",))
+
+    def get_extraction_content(self, project_id: str, extraction_id: str) -> dict | None:
+        """Internal-only retrieval used by governed compiler/extractor work."""
+        row = self._execute(
+            "SELECT id,project_id,content_hash,content FROM knowledge_extraction_artifacts WHERE project_id=? AND id=?",
+            (project_id, extraction_id),
+        ).fetchone()
+        return self._decode(row)
+
+    def create_table_artifact(self, table: TableArtifact) -> dict:
+        extraction = self.get_extraction_artifact(table.project_id, table.extraction_id)
+        if not extraction or extraction["source_id"] != table.source_id:
+            raise KeyError("table extraction is missing or belongs to another source")
+        existing = self._execute(
+            "SELECT * FROM knowledge_table_artifacts WHERE project_id=? AND extraction_id=? AND content_hash=?",
+            (table.project_id, table.extraction_id, table.content_hash),
+        ).fetchone()
+        if existing:
+            return self._decode(existing, ("schema_json", "units_json", "metadata_json")) or {}
+        self._execute(
+            "INSERT INTO knowledge_table_artifacts "
+            "(id,project_id,source_id,extraction_id,schema_json,row_count,units_json,content_hash,status,metadata_json,created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                table.id,
+                table.project_id,
+                table.source_id,
+                table.extraction_id,
+                self._json_dumps(table.table_schema),
+                table.row_count,
+                self._json_dumps(table.units),
+                table.content_hash,
+                table.status,
+                self._json_dumps(table.metadata),
+                _iso(table.created_at),
+            ),
+        )
+        self._commit()
+        return self.get_table_artifact(table.project_id, table.id) or {}
+
+    def get_table_artifact(self, project_id: str, table_id: str) -> dict | None:
+        row = self._execute(
+            "SELECT * FROM knowledge_table_artifacts WHERE project_id=? AND id=?", (project_id, table_id)
+        ).fetchone()
+        return self._decode(row, ("schema_json", "units_json", "metadata_json"))
+
+    def list_table_artifacts(self, project_id: str, extraction_id: str = "", limit: int = 100) -> list[dict]:
+        params: list[Any] = [project_id]
+        query = "SELECT * FROM knowledge_table_artifacts WHERE project_id=?"
+        if extraction_id:
+            query += " AND extraction_id=?"
+            params.append(extraction_id)
+        query += " ORDER BY created_at DESC,id DESC LIMIT ?"
+        params.append(max(1, min(int(limit), 500)))
+        rows = self._execute(query, tuple(params)).fetchall()
+        return [self._decode(row, ("schema_json", "units_json", "metadata_json")) or {} for row in rows]
+
+    def create_reference_link(self, reference: ReferenceLink) -> dict:
+        if not self.get_source(reference.project_id, reference.source_id):
+            raise KeyError("reference source is missing or belongs to another project")
+        existing = self._execute(
+            "SELECT * FROM knowledge_reference_links WHERE project_id=? AND target_type=? AND target_id=? AND source_id=? "
+            "AND anchor_type=? AND anchor=? AND relation=?",
+            (
+                reference.project_id,
+                reference.target_type,
+                reference.target_id,
+                reference.source_id,
+                reference.anchor_type,
+                reference.anchor,
+                reference.relation,
+            ),
+        ).fetchone()
+        if existing:
+            return self._decode(existing, ("metadata_json",)) or {}
+        self._execute(
+            "INSERT INTO knowledge_reference_links "
+            "(id,project_id,source_id,target_type,target_id,anchor_type,anchor,relation,resolution_state,metadata_json,created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                reference.id,
+                reference.project_id,
+                reference.source_id,
+                reference.target_type,
+                reference.target_id,
+                reference.anchor_type,
+                reference.anchor,
+                reference.relation,
+                reference.resolution_state.value,
+                self._json_dumps(reference.metadata),
+                _iso(reference.created_at),
+            ),
+        )
+        self._commit()
+        return self.get_reference_link(reference.project_id, reference.id) or {}
+
+    def get_reference_link(self, project_id: str, reference_id: str) -> dict | None:
+        row = self._execute(
+            "SELECT * FROM knowledge_reference_links WHERE project_id=? AND id=?", (project_id, reference_id)
+        ).fetchone()
+        return self._decode(row, ("metadata_json",))
+
+    def list_reference_links(self, project_id: str, source_id: str = "", limit: int = 100) -> list[dict]:
+        params: list[Any] = [project_id]
+        query = "SELECT * FROM knowledge_reference_links WHERE project_id=?"
         if source_id:
             query += " AND source_id=?"
             params.append(source_id)
@@ -640,6 +1079,14 @@ class WikiRepository(BaseRepository):
                     (project_id,),
                 ).fetchall()
         return [self._decode(row) or {} for row in rows]
+
+    def get_citation(self, project_id: str, citation_id: str) -> dict | None:
+        """Return one project-scoped Wiki citation for a redacted read projection."""
+        row = self._execute(
+            "SELECT * FROM knowledge_citations WHERE project_id=? AND id=?",
+            (project_id, citation_id),
+        ).fetchone()
+        return self._decode(row)
 
     def record_distillation(
         self,

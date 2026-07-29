@@ -7,7 +7,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
 from app.knowledge.wiki_repository import WikiRepository
-from app.knowledge.wiki_source_capture import CapturedSourceInput, SourceCaptureService
+from app.knowledge.wiki_source_capture import CapturedSourceInput, SourceCaptureService, sha256_content
 
 
 class HorizonExportItem(BaseModel):
@@ -69,34 +69,65 @@ class HorizonImportService:
                     f"URL: {item.url}",
                 ) if part
             )
-            result = self.capture_service.capture(
-                CapturedSourceInput(
+            content_hash = sha256_content(content)
+            claim = self.capture_service.repository.claim_horizon_import(
+                project_id=project_id,
+                horizon_run_id=run_id,
+                horizon_stage=stage,
+                horizon_item_id=item.id,
+                content_hash=content_hash,
+                capture_run_id=capture_run_id,
+            )
+            if not claim["claimed"]:
+                report["duplicates"] += 1
+                continue
+            try:
+                result = self.capture_service.capture(
+                    CapturedSourceInput(
+                        project_id=project_id,
+                        source_type="horizon_signal",
+                        origin=str(item.url),
+                        raw_content=content,
+                        content_hash=content_hash,
+                        trust_level="reviewed",
+                        metadata={
+                            "horizon_item_id": item.id,
+                            "horizon_run_id": run_id,
+                            "horizon_stage": stage,
+                            "source_type": item.source_type,
+                            "title": item.title,
+                            "published_at": item.published_at,
+                            "ai_score": item.ai_score,
+                            "ai_reason": item.ai_reason,
+                            "ai_summary": item.ai_summary,
+                            "ai_tags": item.ai_tags,
+                            "task_families": self._task_families(item),
+                            "admission_gate": "project_triage",
+                            "evidence_role": "discovery_signal",
+                            "primary_capture_required": True,
+                            "horizon_metadata": item.metadata,
+                        },
+                        capture_run_id=capture_run_id,
+                    )
+                )
+                completed = self.capture_service.repository.complete_horizon_import_claim(
                     project_id=project_id,
-                    source_type="horizon_signal",
-                    origin=str(item.url),
-                    raw_content=content,
-                    trust_level="reviewed",
-                    metadata={
-                        "horizon_item_id": item.id,
-                        "horizon_run_id": run_id,
-                        "horizon_stage": stage,
-                        "source_type": item.source_type,
-                        "title": item.title,
-                        "published_at": item.published_at,
-                        "ai_score": item.ai_score,
-                        "ai_reason": item.ai_reason,
-                        "ai_summary": item.ai_summary,
-                        "ai_tags": item.ai_tags,
-                        "task_families": self._task_families(item),
-                        "admission_gate": "project_triage",
-                        "evidence_role": "discovery_signal",
-                        "primary_capture_required": True,
-                        "horizon_metadata": item.metadata,
-                    },
+                    horizon_run_id=run_id,
+                    horizon_stage=stage,
+                    horizon_item_id=item.id,
+                    capture_run_id=capture_run_id,
+                    source_id=result.source["id"],
+                )
+            except Exception:
+                self.capture_service.repository.release_horizon_import_claim(
+                    project_id=project_id,
+                    horizon_run_id=run_id,
+                    horizon_stage=stage,
+                    horizon_item_id=item.id,
                     capture_run_id=capture_run_id,
                 )
-            )
-            report["created" if result.created else "duplicates"] += 1
+                raise
+            report["created" if result.created and completed else "duplicates"] += 1
         return report
 
     @classmethod

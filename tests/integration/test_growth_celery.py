@@ -7,7 +7,9 @@ from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
 from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus, SourceRecord, SourceStatus
 from app.tasks.growth_tasks import (
+    classify_growth_failure,
     execute_growth_run,
+    growth_task_time_limits,
     growth_execute,
     recover_abandoned_growth_runs,
 )
@@ -100,6 +102,52 @@ def test_growth_task_persists_the_correlated_promptops_execution_event(tmp_path,
             "retry_count": 1,
             "retry_categories": ["server_error"],
         }
+    finally:
+        repo.close()
+
+
+def test_growth_task_records_preserved_weekly_bundle_without_claiming_generation(tmp_path, monkeypatch):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "growth-preserved-weekly.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    run = KnowledgeRun(
+        id="growth-preserved-weekly",
+        project_id="project-a",
+        run_type="growth_weekly_distillation",
+        trigger="manual",
+        input_refs={"week": "2026-W30", "source_cutoff": "2026-07-24T09:00:00+00:00"},
+    )
+    repo.create_run(run)
+    monkeypatch.setattr(settings, "KNOWLEDGE_GROWTH_ENABLED", True)
+    monkeypatch.setattr(settings, "OBSIDIAN_VAULT_ROOT", str(root))
+    monkeypatch.setattr(
+        "app.tasks.growth_tasks.GrowthDistillationService.run_weekly",
+        lambda *_a, **_k: {
+            "status": "preserved",
+            "input_hash": "attempted-input-hash",
+            "preserved_input_hash": "published-input-hash",
+            "paths": [],
+            "manifest": {"input_count": 3, "generation": {"mode": "deterministic"}},
+        },
+    )
+    try:
+        result = execute_growth_run("project-a", run.id, repository=repo)
+
+        assert result["status"] == "completed"
+        stored = repo.get_run("project-a", run.id)
+        assert stored["output_refs"]["growth"]["status"] == "preserved"
+        assert stored["output_refs"]["metrics"]["preserved_count"] == 1
+        events = repo.list_run_events(project_id="project-a", run_id=run.id)
+        event = next(item for item in events if item["event_type"] == "knowledge.growth.distillation.preserved")
+        assert event["payload"] == {
+            "kind": "growth_weekly_distillation",
+            "period": "2026-W30",
+            "input_hash": "attempted-input-hash",
+            "paths": [],
+            "preserved_input_hash": "published-input-hash",
+        }
+        assert not any(item["event_type"] == "knowledge.growth.distillation.completed" for item in events)
     finally:
         repo.close()
 
@@ -284,6 +332,16 @@ def test_growth_task_persists_retryable_and_permanent_failure_categories(tmp_pat
     permanent_result = execute_growth_run("project-a", permanent.id, repository=repo)
     assert permanent_result["failure"] == {"category": "policy", "code": "permission_denied", "retryable": False}
     repo.close()
+
+
+def test_growth_task_timeout_is_bounded_and_retryable():
+    timeout = type("SoftTimeLimitExceeded", (Exception,), {})()
+    failure = classify_growth_failure(timeout)
+
+    assert failure.category == "transient_dependency"
+    assert failure.code == "growth_task_timeout"
+    assert failure.retryable is True
+    assert growth_task_time_limits() == {"soft_time_limit": 390, "time_limit": 420}
 
 
 def test_abandoned_growth_run_is_replayed_once_with_original_inputs(tmp_path):

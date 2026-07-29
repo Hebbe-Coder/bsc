@@ -138,3 +138,19 @@ Studio interface.
   this is operational evidence of incomplete follow-through, not a
   release-fixture failure. The cockpit exposes the gap instead of
   manufacturing completion.
+
+## 2026-07-29 Docker Data And Responsive Reacceptance
+
+- Revalidated the portfolio through the Vite proxy after converging the Studio
+  on the Docker API. The server-authorized payload reported 2 authorized
+  projects, 172 durable records, and 31 evidence-ranked actions. No portfolio
+  total was recomputed in the browser.
+- Browser acceptance at 390x844 confirmed the portfolio cockpit, metrics,
+  project cards, charts, and action queue render without horizontal overflow.
+  The mobile title hierarchy was corrected in `src/index.css`: the category
+  label and `Decision cockpit` heading now stack vertically rather than being
+  compressed into one line. This changes presentation only; data and access
+  semantics are unchanged.
+- Verification: `npm run test:frontend --
+  src/components/operations/KnowledgeOperationsCockpit.test.tsx` passed 8
+  tests and `npm run check` passed. Browser checks observed no console errors.

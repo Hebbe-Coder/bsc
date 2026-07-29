@@ -139,6 +139,98 @@ class _PartialNarrativeProvider:
         }
 
 
+class _UnavailableNarrativeProvider:
+    unavailable_reason = "response_payload_invalid"
+
+    def render(self, *, kind, project_id, period, context):
+        return None
+
+
+class _ProductionUnavailableNarrativeProvider(_UnavailableNarrativeProvider):
+    requires_complete_weekly_llm_for_replacement = True
+    semantic_generation_attempted = True
+
+
+class _ProductionOneShotPartialNarrativeProvider(_PartialNarrativeProvider):
+    supports_quality_retry = True
+    requires_complete_weekly_llm_for_replacement = True
+    semantic_generation_attempted = True
+    max_weekly_model_invocations = 1
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.prompt_runs = [object()]
+
+    def render(self, **kwargs):
+        self.calls += 1
+        return super().render(**kwargs)
+
+
+class _ProductionBatchRepairNarrativeProvider:
+    supports_quality_retry = True
+    supports_targeted_weekly_retry = True
+    max_weekly_model_invocations = 2
+
+    def __init__(self) -> None:
+        self.targets: list[tuple[str, ...]] = []
+
+    def render(self, *, kind, project_id, period, context, weekly_document_names=(), **_kwargs):
+        self.targets.append(tuple(weekly_document_names))
+        if kind == "daily":
+            return _NarrativeProvider().render(kind=kind, project_id=project_id, period=period, context=context)
+        slots = GrowthDistillationService.WEEKLY_NARRATIVE_SLOTS
+        if weekly_document_names:
+            slots_by_document = dict(zip(GrowthDistillationService.WEEKLY_DOCUMENTS, slots, strict=True))
+            return {
+                "weekly": {
+                    slots_by_document[name]: _valid_weekly_document("Batch repair evidence")
+                    for name in weekly_document_names
+                }
+            }
+        return {
+            "weekly": {
+                slots[0]: _valid_weekly_document("Initial accepted evidence"),
+                **{slot: "## Invalid\n\nNo evidence citation." for slot in slots[1:]},
+            }
+        }
+
+
+class _ProductionFinalStrictRepairNarrativeProvider:
+    supports_quality_retry = True
+    supports_targeted_weekly_retry = True
+    supports_final_strict_weekly_retry = True
+    max_weekly_model_invocations = 3
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.targets: list[tuple[str, ...]] = []
+
+    def render(self, *, kind, project_id, period, context, weekly_document_names=(), **_kwargs):
+        self.calls += 1
+        self.targets.append(tuple(weekly_document_names))
+        if kind == "daily":
+            return _NarrativeProvider().render(kind=kind, project_id=project_id, period=period, context=context)
+        slots = GrowthDistillationService.WEEKLY_NARRATIVE_SLOTS
+        slots_by_document = dict(zip(GrowthDistillationService.WEEKLY_DOCUMENTS, slots, strict=True))
+        summary = GrowthDistillationService.WEEKLY_DOCUMENTS[0]
+        if not weekly_document_names:
+            weekly = {slot: _valid_weekly_document(f"Initial {slot} evidence") for slot in slots}
+            weekly[slots[0]] += "\n\n## State\n\nThis week we decided to migrate BSC [source:source-a]."
+            return {"weekly": weekly}
+        if self.calls == 2:
+            return {
+                "weekly": {
+                    slots_by_document[summary]: _valid_weekly_document("Unsafe summary")
+                    + "\n\n## State\n\nThis week we decided to migrate BSC [source:source-a]."
+                }
+            }
+        return {
+            "weekly": {
+                slots_by_document[summary]: _valid_weekly_document("Strictly repaired summary evidence")
+            }
+        }
+
+
 class _UnsupportedProjectStateNarrativeProvider:
     def render(self, *, kind, project_id, period, context):
         if kind == "daily":
@@ -167,6 +259,113 @@ class _RetryableNarrativeProvider:
         )
 
 
+class _TargetedRetryNarrativeProvider:
+    """Simulates a real provider whose repair request only returns rejected files."""
+
+    supports_quality_retry = True
+    supports_targeted_weekly_retry = True
+    supports_run_correlation = True
+    provider = "deepseek"
+    model = "deepseek-v4-pro"
+
+    def __init__(self, *, fail_first_target: bool = False) -> None:
+        self.targets: list[tuple[str, ...]] = []
+        self.prompt_runs: list[SimpleNamespace] = []
+        self.last_prompt_run: SimpleNamespace | None = None
+        self.fail_first_target = fail_first_target
+
+    def reset_run_evidence(self) -> None:
+        self.prompt_runs = []
+        self.last_prompt_run = None
+
+    def render(
+        self,
+        *,
+        kind,
+        project_id,
+        period,
+        context,
+        knowledge_run_id="",
+        quality_feedback="",
+        weekly_document_names=(),
+    ):
+        self.targets.append(tuple(weekly_document_names))
+        call_number = len(self.targets)
+        self.last_prompt_run = SimpleNamespace(
+            run_id=f"prompt-targeted-{call_number}",
+            task=PromptTask.KNOWLEDGE_DISTILLATION,
+            revision=f"growth-distillation-v{GrowthDistillationService.DISTILLATION_CONTRACT_REVISION}",
+            provider=self.provider,
+            model=self.model,
+            agent_manifest=SimpleNamespace(manifest_fingerprint=f"{call_number}" * 64),
+            usage=PromptUsage(
+                provider_calls=1,
+                reported_calls=1,
+                complete=True,
+                latency_ms=100 * call_number,
+                prompt_tokens=10 * call_number,
+                completion_tokens=20 * call_number,
+                total_tokens=30 * call_number,
+            ),
+        )
+        self.prompt_runs.append(self.last_prompt_run)
+        if kind == "daily":
+            return _NarrativeProvider().render(kind=kind, project_id=project_id, period=period, context=context)
+        if weekly_document_names:
+            slots_by_document = dict(zip(
+                GrowthDistillationService.WEEKLY_DOCUMENTS,
+                GrowthDistillationService.WEEKLY_NARRATIVE_SLOTS,
+                strict=True,
+            ))
+            if self.fail_first_target and len(self.targets) == 2:
+                return {
+                    "weekly": {
+                        slots_by_document[name]: "## Invalid repair\n\nThe repair has no evidence citation."
+                        for name in weekly_document_names
+                    }
+                }
+            return {
+                "weekly": {
+                    slots_by_document[name]: _valid_weekly_document("Targeted repair evidence")
+                    for name in weekly_document_names
+                }
+            }
+        return _UnsupportedProjectStateNarrativeProvider().render(
+            kind=kind,
+            project_id=project_id,
+            period=period,
+            context=context,
+        )
+
+
+class _AllRejectedTargetedNarrativeProvider:
+    """A whole-batch failure must not fan out into one repair per file."""
+
+    supports_quality_retry = True
+    supports_targeted_weekly_retry = True
+
+    def __init__(self) -> None:
+        self.targets: list[tuple[str, ...]] = []
+
+    def render(
+        self,
+        *,
+        kind,
+        project_id,
+        period,
+        context,
+        quality_feedback="",
+        weekly_document_names=(),
+    ):
+        self.targets.append(tuple(weekly_document_names))
+        if kind == "daily":
+            return _NarrativeProvider().render(kind=kind, project_id=project_id, period=period, context=context)
+        slots = GrowthDistillationService.WEEKLY_NARRATIVE_SLOTS
+        if quality_feedback:
+            return {"weekly": {slot: _valid_weekly_document("Whole-batch repair evidence") for slot in slots}}
+        return {"weekly": {slot: "## Invalid\n\nNo evidence citation." for slot in slots}}
+
+
 def test_configured_narrative_provider_prefers_growth_model_override(monkeypatch):
     captured = {}
 
@@ -179,6 +378,8 @@ def test_configured_narrative_provider_prefers_growth_model_override(monkeypatch
             self.last_structured_failure = ""
 
         def chat_structured(self, **kwargs):
+            captured["structured_call_cap"] = kwargs["max_structured_attempts"]
+            captured["max_tokens"] = kwargs["max_tokens"]
             return {
                 "daily": {
                     "headline": "Evidence retained for review",
@@ -206,8 +407,68 @@ def test_configured_narrative_provider_prefers_growth_model_override(monkeypatch
     )
 
     assert result["daily"]["headline"] == "Evidence retained for review"
-    assert captured == {"provider": "deepseek", "model": "growth-specific-model", "timeout": 135.0}
+    assert captured == {
+        "provider": "deepseek",
+        "model": "growth-specific-model",
+        "timeout": 135.0,
+        "structured_call_cap": 1,
+        "max_tokens": ConfiguredDistillationNarrativeProvider.DAILY_MAX_TOKENS,
+    }
     assert provider.last_prompt_run.agent_manifest.context_refs == ("knowledge_run:growth-run-a",)
+
+
+def test_configured_narrative_provider_reserves_enough_tokens_for_a_small_weekly_repair(monkeypatch):
+    captured = {}
+
+    class _Client:
+        def __init__(self, **_kwargs):
+            self.model = "growth-specific-model"
+            self.last_structured_failure = ""
+
+        def chat_structured(self, **kwargs):
+            captured["max_tokens"] = kwargs["max_tokens"]
+            return {"weekly": {"summary": _valid_weekly_document("Repair evidence")}}
+
+    monkeypatch.setattr(settings, "KNOWLEDGE_GROWTH_SEMANTIC_DISTILLATION_ENABLED", True)
+    monkeypatch.setattr(settings, "KNOWLEDGE_WIKI_LLM_PROVIDER", "deepseek")
+    monkeypatch.setattr(settings, "SOP_LLM_PROVIDER", "mock")
+    monkeypatch.setattr(settings, "KNOWLEDGE_GROWTH_LLM_MODEL", "growth-specific-model")
+    monkeypatch.setattr("app.services.sop_llm_client.SOPLLMClient", _Client)
+
+    provider = ConfiguredDistillationNarrativeProvider()
+    result = provider.render(
+        kind="weekly",
+        project_id="project-a",
+        period="2026-W30",
+        context="[source:source-a]",
+        weekly_document_names=(GrowthDistillationService.WEEKLY_DOCUMENTS[0],),
+    )
+
+    assert result["weekly"]["summary"]
+    assert captured["max_tokens"] == ConfiguredDistillationNarrativeProvider.TARGETED_WEEKLY_MAX_TOKENS_FLOOR
+
+
+def test_targeted_weekly_prompt_keeps_only_requested_distinct_document_contracts():
+    requested = (
+        GrowthDistillationService.WEEKLY_DOCUMENTS[0],
+        GrowthDistillationService.WEEKLY_DOCUMENTS[3],
+        GrowthDistillationService.WEEKLY_DOCUMENTS[4],
+    )
+
+    prompt = ConfiguredDistillationNarrativeProvider._system_prompt(
+        "weekly",
+        quality_feedback="summary (unsupported_project_state)",
+        weekly_document_names=requested,
+    )
+
+    assert '"summary"' in prompt
+    assert '"next_context"' in prompt
+    assert '"method_iteration"' in prompt
+    assert "content_briefs:" not in prompt
+    assert "## Open question and constraints" in prompt
+    assert "Every factual sentence must use Evidence" in prompt
+    assert "Do not use BSC, Obsidian, the project, we, system, or knowledge base" in prompt
+    assert "unsupported_project_state" in prompt
 
 
 def test_validated_markdown_normalizes_structured_list_items_before_citation_validation():
@@ -235,6 +496,34 @@ def test_weekly_markdown_rejects_non_evidence_references_and_unsupported_state_c
 
     assert GrowthDistillationService._validated_weekly_markdown(method_reference, context) == ""
     assert GrowthDistillationService._validated_weekly_markdown(unsupported_state, context) == ""
+
+
+@pytest.mark.parametrize(
+    ("content", "expected_reason"),
+    [
+        ("## Evidence\n\nA short claim without a ledger reference.\n\n## Open question\n\nOpen question.", "missing_citation"),
+        (_valid_weekly_document("Invalid label").replace("source-a", "source-not-in-ledger"), "invalid_reference"),
+        ("## Evidence\n\n[source:source-a]\n\n## Open question\n\nOpen question.", "too_short"),
+        (
+            "## Evidence\n\n" + "Grounded observation [source:source-a]. " * 12 + "Open question remains.",
+            "missing_sections",
+        ),
+        (_valid_weekly_document("Closed claim").replace("Open question", "Resolved item"), "missing_uncertainty"),
+        (
+            _valid_weekly_document("Unsupported state")
+            + "\n\n## State\n\nThis week we decided to migrate BSC [source:source-a].",
+            "unsupported_project_state",
+        ),
+    ],
+)
+def test_weekly_markdown_exposes_non_content_rejection_reasons(content, expected_reason):
+    validated, reason = GrowthDistillationService._weekly_markdown_validation(
+        content,
+        {"citation_source_ids": ["source-a"]},
+    )
+
+    assert validated == ""
+    assert reason == expected_reason
 
 
 def test_daily_narrative_requires_a_citation_in_every_evidence_section():
@@ -582,6 +871,224 @@ def test_distillation_preserves_only_cited_llm_documents_and_records_hybrid_prov
         repo.close()
 
 
+def test_weekly_distillation_reserves_a_larger_evidence_context_than_daily(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "distillation-context-budget.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        repo.create_source(
+            SourceRecord(
+                id="source-a",
+                project_id="project-a",
+                source_type="article",
+                content_hash="a" * 64,
+                raw_content="Review gates are required before publication.",
+                trust_level="trusted",
+                status=SourceStatus.ELIGIBLE,
+                captured_at=_CUTOFF_SAFE_TIME,
+                updated_at=_CUTOFF_SAFE_TIME,
+            )
+        )
+        service = GrowthDistillationService(repo, root, narrative_provider=_NarrativeProvider())
+
+        daily = service.run_daily("project-a", "2026-07-24", source_cutoff="2026-07-24T09:00:00Z")
+        weekly = service.run_weekly("project-a", "2026-W30", source_cutoff="2026-07-24T09:00:00Z")
+
+        assert daily["manifest"]["context"]["character_budget"] == service.DAILY_CONTEXT_CHARACTER_BUDGET
+        assert weekly["manifest"]["context"]["character_budget"] == service.WEEKLY_CONTEXT_CHARACTER_BUDGET
+        assert weekly["manifest"]["context"]["character_budget"] > daily["manifest"]["context"]["character_budget"]
+    finally:
+        repo.close()
+
+
+@pytest.mark.parametrize("degraded_provider", [_PartialNarrativeProvider(), _UnavailableNarrativeProvider()])
+def test_incomplete_weekly_generation_cannot_replace_a_published_bundle(tmp_path, degraded_provider):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "distillation-preserve-weekly.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        repo.create_source(
+            SourceRecord(
+                id="source-a",
+                project_id="project-a",
+                source_type="article",
+                content_hash="a" * 64,
+                raw_content="Review gates are required before publication.",
+                trust_level="trusted",
+                status=SourceStatus.ELIGIBLE,
+                captured_at=_CUTOFF_SAFE_TIME,
+                updated_at=_CUTOFF_SAFE_TIME,
+            )
+        )
+        initial = GrowthDistillationService(repo, root, narrative_provider=_NarrativeProvider()).run_weekly(
+            "project-a", "2026-W30", source_cutoff="2026-07-24T09:00:00Z"
+        )
+        weekly_root = root / "projects" / "project-a" / "distillations" / GrowthDistillationService.WEEKLY_DIRECTORY / "2026-W30"
+        before = {path.name: path.read_bytes() for path in weekly_root.iterdir() if path.is_file()}
+
+        preserved = GrowthDistillationService(repo, root, narrative_provider=degraded_provider).run_weekly(
+            "project-a", "2026-W30", source_cutoff="2026-07-24T10:00:00Z"
+        )
+
+        assert preserved["status"] == "preserved"
+        assert preserved["input_hash"] != initial["input_hash"]
+        assert preserved["preserved_input_hash"] == initial["input_hash"]
+        assert preserved["paths"] == []
+        assert preserved["manifest"]["publication"] == {
+            "status": "preserved",
+            "reason": "incomplete_llm_generation_cannot_replace_published_weekly_bundle",
+            "preserved_input_hash": initial["input_hash"],
+            "preserved_generation_mode": "llm",
+        }
+        assert {path.name: path.read_bytes() for path in weekly_root.iterdir() if path.is_file()} == before
+        assert not (weekly_root / "revisions" / preserved["input_hash"]).exists()
+        assert len(repo.list_growth_distillations("project-a", "weekly")) == 1
+    finally:
+        repo.close()
+
+
+def test_production_fallback_cannot_replace_an_existing_deterministic_weekly_bundle(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "distillation-preserve-production-fallback.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        repo.create_source(
+            SourceRecord(
+                id="source-a",
+                project_id="project-a",
+                source_type="article",
+                content_hash="a" * 64,
+                raw_content="Review gates are required before publication.",
+                trust_level="trusted",
+                status=SourceStatus.ELIGIBLE,
+                captured_at=_CUTOFF_SAFE_TIME,
+                updated_at=_CUTOFF_SAFE_TIME,
+            )
+        )
+        initial = GrowthDistillationService(repo, root, narrative_provider=_UnavailableNarrativeProvider()).run_weekly(
+            "project-a", "2026-W30", source_cutoff="2026-07-24T09:00:00Z"
+        )
+        weekly_root = root / "projects" / "project-a" / "distillations" / GrowthDistillationService.WEEKLY_DIRECTORY / "2026-W30"
+        before = {path.name: path.read_bytes() for path in weekly_root.iterdir() if path.is_file()}
+
+        preserved = GrowthDistillationService(
+            repo, root, narrative_provider=_ProductionUnavailableNarrativeProvider()
+        ).run_weekly("project-a", "2026-W30", source_cutoff="2026-07-24T10:00:00Z")
+
+        assert initial["manifest"]["generation"]["mode"] == "deterministic"
+        assert preserved["status"] == "preserved"
+        assert preserved["preserved_input_hash"] == initial["input_hash"]
+        assert {path.name: path.read_bytes() for path in weekly_root.iterdir() if path.is_file()} == before
+    finally:
+        repo.close()
+
+
+def test_production_weekly_budget_preserves_existing_bundle_without_a_second_model_render(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "distillation-production-one-shot.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        repo.create_source(
+            SourceRecord(
+                id="source-a",
+                project_id="project-a",
+                source_type="article",
+                content_hash="a" * 64,
+                raw_content="Review gates are required before publication.",
+                trust_level="trusted",
+                status=SourceStatus.ELIGIBLE,
+                captured_at=_CUTOFF_SAFE_TIME,
+                updated_at=_CUTOFF_SAFE_TIME,
+            )
+        )
+        GrowthDistillationService(repo, root, narrative_provider=_NarrativeProvider()).run_weekly(
+            "project-a", "2026-W30", source_cutoff="2026-07-24T09:00:00Z"
+        )
+        provider = _ProductionOneShotPartialNarrativeProvider()
+
+        result = GrowthDistillationService(repo, root, narrative_provider=provider).run_weekly(
+            "project-a", "2026-W30", source_cutoff="2026-07-24T10:00:00Z"
+        )
+
+        assert provider.calls == 1
+        assert result["status"] == "preserved"
+        assert result["manifest"]["generation"]["reason"] == "invalid_llm_documents_replaced"
+    finally:
+        repo.close()
+
+
+def test_production_weekly_budget_repairs_all_rejected_documents_in_one_batch(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "distillation-production-batch-repair.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        repo.create_source(
+            SourceRecord(
+                id="source-a",
+                project_id="project-a",
+                source_type="article",
+                content_hash="a" * 64,
+                raw_content="Review gates are required before publication.",
+                trust_level="trusted",
+                status=SourceStatus.ELIGIBLE,
+                captured_at=_CUTOFF_SAFE_TIME,
+                updated_at=_CUTOFF_SAFE_TIME,
+            )
+        )
+        provider = _ProductionBatchRepairNarrativeProvider()
+
+        result = GrowthDistillationService(repo, root, narrative_provider=provider).run_weekly(
+            "project-a", "2026-W30", source_cutoff="2026-07-24T09:00:00Z"
+        )
+
+        assert provider.targets == [(), tuple(GrowthDistillationService.WEEKLY_DOCUMENTS[1:])]
+        assert result["manifest"]["generation"]["mode"] == "llm"
+        assert result["manifest"]["generation"]["quality_retry_count"] == 1
+        assert result["manifest"]["generation"]["fallback_documents"] == []
+    finally:
+        repo.close()
+
+
+def test_production_weekly_uses_one_final_strict_repair_for_a_single_remaining_document(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "distillation-production-final-strict-repair.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        repo.create_source(
+            SourceRecord(
+                id="source-a",
+                project_id="project-a",
+                source_type="article",
+                content_hash="a" * 64,
+                raw_content="Review gates are required before publication.",
+                trust_level="trusted",
+                status=SourceStatus.ELIGIBLE,
+                captured_at=_CUTOFF_SAFE_TIME,
+                updated_at=_CUTOFF_SAFE_TIME,
+            )
+        )
+        provider = _ProductionFinalStrictRepairNarrativeProvider()
+
+        result = GrowthDistillationService(repo, root, narrative_provider=provider).run_weekly(
+            "project-a", "2026-W30", source_cutoff="2026-07-24T09:00:00Z"
+        )
+
+        generation = result["manifest"]["generation"]
+        assert provider.calls == 3
+        assert provider.targets == [(), (GrowthDistillationService.WEEKLY_DOCUMENTS[0],), (GrowthDistillationService.WEEKLY_DOCUMENTS[0],)]
+        assert generation["mode"] == "llm"
+        assert generation["fallback_documents"] == []
+        assert generation["quality_retry_count"] == 2
+    finally:
+        repo.close()
+
+
 def test_weekly_distillation_rejects_unsupported_project_state_claims(tmp_path):
     root = tmp_path / "vault"
     root.mkdir()
@@ -602,11 +1109,33 @@ def test_weekly_distillation_rejects_unsupported_project_state_claims(tmp_path):
         generation = result["manifest"]["generation"]
         assert generation["mode"] == "hybrid"
         assert GrowthDistillationService.WEEKLY_DOCUMENTS[0] in generation["fallback_documents"]
+        assert generation["rejection_reasons"][GrowthDistillationService.WEEKLY_DOCUMENTS[0]] == "unsupported_project_state"
         summary = (root / "projects" / "project-a" / result["paths"][0]).read_text(encoding="utf-8")
         assert "we decided to migrate" not in summary
         assert "The source describes a tool protocol" not in summary
     finally:
         repo.close()
+
+
+@pytest.mark.parametrize(
+    "unsupported_fragment",
+    [
+        "\n\n## Owner\n\nAssign [codex-runtime-repair] to verify the source [source:source-a].",
+        "\n\n## Historical state\n\n\u4e0a\u5468\u5df2\u542f\u52a8\u89c4\u8303\u5ba1\u67e5 [source:source-a]",
+        "\n\n## Historical review\n\n\u672c\u5468\u5bf9 MCP \u8fdb\u884c\u4e86\u5b9a\u5411\u5ba1\u67e5 [source:source-a]",
+        "\n\n## Historical review\n\n\u672c\u5468\u6211\u4eec\u5ba1\u67e5\u4e86 MCP \u5f52\u6863 [source:source-a]",
+        "\n\n## Project decision\n\n\u6211\u4eec\u6682\u5b9a\u5c06 MCP \u4f5c\u4e3a\u63d2\u4ef6\u534f\u8bae [source:source-a]",
+        "\n\n## Project state\n\n\u9879\u76ee\u5df2\u5c06 MCP \u6807\u8bb0\u4e3a\u7814\u7a76\u6e90 [source:source-a]",
+        "\n\n## System state\n\nBSC \u4e0e Obsidian \u5de5\u4f5c\u53f0\u4ecd\u4ee5\u81ea\u5b9a\u4e49\u534f\u8bae\u4e3a\u4e3b [source:source-a]",
+        "\n\n## Review outcome\n\nMCP \u5ba1\u67e5\u5f3a\u5316\u4e86\u65b9\u6cd5\u539f\u5219 [source:source-a]",
+        "\n\n## Invented scope\n\n\u7ea6 15 \u4e2a\u8282\u70b9\u9700\u8981\u91cd\u65b0\u8fde\u63a5 [source:source-a]",
+    ],
+)
+def test_weekly_markdown_rejects_non_evidence_brackets_and_unbounded_state_claims(unsupported_fragment):
+    context = {"source_ids": ["source-a"], "page_ids": []}
+    content = _valid_weekly_document("Governed evidence") + unsupported_fragment
+
+    assert GrowthDistillationService._validated_weekly_markdown(content, context) == ""
 
 
 def test_weekly_distillation_retries_a_rejected_real_provider_draft_once(tmp_path):
@@ -638,6 +1167,108 @@ def test_weekly_distillation_retries_a_rejected_real_provider_draft_once(tmp_pat
             "we decided to migrate" not in (root / "projects" / "project-a" / path).read_text(encoding="utf-8")
             for path in result["paths"]
         )
+    finally:
+        repo.close()
+
+
+def test_weekly_distillation_repairs_only_rejected_documents_and_audits_both_model_calls(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "distillation-targeted-retry.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        repo.create_source(SourceRecord(
+            id="source-a", project_id="project-a", source_type="article", content_hash="a" * 64,
+            raw_content="A governed review must distinguish evidence from proposed work.",
+            trust_level="trusted", status=SourceStatus.ELIGIBLE,
+            captured_at=_CUTOFF_SAFE_TIME, updated_at=_CUTOFF_SAFE_TIME,
+        ))
+        provider = _TargetedRetryNarrativeProvider()
+
+        result = GrowthDistillationService(repo, root, narrative_provider=provider).run_weekly(
+            "project-a",
+            "2026-W30",
+            source_cutoff="2026-07-24T09:00:00Z",
+            knowledge_run_id="growth-run-targeted",
+        )
+
+        rejected_name = GrowthDistillationService.WEEKLY_DOCUMENTS[0]
+        assert provider.targets == [(), (rejected_name,)]
+        generation = result["manifest"]["generation"]
+        assert generation["mode"] == "llm"
+        assert generation["fallback_documents"] == []
+        assert generation["quality_retry_count"] == 1
+        assert generation["promptops"]["provider_invocation_count"] == 2
+        assert generation["promptops"]["usage"]["provider_calls"] == 2
+        assert generation["promptops"]["usage"]["total_tokens"] == 90
+        assert [item["prompt_run_id"] for item in generation["promptops"]["prompt_runs"]] == [
+            "prompt-targeted-1",
+            "prompt-targeted-2",
+        ]
+        summary = (root / "projects" / "project-a" / result["paths"][0]).read_text(encoding="utf-8")
+        assert "Targeted repair evidence" in summary
+        assert "we decided to migrate" not in summary
+    finally:
+        repo.close()
+
+
+def test_weekly_distillation_rewrites_once_when_every_document_is_rejected(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "distillation-whole-batch-retry.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        repo.create_source(SourceRecord(
+            id="source-a", project_id="project-a", source_type="article", content_hash="a" * 64,
+            raw_content="A governed review must distinguish evidence from proposed work.",
+            trust_level="trusted", status=SourceStatus.ELIGIBLE,
+            captured_at=_CUTOFF_SAFE_TIME, updated_at=_CUTOFF_SAFE_TIME,
+        ))
+        provider = _AllRejectedTargetedNarrativeProvider()
+
+        result = GrowthDistillationService(repo, root, narrative_provider=provider).run_weekly(
+            "project-a", "2026-W30", source_cutoff="2026-07-24T09:00:00Z"
+        )
+
+        assert provider.targets == [(), ()]
+        assert result["manifest"]["generation"]["mode"] == "llm"
+        assert result["manifest"]["generation"]["quality_retry_count"] == 1
+        assert all(
+            "Whole-batch repair evidence" in (root / "projects" / "project-a" / path).read_text(encoding="utf-8")
+            for path in result["paths"]
+        )
+    finally:
+        repo.close()
+
+
+def test_weekly_distillation_allows_one_additional_targeted_repair_before_fallback(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "distillation-two-targeted-repairs.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        repo.create_source(SourceRecord(
+            id="source-a", project_id="project-a", source_type="article", content_hash="a" * 64,
+            raw_content="A governed review must distinguish evidence from proposed work.",
+            trust_level="trusted", status=SourceStatus.ELIGIBLE,
+            captured_at=_CUTOFF_SAFE_TIME, updated_at=_CUTOFF_SAFE_TIME,
+        ))
+        provider = _TargetedRetryNarrativeProvider(fail_first_target=True)
+
+        result = GrowthDistillationService(repo, root, narrative_provider=provider).run_weekly(
+            "project-a",
+            "2026-W30",
+            source_cutoff="2026-07-24T09:00:00Z",
+            knowledge_run_id="growth-run-two-repairs",
+        )
+
+        rejected_name = GrowthDistillationService.WEEKLY_DOCUMENTS[0]
+        assert provider.targets == [(), (rejected_name,), (rejected_name,)]
+        generation = result["manifest"]["generation"]
+        assert generation["mode"] == "llm"
+        assert generation["quality_retry_count"] == 2
+        assert generation["promptops"]["provider_invocation_count"] == 3
+        assert generation["promptops"]["usage"]["provider_calls"] == 3
     finally:
         repo.close()
 

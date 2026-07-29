@@ -143,6 +143,10 @@ class PromptRequest(BaseModel):
     # key-rotation and JSON-repair behavior. Keep the default deliberately
     # small: a business/knowledge run should never become an unbounded spend.
     max_attempts: int = Field(default=2, ge=1, le=3)
+    # Some governed transformations have a strict per-render spend and
+    # latency budget. This bounds JSON parsing/repair calls inside one outer
+    # PromptOps attempt without weakening the default compatibility behavior.
+    max_structured_attempts: int = Field(default=2, ge=1, le=3)
     retry_initial_backoff_seconds: float = Field(default=0.5, ge=0.0, le=10.0)
     retry_max_backoff_seconds: float = Field(default=5.0, ge=0.0, le=30.0)
     max_rate_limit_retries: int = Field(default=1, ge=0, le=2)

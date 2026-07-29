@@ -64,6 +64,15 @@ class ArtifactType(StrEnum):
     ADVISOR_REVIEW = "advisor_review"
     INTAKE_SESSION = "intake_session"
     INTAKE_ANSWER_REVISION = "intake_answer_revision"
+    PERSONAL_PROFILE = "personal_profile"
+    CAPABILITY = "capability"
+    PERSONAL_EXECUTION_PLAN = "personal_execution_plan"
+    WORK_EXECUTION_RECORD = "work_execution_record"
+    WORK_OUTCOME = "work_outcome"
+    WORK_FEEDBACK = "work_feedback"
+    EXPERIENCE = "experience"
+    SOP_VERSION = "sop_version"
+    SOP_PROMOTION = "sop_promotion"
 
 
 class GapCategory(StrEnum):
@@ -664,6 +673,110 @@ class AdvisorReviewArtifact(BaseArtifact):
 
 
 # ---------------------------------------------------------------------------
+# Personal Business Operating System artifacts (additive to DBOS)
+# ---------------------------------------------------------------------------
+
+class PersonalProfileArtifact(BaseArtifact):
+    artifact_type: ArtifactType = ArtifactType.PERSONAL_PROFILE
+    focus: list[str] = Field(default_factory=list)
+    goals: list[str] = Field(default_factory=list)
+    preferences: dict[str, Any] = Field(default_factory=dict)
+    resources: list[str] = Field(default_factory=list)
+    constraints: list[str] = Field(default_factory=list)
+
+
+class CapabilityArtifact(BaseArtifact):
+    artifact_type: ArtifactType = ArtifactType.CAPABILITY
+    name: str = ""
+    capability_type: str = "business_skill"
+    level: int = Field(default=1, ge=1, le=5)
+    evidence_count: int = Field(default=0, ge=0)
+    growth_curve: list[dict[str, Any]] = Field(default_factory=list)
+    related_strategy_ids: list[str] = Field(default_factory=list)
+
+
+class PersonalExecutionPlanArtifact(BaseArtifact):
+    artifact_type: ArtifactType = ArtifactType.PERSONAL_EXECUTION_PLAN
+    mission_id: str = ""
+    diagnosis_id: str = ""
+    title: str = ""
+    rationale: list[str] = Field(default_factory=list)
+    phases: list[dict[str, Any]] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    success_criteria: list[str] = Field(default_factory=list)
+    evidence_gap_plan: list[str] = Field(default_factory=list)
+    feedback_refs: list[str] = Field(default_factory=list)
+    compilation_state: str = "grounded"
+    knowledge_context_refs: list[str] = Field(default_factory=list)
+    comparison_key: str = ""
+    comparison_context: str = ""
+    personal_context_fingerprint: str = ""
+    strategy_refs: list[str] = Field(default_factory=list)
+    compiler_metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkExecutionRecordArtifact(BaseArtifact):
+    artifact_type: ArtifactType = ArtifactType.WORK_EXECUTION_RECORD
+    mission_id: str = ""
+    plan_id: str = ""
+    execution_status: str = "recorded"
+    actions: list[str] = Field(default_factory=list)
+    tool_receipts: list[dict[str, Any]] = Field(default_factory=list)
+    reflection: dict[str, str] = Field(default_factory=dict)
+    observed_at: str = ""
+
+
+class WorkOutcomeArtifact(BaseArtifact):
+    artifact_type: ArtifactType = ArtifactType.WORK_OUTCOME
+    mission_id: str = ""
+    execution_record_id: str = ""
+    quality_score: float | None = Field(default=None, ge=0, le=100)
+    severe_failure: bool = False
+    acceptance_status: str = "unverified"
+    comparison_key: str = ""
+    comparison_context: str = ""
+    personal_context_fingerprint: str = ""
+    baseline_quality: float | None = Field(default=None, ge=0, le=100)
+    hard_failure_resolved: bool = False
+    metrics: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkFeedbackArtifact(BaseArtifact):
+    artifact_type: ArtifactType = ArtifactType.WORK_FEEDBACK
+    outcome_id: str = ""
+    source: str = "manual_reflection"
+    sentiment: str = "neutral"
+    statement: str = ""
+
+
+class ExperienceArtifact(BaseArtifact):
+    artifact_type: ArtifactType = ArtifactType.EXPERIENCE
+    statement: str = ""
+    applicability: list[str] = Field(default_factory=list)
+    success_factors: list[str] = Field(default_factory=list)
+    failure_patterns: list[str] = Field(default_factory=list)
+    verification_state: str = "candidate"
+
+
+class SOPVersionArtifact(BaseArtifact):
+    artifact_type: ArtifactType = ArtifactType.SOP_VERSION
+    strategy_name: str = ""
+    version: int = Field(default=1, ge=1)
+    genome: dict[str, Any] = Field(default_factory=dict)
+    promotion_state: str = "candidate"
+    supersedes_id: str = ""
+
+
+class SOPPromotionArtifact(BaseArtifact):
+    artifact_type: ArtifactType = ArtifactType.SOP_PROMOTION
+    sop_version_id: str = ""
+    previous_version_id: str = ""
+    decision: str = "candidate"
+    reason: str = ""
+    comparable_record_ids: list[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
 # Type registry for fast lookup
 # ---------------------------------------------------------------------------
 
@@ -691,4 +804,13 @@ ARTIFACT_CLASS_MAP: dict[ArtifactType, type[BaseArtifact]] = {
     ArtifactType.ADVISOR_REVIEW: AdvisorReviewArtifact,
     ArtifactType.INTAKE_SESSION: IntakeSessionArtifact,
     ArtifactType.INTAKE_ANSWER_REVISION: IntakeAnswerRevisionArtifact,
+    ArtifactType.PERSONAL_PROFILE: PersonalProfileArtifact,
+    ArtifactType.CAPABILITY: CapabilityArtifact,
+    ArtifactType.PERSONAL_EXECUTION_PLAN: PersonalExecutionPlanArtifact,
+    ArtifactType.WORK_EXECUTION_RECORD: WorkExecutionRecordArtifact,
+    ArtifactType.WORK_OUTCOME: WorkOutcomeArtifact,
+    ArtifactType.WORK_FEEDBACK: WorkFeedbackArtifact,
+    ArtifactType.EXPERIENCE: ExperienceArtifact,
+    ArtifactType.SOP_VERSION: SOPVersionArtifact,
+    ArtifactType.SOP_PROMOTION: SOPPromotionArtifact,
 }

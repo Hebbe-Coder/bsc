@@ -49,12 +49,27 @@ def test_growth_distillation_timeout_reaches_only_the_api_and_worker():
     assert expected not in set(compose["services"]["celery-beat"]["environment"])
 
 
+def test_growth_task_lifecycle_limits_reach_only_the_api_and_worker():
+    compose = yaml.safe_load(Path("docker-compose.yml").read_text(encoding="utf-8"))
+    expected = {
+        "KNOWLEDGE_GROWTH_TASK_SOFT_TIMEOUT_SECONDS=${KNOWLEDGE_GROWTH_TASK_SOFT_TIMEOUT_SECONDS:-390}",
+        "KNOWLEDGE_GROWTH_TASK_TIMEOUT_SECONDS=${KNOWLEDGE_GROWTH_TASK_TIMEOUT_SECONDS:-420}",
+    }
+
+    for service_name in ("bsc-backend", "celery-worker"):
+        assert expected <= set(compose["services"][service_name]["environment"])
+
+    beat_environment = set(compose["services"]["celery-beat"]["environment"])
+    assert not any(item.startswith("KNOWLEDGE_GROWTH_TASK_") for item in beat_environment)
+
+
 def test_horizon_run_store_configuration_reaches_api_and_worker_only():
     compose = yaml.safe_load(Path("docker-compose.yml").read_text(encoding="utf-8"))
     required = {
         "HORIZON_ENABLED=${HORIZON_ENABLED:-false}",
         "HORIZON_API_BASE_URL=${HORIZON_API_BASE_URL:-}",
         "HORIZON_RUNS_ROOT=${HORIZON_RUNS_ROOT:-/horizon-runs}",
+        "HORIZON_MAX_ARTIFACT_AGE_HOURS=${HORIZON_MAX_ARTIFACT_AGE_HOURS:-48}",
     }
 
     for service_name in ("bsc-backend", "celery-worker"):

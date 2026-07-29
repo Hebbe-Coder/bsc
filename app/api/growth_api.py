@@ -68,7 +68,12 @@ GROWTH_WORKSPACE_RUN_TYPES = GROWTH_JOB_TYPES | {
     CANDIDATE_EXTRACTION_RUN_TYPE,
     METHOD_EVOLUTION_RUN_TYPE,
 }
-SCHEDULER_AVAILABILITY_CACHE_TTL_SECONDS = 2.0
+# The scheduler bit is advisory metadata included on every growth read response.
+# A broker probe can exceed its requested timeout when DNS or a Redis endpoint is
+# unavailable, so a very short cache turns ordinary metadata reads into repeated
+# multi-second network waits.  Commands that submit work deliberately perform a
+# fresh broker check; this cache never authorizes execution.
+SCHEDULER_AVAILABILITY_CACHE_TTL_SECONDS = 30.0
 _scheduler_availability_lock = Lock()
 _scheduler_availability_cache: tuple[tuple[object, ...], float, bool] | None = None
 

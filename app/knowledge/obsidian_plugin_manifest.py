@@ -18,7 +18,9 @@ _MAX_MANIFEST_BYTES = 64 * 1024
 _MAX_OBSERVED_EXPORT_FILES = 512
 _SOURCE_ADAPTER = "filesystem_drop"
 _OUTPUT_ADAPTER = "filesystem_output"
-_SUPPORTED_ADAPTERS = frozenset({_SOURCE_ADAPTER, _OUTPUT_ADAPTER})
+_CONTEXT_ADAPTER = "filesystem_context"
+_CAPTURE_ADAPTERS = frozenset({_SOURCE_ADAPTER, _CONTEXT_ADAPTER})
+_SUPPORTED_ADAPTERS = _CAPTURE_ADAPTERS | frozenset({_OUTPUT_ADAPTER})
 _TRUST_REVISION = "bsc-plugin-trust-v1"
 _SOURCE_EXPORT_ROOTS = frozenset({"raw", "inbox", "00_Inbox", "01_Sources"})
 _OUTPUT_EXPORT_ROOTS = frozenset({"outputs", "04_Outputs"})
@@ -39,6 +41,10 @@ _WORKSPACE_ROLES = {
 _RUNTIME_SETTING_PROBES = {
     "obsidian-clipper": (Path(".obsidian/plugins/obsidian-clipper/data.json"), "advancedStorageFolder"),
     "xiaohongshu-importer": (Path(".obsidian/plugins/xiaohongshu-importer/data.json"), "defaultFolder"),
+    "obsidian-zotero-desktop-connector": (
+        Path(".obsidian/plugins/obsidian-zotero-desktop-connector/data.json"),
+        "noteImportFolder",
+    ),
     "realclaudian": (Path(".claudian/claudian-settings.json"), "mediaFolder"),
 }
 _INTERACTIVE_DESTINATION_PLUGINS = frozenset({"obsidian-importer", "docxer"})
@@ -162,9 +168,16 @@ class ObsidianPluginManifest:
         if not actor:
             raise ValueError("plugin trust actor is required")
 
+        # ``from_payload`` is intentionally filesystem-free so callers can
+        # validate a replacement manifest before saving it. When that caller
+        # then authorizes only a new route, retain still-matching approvals
+        # from the on-disk trust ledger instead of silently revoking unrelated
+        # bridges.
+        persisted_trusts, _ = self._load_trusts(root)
+        known_trusts = {**persisted_trusts, **self.trusts}
         active = {
             plugin_id: trust
-            for plugin_id, trust in self.trusts.items()
+            for plugin_id, trust in known_trusts.items()
             if plugin_id in declared and trust.config_fingerprint == self._fingerprint(declared[plugin_id])
         }
         if trusted:
@@ -300,14 +313,26 @@ class ObsidianPluginManifest:
         path = PurePosixPath(raw)
         if not raw or path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
             raise ValueError("plugin input path is invalid")
-        allowed_roots = _SOURCE_EXPORT_ROOTS if adapter == _SOURCE_ADAPTER else _OUTPUT_EXPORT_ROOTS
+        if adapter == _SOURCE_ADAPTER:
+            allowed_roots = _SOURCE_EXPORT_ROOTS
+        elif adapter == _CONTEXT_ADAPTER:
+            allowed_roots = frozenset({"03_Projects"})
+        else:
+            allowed_roots = _OUTPUT_EXPORT_ROOTS
         if path.parts[0] not in allowed_roots:
-            roots = "raw/, inbox/, 00_Inbox/, or 01_Sources/" if adapter == _SOURCE_ADAPTER else "outputs/ or 04_Outputs/"
+            if adapter == _SOURCE_ADAPTER:
+                roots = "raw/, inbox/, 00_Inbox/, or 01_Sources/"
+            elif adapter == _CONTEXT_ADAPTER:
+                roots = "a dedicated 03_Projects/ path"
+            else:
+                roots = "outputs/ or 04_Outputs/"
             raise ValueError(
                 f"plugin exports must stay under {roots}"
             )
         if adapter == _OUTPUT_ADAPTER and len(path.parts) < 2:
             raise ValueError("plugin output exports must declare a dedicated subfolder")
+        if adapter == _CONTEXT_ADAPTER and len(path.parts) < 2:
+            raise ValueError("plugin context exports must declare a dedicated project path")
         return path.as_posix()
 
     @staticmethod
@@ -343,7 +368,7 @@ class ObsidianPluginManifest:
     def declared_plugin_for(self, project_relative: str) -> ObsidianPlugin | None:
         value = project_relative.replace("\\", "/").strip("/")
         for plugin in self.plugins:
-            if plugin.adapter == _SOURCE_ADAPTER and any(value == root or value.startswith(root + "/") for root in plugin.input_paths):
+            if plugin.adapter in _CAPTURE_ADAPTERS and any(value == root or value.startswith(root + "/") for root in plugin.input_paths):
                 return plugin
         return None
 
@@ -393,7 +418,7 @@ class ObsidianPluginManifest:
         for source in sources:
             metadata = source.get("metadata") if isinstance(source, dict) else None
             plugin_id = str(metadata.get("obsidian_plugin") or "") if isinstance(metadata, dict) else ""
-            if plugin_id in captured_sources and str(metadata.get("obsidian_adapter") or _SOURCE_ADAPTER) == _SOURCE_ADAPTER:
+            if plugin_id in captured_sources and str(metadata.get("obsidian_adapter") or _SOURCE_ADAPTER) in _CAPTURE_ADAPTERS:
                 captured_sources[plugin_id].append(source)
         for output in outputs:
             metadata = output.get("metadata") if isinstance(output, dict) else None

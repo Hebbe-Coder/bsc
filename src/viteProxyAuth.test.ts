@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveApiProxyTarget, resolveLocalRuntimeApiKey } from '../vite.config';
+import { resolveApiProxyTarget, resolveLocalProxyAuthEnabled, resolveLocalRuntimeApiKey } from '../vite.config';
 
 describe('resolveApiProxyTarget', () => {
   it('gives an isolated process target precedence over file defaults', () => {
@@ -23,5 +23,11 @@ describe('resolveLocalRuntimeApiKey', () => {
 
   it('disables proxy-managed credentials for production builds', () => {
     expect(resolveLocalRuntimeApiKey('serve', 'production', { BSC_LOCAL_API_KEY: 'local-key' }, { BSC_LOCAL_API_KEY: 'file-key' })).toBe('');
+  });
+
+  it('publishes only a non-secret local-proxy marker when explicit proxy authentication is configured', () => {
+    expect(resolveLocalProxyAuthEnabled('serve', 'development', { BSC_LOCAL_API_KEY: 'local-key' }, {})).toBe(true);
+    expect(resolveLocalProxyAuthEnabled('serve', 'development', {}, {})).toBe(false);
+    expect(resolveLocalProxyAuthEnabled('serve', 'production', { BSC_LOCAL_API_KEY: 'local-key' }, {})).toBe(false);
   });
 });

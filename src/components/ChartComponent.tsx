@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react';
-import * as echarts from 'echarts';
+import type { EChartsOption } from 'echarts';
+
+import { echarts } from './charts/editorEchartsRuntime';
 
 interface ChartComponentProps {
   data: any;
@@ -14,7 +16,7 @@ const ChartComponent = ({ data, width, height }: ChartComponentProps) => {
     if (!chartRef.current || !data) return;
 
     const chart = echarts.init(chartRef.current);
-    let option: echarts.EChartsOption;
+    let option: EChartsOption;
 
     const getColor = (index: number, count: number) => {
       const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];

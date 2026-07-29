@@ -31,6 +31,15 @@ def _normalize_vault_path(value: str) -> str:
     return normalized.as_posix()
 
 
+def _normalize_sha256(value: str, *, required: bool = True) -> str:
+    normalized = str(value or "").strip().lower()
+    if not normalized and not required:
+        return ""
+    if len(normalized) != 64 or any(character not in "0123456789abcdef" for character in normalized):
+        raise ValueError("value must be a SHA-256 hexadecimal digest")
+    return normalized
+
+
 class SourceStatus(str, Enum):
     CAPTURED = "captured"
     VALIDATED = "validated"
@@ -66,6 +75,32 @@ class RunStatus(str, Enum):
     FAILED = "failed"
     CANCELLED = "cancelled"
     UNAVAILABLE = "unavailable"
+
+
+class AssetAccessState(str, Enum):
+    AVAILABLE = "available"
+    MISSING = "missing"
+    RESTRICTED = "restricted"
+    ARCHIVED = "archived"
+
+
+class ExtractionStatus(str, Enum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETE = "complete"
+    PARTIAL = "partial"
+    FAILED = "failed"
+    UNSUPPORTED = "unsupported"
+    RESTRICTED = "restricted"
+    UNAVAILABLE = "unavailable"
+    NEEDS_REVIEW = "needs_review"
+
+
+class ReferenceResolutionState(str, Enum):
+    RESOLVED = "resolved"
+    STALE = "stale"
+    BROKEN = "broken"
+    RESTRICTED = "restricted"
 
 
 class WikiOperationType(str, Enum):
@@ -231,6 +266,94 @@ class CitationLink(WikiModel):
     anchor: str = ""
     claim_text: str = ""
     status: str = "active"
+    created_at: datetime = Field(default_factory=_utc_now)
+
+
+class MediaAsset(WikiModel):
+    """Immutable original-media descriptor; bytes stay in declared storage."""
+
+    id: str = Field(default_factory=_new_id, min_length=1)
+    project_id: str = Field(min_length=1)
+    source_id: str = Field(min_length=1)
+    mime_type: str = Field(min_length=3, max_length=255)
+    byte_hash: str = Field(min_length=64, max_length=64)
+    byte_size: int = Field(ge=0)
+    storage_ref: str
+    rights: str = Field(default="unknown", max_length=128)
+    access_state: AssetAccessState = AssetAccessState.AVAILABLE
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=_utc_now)
+    updated_at: datetime = Field(default_factory=_utc_now)
+
+    @field_validator("byte_hash")
+    @classmethod
+    def validate_byte_hash(cls, value: str) -> str:
+        return _normalize_sha256(value)
+
+    @field_validator("storage_ref")
+    @classmethod
+    def validate_storage_ref(cls, value: str) -> str:
+        return _normalize_vault_path(value)
+
+
+class ExtractionArtifact(WikiModel):
+    """Versioned, auditable derivative. Public read models exclude ``content``."""
+
+    id: str = Field(default_factory=_new_id, min_length=1)
+    project_id: str = Field(min_length=1)
+    source_id: str = Field(min_length=1)
+    asset_id: str = Field(min_length=1)
+    extractor: str = Field(min_length=1, max_length=128)
+    extractor_revision: str = Field(min_length=1, max_length=128)
+    input_hash: str = Field(min_length=64, max_length=64)
+    content_hash: str = Field(default="", max_length=64)
+    content: str = ""
+    status: ExtractionStatus
+    error: str = Field(default="", max_length=1_024)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=_utc_now)
+
+    @field_validator("input_hash")
+    @classmethod
+    def validate_input_hash(cls, value: str) -> str:
+        return _normalize_sha256(value)
+
+    @field_validator("content_hash")
+    @classmethod
+    def validate_content_hash(cls, value: str) -> str:
+        return _normalize_sha256(value, required=False)
+
+
+class TableArtifact(WikiModel):
+    id: str = Field(default_factory=_new_id, min_length=1)
+    project_id: str = Field(min_length=1)
+    source_id: str = Field(min_length=1)
+    extraction_id: str = Field(min_length=1)
+    table_schema: list[str] = Field(default_factory=list, alias="schema", serialization_alias="schema")
+    row_count: int = Field(ge=0)
+    units: dict[str, str] = Field(default_factory=dict)
+    content_hash: str = Field(min_length=64, max_length=64)
+    status: str = Field(default="detected", max_length=64)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=_utc_now)
+
+    @field_validator("content_hash")
+    @classmethod
+    def validate_table_content_hash(cls, value: str) -> str:
+        return _normalize_sha256(value)
+
+
+class ReferenceLink(WikiModel):
+    id: str = Field(default_factory=_new_id, min_length=1)
+    project_id: str = Field(min_length=1)
+    source_id: str = Field(min_length=1)
+    target_type: str = Field(min_length=1, max_length=64)
+    target_id: str = Field(min_length=1, max_length=128)
+    anchor_type: str = Field(min_length=1, max_length=64)
+    anchor: str = Field(default="", max_length=2_048)
+    relation: str = Field(min_length=1, max_length=64)
+    resolution_state: ReferenceResolutionState = ReferenceResolutionState.RESOLVED
+    metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=_utc_now)
 
 

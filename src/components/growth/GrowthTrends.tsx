@@ -14,7 +14,7 @@ function GrowthChart({ option, label, empty, emptyText }: ChartProps) {
     const element = ref.current;
     let active = true;
     let chart: ECharts | undefined;
-    void import('echarts').then((echarts) => {
+    void import('../charts/echartsRuntime').then(({ echarts }) => {
       if (!active) return;
       chart = echarts.init(element);
       chart.setOption(option, true);

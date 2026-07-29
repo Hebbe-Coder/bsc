@@ -183,7 +183,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return bucket.consume(), bucket.get_remaining(), bucket.rate, bucket.burst
     
     async def dispatch(self, request: Request, call_next):
-        if not self._enabled:
+        # Tests and controlled maintenance can temporarily disable limiting
+        # after middleware construction. Do not keep probing a stale Redis
+        # backend once the current configuration has disabled the feature.
+        if not self._enabled or not settings.RATE_LIMIT_ENABLED:
             return await call_next(request)
         
         path = request.url.path

@@ -23,6 +23,7 @@ def test_worker_import_contract_lists_concrete_existing_task_modules():
         "app.tasks.growth_tasks",
         "app.tasks.method_distillation_tasks",
         "app.tasks.candidate_extraction_tasks",
+        "app.tasks.pbos_tasks",
     )
     assert all(find_spec(module_name) is not None for module_name in CELERY_TASK_MODULES)
 

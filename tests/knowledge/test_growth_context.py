@@ -107,6 +107,41 @@ def test_growth_context_prefers_admitted_triage_evidence_when_budget_is_tight():
     assert "source:legacy-source" in pack.omitted_refs
 
 
+def test_growth_context_reserves_processed_corrective_feedback_under_budget_pressure():
+    pack = GrowthContextBuilder(max_characters=2_400).build(
+        project_id="project-a",
+        profile={"revision": 1, "user_role": "knowledge operator"},
+        rules="Keep factual claims tied to admitted evidence.",
+        task="Prepare the next governed knowledge action.",
+        pages=[{
+            "id": "authority-page",
+            "project_id": "project-a",
+            "status": "published",
+            "path": "wiki/concepts/authority.md",
+            "content": "Published authority. " * 60,
+        }],
+        sources=[{
+            "id": "admitted-source",
+            "project_id": "project-a",
+            "status": "eligible",
+            "context_priority": 90,
+            "raw_content": "Admitted external evidence. " * 120,
+        }],
+        feedback=[{
+            "id": "feedback-corrected",
+            "project_id": "project-a",
+            "feedback_type": "corrected",
+            "status": "processed",
+            "content": "Do not elevate an unavailable transcript into a channel-specific claim. " * 10,
+        }],
+    )
+
+    assert pack.feedback_ids == ("feedback-corrected",)
+    assert "feedback:feedback-corrected" in pack.rendered
+    assert "feedback:feedback-corrected" not in pack.omitted_refs
+    assert any("Corrective feedback feedback-corrected" in item for item in pack.regression_constraints)
+
+
 def test_growth_context_breaks_equal_triage_scores_by_persisted_source_recency():
     pack = GrowthContextBuilder(max_characters=4_000).build(
         project_id="project-a",

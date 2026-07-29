@@ -1,12 +1,24 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { configureKnowledgePlugins, configureKnowledgeVault, fetchKnowledgeWorkspace, fetchWeeklyDistillations, importFeishuKnowledgeExport, initializeKnowledgeWorkspace, KnowledgeRequestError, saveKnowledgeEvaluationCase, setKnowledgePluginTrust } from './knowledgeWorkspaceApi';
+import { captureKnowledgePrimaryWebSource, configureKnowledgePlugins, configureKnowledgeVault, fetchKnowledgeWorkspace, fetchKnowledgeWorkspaceProjects, fetchWeeklyDistillations, importFeishuKnowledgeExport, initializeKnowledgeWorkspace, KnowledgeRequestError, saveKnowledgeEvaluationCase, setKnowledgePluginTrust } from './knowledgeWorkspaceApi';
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe('knowledge workspace API', () => {
+  it('reads the authorized project picker through the scoped workspace endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      success: true,
+      data: { projects: [{ id: 'project-a', name: 'Research', created_at: '2026-07-29T00:00:00Z' }], count: 1 },
+    }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(fetchKnowledgeWorkspaceProjects()).resolves.toMatchObject({ count: 1 });
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/knowledge/workspaces');
+  });
+
   it('encodes the explicit project ID in every workspace request', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       success: true,
@@ -98,6 +110,26 @@ describe('knowledge workspace API', () => {
         document_id: 'doccnA1', revision_id: 'rev-7', document_type: 'minutes',
         source_url: 'https://example.feishu.cn/minutes/doccnA1', title: 'Weekly review', content: 'Decision: keep citations.',
       } }),
+    });
+  });
+
+  it('captures a primary page only when the selected Horizon signal is explicitly supplied', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      success: true,
+      data: { created: true, run_id: 'primary-capture-1', source: { id: 'primary-1', source_type: 'primary_web' } },
+    }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await captureKnowledgePrimaryWebSource('project a', 'https://publisher.example/article', 'horizon-signal-1');
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/knowledge/sources/capture-web');
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify({
+        project_id: 'project a',
+        url: 'https://publisher.example/article',
+        discovered_from_source_id: 'horizon-signal-1',
+      }),
     });
   });
 

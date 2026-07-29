@@ -85,6 +85,7 @@ class PromptOps:
                     user_prompt=prepared.user_prompt,
                     temperature=request.temperature,
                     max_tokens=request.max_tokens,
+                    max_structured_attempts=request.max_structured_attempts,
                 )
                 if not isinstance(output, dict):
                     # ``SOPLLMClient`` preserves a safe provider category for

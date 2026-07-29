@@ -7,6 +7,7 @@ from typing import Any
 from app.knowledge.wiki_commands import WikiCommandService
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.knowledge_graph import KnowledgeGraphService
+from app.knowledge.evidence_read import EvidenceReadService
 
 
 def wiki_guide(project_id: str) -> dict:
@@ -49,6 +50,31 @@ def wiki_graph(project_id: str) -> dict:
     try:
         payload = KnowledgeGraphService(repo).visualization(project_id=project_id)
         return {"project_id": project_id, **payload, "count": len(payload["edges"])}
+    finally:
+        repo.close()
+
+
+def wiki_evidence(project_id: str, limit: int = 100) -> dict:
+    """Read bounded, redacted evidence lineage for one project."""
+    _require_project(project_id)
+    repo = WikiRepository()
+    try:
+        return EvidenceReadService(repo).overview(project_id, limit=limit)
+    finally:
+        repo.close()
+
+
+def wiki_evidence_record(project_id: str, record_type: str, record_id: str) -> dict:
+    """Read one redacted evidence record without exposing its source body."""
+    _require_project(project_id)
+    if not record_id or not record_id.strip():
+        raise ValueError("record_id is required")
+    repo = WikiRepository()
+    try:
+        record = EvidenceReadService(repo).record(project_id, record_type, record_id)
+        if record is None:
+            raise ValueError("evidence record not found")
+        return {"project_id": project_id, "record": record}
     finally:
         repo.close()
 

@@ -17,12 +17,15 @@ from typing import Iterator
 def _arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Produce auditable Horizon MCP run artifacts for BSC.")
     parser.add_argument("--horizon-home", required=True)
-    parser.add_argument("--hours", type=int, default=24)
+    # A 48-hour overlap makes the once-daily producer resilient to a quiet
+    # source day. BSC deduplicates immutable source records, so overlap never
+    # promotes the same discovery twice.
+    parser.add_argument("--hours", type=int, default=48)
     parser.add_argument("--source", action="append", dest="sources", default=[])
     parser.add_argument("--threshold", type=float, default=7.0)
     parser.add_argument("--enrich", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--lock-timeout-seconds", type=int, default=7200)
-    parser.add_argument("--stage-timeout-seconds", type=float, default=180.0)
+    parser.add_argument("--stage-timeout-seconds", type=float, default=300.0)
     parser.add_argument("--enrichment-timeout-seconds", type=float, default=120.0)
     parser.add_argument("--cycle-timeout-seconds", type=float, default=480.0)
     return parser.parse_args()
@@ -97,6 +100,36 @@ async def _run(args: argparse.Namespace, horizon_home: Path, *, service_factory=
         timeout_seconds=args.stage_timeout_seconds,
     )
     run_id = fetched["run_id"]
+    fetched_count = int(fetched.get("fetched") or 0)
+    fetch_status = str(fetched.get("fetch_status") or "").lower()
+    if fetch_status == "failure":
+        raise RuntimeError("Horizon fetch failed for every configured source")
+    if fetched_count == 0:
+        # A quiet collection window is operationally different from a failed
+        # producer. Do not send an empty raw stage to Horizon's scorer.
+        service.run_store.update_meta(
+            run_id,
+            {
+                "bsc_ready_at": _utc_now(),
+                "bsc_ready_stage": None,
+                "producer": "bsc-scheduled",
+                "outcome": "no_items",
+                "enrichment": {"status": "not_applicable", "reason": "no_items"},
+            },
+        )
+        return {
+            "status": "completed",
+            "outcome": "no_items",
+            "run_id": run_id,
+            "fetched": 0,
+            "scored": 0,
+            "kept": 0,
+            "enriched": 0,
+            "ready_stage": None,
+            "enrichment": {"status": "not_applicable", "reason": "no_items"},
+            "degradations": [],
+            "completed_at": _utc_now(),
+        }
     scored = await _bounded_stage(
         service.score_items(run_id=run_id, horizon_path=str(horizon_home)),
         stage="score",
@@ -149,7 +182,7 @@ async def _run(args: argparse.Namespace, horizon_home: Path, *, service_factory=
     return {
         "status": "completed_with_degradation" if degradations else "completed",
         "run_id": run_id,
-        "fetched": fetched.get("fetched"),
+        "fetched": fetched_count,
         "scored": scored.get("scored"),
         "kept": filtered.get("kept"),
         "enriched": enriched.get("enriched") if enriched else 0,

@@ -20,6 +20,7 @@ from app.knowledge.growth_contracts import (
 )
 from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.wiki_contracts import SourceStatus
+from app.knowledge.wiki_source_capture import canonicalize_origin
 from app.promptops import PromptOps, PromptOpsError, PromptRequest, PromptTask
 
 
@@ -90,9 +91,65 @@ def source_admission_reason(
         return "project_triage_reference_requires_corroboration"
     if decision.get("disposition") not in {item.value for item in _AUTHORING_DISPOSITIONS}:
         return "project_triage_not_admitted"
-    if source.get("source_type") == "horizon_signal":
+    if source.get("source_type") == "horizon_signal" and not _has_independent_primary_capture(
+        repository, project_id, source
+    ):
         return "horizon_signal_requires_independent_primary_capture"
     return ""
+
+
+def _has_independent_primary_capture(repository: Any, project_id: str, signal: dict[str, Any]) -> bool:
+    """Return whether a Horizon lead has auditable same-project primary evidence.
+
+    A completed triage classifies a Horizon item as useful; it does not turn the
+    radar's summary into a primary source. The original capture must explicitly
+    declare the signal it supports, remain independently eligible, and retain a
+    distinct immutable body at the same canonical origin.
+    """
+    signal_id = str(signal.get("id") or "")
+    signal_hash = str(signal.get("content_hash") or "")
+    signal_origin = canonicalize_origin(str(signal.get("origin") or ""))
+    if not signal_id or not signal_origin:
+        return False
+
+    for candidate in repository.list_sources(project_id):
+        if candidate.get("id") == signal_id:
+            continue
+        if candidate.get("source_type") == "horizon_signal":
+            continue
+        if candidate.get("status") not in {
+            SourceStatus.ELIGIBLE.value,
+            SourceStatus.PROCESSED.value,
+        }:
+            continue
+        if not candidate.get("content_hash") or candidate.get("content_hash") == signal_hash:
+            continue
+        metadata = candidate.get("metadata") or {}
+        if not _primary_capture_supports_signal(metadata, signal_id):
+            continue
+        if metadata.get("evidence_role") != "primary_capture":
+            continue
+        if canonicalize_origin(str(candidate.get("origin") or "")) != signal_origin:
+            continue
+        return True
+    return False
+
+
+def _primary_capture_supports_signal(metadata: dict[str, Any], signal_id: str) -> bool:
+    """Accept the current explicit link and the bounded legacy capture link.
+
+    ``supports_horizon_signal_ids`` is the multi-signal contract. Earlier
+    primary captures persisted one ``discovered_from_source_id`` value, so
+    keeping that compatibility path avoids making already-reviewed evidence
+    unusable. The caller still enforces same-project, status, hash, role, and
+    canonical-origin requirements before this helper is consulted.
+    """
+    supported_ids = metadata.get("supports_horizon_signal_ids")
+    if isinstance(supported_ids, (list, tuple, set)) and signal_id in {
+        str(value).strip() for value in supported_ids if str(value).strip()
+    }:
+        return True
+    return str(metadata.get("discovered_from_source_id") or "").strip() == signal_id
 
 
 class TriageEvaluation(BaseModel):

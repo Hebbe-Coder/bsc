@@ -151,6 +151,133 @@ def test_plugin_status_verifies_declared_destination_from_readonly_settings(tmp_
     assert mismatch["runtime_configuration"]["state"] == "mismatch"
 
 
+def test_zotero_bridge_captures_citation_provenance_from_an_exported_note(tmp_path):
+    root = tmp_path / "vault"
+    project_root = root / "projects" / "project-a"
+    export = project_root / "01_Sources" / "zotero" / "smith2025.md"
+    export.parent.mkdir(parents=True)
+    (project_root / "bsc-plugins.json").write_text(
+        '{"plugins":[{"id":"obsidian-zotero-desktop-connector","name":"Zotero Integration","adapter":"filesystem_drop","input_paths":["01_Sources/zotero"]}]}',
+        encoding="utf-8",
+    )
+    ObsidianPluginManifest.load(project_root).set_trust(
+        project_root,
+        plugin_ids=["obsidian-zotero-desktop-connector"],
+        trusted=True,
+        actor_id="test",
+        reason="fixture",
+    )
+    settings_path = root / ".obsidian" / "plugins" / "obsidian-zotero-desktop-connector" / "data.json"
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text('{"noteImportFolder":"projects/project-a/01_Sources/zotero"}', encoding="utf-8")
+    export.write_text(
+        "---\ncitekey: smith2025\nDOI: 10.1234/example\nurl: https://doi.org/10.1234/example\ndate: 2025-01-15\nitemKey: ABCD1234\n---\n# Paper note\n",
+        encoding="utf-8",
+    )
+    repo = WikiRepository(db_path=str(tmp_path / "zotero-sync.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    try:
+        report = ObsidianSyncService(repo, root).sync(project_id="project-a")
+        source = repo.list_sources("project-a")[0]
+        status = ObsidianPluginManifest.load(project_root).public_status([source], project_root=project_root, vault_root=root)["plugins"][0]
+
+        assert report["created"] == 1
+        metadata = source["metadata"]
+        assert metadata["sync"] == "obsidian"
+        assert metadata["obsidian_plugin"] == "obsidian-zotero-desktop-connector"
+        assert metadata["plugin_name"] == "Zotero Integration"
+        assert metadata["obsidian_adapter"] == "filesystem_drop"
+        assert metadata["zotero_citation_key"] == "smith2025"
+        assert metadata["zotero_doi"] == "10.1234/example"
+        assert metadata["zotero_url"] == "https://doi.org/10.1234/example"
+        assert metadata["zotero_source_date"] == "2025-01-15"
+        assert metadata["zotero_item_key"] == "ABCD1234"
+        assert metadata["extension"] == ".md"
+        assert metadata["extraction_status"] == "complete"
+        assert status["runtime_configuration"] == {"state": "configured", "detail_code": "destination_matches_bridge"}
+        assert status["status"] == "captured"
+    finally:
+        repo.close()
+
+
+def test_project_context_plugin_is_captured_without_becoming_an_a_layer_route(tmp_path):
+    root = tmp_path / "vault"
+    project_root = root / "projects" / "project-a"
+    drawing = project_root / "03_Projects" / "active" / "maps" / "architecture.excalidraw.md"
+    drawing.parent.mkdir(parents=True)
+    (project_root / "bsc-plugins.json").write_text(
+        '{"plugins":[{"id":"obsidian-excalidraw-plugin","name":"Excalidraw","adapter":"filesystem_context","input_paths":["03_Projects/active/maps"]}]}',
+        encoding="utf-8",
+    )
+    ObsidianPluginManifest.load(project_root).set_trust(
+        project_root,
+        plugin_ids=["obsidian-excalidraw-plugin"],
+        trusted=True,
+        actor_id="test",
+        reason="fixture",
+    )
+    drawing.write_text("# Project map\n\nContextual architecture map.", encoding="utf-8")
+    repo = WikiRepository(db_path=str(tmp_path / "excalidraw-context.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    try:
+        report = ObsidianSyncService(repo, root).sync(project_id="project-a")
+        source = repo.list_sources("project-a")[0]
+        status = ObsidianPluginManifest.load(project_root).public_status([source], project_root=project_root, vault_root=root)["plugins"][0]
+
+        assert report["created"] == 1
+        assert source["source_type"] == "obsidian_plugin:obsidian-excalidraw-plugin"
+        assert source["metadata"]["obsidian_adapter"] == "filesystem_context"
+        assert source["metadata"]["obsidian_workspace_role"] == "project_context"
+        assert status["status"] == "captured"
+    finally:
+        repo.close()
+
+
+@pytest.mark.parametrize("input_path", ["03_Projects", "01_Sources/project-notes", "wiki/maps"])
+def test_project_context_plugin_rejects_non_dedicated_project_paths(input_path):
+    with pytest.raises(ValueError):
+        ObsidianPluginManifest.from_payload(
+            {
+                "plugins": [
+                    {
+                        "id": "obsidian-excalidraw-plugin",
+                        "name": "Excalidraw",
+                        "adapter": "filesystem_context",
+                        "input_paths": [input_path],
+                    }
+                ]
+            }
+        )
+
+
+def test_adding_a_trusted_route_preserves_unchanged_disk_trust_entries(tmp_path):
+    project_root = tmp_path / "vault" / "projects" / "project-a"
+    initial = ObsidianPluginManifest.from_payload(
+        {
+            "plugins": [
+                {"id": "clipper", "adapter": "filesystem_drop", "input_paths": ["00_Inbox/web-clipper"]},
+                {"id": "docxer", "adapter": "filesystem_drop", "input_paths": ["01_Sources/docxer"]},
+            ]
+        }
+    )
+    initial.write_to(project_root)
+    initial.set_trust(project_root, plugin_ids=["clipper", "docxer"], trusted=True, actor_id="test", reason="fixture")
+
+    replacement = ObsidianPluginManifest.from_payload(
+        {
+            "plugins": [
+                *initial.to_payload()["plugins"],
+                {"id": "zotero", "adapter": "filesystem_drop", "input_paths": ["01_Sources/zotero"]},
+            ]
+        }
+    )
+    replacement.write_to(project_root)
+    replacement.set_trust(project_root, plugin_ids=["zotero"], trusted=True, actor_id="test", reason="fixture")
+
+    loaded = ObsidianPluginManifest.load(project_root)
+    assert {plugin.plugin_id for plugin in loaded.trusted_plugins()} == {"clipper", "docxer", "zotero"}
+
+
 def test_plugin_status_marks_interactive_importers_without_claiming_a_saved_destination(tmp_path):
     project_root = tmp_path / "vault" / "projects" / "project-a"
     project_root.mkdir(parents=True)
@@ -365,6 +492,10 @@ def test_obsidian_sync_retains_unsupported_file_fingerprint_as_rejected_evidence
         assert source["status"] == "rejected"
         assert source["metadata"]["extraction_status"] == "unsupported"
         assert source["metadata"]["byte_size"] == len(b"%PDF-test-evidence")
+        asset = repo.list_media_assets("project-a", source_id=source["id"])[0]
+        assert asset["storage_ref"] == "research.pdf"
+        assert asset["byte_hash"] == source["content_hash"]
+        assert asset["mime_type"] == "application/pdf"
     finally:
         repo.close()
 
@@ -383,5 +514,25 @@ def test_obsidian_sync_ignores_growth_managed_roots_outside_project_mappings(tmp
 
         assert report["created"] == 1
         assert {source["origin"] for source in repo.list_sources("project-a")} == {"research.md"}
+    finally:
+        repo.close()
+
+
+def test_obsidian_sync_explicitly_excludes_managed_knowledge_index(tmp_path):
+    root = tmp_path / "vault"
+    project_root = root / "projects" / "project-a"
+    index = project_root / "Knowledge Index" / "00-Home.md"
+    source = project_root / "01_Sources" / "manual.md"
+    index.parent.mkdir(parents=True)
+    source.parent.mkdir(parents=True)
+    index.write_text("---\nmanaged_by_bsc: true\n---\nManaged navigation", encoding="utf-8")
+    source.write_text("Real source", encoding="utf-8")
+    repo = WikiRepository(db_path=str(tmp_path / "managed-index.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    try:
+        report = ObsidianSyncService(repo, root).sync(project_id="project-a")
+
+        assert report == {"scanned": 1, "created": 1, "duplicates": 0, "rejected": 0, "deleted": 0, "skipped": 0, "blocked": 0}
+        assert [item["origin"] for item in repo.list_sources("project-a")] == ["projects/project-a/01_Sources/manual.md"]
     finally:
         repo.close()

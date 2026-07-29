@@ -33,6 +33,7 @@ CELERY_TASK_MODULES = (
     "app.tasks.growth_tasks",
     "app.tasks.method_distillation_tasks",
     "app.tasks.candidate_extraction_tasks",
+    "app.tasks.pbos_tasks",
 )
 
 
@@ -83,7 +84,7 @@ class SyncCelery:
         self._tasks = {}
         logger.info("SyncCelery initialized (no external dependencies)")
     
-    def task(self, bind=False, name=None):
+    def task(self, bind=False, name=None, **_options):
         """装饰器：注册任务"""
         def decorator(func):
             task_name = name or func.__name__

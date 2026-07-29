@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectMode, formatRuntimeError } from './UnifiedWorkspace';
+import { detectMode, formatRuntimeError, isLocalProxySession } from './UnifiedWorkspace';
 
 describe('formatRuntimeError', () => {
   it('turns unreachable backend failures into a Vite proxy recovery action', () => {
@@ -19,5 +19,14 @@ describe('formatRuntimeError', () => {
 
     expect(result.mode).toBe('business');
     expect(result.reason).toMatch(/diagnosis/i);
+  });
+});
+
+describe('isLocalProxySession', () => {
+  it('requires both an enabled local proxy marker and the sentinel session value', () => {
+    expect(isLocalProxySession('local-proxy', 'local-proxy')).toBe(true);
+    expect(isLocalProxySession('', '')).toBe(false);
+    expect(isLocalProxySession('local-proxy', '')).toBe(false);
+    expect(isLocalProxySession('manual-key', 'local-proxy')).toBe(false);
   });
 });

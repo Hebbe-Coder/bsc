@@ -47,7 +47,7 @@ export type KnowledgeWorkspaceData = {
       missing_managed_directories?: string[];
     };
   };
-  plugins: { configured: boolean; supported_adapters: string[]; plugins: Array<{ id: string; name: string; adapter: 'filesystem_drop' | 'filesystem_output'; input_paths: string[]; trust_state: 'trusted' | 'untrusted' | 'configuration_changed' | 'unavailable'; trusted_at: string; trust_actor: string; path_status: 'ready' | 'missing' | 'unavailable' | 'unverified'; runtime_configuration?: { state: 'configured' | 'interactive_destination' | 'declared_only' | 'mismatch' | 'unavailable' | 'unverified'; detail_code: string }; status: 'awaiting_export' | 'captured' | 'awaiting_output' | 'registered_output' | 'awaiting_trust' | 'trust_stale' | 'trust_unavailable'; capture_state?: 'awaiting_trust' | 'trust_stale' | 'trust_unavailable' | 'captured' | 'registered_output' | 'ready_for_first_export' | 'ready_for_first_output' | 'files_detected_pending_capture' | 'files_detected_pending_registration' | 'route_unavailable'; export_observation?: { state: 'empty' | 'files_detected' | 'file_limit_reached' | 'unavailable'; file_count: number; latest_modified_at: string }; captured_sources: number; registered_outputs: number; last_captured_at: string; last_registered_at: string }>; errors: string[] };
+  plugins: { configured: boolean; supported_adapters: string[]; plugins: Array<{ id: string; name: string; adapter: 'filesystem_drop' | 'filesystem_output' | 'filesystem_context'; input_paths: string[]; trust_state: 'trusted' | 'untrusted' | 'configuration_changed' | 'unavailable'; trusted_at: string; trust_actor: string; path_status: 'ready' | 'missing' | 'unavailable' | 'unverified'; runtime_configuration?: { state: 'configured' | 'interactive_destination' | 'declared_only' | 'mismatch' | 'unavailable' | 'unverified'; detail_code: string }; status: 'awaiting_export' | 'captured' | 'awaiting_output' | 'registered_output' | 'awaiting_trust' | 'trust_stale' | 'trust_unavailable'; capture_state?: 'awaiting_trust' | 'trust_stale' | 'trust_unavailable' | 'captured' | 'registered_output' | 'ready_for_first_export' | 'ready_for_first_output' | 'files_detected_pending_capture' | 'files_detected_pending_registration' | 'route_unavailable'; export_observation?: { state: 'empty' | 'files_detected' | 'file_limit_reached' | 'unavailable'; file_count: number; latest_modified_at: string }; captured_sources: number; registered_outputs: number; last_captured_at: string; last_registered_at: string }>; errors: string[] };
   sources: number;
   runs: number;
   schedules: number;
@@ -76,7 +76,7 @@ export type KnowledgeWorkspaceData = {
       duplicates: number;
       rejected: number;
       skipped: boolean;
-      outcome: 'processed' | 'empty_result' | 'no_new_artifact' | 'channel_error' | 'configuration_error' | 'failed';
+      outcome: 'processed' | 'empty_result' | 'no_new_artifact' | 'channel_error' | 'configuration_error' | 'producer_failure' | 'stale_artifact' | 'failed';
       items_observed: number;
       failure: { category: string; code: string; retryable: boolean } | null;
     } | null;
@@ -93,7 +93,8 @@ export type KnowledgeWorkspaceData = {
   };
   scheduler: { available: boolean; mode: 'celery' | 'manual' };
 };
-export type KnowledgePluginBridge = { id: string; name: string; adapter?: 'filesystem_drop' | 'filesystem_output'; input_paths: string[] };
+export type KnowledgePluginBridge = { id: string; name: string; adapter?: 'filesystem_drop' | 'filesystem_output' | 'filesystem_context'; input_paths: string[] };
+export type KnowledgeWorkspaceProject = { id: string; name: string; created_at: string };
 export type FeishuKnowledgeExport = {
   document_id: string;
   revision_id: string;
@@ -105,6 +106,7 @@ export type FeishuKnowledgeExport = {
   attachments?: Array<Record<string, unknown>>;
 };
 export type FeishuKnowledgeImport = { source: KnowledgeSource; created: boolean; run_id: string };
+export type PrimaryWebKnowledgeCapture = { source: KnowledgeSource; created: boolean; run_id: string };
 export type KnowledgeEvaluationCaseInput = {
   case_id: string;
   case_type: 'retrieval' | 'citation' | 'sop' | 'content';
@@ -170,7 +172,48 @@ export type KnowledgeHealthTrend = {
   current: KnowledgeHealth;
 };
 export type KnowledgeRunEvent = { id: string; project_id: string; run_id: string; sequence: number; event_type: string; payload: Record<string, unknown>; created_at: string };
-
+export type KnowledgeEvidenceRecord = {
+  id: string;
+  record_type: 'source' | 'asset' | 'extraction' | 'table' | 'reference';
+  source_id?: string;
+  status?: string;
+  access_state?: string;
+  created_at?: string;
+  captured_at?: string;
+  [key: string]: unknown;
+};
+export type KnowledgeEvidenceData = {
+  project_id: string;
+  state: 'available' | 'no_sample';
+  summary: { sources: number; assets: number; extractions: Record<string, number>; tables: number; references: number; source_statuses: Record<string, number>; denominator: number };
+  capabilities: Record<string, { state: 'available' | 'unavailable'; detail: string }>;
+  sources: KnowledgeEvidenceRecord[];
+  assets: KnowledgeEvidenceRecord[];
+  extractions: KnowledgeEvidenceRecord[];
+  tables: KnowledgeEvidenceRecord[];
+  references: KnowledgeEvidenceRecord[];
+  timeline: Array<{ id: string; record_type: KnowledgeEvidenceRecord['record_type']; status: string; occurred_at: string }>;
+  graph: { nodes: Array<{ id: string; type: string; status: string; label?: string; target_type?: string; target_id?: string }>; edges: Array<{ id: string; source: string; target: string; relation: string; resolution_state?: string }>; node_total: number; edge_total: number; omitted_edge_count: number; truncated: boolean };
+  truncated: boolean;
+};
+export type KnowledgeTablePreview = {
+  table_id: string;
+  source_id: string;
+  extraction_id: string;
+  schema: string[];
+  units: Record<string, string>;
+  rows: string[][];
+  page: number;
+  page_size: number;
+  total_rows: number;
+  available_rows: number;
+  total_pages: number;
+  truncated: boolean;
+  derived: true;
+  state: 'available' | 'no_rows' | 'unavailable';
+  reason: string;
+  provenance: { extractor: string; extractor_revision: string; sheet: string; content_hash: string };
+};
 export type InformationRegistrySource = {
   id: string;
   project_id: string;
@@ -248,6 +291,15 @@ export function setKnowledgeWorkspaceAccessKey(value: string) {
 }
 
 export const fetchKnowledgeWorkspace = (projectId: string) => request<KnowledgeWorkspaceData>(`/knowledge/workspaces/${encodeURIComponent(projectId)}`);
+export const fetchKnowledgeWorkspaceProjects = () => request<{ projects: KnowledgeWorkspaceProject[]; count: number }>('/knowledge/workspaces');
+export const fetchKnowledgeEvidence = (projectId: string, limit = 100) => request<KnowledgeEvidenceData>(`/knowledge/evidence/projects/${encodeURIComponent(projectId)}?limit=${Math.max(1, Math.min(limit, 200))}`);
+export const fetchKnowledgeEvidenceRecord = (projectId: string, recordType: string, recordId: string) => request<{ record: KnowledgeEvidenceRecord }>(`/knowledge/evidence/projects/${encodeURIComponent(projectId)}/records/${encodeURIComponent(recordType)}/${encodeURIComponent(recordId)}`);
+export const fetchKnowledgeTablePreview = (projectId: string, tableId: string, page = 1, pageSize = 25) => request<KnowledgeTablePreview>(`/knowledge/evidence/projects/${encodeURIComponent(projectId)}/tables/${encodeURIComponent(tableId)}/preview?page=${Math.max(1, page)}&page_size=${Math.max(1, Math.min(pageSize, 100))}`);
+export async function fetchKnowledgeImageThumbnail(projectId: string, assetId: string): Promise<string> {
+  const response = await fetchWrapper.request(`/knowledge/evidence/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/thumbnail`);
+  if (!response.ok) throw new KnowledgeRequestError('An authorized image preview is unavailable.', 'evidence_image_preview_unavailable', response.status);
+  return URL.createObjectURL(await response.blob());
+}
 export const fetchKnowledgeInformationOverview = (projectId: string) => request<KnowledgeInformationOverview>(`/knowledge/intelligence/projects/${encodeURIComponent(projectId)}`);
 export const createKnowledgeInformationSource = (projectId: string, source: Omit<InformationRegistrySource, 'id' | 'created_at' | 'updated_at' | 'availability' | 'unavailable_reason'>) => post<{ source: InformationRegistrySource }>(`/knowledge/intelligence/projects/${encodeURIComponent(projectId)}/sources`, source);
 export const configureKnowledgeVault = (projectId: string, vaultPath: string) => request<{ vault: KnowledgeWorkspaceData['vault'] }>(`/knowledge/workspaces/${encodeURIComponent(projectId)}/vault`, { method: 'PUT', body: JSON.stringify({ vault_path: vaultPath }) });
@@ -255,6 +307,11 @@ export const configureKnowledgePlugins = (projectId: string, plugins: KnowledgeP
 export const setKnowledgePluginTrust = (projectId: string, pluginIds: string[], trusted: boolean, reason = '') => request<KnowledgeWorkspaceData['plugins']>(`/knowledge/workspaces/${encodeURIComponent(projectId)}/plugins/trust`, { method: 'PUT', body: JSON.stringify({ plugin_ids: pluginIds, trusted, reason }) });
 export const initializeKnowledgeWorkspace = (projectId: string) => post<{ created: string[]; created_directories?: string[]; indexing: Record<string, unknown>; run_id: string }>(`/knowledge/workspaces/${encodeURIComponent(projectId)}/initialize`, {});
 export const fetchKnowledgeSources = (projectId: string) => request<{ sources: KnowledgeSource[]; count: number }>(`/knowledge/sources?project_id=${encodeURIComponent(projectId)}`);
+export const captureKnowledgePrimaryWebSource = (projectId: string, url: string, discoveredFromSourceId: string) => post<PrimaryWebKnowledgeCapture>('/knowledge/sources/capture-web', {
+  project_id: projectId,
+  url,
+  discovered_from_source_id: discoveredFromSourceId,
+});
 export const importFeishuKnowledgeExport = (projectId: string, exportPayload: FeishuKnowledgeExport) => post<FeishuKnowledgeImport>('/knowledge/sources/feishu/import', { project_id: projectId, export: exportPayload });
 export const fetchKnowledgeSource = (projectId: string, sourceId: string) => request<{ source: KnowledgeSource }>(`/knowledge/sources/${encodeURIComponent(sourceId)}?project_id=${encodeURIComponent(projectId)}`);
 export const fetchKnowledgeSourceTriage = (projectId: string, sourceId: string) => request<{ triage: KnowledgeSourceTriage | null }>(`/knowledge/sources/${encodeURIComponent(sourceId)}/triage?project_id=${encodeURIComponent(projectId)}`);

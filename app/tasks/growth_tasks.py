@@ -34,6 +34,8 @@ class GrowthTaskFailure:
 
 def classify_growth_failure(exc: Exception) -> GrowthTaskFailure:
     message = str(exc).lower()
+    if exc.__class__.__name__ == "SoftTimeLimitExceeded":
+        return GrowthTaskFailure("transient_dependency", "growth_task_timeout", True)
     if isinstance(exc, PermissionError):
         return GrowthTaskFailure("policy", "permission_denied", False)
     if "user-authored" in message or "ownership" in message or "managed file" in message or "conflict" in message:
@@ -45,6 +47,13 @@ def classify_growth_failure(exc: Exception) -> GrowthTaskFailure:
     if isinstance(exc, (TypeError, ValueError, KeyError)):
         return GrowthTaskFailure("input", "invalid_growth_input", False)
     return GrowthTaskFailure("transient_dependency", "unexpected_growth_failure", True)
+
+
+def growth_task_time_limits() -> dict[str, int]:
+    """Return a valid, independently bounded Celery limit for growth jobs."""
+    soft_limit = max(60, int(settings.KNOWLEDGE_GROWTH_TASK_SOFT_TIMEOUT_SECONDS))
+    hard_limit = max(soft_limit + 1, int(settings.KNOWLEDGE_GROWTH_TASK_TIMEOUT_SECONDS))
+    return {"soft_time_limit": soft_limit, "time_limit": hard_limit}
 
 
 def execute_growth_run(
@@ -126,6 +135,7 @@ def execute_growth_run(
             "retry_count": _retry_depth(repo, run),
             "duplicate_count": int(prior_metrics.get("duplicate_count", 0)),
             "no_op_count": 1 if result.get("status") == "noop" else 0,
+            "preserved_count": 1 if result.get("status") == "preserved" else 0,
             "input_count": int((result.get("manifest") or {}).get("input_count", 0)),
             "input_hash": str(result.get("input_hash") or ""),
             "output_paths": list(result.get("paths") or []),
@@ -153,11 +163,26 @@ def execute_growth_run(
                     "retry_categories": list(promptops.get("retry_categories") or []),
                 },
             )
+        distillation_event_type = (
+            "knowledge.growth.distillation.preserved"
+            if result.get("status") == "preserved"
+            else "knowledge.growth.distillation.completed"
+            if result.get("status") != "noop"
+            else "knowledge.growth.distillation.noop"
+        )
+        distillation_payload = {
+            "kind": run["run_type"],
+            "period": period,
+            "input_hash": result.get("input_hash", ""),
+            "paths": result.get("paths", []),
+        }
+        if result.get("status") == "preserved":
+            distillation_payload["preserved_input_hash"] = result.get("preserved_input_hash", "")
         repo.append_run_event(
             project_id=project_id,
             run_id=run_id,
-            event_type="knowledge.growth.distillation.completed" if result.get("status") != "noop" else "knowledge.growth.distillation.noop",
-            payload={"kind": run["run_type"], "period": period, "input_hash": result.get("input_hash", ""), "paths": result.get("paths", [])},
+            event_type=distillation_event_type,
+            payload=distillation_payload,
         )
         repo.update_run_status(project_id, run_id, RunStatus.COMPLETED, output_refs=refs)
         return {
@@ -461,6 +486,6 @@ def _parse_datetime(value: object) -> datetime | None:
 celery_app = get_celery_app()
 
 
-@celery_app.task(name="knowledge.growth.execute")
+@celery_app.task(name="knowledge.growth.execute", **growth_task_time_limits())
 def growth_execute(project_id: str, run_id: str, schedule_id: str = "", week: str = "") -> dict:
     return execute_growth_run(project_id, run_id, schedule_id=schedule_id, week=week)

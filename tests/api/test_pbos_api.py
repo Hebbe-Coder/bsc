@@ -1,0 +1,52 @@
+from fastapi.testclient import TestClient
+
+from app.api import dbos_api
+from app.artifacts import MissionArtifact
+from app.core.config import settings
+from app.main import app
+
+
+def test_pbos_feedback_rejects_an_outcome_outside_the_project(monkeypatch, tmp_path):
+    monkeypatch.setattr(dbos_api, "DBOS_DATA_ROOT", tmp_path / "dbos")
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/pbos/projects/personal/outcomes/missing-outcome/feedback",
+        json={"statement": "Need evidence before approval."},
+    )
+
+    assert response.status_code == 404
+    assert "outcome record not found" in response.text
+
+
+def test_pbos_plan_api_uses_project_vault_context(monkeypatch, tmp_path):
+    monkeypatch.setattr(dbos_api, "DBOS_DATA_ROOT", tmp_path / "dbos")
+    monkeypatch.setattr(settings, "OBSIDIAN_VAULT_ROOT", str(tmp_path / "vault"))
+    monkeypatch.setattr(settings, "SOP_LLM_PROVIDER", "mock")
+    project_root = tmp_path / "vault" / "projects" / "personal" / "03_Projects" / "active"
+    project_root.mkdir(parents=True)
+    (project_root / "context.md").write_text("# Runtime boundary\nFreeze contracts before widening scope.", encoding="utf-8")
+    store = dbos_api.dbos_service_for("personal").store
+    mission = MissionArtifact(
+        artifact_id="mission-context",
+        mission_id="mission-context",
+        project_id="personal",
+        label="Runtime delivery",
+        title="Runtime delivery",
+        intent="Deliver the Agent runtime evidence loop",
+    )
+    store.add(mission)
+    client = TestClient(app)
+
+    profile = client.put(
+        "/api/pbos/projects/personal/profile",
+        json={"focus": ["AI systems"], "preferences": {"architecture_first": True}},
+    )
+    plan = client.post("/api/pbos/projects/personal/missions/mission-context/plans")
+
+    assert profile.status_code == 200
+    assert plan.status_code == 200
+    payload = plan.json()["plan"]
+    assert payload["compilation_state"] == "context_grounded"
+    assert payload["knowledge_context_refs"] == ["vault:03_Projects/active/context.md"]
+    assert payload["compiler_metadata"]["mode"] == "contextual_deterministic"

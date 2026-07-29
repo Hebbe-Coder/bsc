@@ -77,6 +77,12 @@ def _message_content(message: Any) -> str:
     content = message.get("content")
     if isinstance(content, str):
         return content
+    if isinstance(content, dict):
+        for key in ("text", "value", "content"):
+            value = content.get(key)
+            if isinstance(value, str):
+                return value
+        return ""
     if not isinstance(content, list):
         return ""
 
@@ -102,6 +108,18 @@ def _message_content(message: Any) -> str:
     return "".join(parts)
 
 
+def _choice_content(choice: Any) -> str:
+    """Read documented chat and legacy completion text fields, never reasoning."""
+    if not isinstance(choice, dict):
+        return ""
+    content = _message_content(choice.get("message"))
+    if content:
+        return content
+    # A few OpenAI-compatible proxies still emit the legacy completion shape.
+    text = choice.get("text")
+    return text if isinstance(text, str) else ""
+
+
 def _response_shape(data: Any) -> dict[str, Any]:
     """Describe an incompatible completion without retaining provider content."""
     shape: dict[str, Any] = {"payload_type": type(data).__name__}
@@ -117,12 +135,21 @@ def _response_shape(data: Any) -> dict[str, Any]:
     if not isinstance(first_choice, dict):
         return shape
     shape["choice_keys"] = sorted(str(key) for key in first_choice.keys())[:32]
+    finish_reason = first_choice.get("finish_reason")
+    if isinstance(finish_reason, str):
+        shape["finish_reason"] = finish_reason
     message = first_choice.get("message")
     shape["message_type"] = type(message).__name__
     if not isinstance(message, dict):
+        shape["legacy_text_type"] = type(first_choice.get("text")).__name__
         return shape
     shape["message_keys"] = sorted(str(key) for key in message.keys())[:32]
     shape["content_type"] = type(message.get("content")).__name__
+    # Presence flags are safe operational diagnostics. They deliberately do
+    # not retain response text, tool arguments, or private reasoning.
+    shape["private_reasoning_present"] = "reasoning_content" in message
+    shape["refusal_present"] = "refusal" in message
+    shape["tool_calls_present"] = "tool_calls" in message
     return shape
 
 
@@ -182,6 +209,7 @@ class SOPLLMClient:
         self._http = http_client
         self.last_structured_failure = ""
         self.last_response_shape: dict[str, Any] = {}
+        self.last_structured_attempts: list[dict[str, Any]] = []
         self.last_usage: ModelUsage | None = None
         self.last_call_usages: list[ModelUsage] = []
 
@@ -288,12 +316,15 @@ class SOPLLMClient:
                     data = resp.json()
                     self.last_response_shape = _response_shape(data)
                     choices = data.get("choices") if isinstance(data, dict) else None
-                    message = choices[0].get("message") if isinstance(choices, list) and choices else None
-                    content = _message_content(message)
+                    first_choice = choices[0] if isinstance(choices, list) and choices else None
+                    content = _choice_content(first_choice)
                     if not content:
+                        finish_reason = first_choice.get("finish_reason") if isinstance(first_choice, dict) else ""
                         raise SOPLLMError(
-                            "LLM returned an unsupported completion payload",
-                            category="response_payload_invalid",
+                            "LLM completion ended before structured content was emitted"
+                            if finish_reason == "length"
+                            else "LLM returned an unsupported completion payload",
+                            category="response_truncated" if finish_reason == "length" else "response_payload_invalid",
                         )
                     usage = extract_model_usage(data, provider=self.provider, model=self.model)
                     self._record_usage(usage)
@@ -332,8 +363,11 @@ class SOPLLMClient:
         user_prompt: str,
         temperature: float = 0.3,
         max_tokens: int = 1200,
+        max_structured_attempts: int = 2,
     ) -> Optional[dict]:
         """返回解析后的 dict,或 None(调用方走兜底)。内置一次降温度重试。"""
+        if not 1 <= max_structured_attempts <= 3:
+            raise ValueError("max_structured_attempts must be between 1 and 3")
         self.reset_usage_tracking()
         if self.provider == "mock":
             try:
@@ -342,43 +376,84 @@ class SOPLLMClient:
                 return None
         # Keep the repair attempt in JSON mode unless the provider explicitly
         # rejects that mode. A prose retry cannot repair a structured contract.
+        repair_budget = min(max(max_tokens * 2, max_tokens + 800), 6_000)
         attempts = (
-            (temperature, True),
-            (0.0, True),
-        )
+            (temperature, True, max_tokens),
+            (0.0, True, repair_budget),
+        )[:max_structured_attempts]
         self.last_structured_failure = ""
-        for t, use_json_mode in attempts:
+        for attempt_number, (t, use_json_mode, token_budget) in enumerate(attempts, start=1):
             try:
                 raw = self.chat(
                     system_prompt,
                     user_prompt,
                     temperature=t,
-                    max_tokens=max_tokens,
+                    max_tokens=token_budget,
                     use_json_mode=use_json_mode,
                 )
                 parsed = _parse_json(raw.get("content", ""))
                 if parsed is not None:
                     self.last_structured_failure = ""
+                    self.last_structured_attempts.append({
+                        "attempt": attempt_number,
+                        "json_mode": use_json_mode,
+                        "max_tokens": token_budget,
+                        "result": "valid_json",
+                    })
                     return parsed
                 self.last_structured_failure = "response_payload_invalid"
+                self.last_structured_attempts.append({
+                    "attempt": attempt_number,
+                    "json_mode": use_json_mode,
+                    "max_tokens": token_budget,
+                    "result": self.last_structured_failure,
+                })
             except SOPLLMError as e:
                 self.last_structured_failure = e.category
-                if e.category == "response_format_rejected" and use_json_mode:
+                self.last_structured_attempts.append({
+                    "attempt": attempt_number,
+                    "json_mode": use_json_mode,
+                    "max_tokens": token_budget,
+                    "result": self.last_structured_failure,
+                })
+                if (
+                    e.category == "response_format_rejected"
+                    and use_json_mode
+                    and max_structured_attempts > 1
+                ):
                     try:
                         raw = self.chat(
                             system_prompt,
                             user_prompt,
                             temperature=0.0,
-                            max_tokens=max_tokens,
+                            max_tokens=repair_budget,
                             use_json_mode=False,
                         )
                         parsed = _parse_json(raw.get("content", ""))
                         if parsed is not None:
                             self.last_structured_failure = ""
+                            self.last_structured_attempts.append({
+                                "attempt": attempt_number,
+                                "json_mode": False,
+                                "max_tokens": repair_budget,
+                                "result": "valid_json",
+                            })
                             return parsed
                         self.last_structured_failure = "response_payload_invalid"
+                        self.last_structured_attempts.append({
+                            "attempt": attempt_number,
+                            "json_mode": False,
+                            "max_tokens": repair_budget,
+                            "result": self.last_structured_failure,
+                        })
                     except SOPLLMError as fallback_error:
                         self.last_structured_failure = fallback_error.category
+                        self.last_structured_attempts.append({
+                            "attempt": attempt_number,
+                            "json_mode": False,
+                            "max_tokens": repair_budget,
+                            "result": self.last_structured_failure,
+                        })
                         logger.warning("SOP LLM plain JSON fallback failed: %s", fallback_error)
                     break
                 logger.warning("SOP LLM 解析失败(retry): %s", e)
@@ -390,6 +465,7 @@ class SOPLLMClient:
         self.last_usage = None
         self.last_call_usages = []
         self.last_response_shape = {}
+        self.last_structured_attempts = []
 
     def _record_usage(self, usage: ModelUsage) -> None:
         self.last_usage = usage

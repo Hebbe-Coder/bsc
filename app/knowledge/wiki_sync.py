@@ -5,11 +5,15 @@ from __future__ import annotations
 from pathlib import Path
 from pathlib import PurePosixPath
 import hashlib
+import mimetypes
+import re
 from datetime import datetime, timezone
 
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_source_capture import CapturedSourceInput, SourceCaptureService
+from app.knowledge.wiki_contracts import MediaAsset
 from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
+from app.knowledge.obsidian_metadata import is_managed_index_path
 from app.knowledge.obsidian_source_projection import is_managed_evidence_path
 
 
@@ -81,6 +85,7 @@ class ObsidianSyncService:
                 report["rejected" if result.created else "duplicates"] += 1
                 self._reconcile_plugin_provenance(result.source, plugin, workspace_role)
                 self._mark_present(result.source)
+                self._register_media_asset(result.source, path, relative)
                 continue
             try:
                 content = path.read_text(encoding="utf-8").strip()
@@ -107,10 +112,12 @@ class ObsidianSyncService:
                 report["rejected" if result.created else "duplicates"] += 1
                 self._reconcile_plugin_provenance(result.source, plugin, workspace_role)
                 self._mark_present(result.source)
+                self._register_media_asset(result.source, path, relative)
                 continue
             if not content:
                 report["skipped"] += 1
                 continue
+            plugin_provenance = self._plugin_provenance(plugin, content)
             report["scanned"] += 1
             result = self.capture_service.capture(
                 CapturedSourceInput(
@@ -123,6 +130,7 @@ class ObsidianSyncService:
                     metadata={
                         "sync": "obsidian",
                         **self._plugin_metadata(plugin),
+                        **plugin_provenance,
                         **self._workspace_metadata(workspace_role),
                         "modified_at": path.stat().st_mtime_ns,
                         "extension": extension,
@@ -131,8 +139,9 @@ class ObsidianSyncService:
                 )
             )
             report["created" if result.created else "duplicates"] += 1
-            self._reconcile_plugin_provenance(result.source, plugin, workspace_role)
+            self._reconcile_plugin_provenance(result.source, plugin, workspace_role, plugin_provenance)
             self._mark_present(result.source)
+            self._register_media_asset(result.source, path, relative)
         for source in self.repository.list_sources(project_id):
             metadata = source.get("metadata") or {}
             origin = str(source.get("origin") or "")
@@ -158,7 +167,32 @@ class ObsidianSyncService:
         restored.pop("deleted_at", None)
         self.repository.update_source_metadata(source["project_id"], source["id"], restored)
 
-    def _reconcile_plugin_provenance(self, source: dict, plugin, workspace_role: str) -> None:
+    def _register_media_asset(self, source: dict, path: Path, relative: Path) -> None:
+        """Register an immutable Vault file descriptor without copying its bytes."""
+        try:
+            self.repository.register_media_asset(
+                MediaAsset(
+                    project_id=str(source["project_id"]),
+                    source_id=str(source["id"]),
+                    mime_type=mimetypes.guess_type(path.name)[0] or "application/octet-stream",
+                    byte_hash=self._file_hash(path),
+                    byte_size=path.stat().st_size,
+                    storage_ref=relative.as_posix(),
+                    metadata={"sync": "obsidian", "extension": path.suffix.lower()},
+                )
+            )
+        except OSError:
+            # The source capture remains durable even when a user concurrently
+            # moves a file. A later sync can register the descriptor safely.
+            return
+
+    def _reconcile_plugin_provenance(
+        self,
+        source: dict,
+        plugin,
+        workspace_role: str,
+        plugin_provenance: dict | None = None,
+    ) -> None:
         """Attach a trusted bridge to a duplicate without changing its evidence body.
 
         Older captures can predate a bridge declaration. When their immutable
@@ -174,6 +208,7 @@ class ObsidianSyncService:
             "plugin_name": plugin.name,
             "obsidian_adapter": plugin.adapter,
             **self._workspace_metadata(workspace_role),
+            **(plugin_provenance or {}),
         }
         if all(metadata.get(key) == value for key, value in expected.items()):
             return
@@ -192,6 +227,50 @@ class ObsidianSyncService:
             "plugin_name": plugin.name,
             "obsidian_adapter": plugin.adapter,
         }
+
+    @staticmethod
+    def _plugin_provenance(plugin, content: str) -> dict:
+        """Map bounded Zotero frontmatter into source provenance metadata.
+
+        Only bibliographic identifiers from notes exported through the trusted
+        bridge are retained. The note body stays in immutable source storage
+        and is never exposed by plugin route status APIs.
+        """
+        if plugin is None or plugin.plugin_id != "obsidian-zotero-desktop-connector":
+            return {}
+        frontmatter = ObsidianSyncService._frontmatter(content)
+        fields = {
+            "zotero_citation_key": ("citekey", "citationkey", "cite_key"),
+            "zotero_doi": ("doi",),
+            "zotero_url": ("url", "sourceurl"),
+            "zotero_source_date": ("date", "issued"),
+            "zotero_item_key": ("itemkey", "item_key", "zotero_item_key"),
+        }
+        return {
+            field: value
+            for field, aliases in fields.items()
+            if (value := next((frontmatter[name] for name in aliases if frontmatter.get(name)), ""))
+        }
+
+    @staticmethod
+    def _frontmatter(content: str) -> dict[str, str]:
+        """Read scalar frontmatter without accepting arbitrary YAML features."""
+        prefix = content[:16_384]
+        if not prefix.startswith("---\n"):
+            return {}
+        end = prefix.find("\n---", 4)
+        if end < 0:
+            return {}
+        values: dict[str, str] = {}
+        for line in prefix[4:end].splitlines():
+            match = re.fullmatch(r"\s*([A-Za-z][A-Za-z0-9_-]{0,63})\s*:\s*(.*?)\s*", line)
+            if not match:
+                continue
+            key = match.group(1).lower().replace("-", "_")
+            value = match.group(2).strip().strip("\"'")
+            if value and len(value) <= 512:
+                values[key] = value
+        return values
 
     @staticmethod
     def _workspace_metadata(workspace_role: str) -> dict:
@@ -229,6 +308,8 @@ class ObsidianSyncService:
             return True
         if project_root and parts[:len(project_root)] == project_root:
             project_relative = parts[len(project_root):]
+            if is_managed_index_path(project_relative):
+                return True
             if is_managed_evidence_path(project_relative):
                 return True
             return not ObsidianPluginManifest.is_syncable_knowledge_path(project_relative)

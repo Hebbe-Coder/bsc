@@ -1,8 +1,21 @@
 # Karpathy LLM Wiki Knowledge Growth Worklog
 
-**Status:** P1-P7 implemented and regression-verified; P8 release verification is pending only on external Docker Hub connectivity and authenticated browser acceptance.
+**Status:** P1-P7 implemented and regression-verified; P8 runtime verification is in progress.
 **Owner:** BSC platform
 **Design authority:** `docs/superpowers/specs/2026-07-21-karpathy-llm-wiki-knowledge-growth-prd.md`
+
+## Latest Update: DeepSeek Runtime Repair, Context Repair, And Weekly Publication Preservation (2026-07-27)
+
+- Raised the weekly distillation contract to v20. A same-week replacement now requires a complete five-document LLM result when the active bundle already passed the complete LLM gate. Hybrid and deterministic attempts leave the existing Vault directory, hashes, manifest, and database revision untouched. In the configured production path, any real model attempt that degrades preserves an existing weekly bundle, including an initial deterministic one; offline/unconfigured test fallback remains eligible for its established revision behavior.
+- Corrected the evidence-budget bottleneck that reduced a 125-record project ledger to one MCP source: daily runs retain the 4,000-character bounded context, while weekly runs now receive a separately audited 10,000-character context. The manifest stores `character_budget`, `character_count`, and `estimated_tokens` for every run.
+- A real v18 DeepSeek run proved network and billing recovery with multiple HTTP 200 responses, but exposed two execution defects: complex model responses exhausted their output budget after reasoning, and an all-document rejection fanned out into many low-budget per-document repairs. The run `deepseek-v18-005b46bd92a445d0` was manually terminated only after its Worker had no active task, then durably recorded as `growth_task_timeout`, `retryable=false`, with no weekly artifact published.
+- Full weekly generation now receives 4,500 tokens, targeted repair 2,200 tokens, and uses one outer PromptOps sample because the client already performs a bounded lower-temperature JSON repair. If every document fails the deterministic gate, the system performs one complete rewrite; per-document repair remains reserved for a partial failure with accepted files to preserve.
+- Growth tasks now have an independent Celery lifecycle of 180 seconds soft and 210 seconds hard. Soft timeout is classified as a retryable, durable growth failure; schedule recovery uses the same hard deadline instead of the global one-hour task timeout.
+- An unpublished attempt returns explicit `status=preserved` data with its attempted input hash, preserved input hash, generation evidence, and machine-readable reason. It creates no synthetic distillation row, so a later retry over the same evidence can succeed after the provider recovers.
+- Celery records this outcome as `knowledge.growth.distillation.preserved`, with `preserved_count=1`, rather than emitting a completed-artifact event. The model attempt is therefore auditable without a false claim that fresh weekly files exist.
+- `tests/knowledge/test_growth_distillation.py` passed: `42 passed`. New regression coverage proves both partial/hybrid and unavailable/invalid model responses cannot change any managed file, archive a replacement revision, or create a fake database artifact after a complete LLM weekly bundle exists; it also proves configured production fallback cannot replace an existing deterministic bundle, weekly and daily evidence budgets remain distinct, and whole-batch rejection does not fan out per document.
+- `tests/integration/test_growth_celery.py`, configuration, and Compose contracts passed: `26 passed`. `compileall` passed; `git diff --check` emitted only existing CRLF conversion warnings.
+- Live Docker rebuild and a new DeepSeek-backed weekly run with the bounded lifecycle remain the next steps. No v16 output was reclassified as a successful LLM result and no historical run evidence was altered.
 
 ## Objective
 
@@ -592,3 +605,142 @@ Live Horizon endpoint/API credentials and a real Wiki-maintenance LLM provider r
 - The authorized Studio was checked at a 390x844 viewport against live PostgreSQL-backed data. The first inspection exposed a real CSS defect: the mobile Vault tree had a 190px height limit but no internal overflow, so its decision links spilled into the Evidence list.
 - `src/index.css` now gives the bounded mobile Vault tree `overflow: auto` and `overscroll-behavior: contain`. Frontend component tests passed (`10 passed`) and TypeScript check passed.
 - After a live page reload, the tree measured 190px client height and 336px content height, with the Evidence header below the tree and the first evidence card below that header. The document width was 384px with no horizontal overflow. Studio access, Vault readiness, Horizon run-store status, plugin bridge status, 100% citation coverage, and the repaired Chinese decision title were all visible from live data.
+
+## DeepSeek v12 Weekly Distillation Quality Closure (2026-07-27)
+
+### Observed Gap
+
+- Live v11 run `7751db3ba718` completed with a real DeepSeek `deepseek-v4-pro` call and the v11 provenance gate, but only two of five weekly documents passed the strict Markdown, citation, uncertainty, and unsupported-project-state checks. The other three were explicitly marked as deterministic fallbacks (`mode=hybrid`); this was treated as a quality failure, not as full semantic-generation acceptance.
+- The prior corrective path asked the model to regenerate the complete five-document object even when only a subset was rejected. It also retained only the final PromptOps record in the manifest, which under-reported the number of quality-repair provider calls.
+
+### Implemented Repair
+
+- Raised `GrowthDistillationService.DISTILLATION_CONTRACT_REVISION` to `12`. The weekly prompt now includes a pre-return self-check for headings, size, evidence citation, and uncertainty.
+- The configured DeepSeek provider now supports a targeted retry contract: an initial batch still produces five documents, while a repair request can return JSON only for the rejected document slots. Already accepted documents are preserved and only validated repairs replace rejected files.
+- PromptOps evidence is scoped per knowledge run and aggregates every successful initial/repair invocation. Multi-call manifests retain per-prompt run records and folded provider usage; one-call runs remain backward-compatible with the existing compact evidence shape.
+- Focused regression added a four-accepted/one-rejected scenario. It proves that only the rejected document is requested on retry, no fallback remains after repair, and both provider calls are represented in the manifest usage totals.
+
+### Verification And Live Acceptance
+
+- Focused regression and contracts: `tests/knowledge/test_growth_distillation.py`, `tests/test_config_sop_llm.py`, and `tests/test_docker_compose_contract.py` -> `39 passed`; `compileall` and `git diff --check` passed (aside from existing CRLF warnings).
+- Rebuilt and deployed API, Celery Worker, and Celery Beat. `/ready` returned HTTP 200 with PostgreSQL and Redis healthy; Worker ping returned `pong`; the running container reported distillation revision `12` and a 150-second growth-model timeout.
+- Live run `22407473e02c` completed through Celery with the event chain `queued -> execution_assigned -> growth.started -> obsidian_sync.completed -> model.completed -> distillation.completed -> completed`.
+- Its manifest proves `mode=llm`, `provider=deepseek`, `model=deepseek-v4-pro`, contract revision `12`, five LLM documents, zero fallback documents, and one complete provider-accounted call (`prompt_e9a0e794904949f6aa866d6a96273553`). This run did not need a quality retry; the targeted-retry path is covered by the focused regression rather than falsely claimed as a live event.
+
+## DeepSeek Weekly Distillation Bounded-Call Validation (2026-07-27)
+
+### Implemented
+
+- Added `PromptRequest.max_structured_attempts` and threaded it into `SOPLLMClient.chat_structured`. Knowledge growth explicitly sets the value to `1`, so a provider JSON repair cannot silently multiply one governed render into two provider requests.
+- Raised the semantic weekly contract to revision `22`. A weekly run is bounded to an initial render plus at most one batch repair. Production never fans out one failed document into separate requests. The repair asks only for the rejected document keys.
+- Weekly full generation has a `6,500` token ceiling. Small targeted repairs have a `4,500` token floor because the observed reasoning budget can otherwise consume a `3,200` token response before two Markdown documents are produced.
+- Growth task limits are now `240s` soft and `270s` hard. They cover the two-call weekly contract while remaining independently bounded from the generic Celery timeout.
+
+### Verification
+
+- Regression set: `tests/test_sop_llm_client.py`, `tests/promptops/test_promptops.py`, `tests/knowledge/test_growth_distillation.py`, `tests/integration/test_growth_celery.py`, `tests/test_config_sop_llm.py`, and `tests/test_docker_compose_contract.py` completed with `104 passed` and one existing Starlette/httpx deprecation warning.
+- API and Worker were rebuilt. `/ready` returned PostgreSQL and Redis `ok`; Celery ping returned `pong`. Beat remains intentionally stopped while the weekly model-output issue is unresolved, so it cannot create unattended paid retries.
+- Live runs `1475e8637a18`, `65094c9327bb`, `52081522c71f`, and `0b8dbcbab9f5` all reached durable `completed` run status with a `distillation.preserved` event when their weekly bundle was incomplete. No run overwrote the existing Vault week and no run was reported as published.
+
+### Runtime Finding And Handoff
+
+- The final revision `22` run used two complete, provider-accounted DeepSeek Pro calls in `159,594 ms`: `16,230` total tokens, including `6,403` reasoning tokens. Only two of five documents passed the deterministic source/citation/uncertainty/project-state gate; the batch repair did not make the bundle complete. The existing bundle input hash `698142b8d1a46781426b2ccbe6af5f2bf2b8163eafe767d26f4da51463edc790` remains preserved.
+- This is not a Docker, Vault, database, scheduler, network, credential, timeout, or atomic-publication failure. It is a reproducible quality/format compatibility limit of `deepseek-v4-pro` for this multi-document governed JSON contract. The next implementation must add non-content-retaining validation reason codes and evaluate a provider/model profile specialized for strict JSON generation before automatic weekly scheduling is re-enabled.
+- Independent post-run verification of `D:\bsc\bsc\projects\default\distillations\每周蒸馏\2026-W31` confirmed exactly five distinct UTF-8 documents. Every document hash matches `manifest.json`, has at least two `##` sections, contains only allowed source/page citations, has an explicit uncertainty marker, and has no unsupported project-state assertion. No non-evidence bracket reference or invalid context citation was found.
+
+## DeepSeek Weekly Distillation Publication And Scheduler Recovery (2026-07-27)
+
+### Implemented
+
+- Raised the governed weekly contract to revision `25`. Validation now records only non-content rejection codes (`invalid_shape`, `missing_citation`, `invalid_reference`, `too_short`, `missing_sections`, `missing_uncertainty`, and `unsupported_project_state`) in a failed or hybrid manifest; rejected model text is not retained.
+- Weekly documents now have distinct evidence-first roles: decision boundary, verification actions, content angles, carry-forward context, and method experiment. The prompt requires a visible uncertainty heading and distinguishes source-backed facts from unverified project activity.
+- A run remains bounded to an initial generation, one batch repair, and only when exactly one document remains, one strict single-document repair. It never fans out into a per-document retry loop. The strict repair preserves the accepted four documents and requests only the remaining JSON slot.
+- The growth lifecycle now has explicit `390s` soft and `420s` hard limits, covering the three-call maximum while retaining a finite task boundary. Defaults, Compose contracts, and tests were updated together.
+- Fixed a frontend test fixture that no longer satisfied the evidence-graph response contract after `omitted_edge_count` became mandatory. This was a build blocker only; no evidence-graph behavior was changed.
+
+### Verification
+
+- Focused backend regression suite completed with `112 passed` and one existing Starlette/httpx deprecation warning. It covers the new rejection codes, targeted document contracts, bounded batch repair, final strict repair, PromptOps usage accounting, Celery limits, and Compose environment contracts.
+- `npm run build` and `npx vitest run src/components/knowledge/EvidenceWorkspace.test.tsx` passed. The production Docker image then rebuilt successfully; API `/ready` reported PostgreSQL and Redis healthy, and the Worker answered Celery `ping`.
+- The first revision `25` run `139e0624a161` encountered a temporary Docker DNS failure before a provider request. It recorded `generation.reason=network_error`, preserved the published bundle, and made no model-output success claim. Container DNS and HTTPS were verified immediately afterward; unauthenticated HTTPS reached DeepSeek and returned the expected `401`.
+- Live retry `b21616bbe91e` completed via the protected API and Celery chain. Its events are `queued -> execution_assigned -> growth.started -> obsidian_sync.completed -> model.completed -> distillation.completed -> completed`. The manifest proves `mode=llm`, `provider=deepseek`, `model=deepseek-v4-pro`, contract revision `25`, five LLM documents, zero fallback documents, two quality repairs, and three provider calls.
+- The published Vault bundle at `D:\bsc\bsc\projects\default\distillations\每周蒸馏\2026-W31` contains exactly `00-本周总结.md` through `04-方法迭代.md`. Every disk SHA-256 matches `manifest.json`; every file has three `##` sections, 1,452-1,803 non-whitespace characters, one or more permitted source/page citations, an uncertainty marker, and no unsupported project-state match.
+
+### Scheduler And Runtime Closure
+
+- `celery-beat` has been restarted and the durable schedule coordinator is consuming its one-minute reconciliation task through the same Redis queue as the Worker. The API reports `scheduler=true` for both enabled growth schedules: daily at `17:00` Asia/Shanghai and weekly distillation at `17:30` every Friday Asia/Shanghai.
+- An old host-side Uvicorn process was still bound to `127.0.0.1:8002`, causing Studio to read stale scheduler state while Docker served the validated runtime through its own port relay. It was stopped after identifying its exact command line. `http://127.0.0.1:8002/ready` now reaches the Docker API and reports healthy dependencies; the host-visible schedule endpoint reports `scheduler_available=true`.
+- A temporary external DNS outage remains a visible runtime dependency. On such an outage the weekly task preserves the previous valid bundle rather than overwriting it or falsely declaring a publication; a later scheduled run can retry from the same governed input boundary.
+
+## DeepSeek Daily Distillation Budget Repair And Live Acceptance (2026-07-29)
+
+### Observed Runtime Gap
+
+- After the DeepSeek balance was restored, the Docker runtime was audited without exposing credentials. DeepSeek, semantic distillation, Growth, schedules, Vault sync, and the project-scoped write permission were all enabled.
+- A first live daily run (`59db9e075820`) completed its storage lifecycle but honestly used deterministic content after the provider returned HTTP 200 without final structured content. A privacy-bounded structural probe confirmed that `deepseek-v4-pro` returns OpenAI-compatible `content` and `reasoning_content`; the full daily prompt had exhausted its former 1,200-token completion budget during reasoning.
+
+### Applied Repair
+
+- Increased the daily structured-generation budget to 3,600 tokens. An empty completion with `finish_reason=length` is now classified as `response_truncated` rather than the ambiguous `response_payload_invalid`.
+- The client never treats hidden reasoning as final user-facing JSON. Added regression coverage for both the daily budget and an empty length-limited completion.
+- `tests/test_sop_llm_client.py` plus `tests/knowledge/test_growth_distillation.py` passed: `73 passed`.
+
+### Live Acceptance
+
+- API, Worker, and Beat images were rebuilt. Docker API, PostgreSQL, Redis, Worker, and Beat were healthy before the follow-up run.
+- Follow-up live run `36864f564523` completed on `deepseek-v4-pro`: one reported provider call, zero retry, `mode=llm`, `llm_documents=[daily]`, and zero fallback documents. Its event chain is `queued -> execution_assigned -> growth.started -> obsidian_sync.completed -> model.completed -> distillation.completed -> completed`.
+- The published Vault file `D:\bsc\bsc\projects\default\distillations\每周蒸馏\2026-W31\每日增量\2026-07-29.md` passed managed-file, ownership marker, input/body hash, citation, and persisted SHA-256 verification. Earlier same-day content remains in the revision archive and was not overwritten in place.
+- Post-repair integration regression `tests/integration/test_growth_celery.py`, `tests/api/test_growth_api.py`, `tests/mcp/test_wiki_http_contract.py`, and `tests/mcp/test_knowledge_evidence_tools.py` passed: `38 passed`. TypeScript `npm run check` passed; the rebuilt production image also completed `npm run build`.
+- A post-deploy authorized JSON-RPC `initialize` request to `/api/mcp` returned protocol `2025-06-18` and `bsc-engine 5.0.0` without an error. This confirms the live model repair did not break MCP transport compatibility.
+
+## Horizon Freshness And Producer-Failure Integrity Repair (2026-07-29)
+
+### Audit Finding
+
+- The managed Vault was reachable at `D:\bsc\bsc\projects\default`; the live workspace reported `ready`, 137 immutable source records, eight durable schedules, and a completed growth loop. PBOS projections and its daily report were also present, with unverified action material kept explicitly ungrounded.
+- The Horizon producer's latest two run directories each contained only `raw_items.json` with zero items. The latest `producer-state.json` recorded `HZ_EMPTY_INPUT: No items available for scoring.` after GitHub, Hacker News, RSS, Reddit, OSS Insight, and Google News each returned an empty result.
+- Before this repair, automatic BSC discovery could ignore that producer failure and select an older unpublished staged artifact. That behavior risks presenting stale intelligence as current collection.
+
+### Applied Repair
+
+- `HorizonRunStoreClient` now checks the producer status sidecar during automatic discovery. A failure newer than the newest unpublished enriched/filtered artifact raises a dedicated producer-failure error. A successful later stage supersedes an older failure.
+- Automatic discovery now applies a 48-hour freshness ceiling through `HORIZON_MAX_ARTIFACT_AGE_HOURS`. Historical artifact import remains possible only through an explicit run ID, preserving deliberate backfill without silently treating it as fresh news.
+- `knowledge.execute` maps both conditions into durable, project-scoped failures: `producer_failure / horizon_producer_failed` and `stale_artifact / horizon_artifact_stale`. The workspace API and Knowledge Workspace label producer failure and stale backlog separately from a genuine empty result.
+- Compose passes the freshness contract to both API and worker. No source body, API key, or user-authored Vault content was added to logs or work records.
+
+### Verification And Live Result
+
+- Focused backend regression: `tests/knowledge/test_horizon_run_store.py`, `tests/knowledge/test_knowledge_tasks.py`, `tests/api/test_knowledge_workspace_api.py`, and `tests/test_docker_compose_contract.py` -> `61 passed`.
+- `npm run check` passed. Focused frontend tests for the API contract and Knowledge Workspace -> `18 passed`. `docker compose config --no-interpolate --quiet` passed.
+- Rebuilt and restarted the production API and Celery Worker. A protected live `POST /knowledge/horizon/capture` created run `1acbe68e9b28`; the Worker consumed it and persisted `failed`, `outcome=producer_failure`, `failure.code=horizon_producer_failed`, `retryable=true`, and failure record `1aa38607b1ac4d5b9ab52907` with root cause `transient_dependency:horizon_producer_failed`.
+- The live workspace endpoint now reports the same failure state. It did not import an older run as today's information. The source-side empty collection remains an open, retryable operational incident rather than a fabricated successful update.
+- Final regression after the integration-fixture and PBOS API-wrapper corrections: full backend suite -> `1466 passed, 13 skipped`; full frontend suite -> `21 files / 155 passed`; `npm run check` and `docker compose config --no-interpolate --quiet` passed. The skipped tests retain their existing external-environment prerequisites and are not represented as executed acceptance.
+
+### Remaining Boundary
+
+- The BSC consumer path is now truthful and protected from stale automatic import. Restoring actual Horizon intake still depends on public source availability and Horizon's configured source rules; it is not solved by generating substitute signals. The next producer run can recover naturally, and its later successful stage will supersede the recorded failure.
+
+## Horizon Concurrent Import Claim And Live Producer Validation (2026-07-29)
+
+### Implemented
+
+- Added the project-scoped `knowledge_horizon_import_claims` ledger. Its database unique key is `(project_id, horizon_run_id, horizon_stage, horizon_item_id)`; it records the captured content hash, owning BSC run, lease, terminal state, and the immutable `source_id` actually used.
+- `HorizonImportService` now claims each accepted Horizon item before creating evidence. A second worker reports a duplicate rather than creating a parallel `horizon_signal`; successful capture atomically binds the claim to the source. Capture exceptions release the claim, and an expired 15-minute lease can be safely reclaimed after a worker crash.
+- The producer script defaults now use a 48-hour overlap and 300-second stage budget. The active Horizon profile uses four scoring workers, a bounded 1,536-token score budget, and the BSC-relevant public source set.
+
+### Verification
+
+- Added SQLite concurrency, release-after-failure, and expired-lease recovery coverage in `tests/knowledge/test_horizon_import.py`. Added an optional PostgreSQL contract in `tests/integration/test_knowledge_postgresql.py`.
+- Focused Horizon regression passed: `tests/knowledge/test_horizon_import.py`, `tests/knowledge/test_knowledge_tasks.py`, `tests/knowledge/test_horizon_run_store.py`, `tests/api/test_knowledge_workspace_api.py`, and `tests/test_horizon_producer_script.py` -> `67 passed`.
+- Full regression after the change passed: Python -> `1482 passed, 14 skipped`; frontend -> `23 files / 160 passed`; `npm run check` and `docker compose config --no-interpolate --quiet` passed. The skipped PostgreSQL pytest contracts require a host `TEST_POSTGRES_URL`; the same new claim operation was exercised directly against the running Docker PostgreSQL service.
+- Rebuilt and restarted the production API, Worker, and Beat images. Container-side PostgreSQL verification proved one project claim is accepted, a duplicate claim is rejected, a second project remains isolated, and completion binds the expected source ID.
+
+### Live Result
+
+- The prior 72-hour run `run-20260729T154353Z-64a6ed6d` was audited after deployment: it has 10 `horizon_signal` records, every record remains `validated`, all 10 have Vault projections, and none has a Wiki citation.
+- A first producer attempt from BSC's Python environment failed at `HZ_IMPORT_FAILED`; this was recorded as a producer failure and not misreported as an empty collection. The root cause was a Horizon runtime dependency mismatch. Retrying through Horizon's own complete Python environment succeeded and superseded that failure.
+- Live no-enrichment producer run `run-20260729T160830Z-4e18a3cc` completed with `fetched=34`, `scored=34`, and `kept=9`. BSC imported it with `accepted=9`, `created=5`, `duplicates=4`, and a completed Vault mirror. The four duplicates are expected overlap reuse. All nine ledger claims are completed and bind nine `validated` `horizon_signal` records with zero Wiki citations.
+
+### Remaining Boundary
+
+- Google News and Reddit were unreachable during the successful producer run. Their failures remain source diagnostics; RSS, Hacker News, and GitHub yielded the 34 real candidates. No generated substitute was inserted for unavailable channels.

@@ -6,6 +6,8 @@ import asyncio
 import json
 from pathlib import Path
 import re
+from threading import Lock
+from time import monotonic
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -38,6 +40,11 @@ from app.knowledge.wiki_service import WikiService
 from app.core.celery_app import is_celery_broker_available, is_celery_real
 
 
+SCHEDULER_AVAILABILITY_CACHE_TTL_SECONDS = 30.0
+_scheduler_availability_lock = Lock()
+_scheduler_availability_cache: tuple[tuple[object, ...], float, bool] | None = None
+
+
 def require_knowledge_wiki_enabled() -> None:
     if not settings.KNOWLEDGE_WIKI_ENABLED:
         raise HTTPException(
@@ -58,6 +65,43 @@ router = APIRouter(
 
 def get_wiki_repository() -> WikiRepository:
     return GrowthRepository()
+
+
+def _scheduler_availability_context() -> tuple[object, ...]:
+    return (
+        str(settings.CELERY_BROKER_URL or ""),
+        id(is_celery_real),
+        id(is_celery_broker_available),
+    )
+
+
+def _reset_scheduler_availability_cache() -> None:
+    global _scheduler_availability_cache
+    with _scheduler_availability_lock:
+        _scheduler_availability_cache = None
+
+
+def _scheduler_available() -> bool:
+    """Return short-lived advisory scheduler state for read responses.
+
+    A user opening the Knowledge workspace reads this status in more than one
+    request. Broker failures can outlive Kombu's requested timeout, so those
+    reads must not repeatedly block on a network probe. Command paths keep
+    their direct broker checks before they create or enqueue a run.
+    """
+    global _scheduler_availability_cache
+    if not settings.KNOWLEDGE_SCHEDULES_ENABLED:
+        _reset_scheduler_availability_cache()
+        return False
+    context = _scheduler_availability_context()
+    now = monotonic()
+    with _scheduler_availability_lock:
+        cached = _scheduler_availability_cache
+        if cached and cached[0] == context and now - cached[1] < SCHEDULER_AVAILABILITY_CACHE_TTL_SECONDS:
+            return cached[2]
+        available = bool(is_celery_real() and is_celery_broker_available())
+        _scheduler_availability_cache = (context, now, available)
+        return available
 
 
 class SourceStatusRequest(BaseModel):
@@ -299,6 +343,22 @@ def _validate_event_cursor(repo: WikiRepository, project_id: str, run_id: str, a
         )
 
 
+@router.get("/workspaces")
+def list_workspace_projects(request: Request, repo: WikiRepository = Depends(get_wiki_repository)):
+    """List only project-picker metadata that the authenticated actor may open."""
+    role = str(getattr(request.state, "knowledge_role", ""))
+    tenant_id = str(getattr(request.state, "tenant_id", settings.DEFAULT_TENANT_ID))
+    scoped_project_id = str(getattr(request.state, "knowledge_project_id", ""))
+    if role == "admin":
+        projects = repo.list_workspace_projects_for_tenant(tenant_id)
+    elif role in {"project_admin", "project_reader"} and scoped_project_id:
+        project = repo.get_workspace_project_for_tenant(scoped_project_id, tenant_id)
+        projects = [project] if project else []
+    else:
+        raise HTTPException(status_code=403, detail="workspace project discovery is not authorized")
+    return ApiResponse.ok({"projects": projects, "count": len(projects)})
+
+
 @router.get("/workspaces/{project_id}")
 def workspace_status(request: Request, project_id: str, repo: WikiRepository = Depends(get_wiki_repository)):
     project_id = _enforce_project_access(request, project_id)
@@ -328,11 +388,7 @@ def workspace_status(request: Request, project_id: str, repo: WikiRepository = D
         runs_root=settings.HORIZON_RUNS_ROOT,
         host_path=settings.HORIZON_RUNS_HOST_PATH,
     )
-    scheduler_available = (
-        settings.KNOWLEDGE_SCHEDULES_ENABLED
-        and is_celery_real()
-        and is_celery_broker_available()
-    )
+    scheduler_available = _scheduler_available()
     return ApiResponse.ok(
         {
             "project_id": project_id,
@@ -514,6 +570,7 @@ def capture_primary_web_source(
             "admission_gate": "project_triage",
             "evidence_role": "primary_capture",
             "discovered_from_source_id": discovery_source_id,
+            "supports_horizon_signal_ids": [discovery_source_id] if discovery_source_id else [],
             "fetch": {
                 "requested_url": captured.requested_url,
                 "final_url": captured.final_url,
@@ -533,9 +590,44 @@ def capture_primary_web_source(
             },
             actor_id="http",
         )
+        if discovery_source_id:
+            source = _attach_primary_capture_support(
+                repo,
+                project_id=project_id,
+                source=result["source"],
+                horizon_signal_id=discovery_source_id,
+            )
+            result = {**result, "source": source}
         return ApiResponse.ok({"source": _source_view(result["source"]), "created": result["created"], "run_id": result["run_id"]})
     except (PrimaryWebCaptureError, ValueError, WikiCommandError) as exc:
         raise _command_error(exc) from exc
+
+
+def _attach_primary_capture_support(
+    repo: WikiRepository,
+    *,
+    project_id: str,
+    source: dict[str, Any],
+    horizon_signal_id: str,
+) -> dict[str, Any]:
+    """Preserve an explicit Horizon-to-primary link across idempotent captures."""
+    metadata = dict(source.get("metadata") or {})
+    if source.get("source_type") != "primary_web" or metadata.get("evidence_role") != "primary_capture":
+        raise ValueError("matching evidence is not a governed primary web capture")
+    raw_supported = metadata.get("supports_horizon_signal_ids")
+    supported_ids = [
+        str(value).strip()
+        for value in raw_supported
+        if str(value).strip()
+    ] if isinstance(raw_supported, (list, tuple, set)) else []
+    if horizon_signal_id not in supported_ids:
+        supported_ids.append(horizon_signal_id)
+        metadata["supports_horizon_signal_ids"] = supported_ids
+    if not str(metadata.get("discovered_from_source_id") or "").strip():
+        metadata["discovered_from_source_id"] = horizon_signal_id
+    if metadata == source.get("metadata"):
+        return source
+    return repo.update_source_metadata(project_id, str(source["id"]), metadata)
 
 
 @router.post("/sources/feishu/import")
@@ -854,11 +946,7 @@ def workspace_health_trend(request: Request, project_id: str, repo: WikiReposito
 @router.get("/schedules")
 def workspace_schedules(request: Request, project_id: str, repo: WikiRepository = Depends(get_wiki_repository)):
     project_id = _enforce_project_access(request, project_id)
-    available = (
-        settings.KNOWLEDGE_SCHEDULES_ENABLED
-        and is_celery_real()
-        and is_celery_broker_available()
-    )
+    available = _scheduler_available()
     schedules = [
         {
             **schedule,

@@ -171,6 +171,18 @@ def reset_cache():
     """每个测试后重置缓存"""
     configured_api_key = settings.API_KEY
     configured_llm_provider = settings.LLM_PROVIDER
+    configured_provider_values = {
+        name: getattr(settings, name)
+        for name in (
+            "SOP_LLM_PROVIDER",
+            "RAG_LLM_PROVIDER",
+            "KNOWLEDGE_WIKI_LLM_PROVIDER",
+            "EMBEDDING_PROVIDER",
+            "ANALYSIS_PROVIDER",
+            "GENERATION_PROVIDER",
+            "OCR_PROVIDER",
+        )
+    }
     configured_wiki_flags = {
         name: getattr(settings, name)
         for name in (
@@ -183,8 +195,17 @@ def reset_cache():
     }
     # Local .env credentials must not alter legacy test contracts. Auth tests
     # configure an explicit key after this root-level isolation fixture runs.
+    # Every provider selector must be isolated too: DBOS uses SOP_LLM_PROVIDER
+    # directly, so changing only LLM_PROVIDER can still spend a real API call.
     settings.API_KEY = ""
     settings.LLM_PROVIDER = "mock"
+    settings.SOP_LLM_PROVIDER = "mock"
+    settings.RAG_LLM_PROVIDER = "mock"
+    settings.KNOWLEDGE_WIKI_LLM_PROVIDER = ""
+    settings.EMBEDDING_PROVIDER = "mock"
+    settings.ANALYSIS_PROVIDER = "mock"
+    settings.GENERATION_PROVIDER = "mock"
+    settings.OCR_PROVIDER = "mock"
     settings.KNOWLEDGE_WIKI_ENABLED = True
     settings.KNOWLEDGE_OBSIDIAN_SYNC_ENABLED = True
     settings.KNOWLEDGE_SCHEDULES_ENABLED = True
@@ -199,6 +220,8 @@ def reset_cache():
     finally:
         settings.API_KEY = configured_api_key
         settings.LLM_PROVIDER = configured_llm_provider
+        for name, value in configured_provider_values.items():
+            setattr(settings, name, value)
         for name, value in configured_wiki_flags.items():
             setattr(settings, name, value)
         if hasattr(llm_service_module._thread_local, "llm_service"):

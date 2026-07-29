@@ -20,3 +20,8 @@ def test_semantic_growth_distillation_defaults_to_disabled():
 
 def test_growth_distillation_has_an_isolated_long_request_budget():
     assert type(settings).model_fields["KNOWLEDGE_GROWTH_LLM_TIMEOUT_SECONDS"].default == 150.0
+
+
+def test_growth_distillation_has_a_bounded_task_lifecycle():
+    assert type(settings).model_fields["KNOWLEDGE_GROWTH_TASK_SOFT_TIMEOUT_SECONDS"].default == 390
+    assert type(settings).model_fields["KNOWLEDGE_GROWTH_TASK_TIMEOUT_SECONDS"].default == 420

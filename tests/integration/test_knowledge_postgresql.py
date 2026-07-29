@@ -60,7 +60,7 @@ def test_postgresql_persists_project_scoped_wiki_and_transactional_conflicts():
         for table in (
             "knowledge_run_events", "knowledge_schedule_claims", "knowledge_schedules", "knowledge_runs",
             "knowledge_graph_edges", "knowledge_citations", "knowledge_wiki_page_revisions", "knowledge_wiki_pages",
-            "knowledge_proposal_operations", "knowledge_proposals", "knowledge_sources", "knowledge_vaults",
+            "knowledge_proposal_operations", "knowledge_proposals", "knowledge_horizon_import_claims", "knowledge_sources", "knowledge_vaults",
         ):
             repo._execute(f"DELETE FROM {table} WHERE project_id=?", (project_id,))  # nosec B608
         repo._commit()
@@ -124,3 +124,63 @@ def test_postgresql_search_index_uses_dialect_safe_upserts():
             repo._commit()
         finally:
             repo.close()
+
+
+@pytest.mark.skipif(not os.environ.get("TEST_POSTGRES_URL"), reason="TEST_POSTGRES_URL is required")
+def test_postgresql_horizon_claim_is_project_scoped_and_idempotent():
+    project_id = f"knowledge-horizon-claim-pg-{uuid4().hex[:10]}"
+    backend = PostgreSQLBackend(os.environ["TEST_POSTGRES_URL"])
+    repo = WikiRepository(backend=backend)
+    try:
+        first = repo.claim_horizon_import(
+            project_id=project_id,
+            horizon_run_id="horizon-run-pg",
+            horizon_stage="filtered",
+            horizon_item_id="rss:ai:1",
+            content_hash="a" * 64,
+            capture_run_id="capture-pg-a",
+        )
+        duplicate = repo.claim_horizon_import(
+            project_id=project_id,
+            horizon_run_id="horizon-run-pg",
+            horizon_stage="filtered",
+            horizon_item_id="rss:ai:1",
+            content_hash="a" * 64,
+            capture_run_id="capture-pg-b",
+        )
+        other_project = repo.claim_horizon_import(
+            project_id=f"{project_id}-other",
+            horizon_run_id="horizon-run-pg",
+            horizon_stage="filtered",
+            horizon_item_id="rss:ai:1",
+            content_hash="a" * 64,
+            capture_run_id="capture-pg-other",
+        )
+
+        assert first["claimed"] is True
+        assert duplicate["claimed"] is False
+        assert other_project["claimed"] is True
+        assert repo.complete_horizon_import_claim(
+            project_id=project_id,
+            horizon_run_id="horizon-run-pg",
+            horizon_stage="filtered",
+            horizon_item_id="rss:ai:1",
+            capture_run_id="capture-pg-a",
+            source_id="source-pg-a",
+        ) is True
+        claim = repo.get_horizon_import_claim(
+            project_id=project_id,
+            horizon_run_id="horizon-run-pg",
+            horizon_stage="filtered",
+            horizon_item_id="rss:ai:1",
+        )
+        assert claim["status"] == "completed"
+        assert claim["source_id"] == "source-pg-a"
+    finally:
+        for scoped_project_id in (project_id, f"{project_id}-other"):
+            repo._execute(
+                "DELETE FROM knowledge_horizon_import_claims WHERE project_id=?",
+                (scoped_project_id,),
+            )
+        repo._commit()
+        repo.close()

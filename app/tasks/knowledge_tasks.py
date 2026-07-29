@@ -17,6 +17,8 @@ from app.knowledge.horizon_import import HorizonImportService
 from app.knowledge.horizon_run_store import (
     HorizonRunStoreClient,
     HorizonRunStoreEmptyError,
+    HorizonRunStoreProducerFailureError,
+    HorizonRunStoreStaleArtifactError,
     resolve_horizon_run_store_location,
 )
 from app.knowledge.vault import FilesystemWikiVault
@@ -25,14 +27,16 @@ from app.knowledge.growth_scheduler import GrowthScheduleCoordinator
 from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.obsidian_output_sync import ObsidianOutputSyncService
 from app.knowledge.obsidian_source_projection import ObsidianSourceProjection
+from app.knowledge.multimodal_extraction import CURRENT_EXTRACTOR_REVISION, LocalMultimodalExtractor
+from app.knowledge.source_triage import source_admission_reason
 from app.knowledge.wiki_sync import ObsidianSyncService
-from app.knowledge.wiki_compiler import WikiCompilationError, WikiCompiler
+from app.knowledge.wiki_compiler import WikiCompilationError, WikiCompiler, WikiSourceAdmissionError
 from app.knowledge.proposal_gate import ProposalGateError
 from app.knowledge.wiki_index import WikiSearchIndex
 from app.knowledge.wiki_llm_provider import SOPWikiCompilerProvider, WikiLLMProviderError
 from app.knowledge.wiki_commands import WikiCommandService
 from app.knowledge.growth_contracts import KnowledgeFailureCode, KnowledgeFailureRecord
-from app.knowledge.wiki_contracts import RunStatus
+from app.knowledge.wiki_contracts import RunStatus, SourceStatus
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_rules import parse_project_rules, RuleValidationError
 from app.knowledge.wiki_lint import WikiLint
@@ -42,8 +46,11 @@ from app.tasks.growth_tasks import (
     GROWTH_RUN_TYPES,
     execute_growth_run,
     growth_execute,
+    growth_task_time_limits,
     recover_abandoned_growth_runs,
 )
+
+PBOS_RUN_TYPES = {"pbos_daily", "pbos_weekly", "pbos_monthly"}
 
 
 @dataclass(frozen=True)
@@ -72,6 +79,8 @@ def classify_knowledge_failure(exc: Exception) -> KnowledgeFailure:
         retryable = exc.category in {"network_error", "rate_limited", "request_failed", "server_error", "transport_timeout"}
         category = "dependency" if exc.category in dependency_categories else "compiler"
         return KnowledgeFailure(category, f"wiki_llm_{exc.category}", retryable)
+    if isinstance(exc, WikiSourceAdmissionError):
+        return KnowledgeFailure("policy", "source_not_admitted", False)
     if isinstance(exc, WikiCompilationError):
         return KnowledgeFailure("compiler", "compiler_failed", False)
     if isinstance(exc, ProposalGateError) or "publication gate" in message:
@@ -101,6 +110,73 @@ def _sync_evidence_mirror(repo: WikiRepository, project_id: str) -> dict:
         return {"status": "completed", **report}
     except (OSError, ValueError, ProposalGateError):
         return {"status": "failed", "reason": "vault_projection_failed"}
+
+
+def _extract_new_vault_assets(repo: WikiRepository, project_id: str) -> dict[str, int]:
+    """Create bounded derivatives for newly registered project-local assets.
+
+    Source synchronization owns the only automatic handoff from immutable
+    Vault descriptors to local extraction. It never changes an original file,
+    retries a recorded derivative implicitly, or turns a partial/unavailable
+    extractor result into a successful source state.
+    """
+    summary = {
+        "attempted": 0,
+        "complete": 0,
+        "partial": 0,
+        "needs_review": 0,
+        "unavailable": 0,
+        "restricted": 0,
+        "skipped_existing": 0,
+    }
+    extractor = LocalMultimodalExtractor(repo, Path(settings.OBSIDIAN_VAULT_ROOT))
+    for asset in repo.list_media_assets(project_id, limit=500):
+        # A stable local extractor revision makes source-sync idempotent. A
+        # deliberate extractor revision bump is the governed re-extraction path.
+        if repo.latest_extraction_for_asset(
+            project_id, str(asset["id"]), extractor_revision=CURRENT_EXTRACTOR_REVISION
+        ):
+            summary["skipped_existing"] += 1
+            continue
+        summary["attempted"] += 1
+        try:
+            result = extractor.extract(
+                project_id=project_id,
+                source_id=str(asset["source_id"]),
+                asset_id=str(asset["id"]),
+                extractor_revision=CURRENT_EXTRACTOR_REVISION,
+            )
+        except (OSError, ValueError):
+            # Access and extraction failures remain visible in the run summary;
+            # a later governed retry can create a new extractor revision.
+            summary["unavailable"] += 1
+            continue
+        status = str(result.get("status") or "unavailable")
+        summary[status if status in summary else "unavailable"] += 1
+    return summary
+
+
+def _has_eligible_maintenance_source(repo: WikiRepository, project_id: str) -> bool:
+    """Check the governed source gate before initializing an LLM provider."""
+    return any(
+        not source_admission_reason(repo, project_id, source)
+        for source in repo.list_sources(project_id, status=SourceStatus.ELIGIBLE.value)
+    )
+
+
+def _complete_wiki_maintenance_noop(repo: WikiRepository, project_id: str, run_id: str) -> dict:
+    output_refs = {
+        "outcome": "no_eligible_sources",
+        "publication": {"status": "not_applicable"},
+    }
+    repo.append_run_event(
+        project_id=project_id,
+        run_id=run_id,
+        event_type="knowledge.wiki.maintenance.noop",
+        payload={"outcome": "no_eligible_sources"},
+    )
+    repo.update_run_status(project_id, run_id, RunStatus.COMPLETED, output_refs=output_refs)
+    return {"status": "completed", "run_id": run_id, "outcome": "no_eligible_sources"}
 
 
 def _record_terminal_failure(
@@ -175,6 +251,54 @@ def _imported_horizon_run_ids(repository: WikiRepository, project_id: str) -> se
     return repository.list_completed_horizon_run_ids(project_id)
 
 
+def _execute_pbos_periodic_run(repo: WikiRepository, *, project_id: str, run: dict) -> dict:
+    """Persist one PBOS review through the same run ledger as knowledge jobs."""
+    from app.api.dbos_api import dbos_service_for
+    from app.pbos import PBOSReportService, PBOSService
+
+    mapping = repo.get_vault(project_id)
+    if not settings.OBSIDIAN_VAULT_ROOT or not mapping:
+        return _record_terminal_failure(
+            repo,
+            project_id=project_id,
+            run_id=run["id"],
+            status=RunStatus.UNAVAILABLE,
+            message="Obsidian Vault is not configured",
+            failure=KnowledgeFailure("configuration", "vault_not_configured", False),
+        )
+    project_root = FilesystemWikiVault(
+        Path(settings.OBSIDIAN_VAULT_ROOT), project_id, str(mapping["vault_path"])
+    ).project_root
+    report = PBOSReportService(
+        PBOSService(dbos_service_for(project_id).store, project_id), project_root
+    ).periodic(str(run["run_type"]), str((run.get("input_refs") or {}).get("period") or ""))
+    output = {"pbos": {"run_type": run["run_type"], "report": report}}
+    if report.get("state") != "written":
+        status = RunStatus.UNAVAILABLE if report.get("state") == "vault_unavailable" else RunStatus.FAILED
+        failure = KnowledgeFailure(
+            "configuration" if status is RunStatus.UNAVAILABLE else "write_conflict",
+            "vault_not_configured" if status is RunStatus.UNAVAILABLE else "pbos_report_conflict",
+            False,
+        )
+        return _record_terminal_failure(
+            repo,
+            project_id=project_id,
+            run_id=run["id"],
+            status=status,
+            message=f"PBOS report was not written: {report.get('state', 'unknown')}",
+            failure=failure,
+            output_refs=output,
+        )
+    repo.append_run_event(
+        project_id=project_id,
+        run_id=run["id"],
+        event_type="pbos.periodic_review.completed",
+        payload=output["pbos"],
+    )
+    repo.update_run_status(project_id, run["id"], RunStatus.COMPLETED, output_refs=output)
+    return {"status": "completed", "run_id": run["id"], **output}
+
+
 def execute_knowledge_run(
     project_id: str, run_id: str, schedule_id: str = "", week: str = "", repository: WikiRepository | None = None
 ) -> dict:
@@ -203,6 +327,16 @@ def execute_knowledge_run(
                     {**input_refs, "week": week},
                 )
         growth_run = run["run_type"] in {"growth_daily", "growth_weekly_distillation"}
+        pbos_run = run["run_type"] in PBOS_RUN_TYPES
+        if pbos_run and not settings.DYNAMIC_BUSINESS_OS_ENABLED:
+            return _record_terminal_failure(
+                repo,
+                project_id=project_id,
+                run_id=run_id,
+                status=RunStatus.UNAVAILABLE,
+                message="Personal Business Operating System feature is disabled",
+                failure=KnowledgeFailure("configuration", "pbos_disabled", False),
+            )
         if growth_run and not settings.KNOWLEDGE_GROWTH_ENABLED:
             return _record_terminal_failure(
                 repo,
@@ -212,7 +346,7 @@ def execute_knowledge_run(
                 message="Knowledge growth feature is disabled",
                 failure=KnowledgeFailure("configuration", "knowledge_growth_disabled", False),
             )
-        if not growth_run and not settings.KNOWLEDGE_WIKI_ENABLED:
+        if not growth_run and not pbos_run and not settings.KNOWLEDGE_WIKI_ENABLED:
             return _record_terminal_failure(
                 repo,
                 project_id=project_id,
@@ -229,6 +363,16 @@ def execute_knowledge_run(
                 week=week,
                 repository=repo,
             )
+        if pbos_run:
+            if not repo.claim_run_execution(project_id=project_id, run_id=run_id):
+                current = repo.get_run(project_id, run_id) or run
+                return {
+                    "status": current["status"],
+                    "run_id": run_id,
+                    "duplicate": True,
+                    "output_refs": current.get("output_refs") or {},
+                }
+            return _execute_pbos_periodic_run(repo, project_id=project_id, run=run)
         if not repo.claim_run_execution(project_id=project_id, run_id=run_id):
             current = repo.get_run(project_id, run_id) or run
             return {
@@ -258,6 +402,7 @@ def execute_knowledge_run(
                     failure=KnowledgeFailure("configuration", "vault_not_configured", False),
             )
             report = ObsidianSyncService(repo, Path(settings.OBSIDIAN_VAULT_ROOT)).sync(project_id=project_id)
+            report["multimodal_extraction"] = _extract_new_vault_assets(repo, project_id)
             report["evidence_mirror"] = _sync_evidence_mirror(repo, project_id)
             managed_vault = FilesystemWikiVault(Path(settings.OBSIDIAN_VAULT_ROOT), project_id, mapping["vault_path"])
             if managed_vault.project_root.is_dir():
@@ -288,6 +433,61 @@ def execute_knowledge_run(
             )
             repo.update_run_status(project_id, run_id, RunStatus.COMPLETED, output_refs={"sync": report})
             return {"status": "completed", "run_id": run_id, "sync": report}
+        if run["run_type"] == "multimodal_extract":
+            mapping = repo.get_vault(project_id)
+            source_id = str(run["input_refs"].get("source_id") or "").strip()
+            asset_id = str(run["input_refs"].get("asset_id") or "").strip()
+            requested_revision = str(
+                run["input_refs"].get("extractor_revision") or CURRENT_EXTRACTOR_REVISION
+            ).strip()
+            if not settings.OBSIDIAN_VAULT_ROOT or not mapping:
+                return _record_terminal_failure(
+                    repo,
+                    project_id=project_id,
+                    run_id=run_id,
+                    status=RunStatus.UNAVAILABLE,
+                    message="Obsidian Vault is not configured",
+                    failure=KnowledgeFailure("configuration", "vault_not_configured", False),
+                )
+            if not source_id or not asset_id:
+                return _record_terminal_failure(
+                    repo,
+                    project_id=project_id,
+                    run_id=run_id,
+                    status=RunStatus.UNAVAILABLE,
+                    message="multimodal extraction requires a project source and asset",
+                    failure=KnowledgeFailure("configuration", "multimodal_input_missing", False),
+                )
+            extraction = LocalMultimodalExtractor(repo, Path(settings.OBSIDIAN_VAULT_ROOT)).extract(
+                project_id=project_id,
+                source_id=source_id,
+                asset_id=asset_id,
+                extractor_revision=requested_revision or CURRENT_EXTRACTOR_REVISION,
+            )
+            terminal = (
+                RunStatus.UNAVAILABLE
+                if extraction["status"] in {"unavailable", "restricted"}
+                else RunStatus.COMPLETED
+            )
+            output = {"extraction": extraction, "source_id": source_id, "asset_id": asset_id}
+            repo.append_run_event(
+                project_id=project_id,
+                run_id=run_id,
+                event_type="knowledge.multimodal.extraction.completed",
+                payload={
+                    "asset_id": asset_id,
+                    "extraction_id": extraction["id"],
+                    "extraction_status": extraction["status"],
+                },
+            )
+            repo.update_run_status(
+                project_id,
+                run_id,
+                terminal,
+                error="" if terminal is RunStatus.COMPLETED else str(extraction.get("error") or "extractor unavailable"),
+                output_refs=output,
+            )
+            return {"status": terminal.value, "run_id": run_id, **output}
         if run["run_type"] == "horizon_capture":
             run_store_location = resolve_horizon_run_store_location(
                 runs_root=settings.HORIZON_RUNS_ROOT,
@@ -322,6 +522,7 @@ def execute_knowledge_run(
                     run_store = HorizonRunStoreClient(
                         runs_root=run_store_location.path,
                         max_response_bytes=settings.HORIZON_MAX_RESPONSE_BYTES,
+                        max_artifact_age_hours=settings.HORIZON_MAX_ARTIFACT_AGE_HOURS,
                     )
                     if discovery:
                         response = run_store.fetch_latest_stage(
@@ -350,6 +551,36 @@ def execute_knowledge_run(
                 mirror = _sync_evidence_mirror(repo, project_id)
                 if mirror["status"] != "unavailable":
                     report["evidence_mirror"] = mirror
+            except HorizonRunStoreProducerFailureError as exc:
+                return _record_terminal_failure(
+                    repo,
+                    project_id=project_id,
+                    run_id=run_id,
+                    status=RunStatus.FAILED,
+                    message=str(exc),
+                    failure=KnowledgeFailure("transient_dependency", "horizon_producer_failed", True),
+                    output_refs={
+                        "outcome": "producer_failure",
+                        "source_mode": "run_store",
+                        "discovery": True,
+                        "items_observed": 0,
+                    },
+                )
+            except HorizonRunStoreStaleArtifactError as exc:
+                return _record_terminal_failure(
+                    repo,
+                    project_id=project_id,
+                    run_id=run_id,
+                    status=RunStatus.FAILED,
+                    message=str(exc),
+                    failure=KnowledgeFailure("transient_dependency", "horizon_artifact_stale", True),
+                    output_refs={
+                        "outcome": "stale_artifact",
+                        "source_mode": "run_store",
+                        "discovery": True,
+                        "items_observed": 0,
+                    },
+                )
             except HorizonRunStoreEmptyError:
                 report = {"accepted": 0, "created": 0, "duplicates": 0, "rejected": 0, "skipped": True}
                 repo.append_run_event(
@@ -448,6 +679,13 @@ def execute_knowledge_run(
                     message="project AGENTS.md is required",
                     failure=KnowledgeFailure("configuration", "project_rules_missing", False),
                 )
+            requested_source_ids = [
+                str(source_id).strip()
+                for source_id in run["input_refs"].get("source_ids") or []
+                if str(source_id).strip()
+            ]
+            if not requested_source_ids and not _has_eligible_maintenance_source(repo, project_id):
+                return _complete_wiki_maintenance_noop(repo, project_id, run_id)
             page_snapshots = []
             for page in repo.list_pages(project_id):
                 content = repo.get_page_content(project_id, page["id"])
@@ -472,27 +710,7 @@ def execute_knowledge_run(
             except WikiCompilationError as exc:
                 reason = str(exc)
                 if reason == "no eligible sources selected":
-                    output_refs = {
-                        "outcome": "no_eligible_sources",
-                        "publication": {"status": "not_applicable"},
-                    }
-                    repo.append_run_event(
-                        project_id=project_id,
-                        run_id=run_id,
-                        event_type="knowledge.wiki.maintenance.noop",
-                        payload={"outcome": "no_eligible_sources"},
-                    )
-                    repo.update_run_status(
-                        project_id,
-                        run_id,
-                        RunStatus.COMPLETED,
-                        output_refs=output_refs,
-                    )
-                    return {
-                        "status": "completed",
-                        "run_id": run_id,
-                        "outcome": "no_eligible_sources",
-                    }
+                    return _complete_wiki_maintenance_noop(repo, project_id, run_id)
                 failure = (
                     KnowledgeFailure("configuration", "wiki_llm_provider_not_configured", False)
                     if "real KNOWLEDGE_WIKI_LLM_PROVIDER" in reason
@@ -638,8 +856,6 @@ def execute_knowledge_run(
                 message="knowledge executor not configured",
                 failure=KnowledgeFailure("configuration", "executor_not_configured", False),
             )
-        from app.knowledge.source_triage import source_admission_reason
-
         sources = [
             source
             for source in repo.list_sources(project_id, status="eligible")
@@ -807,11 +1023,12 @@ def reconcile_knowledge_schedules(now: datetime | None = None) -> dict:
     try:
         scheduler = KnowledgeScheduler(repo, scheduler_available=True)
         durable_growth_tasks = bool(settings.CELERY_ENABLED and is_celery_real())
+        durable_pbos_tasks = bool(settings.CELERY_ENABLED and is_celery_real())
         growth_recovery = (
             recover_abandoned_growth_runs(
                 repo,
                 now=current,
-                timeout_seconds=max(60, settings.CELERY_TASK_TIMEOUT),
+                timeout_seconds=growth_task_time_limits()["time_limit"],
                 dispatch=lambda project_id, run_id: _submit_task(growth_execute, [project_id, run_id]),
             )
             if durable_growth_tasks
@@ -825,9 +1042,13 @@ def reconcile_knowledge_schedules(now: datetime | None = None) -> dict:
         failures += publication_recovery["failed"]
         recovered = scheduler.recover_abandoned_runs(now=current, timeout_seconds=max(60, settings.CELERY_TASK_TIMEOUT))
         growth_scheduler = GrowthScheduleCoordinator(repo, scheduler_available=True)
+        from app.pbos.scheduler import PBOSScheduleCoordinator
+
+        pbos_scheduler = PBOSScheduleCoordinator(repo, scheduler_available=True)
         for schedule in repo.list_due_schedules(current.isoformat()):
             due_at = str(schedule["next_run_at"])
             growth_job = schedule["job_type"] in GROWTH_RUN_TYPES
+            pbos_job = schedule["job_type"] in PBOS_RUN_TYPES
             if growth_job:
                 if not durable_growth_tasks:
                     repo.set_schedule_enabled(
@@ -842,6 +1063,20 @@ def reconcile_knowledge_schedules(now: datetime | None = None) -> dict:
                 claim = growth_scheduler.claim_scheduled_run(schedule, due_at=parsed_due_at)
                 if claim.get("status") == "waiting_for_daily":
                     continue
+                claimed_run = repo.get_run(schedule["project_id"], claim["run_id"])
+                idempotency_key = str((claimed_run or {}).get("input_refs", {}).get("idempotency_key") or "")
+            elif pbos_job:
+                if not durable_pbos_tasks:
+                    repo.set_schedule_enabled(
+                        project_id=schedule["project_id"],
+                        schedule_id=schedule["id"],
+                        enabled=False,
+                        next_run_at="",
+                    )
+                    failures += 1
+                    continue
+                parsed_due_at = datetime.fromisoformat(due_at.replace("Z", "+00:00"))
+                claim = pbos_scheduler.claim_scheduled_run(schedule, due_at=parsed_due_at)
                 claimed_run = repo.get_run(schedule["project_id"], claim["run_id"])
                 idempotency_key = str((claimed_run or {}).get("input_refs", {}).get("idempotency_key") or "")
             else:

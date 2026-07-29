@@ -25,6 +25,8 @@ _TOOL_HANDLERS = {
     "wiki_guide": server.wiki_guide,
     "wiki_search": server.wiki_search,
     "wiki_graph": server.wiki_graph,
+    "wiki_evidence": server.wiki_evidence,
+    "wiki_evidence_record": server.wiki_evidence_record,
     "wiki_read": server.wiki_read,
     "wiki_propose_update": server.wiki_propose_update,
     "wiki_lint": server.wiki_lint,
@@ -68,10 +70,12 @@ _TOOL_HANDLERS = {
     "dbos_execute": server.dbos_execute,
     "dbos_feedback": server.dbos_feedback,
     "dbos_intake": server.dbos_intake,
+    "pbos_cockpit": server.pbos_cockpit,
+    "pbos_weekly_report": server.pbos_weekly_report,
     "analyze_domain": server.analyze_domain,
 }
 
-_WIKI_READ_TOOLS = {"wiki_guide", "wiki_search", "wiki_graph", "wiki_read"}
+_WIKI_READ_TOOLS = {"wiki_guide", "wiki_search", "wiki_graph", "wiki_evidence", "wiki_evidence_record", "wiki_read"}
 _WIKI_WRITE_TOOLS = {"wiki_propose_update", "wiki_lint", "wiki_apply_update", "wiki_distill", "wiki_schedule"}
 _GROWTH_TOOLS = {
     "knowledge_growth_profile",
@@ -122,6 +126,8 @@ _DBOS_TOOLS = {
     "dbos_execute",
     "dbos_feedback",
     "dbos_intake",
+    "pbos_cockpit",
+    "pbos_weekly_report",
 }
 _DBOS_WRITE_TOOLS = {
     "dbos_create_mission",
@@ -140,6 +146,7 @@ _DBOS_WRITE_TOOLS = {
     "dbos_execute",
     "dbos_feedback",
     "dbos_intake",
+    "pbos_weekly_report",
 }
 
 _TOOL_SPECS = {
@@ -417,6 +424,16 @@ _TOOL_SPECS = {
         },
         "required": ["project_id"],
     },
+    "wiki_evidence": {
+        "description": "Read bounded, project-scoped evidence lineage with redacted metadata only.",
+        "properties": {"project_id": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 200}},
+        "required": ["project_id"],
+    },
+    "wiki_evidence_record": {
+        "description": "Read one project-scoped evidence record without its source or derivative body.",
+        "properties": {"project_id": {"type": "string"}, "record_type": {"type": "string", "enum": ["source", "asset", "extraction", "table", "reference"]}, "record_id": {"type": "string"}},
+        "required": ["project_id", "record_type", "record_id"],
+    },
     "knowledge_operations_graph": {
         "description": "Read a bounded lifecycle graph projection for one authorized project.",
         "properties": {
@@ -507,6 +524,19 @@ _TOOL_SPECS = {
             "mission_id": {"type": "string", "minLength": 1, "maxLength": 128},
         },
         "required": ["project_id", "mission_id"],
+    },
+    "pbos_cockpit": {
+        "description": "Read the evidence-backed Personal Growth Cockpit for one project.",
+        "properties": {"project_id": {"type": "string", "minLength": 1, "maxLength": 128}},
+        "required": ["project_id"],
+    },
+    "pbos_weekly_report": {
+        "description": "Write an evidence-only PBOS weekly review into the configured Obsidian Vault.",
+        "properties": {
+            "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "week": {"type": "string", "pattern": "^$|^\\d{4}-W\\d{2}$"},
+        },
+        "required": ["project_id"],
     },
     "dbos_record_feedback": {
         "description": "Record an execution-linked DBOS feedback memory candidate.",

@@ -9,6 +9,7 @@ import {
   EvidenceRecord,
   KNOWLEDGE_JOB_OPTIONS,
   OBSIDIAN_PLUGIN_PRESETS,
+  projectOptions,
   ProposalReview,
   SourceInspector,
   WikiReader,
@@ -59,6 +60,14 @@ const growthDistillationDetail: WeeklyDistillationDetail = {
 };
 
 describe('KnowledgeWorkspace focused components', () => {
+  it('keeps the current project selectable until authorized project discovery returns', () => {
+    expect(projectOptions('default', [])).toEqual([{ id: 'default', name: 'default', created_at: '' }]);
+    expect(projectOptions('default', [{ id: 'intel', name: 'RSS intelligence', created_at: '2026-07-29T00:00:00Z' }])).toEqual([
+      { id: 'intel', name: 'RSS intelligence', created_at: '2026-07-29T00:00:00Z' },
+      { id: 'default', name: 'default', created_at: '' },
+    ]);
+  });
+
   it('offers the actual daily and weekly growth jobs to the knowledge scheduler', () => {
     expect(KNOWLEDGE_JOB_OPTIONS).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'growth_daily', defaultCron: '0 17 * * *' }),
@@ -156,6 +165,24 @@ describe('KnowledgeWorkspace focused components', () => {
     expect(analyze).toHaveBeenCalledWith(source);
     fireEvent.click(inspector.getByRole('button', { name: /approve for synthesis/i }));
     expect(approve).toHaveBeenCalledWith(source);
+  });
+
+  it('gives a Horizon signal an explicit primary-capture action without treating the signal as primary evidence', () => {
+    const capture = vi.fn();
+    const horizonSource: KnowledgeSource = {
+      ...source,
+      id: 'horizon-signal-1',
+      source_type: 'horizon_signal',
+      origin: 'https://publisher.example/article',
+      metadata: { evidence_role: 'discovery_signal', ai_summary: 'A discovery that needs an independent source capture.' },
+    };
+    render(<SourceInspector source={horizonSource} busy={false} canWrite onApprove={vi.fn()} onCapturePrimary={capture} />);
+
+    const button = screen.getByRole('button', { name: /capture primary source/i });
+    expect(button).toBeVisible();
+    fireEvent.click(button);
+    expect(capture).toHaveBeenCalledWith(horizonSource);
+    expect(screen.getByText(/does not promote the radar signal/i)).toBeVisible();
   });
 
   it('makes long Horizon evidence scannable while retaining its original origin only for inspection', () => {

@@ -12,7 +12,7 @@ from app.knowledge.wiki_contracts import SourceStatus
 from app.knowledge.wiki_evaluator import WikiEvaluator
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_rules import build_default_agents_rules
-from app.knowledge.wiki_source_capture import HorizonSignal, SourceCaptureService
+from app.knowledge.wiki_source_capture import CapturedSourceInput, HorizonSignal, SourceCaptureService
 from app.knowledge.wiki_sync import ObsidianSyncService
 
 
@@ -90,6 +90,20 @@ def test_filesystem_wiki_lifecycle_is_source_backed_and_atomic(tmp_path, monkeyp
         horizon_triage = SourceTriageService(growth_repository).triage_source(project_id, horizon["id"])
         assert horizon_triage["profile_revision"] == 1
         assert repository.get_source(project_id, horizon["id"])["status"] == SourceStatus.ELIGIBLE.value
+        primary_capture = SourceCaptureService(repository).capture(
+            CapturedSourceInput(
+                project_id=project_id,
+                source_type="web_clip",
+                origin=horizon["origin"],
+                raw_content="The independently captured source confirms human approval is mandatory.",
+                trust_level="trusted",
+                metadata={
+                    "evidence_role": "primary_capture",
+                    "supports_horizon_signal_ids": [horizon["id"]],
+                },
+            )
+        ).source
+        capture.transition_source(project_id, primary_capture["id"], target=SourceStatus.ELIGIBLE)
 
         provider = FakeCompilerProvider(
             {
@@ -100,9 +114,10 @@ def test_filesystem_wiki_lifecycle_is_source_backed_and_atomic(tmp_path, monkeyp
                         "path": "wiki/decisions/human-approval.md",
                         "content": (
                             "---\ntitle: Human Approval\nkind: decision\n---\n"
-                            f"Human approval is mandatory. [source:{note['id']}] [source:{horizon['id']}]"
+                            "Human approval is mandatory. "
+                            f"[source:{note['id']}] [source:{horizon['id']}] [source:{primary_capture['id']}]"
                         ),
-                        "source_ids": [note["id"], horizon["id"]],
+                        "source_ids": [note["id"], horizon["id"], primary_capture["id"]],
                     }
                 ],
             }
@@ -110,7 +125,7 @@ def test_filesystem_wiki_lifecycle_is_source_backed_and_atomic(tmp_path, monkeyp
         compiler = WikiCompiler(repository, provider)
         compiled = compiler.compile_maintenance(
             project_id=project_id,
-            source_ids=[note["id"], horizon["id"]],
+            source_ids=[note["id"], horizon["id"], primary_capture["id"]],
             trigger="integration",
             rules_text=user_rules,
             page_snapshots=_page_snapshots(repository, project_id),
@@ -119,7 +134,7 @@ def test_filesystem_wiki_lifecycle_is_source_backed_and_atomic(tmp_path, monkeyp
             project_id=project_id,
             case_id="approval-citations",
             case_type="citation",
-            expected={"source_ids": [note["id"], horizon["id"]]},
+            expected={"source_ids": [note["id"], horizon["id"], primary_capture["id"]]},
         )
 
         vault = FilesystemWikiVault(root, project_id, "clients/acme")
@@ -140,7 +155,11 @@ def test_filesystem_wiki_lifecycle_is_source_backed_and_atomic(tmp_path, monkeyp
             "AGENTS.md", "wiki/overview.md", "wiki/index.md", "wiki/log.md", "wiki/decisions/human-approval.md"
         }
         decision = next(page for page in repository.list_pages(project_id) if page["path"] == "wiki/decisions/human-approval.md")
-        assert {citation["source_id"] for citation in repository.list_citations(project_id, decision["id"])} == {note["id"], horizon["id"]}
+        assert {citation["source_id"] for citation in repository.list_citations(project_id, decision["id"])} == {
+            note["id"],
+            horizon["id"],
+            primary_capture["id"],
+        }
         assert {source["status"] for source in repository.list_sources(project_id)} == {"processed"}
         assert {edge["edge_type"] for edge in KnowledgeGraphService(repository).list_edges(project_id)} >= {
             "wiki_cites_source", "wiki_links_to", "proposal_changes_page"

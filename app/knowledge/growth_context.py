@@ -133,6 +133,7 @@ class GrowthContextBuilder:
         candidates: list[_Candidate] = []
         seen: set[tuple[str, str]] = set()
         seen_revisions: set[tuple[str, str]] = set()
+        corrective_feedback_refs: set[str] = set()
 
         groups = (
             (10, "page", pages, "content"),
@@ -204,6 +205,13 @@ class GrowthContextBuilder:
                 if not content:
                     omissions.append(ContextOmission(ref=f"{kind}:{ref}", reason="empty"))
                     continue
+                if kind == "feedback" and self._is_processed_corrective_feedback(record):
+                    # A processed correction is a regression constraint from a
+                    # real outcome. It must survive the budget recovery that
+                    # reserves A-layer evidence, rather than being treated as
+                    # ordinary, low-priority commentary.
+                    candidate_priority = min(candidate_priority, 5)
+                    corrective_feedback_refs.add(ref)
                 revision = self._revision(record, content)
                 revision_key = (kind, revision)
                 if kind in {"source", "page"} and revision_key in seen_revisions:
@@ -392,8 +400,15 @@ class GrowthContextBuilder:
             output_ids=tuple(included["output"]),
             rejected_output_ids=tuple(included["constraint"]),
             regression_constraints=tuple(
-                f"Rejected output {ref} is a failure pattern and must not be reused as factual evidence."
-                for ref in included["constraint"]
+                [
+                    f"Rejected output {ref} is a failure pattern and must not be reused as factual evidence."
+                    for ref in included["constraint"]
+                ]
+                + [
+                    f"Corrective feedback {ref} must be applied before generating the next output."
+                    for ref in included["feedback"]
+                    if ref in corrective_feedback_refs
+                ]
             ),
             evaluation_ids=tuple(included["evaluation"]),
             feedback_ids=tuple(included["feedback"]),
@@ -552,6 +567,13 @@ class GrowthContextBuilder:
     @staticmethod
     def _is_audit_log(record: dict[str, Any]) -> bool:
         return str(record.get("path") or "").replace("\\", "/") == "wiki/log.md"
+
+    @staticmethod
+    def _is_processed_corrective_feedback(record: dict[str, Any]) -> bool:
+        return (
+            str(record.get("status") or "").lower() == "processed"
+            and str(record.get("feedback_type") or "").lower() in {"corrected", "correction"}
+        )
 
     @staticmethod
     def _published_page_priority(record: dict[str, Any], *, default: int) -> int:

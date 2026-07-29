@@ -30,7 +30,7 @@ def test_scheduler_rejects_unsafe_cron_and_truthfully_records_unavailable_run(tm
     try:
         with pytest.raises(ScheduleValidationError, match="cron"):
             KnowledgeScheduler(repo, scheduler_available=True).configure(
-                project_id="project-a", job_type="weekly_distillation", cron="0 0 1 * *"
+                project_id="project-a", job_type="weekly_distillation", cron="0 0 1,15 * *"
             )
 
         result = KnowledgeScheduler(repo, scheduler_available=False).run_now(
@@ -38,6 +38,28 @@ def test_scheduler_rejects_unsafe_cron_and_truthfully_records_unavailable_run(tm
         )
         assert result["status"] == "unavailable"
         assert repo.get_run("project-a", result["run_id"])["status"] == "unavailable"
+    finally:
+        repo.close()
+
+
+def test_scheduler_supports_monthly_runs_and_skips_short_months(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "scheduler-monthly.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    scheduler = KnowledgeScheduler(repo, scheduler_available=True)
+    try:
+        schedule = scheduler.configure(
+            project_id="project-a",
+            job_type="pbos_monthly",
+            cron="0 17 1 * *",
+            timezone_name="Asia/Shanghai",
+            now=datetime(2026, 7, 21, 9, 7, tzinfo=timezone.utc),
+        )
+        assert schedule["next_run_at"] == "2026-08-01T09:00:00+00:00"
+        assert KnowledgeScheduler.next_run(
+            "0 17 31 * *",
+            datetime(2026, 2, 15, 0, 0, tzinfo=timezone.utc),
+            timezone_name="Asia/Shanghai",
+        ) == datetime(2026, 3, 31, 9, 0, tzinfo=timezone.utc)
     finally:
         repo.close()
 

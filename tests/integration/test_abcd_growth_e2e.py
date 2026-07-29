@@ -411,7 +411,13 @@ def test_horizon_feishu_and_contradictions_enter_only_the_governed_a_layer(tmp_p
             )
         ).source
 
-        run_store = HorizonRunStoreClient(runs_root=FIXTURES / "horizon" / "runs")
+        # This fixture is a fixed historical archive. Production discovery
+        # keeps its 48-hour freshness gate; the archive test opts out so it
+        # continues to exercise the import boundary rather than wall-clock age.
+        run_store = HorizonRunStoreClient(
+            runs_root=FIXTURES / "horizon" / "runs",
+            max_artifact_age_hours=0,
+        )
         stage = run_store.fetch_latest_stage()
         importer = HorizonImportService(repo, min_score=7.0)
         first_report = importer.import_items(

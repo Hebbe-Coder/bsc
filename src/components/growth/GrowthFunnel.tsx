@@ -17,7 +17,7 @@ export function GrowthFunnel({ counts, state, error }: Props) {
     const element = chartRef.current;
     let active = true;
     let chart: ECharts | undefined;
-    void import('echarts').then((echarts) => {
+    void import('../charts/echartsRuntime').then(({ echarts }) => {
       if (!active) return;
       chart = echarts.init(element, undefined, { renderer: 'canvas' });
       chart.setOption({

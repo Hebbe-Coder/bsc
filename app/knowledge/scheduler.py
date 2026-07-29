@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from calendar import monthrange
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -11,6 +12,7 @@ from app.knowledge.wiki_repository import WikiRepository
 
 _INTERVAL_CRON = re.compile(r"^\*/([1-9][0-9]?) \* \* \* \*$")
 _CALENDAR_CRON = re.compile(r"^([0-5]?[0-9]) ([01]?[0-9]|2[0-3]) \* \* ([*0-6])$")
+_MONTHLY_CRON = re.compile(r"^([0-5]?[0-9]) ([01]?[0-9]|2[0-3]) ([1-9]|[12][0-9]|3[01]) \* \*$")
 _JOB_TYPES = {
     "source_sync",
     "horizon_capture",
@@ -19,6 +21,9 @@ _JOB_TYPES = {
     "weekly_distillation",
     "growth_daily",
     "growth_weekly_distillation",
+    "pbos_daily",
+    "pbos_weekly",
+    "pbos_monthly",
 }
 
 
@@ -108,11 +113,27 @@ class KnowledgeScheduler:
                 candidate += timedelta(minutes=1)
             return candidate.astimezone(timezone.utc)
         match = _CALENDAR_CRON.fullmatch(cron)
-        if not match:
+        monthly = _MONTHLY_CRON.fullmatch(cron)
+        if not match and not monthly:
             raise ScheduleValidationError("cron is not in the supported safe subset")
-        minute, hour, weekday = int(match.group(1)), int(match.group(2)), match.group(3)
+        minute = int((match or monthly).group(1))
+        hour = int((match or monthly).group(2))
+        if monthly:
+            month_day = int(monthly.group(3))
+            year, month = local_now.year, local_now.month
+            # A monthly schedule must not rely on a minute-by-minute search:
+            # day 31 can be more than forty days away and shorter months must
+            # be skipped deterministically.
+            for _ in range(24):
+                if month_day <= monthrange(year, month)[1]:
+                    candidate = datetime(year, month, month_day, hour, minute, tzinfo=zone)
+                    if candidate > local_now:
+                        return candidate.astimezone(timezone.utc)
+                year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+            raise ScheduleValidationError("monthly cron has no next run within two years")
+        weekday = match.group(3) if match else "*"
         candidate = local_now.replace(second=0, microsecond=0) + timedelta(minutes=1)
-        for _ in range(8 * 24 * 60):
+        for _ in range(40 * 24 * 60):
             cron_weekday = (candidate.weekday() + 1) % 7
             if candidate.minute == minute and candidate.hour == hour and (weekday == "*" or cron_weekday == int(weekday)):
                 return candidate.astimezone(timezone.utc)
@@ -124,9 +145,9 @@ class KnowledgeScheduler:
         interval = _INTERVAL_CRON.fullmatch(cron)
         if interval and int(interval.group(1)) >= 5:
             return
-        if _CALENDAR_CRON.fullmatch(cron):
+        if _CALENDAR_CRON.fullmatch(cron) or _MONTHLY_CRON.fullmatch(cron):
             return
-        raise ScheduleValidationError("cron must be every 5-59 minutes or a daily/weekly fixed time")
+        raise ScheduleValidationError("cron must be every 5-59 minutes or a daily, weekly, or monthly fixed time")
 
     @staticmethod
     def _validate_job_type(job_type: str) -> None:

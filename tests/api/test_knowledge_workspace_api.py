@@ -8,8 +8,8 @@ from app.core.config import settings
 from app.main import app
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.growth_repository import GrowthRepository
-from app.knowledge.source_triage import TriageEvaluation
-from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus
+from app.knowledge.source_triage import SourceTriageService, TriageEvaluation, source_admission_reason
+from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus, SourceStatus
 from app.knowledge.wiki_source_capture import CapturedSourceInput, SourceCaptureService
 from app.knowledge.primary_web_capture import PrimaryWebCaptureResult
 from app.knowledge.wiki_sync import ObsidianSyncService
@@ -42,6 +42,59 @@ def test_workspace_api_requires_scope_and_redacts_raw_evidence(tmp_path):
         settings.API_KEY = previous_key
         app.dependency_overrides.clear()
         repo.close()
+
+
+def test_workspace_project_picker_is_tenant_scoped(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "workspace-project-picker.db"))
+    now = repo._now()
+    repo._execute(
+        "INSERT INTO knowledge_projects (id,tenant_id,name,created_at,metadata,rerank_config) VALUES (?,?,?,?,?,?)",
+        ("project-a", settings.DEFAULT_TENANT_ID, "Research intelligence", now, "{}", "{}"),
+    )
+    repo._execute(
+        "INSERT INTO knowledge_projects (id,tenant_id,name,created_at,metadata,rerank_config) VALUES (?,?,?,?,?,?)",
+        ("project-b", "foreign-tenant", "Foreign workspace", now, "{}", "{}"),
+    )
+    repo._commit()
+    previous_key = settings.API_KEY
+    settings.API_KEY = "workspace-admin"
+    app.dependency_overrides[get_wiki_repository] = lambda: repo
+    client = TestClient(app)
+    try:
+        response = client.get("/knowledge/workspaces", headers={"Authorization": "Bearer workspace-admin"})
+
+        assert response.status_code == 200
+        assert response.json()["data"] == {
+            "projects": [{"id": "project-a", "name": "Research intelligence", "created_at": now}],
+            "count": 1,
+        }
+    finally:
+        settings.API_KEY = previous_key
+        app.dependency_overrides.clear()
+        repo.close()
+
+
+def test_workspace_scheduler_availability_is_cached_only_for_read_responses(monkeypatch):
+    probes: list[str] = []
+    monkeypatch.setattr(settings, "KNOWLEDGE_SCHEDULES_ENABLED", True)
+    monkeypatch.setattr(settings, "CELERY_BROKER_URL", "redis://workspace-cache.test:6379/0")
+    monkeypatch.setattr(knowledge_workspace_api, "is_celery_real", lambda: True)
+    monkeypatch.setattr(
+        knowledge_workspace_api,
+        "is_celery_broker_available",
+        lambda: probes.append("broker") or False,
+    )
+    knowledge_workspace_api._reset_scheduler_availability_cache()
+    try:
+        assert knowledge_workspace_api._scheduler_available() is False
+        assert knowledge_workspace_api._scheduler_available() is False
+        assert probes == ["broker"]
+
+        monkeypatch.setattr(settings, "CELERY_BROKER_URL", "redis://workspace-cache-next.test:6379/0")
+        assert knowledge_workspace_api._scheduler_available() is False
+        assert probes == ["broker", "broker"]
+    finally:
+        knowledge_workspace_api._reset_scheduler_availability_cache()
 
 
 def test_workspace_semantic_triage_is_review_only_and_queryable(tmp_path, monkeypatch):
@@ -111,10 +164,14 @@ def test_workspace_capture_web_creates_reviewable_primary_evidence_linked_to_a_h
         CapturedSourceInput(
             project_id="project-a",
             source_type="horizon_signal",
-            origin="https://radar.example/item/42",
+            origin="https://publisher.example/evidence",
             raw_content="Radar discovery only.",
             trust_level="reviewed",
-            metadata={"admission_gate": "project_triage", "evidence_role": "discovery_signal"},
+            metadata={
+                "admission_gate": "project_triage",
+                "evidence_role": "discovery_signal",
+                **{key: 90 for key in ("relevance", "value", "freshness", "outputability", "connectedness")},
+            },
         )
     ).source
 
@@ -156,7 +213,15 @@ def test_workspace_capture_web_creates_reviewable_primary_evidence_linked_to_a_h
         persisted = repo.get_source("project-a", source["id"])
         assert persisted["metadata"]["evidence_role"] == "primary_capture"
         assert persisted["metadata"]["discovered_from_source_id"] == discovery["id"]
+        assert persisted["metadata"]["supports_horizon_signal_ids"] == [discovery["id"]]
         assert persisted["metadata"]["fetch"]["response_sha256"] == "a" * 64
+
+        SourceTriageService(repo).triage_source("project-a", discovery["id"])
+        SourceCaptureService(repo).transition_source("project-a", source["id"], SourceStatus.ELIGIBLE)
+        horizon = repo.get_source("project-a", discovery["id"])
+        assert horizon is not None
+        assert horizon["status"] == SourceStatus.ELIGIBLE.value
+        assert source_admission_reason(repo, "project-a", horizon) == ""
     finally:
         settings.API_KEY = previous_key
         settings.OBSIDIAN_VAULT_ROOT = previous_root
@@ -374,6 +439,42 @@ def test_workspace_status_distinguishes_horizon_channel_failure_from_empty_resul
         assert last_run["items_observed"] == 0
         assert last_run["failure"] == {
             "category": "transient_dependency", "code": "horizon_unavailable", "retryable": True
+        }
+    finally:
+        settings.API_KEY = previous_key
+        app.dependency_overrides.clear()
+        repo.close()
+
+
+def test_workspace_status_exposes_horizon_producer_failure_without_claiming_empty_result(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "workspace-horizon-producer-failure.db"))
+    run = KnowledgeRun(id="horizon-producer-failure", project_id="project-a", run_type="horizon_capture", trigger="schedule")
+    repo.create_run(run)
+    repo.update_run_status(
+        "project-a",
+        run.id,
+        RunStatus.FAILED,
+        error="HZ_EMPTY_INPUT: No items available for scoring.",
+        output_refs={
+            "outcome": "producer_failure",
+            "source_mode": "run_store",
+            "failure": {"category": "transient_dependency", "code": "horizon_producer_failed", "retryable": True},
+        },
+    )
+    previous_key = settings.API_KEY
+    settings.API_KEY = "workspace-admin"
+    app.dependency_overrides[get_wiki_repository] = lambda: repo
+    client = TestClient(app)
+    try:
+        response = client.get("/knowledge/workspaces/project-a", headers={"Authorization": "Bearer workspace-admin"})
+
+        assert response.status_code == 200
+        last_run = response.json()["data"]["horizon"]["last_run"]
+        assert last_run["status"] == "failed"
+        assert last_run["outcome"] == "producer_failure"
+        assert last_run["items_observed"] == 0
+        assert last_run["failure"] == {
+            "category": "transient_dependency", "code": "horizon_producer_failed", "retryable": True
         }
     finally:
         settings.API_KEY = previous_key

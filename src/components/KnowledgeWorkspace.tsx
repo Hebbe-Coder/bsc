@@ -7,18 +7,19 @@ import {
   Pencil, Radio, Search, ShieldCheck, Sparkles, Sprout, Trash2, Upload, WandSparkles, X,
 } from 'lucide-react';
 import {
-  configureKnowledgePlugins, configureKnowledgeSchedule, configureKnowledgeVault, fetchKnowledgeGraph, fetchKnowledgeHealth, fetchKnowledgeHealthTrend,
+  captureKnowledgePrimaryWebSource, configureKnowledgePlugins, configureKnowledgeSchedule, configureKnowledgeVault, fetchKnowledgeGraph, fetchKnowledgeHealth, fetchKnowledgeHealthTrend,
   fetchKnowledgePage, fetchKnowledgePages, fetchKnowledgeProposals, fetchKnowledgeRunEvents, fetchKnowledgeSourceTriage,
-  fetchKnowledgeRuns, fetchKnowledgeSchedules, fetchKnowledgeSources, fetchKnowledgeWorkspace, importFeishuKnowledgeExport, initializeKnowledgeWorkspace,
+  fetchKnowledgeRuns, fetchKnowledgeSchedules, fetchKnowledgeSources, fetchKnowledgeWorkspace, fetchKnowledgeWorkspaceProjects, importFeishuKnowledgeExport, initializeKnowledgeWorkspace,
   fetchWeeklyDistillation, fetchWeeklyDistillations, lintKnowledgeProposal, publishKnowledgeProposal,
   rejectKnowledgeProposal, restoreKnowledgePageRevision, retryKnowledgeRun, runKnowledgeJob, saveKnowledgeEvaluationCase, setKnowledgePluginTrust, setKnowledgeScheduleState,
   semanticTriageKnowledgeSource, streamKnowledgeRunEvents, transitionKnowledgeSource,
   type FeishuKnowledgeExport, type KnowledgeEvaluationCaseInput, type KnowledgeGraphNode, type KnowledgeHealth, type KnowledgeWorkspaceData,
-  type KnowledgePage, type KnowledgePageDetail, type KnowledgePluginBridge, type KnowledgeProposal, type KnowledgeRun,
+  type KnowledgePage, type KnowledgePageDetail, type KnowledgePluginBridge, type KnowledgeProposal, type KnowledgeRun, type KnowledgeWorkspaceProject,
   type KnowledgeRunEvent, type KnowledgeSchedule, type KnowledgeSource, type KnowledgeSourceTriage,
   type WeeklyDistillation, type WeeklyDistillationDetail,
 } from '../api/knowledgeWorkspaceApi';
 import { useKnowledgeWorkspaceStore, type KnowledgeProposalBaselines } from '../store/knowledgeWorkspaceStore';
+import { EvidenceWorkspace } from './knowledge/EvidenceWorkspace';
 import { InformationOperationsPanel } from './knowledge/InformationOperationsPanel';
 import { resolveStudioAccessStatus } from './knowledgeWorkspaceAccess';
 import { describeKnowledgeSource, selectDefaultKnowledgePage } from './knowledgePresentation';
@@ -36,7 +37,7 @@ export const KNOWLEDGE_JOB_OPTIONS = [
   { id: 'growth_weekly_distillation', label: 'Friday weekly growth distillation', defaultCron: '30 17 * * 5' },
 ] as const;
 const TERMINAL_RUNS = new Set(['completed', 'failed', 'cancelled', 'unavailable']);
-const TrendChart = lazy(() => import('echarts-for-react'));
+const TrendChart = lazy(() => import('./charts/RegisteredECharts'));
 export const OBSIDIAN_PLUGIN_PRESETS = [
   { id: 'custom', name: 'Custom evidence export', adapter: 'filesystem_drop', input_paths: ['00_Inbox/custom'] },
   { id: 'readwise', name: 'Readwise / Reader export', adapter: 'filesystem_drop', input_paths: ['00_Inbox/readwise'] },
@@ -59,6 +60,13 @@ const VAULT_CONNECTION_LABELS: Record<NonNullable<KnowledgeWorkspaceData['vault'
   ready: 'Vault connected and Wiki ready',
 };
 
+export function projectOptions(currentProjectId: string, projects: KnowledgeWorkspaceProject[]): KnowledgeWorkspaceProject[] {
+  const current = currentProjectId.trim();
+  const unique = new Map(projects.map((project) => [project.id, project]));
+  if (current && !unique.has(current)) unique.set(current, { id: current, name: current, created_at: '' });
+  return [...unique.values()];
+}
+
 export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
   const {
     projectId, workspace, sources, runs, schedules, graph, proposals, pages, distillations, health, trend,
@@ -80,6 +88,10 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
   const [pluginPaths, setPluginPaths] = useState('00_Inbox/custom');
   const [includeDistillationHistory, setIncludeDistillationHistory] = useState(false);
   const [selectedSourceTriage, setSelectedSourceTriage] = useState<KnowledgeSourceTriage | null>(null);
+  const [evidenceRefreshVersion, setEvidenceRefreshVersion] = useState(0);
+  const [projectDraft, setProjectDraft] = useState(projectId);
+  const [workspaceProjects, setWorkspaceProjects] = useState<KnowledgeWorkspaceProject[]>([]);
+  const [workspaceProjectsError, setWorkspaceProjectsError] = useState('');
   const feishuExportInput = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async (graphFilter = graphEdgeType) => {
@@ -103,12 +115,29 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
         health: nextHealth,
         trend: nextTrend,
       });
+      setEvidenceRefreshVersion((current) => current + 1);
     } catch (reason) {
       failLoad(version, requestedProject, reason instanceof Error ? reason.message : 'Knowledge workspace failed to load');
     }
   }, [applyLoad, beginLoad, failLoad, graphEdgeType, includeDistillationHistory, projectId]);
 
   useEffect(() => { void load(graphEdgeType); }, [graphEdgeType, load, runtimeAccessKey]);
+  useEffect(() => { setProjectDraft(projectId); }, [projectId]);
+  useEffect(() => {
+    let active = true;
+    void fetchKnowledgeWorkspaceProjects()
+      .then((response) => {
+        if (!active) return;
+        setWorkspaceProjects(response.projects);
+        setWorkspaceProjectsError('');
+      })
+      .catch((reason: unknown) => {
+        if (!active) return;
+        setWorkspaceProjects([]);
+        setWorkspaceProjectsError(reason instanceof Error ? reason.message : 'Authorized project discovery is unavailable.');
+      });
+    return () => { active = false; };
+  }, [runtimeAccessKey]);
   useEffect(() => {
     if (workspace?.vault.vault_path) setVaultPath(workspace.vault.vault_path);
   }, [workspace?.vault.vault_path]);
@@ -270,6 +299,15 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
     setSelectedSourceTriage(result.triage);
     showMessage(`Semantic review recorded: ${result.triage.disposition} / priority ${result.triage.priority}. Approval remains explicit.`);
     await load();
+  });
+  const capturePrimarySource = (source: KnowledgeSource) => withAction(async () => {
+    const result = await captureKnowledgePrimaryWebSource(projectId, source.origin, source.id);
+    await load();
+    setSelectedSource(result.source);
+    setSelectedSourceTriage(null);
+    showMessage(result.created
+      ? 'Primary evidence captured for review. The Horizon signal remains a separate discovery record.'
+      : 'The existing governed primary capture is now linked to this Horizon signal for review.');
   });
   const lintProposal = (proposal: KnowledgeProposal) => withAction(async () => {
     const result = await lintKnowledgeProposal(projectId, proposal.id);
@@ -464,6 +502,10 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
     ? 'Horizon producer is not configured for this runtime'
     : !horizon.last_run
       ? 'No Horizon intelligence has been imported into this project'
+      : horizon.last_run.outcome === 'producer_failure'
+        ? 'Horizon collected no publishable stage; source health is retrying and older artifacts were not auto-imported'
+        : horizon.last_run.outcome === 'stale_artifact'
+          ? 'Latest unpublished Horizon artifact is stale; select it explicitly only when a historical backfill is intended'
       : horizon.last_run.skipped
         ? `Latest run already imported (${horizon.captured_sources} evidence records)`
       : `${horizon.last_run.source_mode === 'run_store' ? 'Native run store' : 'Horizon import'} ${horizon.last_run.status}: ${horizon.last_run.created} new, ${horizon.last_run.duplicates} duplicate (${horizon.captured_sources} evidence records)`;
@@ -477,7 +519,9 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
     <header className="knowledge-workspace__header">
       <div className="knowledge-workspace__title"><span className="eyebrow"><BookOpen size={14} /> KNOWLEDGE WORKSPACE</span><h2>Evidence, proposals, and growth loops.</h2><p>Project-scoped Wiki maintenance with evidence, gates, and replayable execution.</p></div>
       <div className="knowledge-workspace__actions">
-        <label><span>Project</span><input value={projectId} onChange={(event) => setProjectId(event.target.value)} aria-label="Project ID" /></label>
+        <label><span>Project</span><select value={projectDraft} onChange={(event) => setProjectDraft(event.target.value)} aria-label="Knowledge project" disabled={loading && !workspace}>{projectOptions(projectId, workspaceProjects).map((project) => <option value={project.id} key={project.id}>{project.name || project.id}</option>)}</select></label>
+        <button type="button" className="knowledge-project-open" onClick={() => setProjectId(projectDraft)} disabled={!projectDraft || projectDraft === projectId || (loading && !workspace)} title="Load the selected authorized project">Open project</button>
+        {workspaceProjectsError && <span className="knowledge-project-discovery-error" role="status">Project list unavailable; current project remains open.</span>}
         <span className={`knowledge-runtime-state ${accessStatus.verified ? 'is-ready' : 'is-warning'}`} title={accessStatus.detail}>{accessStatus.label}</span>
         <button onClick={() => void runJob('source_sync')} disabled={actionBusy || !canWrite || workspace?.features.obsidian_sync === false} title={workspace?.features.obsidian_sync === false ? 'Obsidian synchronization is disabled by configuration' : 'Capture user-authored Obsidian material as immutable evidence'}><Download size={15} /> Sync</button>
         <button onClick={() => void runJob('horizon_capture')} disabled={actionBusy || !canWrite || !workspace?.vault.configured || workspace?.features.horizon === false} title="Discover the latest unimported enriched Horizon run and capture its high-scoring items as immutable evidence"><Sparkles size={15} /> Import Horizon</button>
@@ -527,6 +571,7 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
         <StatusMetric icon={<Network size={16} />} label="Relations" value={graph.count} detail={graphEdgeType || 'all edge types'} />
         <StatusMetric icon={<ShieldCheck size={16} />} label="Citation coverage" value={health?.citation_coverage == null ? 'N/A' : `${Math.round(health.citation_coverage * 100)}%`} detail={evaluationDetail} />
       </div>
+      <EvidenceWorkspace projectId={projectId} refreshVersion={evidenceRefreshVersion} />
       <nav className="knowledge-mobile-tabs" aria-label="Knowledge mobile panes">
         <button className={mobilePane === 'tree' ? 'is-active' : ''} onClick={() => setMobilePane('tree')}>Navigate</button>
         <button className={mobilePane === 'main' ? 'is-active' : ''} onClick={() => setMobilePane('main')}>Workspace</button>
@@ -586,7 +631,7 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
 
         <aside className="knowledge-pane knowledge-pane--inspector" aria-label="Evidence and health inspector">
           <PaneHeader title="Source inspector" detail={selectedSource?.status || 'select evidence'} />
-          {selectedSource ? <SourceInspector source={selectedSource} triage={selectedSourceTriage} busy={actionBusy} canWrite={canWrite} onApprove={promoteSource} onAnalyze={analyzeSource} /> : <Empty text="Select evidence to inspect immutable provenance, policy state, and capture metadata." />}
+          {selectedSource ? <SourceInspector source={selectedSource} triage={selectedSourceTriage} busy={actionBusy} canWrite={canWrite} onApprove={promoteSource} onAnalyze={analyzeSource} onCapturePrimary={capturePrimarySource} /> : <Empty text="Select evidence to inspect immutable provenance, policy state, and capture metadata." />}
           <PaneHeader title="Automation" detail={`${schedules.length} schedules`} />
           <div className="knowledge-list">{schedules.length ? schedules.map((schedule) => <div className="knowledge-schedule" key={schedule.id}><div><strong>{schedule.job_type}</strong><small>{schedule.cron} / {schedule.timezone}</small><small>{schedule.enabled ? `Next ${formatTimestamp(schedule.next_run_at)}` : schedule.scheduler_available ? 'Paused' : 'Scheduler unavailable; manual execution only'}</small><small>Last result: {schedule.last_result ? `${schedule.last_result.status} / ${formatTimestamp(schedule.last_result.updated_at)}` : 'not run'}</small></div><div className="knowledge-schedule__actions"><button className="icon-button" disabled={actionBusy || !canWrite} title={`Run ${schedule.job_type} now`} aria-label={`Run ${schedule.job_type} now`} onClick={() => void runJob(schedule.job_type)}><Play size={14} /></button><button className="icon-button" disabled={actionBusy || !canWrite || !schedule.scheduler_available} title={schedule.enabled ? 'Pause schedule' : 'Enable schedule'} aria-label={schedule.enabled ? 'Pause schedule' : 'Enable schedule'} onClick={() => void toggleSchedule(schedule)}>{schedule.enabled ? <Pause size={14} /> : <Clock3 size={14} />}</button></div></div>) : <Empty text={workspace?.scheduler.available ? 'No schedules configured for this project.' : 'Durable scheduling is unavailable. Manual governed runs remain available.'} />}</div>
           <form className="knowledge-schedule-form" onSubmit={createSchedule}><label>Job<select value={scheduleJobType} onChange={(event) => { const selected = KNOWLEDGE_JOB_OPTIONS.find((option) => option.id === event.target.value); setScheduleJobType(event.target.value); if (selected) setScheduleCron(selected.defaultCron); }} disabled={workspace?.features.schedules === false}>{KNOWLEDGE_JOB_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label><label>Cron<input value={scheduleCron} onChange={(event) => setScheduleCron(event.target.value)} aria-label="Schedule cron" disabled={workspace?.features.schedules === false} /></label><button disabled={actionBusy || !canWrite || workspace?.features.schedules === false} type="submit"><Clock3 size={14} /> Save cadence</button></form>
@@ -742,6 +787,7 @@ export function SourceInspector({
   canWrite,
   onApprove,
   onAnalyze,
+  onCapturePrimary,
 }: {
   source: KnowledgeSource;
   triage?: KnowledgeSourceTriage | null;
@@ -749,11 +795,51 @@ export function SourceInspector({
   canWrite: boolean;
   onApprove: (source: KnowledgeSource) => void;
   onAnalyze?: (source: KnowledgeSource) => void;
+  onCapturePrimary?: (source: KnowledgeSource) => void;
 }) {
   const presentation = describeKnowledgeSource(source);
   const curated = Boolean(source.metadata.curated || source.metadata.user_annotation || source.metadata.annotation);
   const pluginName = typeof source.metadata.plugin_name === 'string' ? source.metadata.plugin_name : source.metadata.obsidian_plugin;
-  return <section className="source-inspector"><span className={`source-status source-status--${source.status}`}>{source.status}</span><h3>{presentation.headline}</h3><p className="source-inspector__provenance">{presentation.provenance}{presentation.score ? ` / signal ${presentation.score}` : ''}</p><dl><div><dt>Type</dt><dd>{presentation.typeLabel}</dd></div>{pluginName ? <div><dt>Plugin export</dt><dd>{String(pluginName)}</dd></div> : null}<div><dt>Origin</dt><dd>{presentation.origin}</dd></div><div><dt>Trust</dt><dd>{source.trust_level}</dd></div><div><dt>Captured</dt><dd>{formatTimestamp(source.captured_at)}</dd></div><div><dt>SHA-256</dt><dd>{source.content_hash}</dd></div><div><dt>Vault path</dt><dd>{source.vault_path || 'external or API import'}</dd></div><div><dt>Interpretation</dt><dd>{curated ? 'Curated opinion or user annotation' : 'Immutable evidence record'}</dd></div></dl>{triage && <div className="source-triage"><h4>Project fit review</h4><dl><div><dt>Recommendation</dt><dd>{triage.disposition} / priority {triage.priority}</dd></div><div><dt>Reliability gate</dt><dd>{triage.reliability_pass ? 'passed' : 'not passed'}</dd></div><div><dt>Evaluator</dt><dd>{triage.evaluator_revision} / {triage.evaluator_status}</dd></div><div><dt>Scores</dt><dd>R {triage.relevance} V {triage.value} F {triage.freshness} O {triage.outputability} C {triage.connectedness}</dd></div></dl><ul>{triage.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul></div>}{source.supersedes_id && <p className="source-supersedes">Supersedes source {source.supersedes_id}</p>}{source.status === 'validated' && <div className="source-inspector__actions">{onAnalyze && <button disabled={busy || !canWrite} onClick={() => onAnalyze(source)} title="Use the configured model to record a project-specific recommendation without changing source status"><Sparkles size={14} /> Analyze semantic fit</button>}<button disabled={busy || !canWrite} onClick={() => onApprove(source)}><CheckCircle2 size={14} /> Approve for synthesis</button></div>}</section>;
+  const isHorizonSignal = source.source_type === 'horizon_signal';
+  const approvalLabel = isHorizonSignal ? 'Approve signal after capture' : 'Approve for synthesis';
+  return <section className="source-inspector">
+    <span className={`source-status source-status--${source.status}`}>{source.status}</span>
+    <h3>{presentation.headline}</h3>
+    <p className="source-inspector__provenance">{presentation.provenance}{presentation.score ? ` / signal ${presentation.score}` : ''}</p>
+    <dl>
+      <div><dt>Type</dt><dd>{presentation.typeLabel}</dd></div>
+      {pluginName ? <div><dt>Plugin export</dt><dd>{String(pluginName)}</dd></div> : null}
+      <div><dt>Origin</dt><dd>{presentation.origin}</dd></div>
+      <div><dt>Trust</dt><dd>{source.trust_level}</dd></div>
+      <div><dt>Captured</dt><dd>{formatTimestamp(source.captured_at)}</dd></div>
+      <div><dt>SHA-256</dt><dd>{source.content_hash}</dd></div>
+      <div><dt>Vault path</dt><dd>{source.vault_path || 'external or API import'}</dd></div>
+      <div><dt>Interpretation</dt><dd>{curated ? 'Curated opinion or user annotation' : 'Immutable evidence record'}</dd></div>
+    </dl>
+    {triage ? <div className="source-triage">
+      <h4>Project fit review</h4>
+      <dl>
+        <div><dt>Recommendation</dt><dd>{triage.disposition} / priority {triage.priority}</dd></div>
+        <div><dt>Reliability gate</dt><dd>{triage.reliability_pass ? 'passed' : 'not passed'}</dd></div>
+        <div><dt>Evaluator</dt><dd>{triage.evaluator_revision} / {triage.evaluator_status}</dd></div>
+        <div><dt>Scores</dt><dd>R {triage.relevance} V {triage.value} F {triage.freshness} O {triage.outputability} C {triage.connectedness}</dd></div>
+      </dl>
+      <ul>{triage.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+    </div> : null}
+    {source.supersedes_id ? <p className="source-supersedes">Supersedes source {source.supersedes_id}</p> : null}
+    {isHorizonSignal && onCapturePrimary ? <div className="source-inspector__actions">
+      <button disabled={busy || !canWrite || !source.origin} onClick={() => onCapturePrimary(source)} title="Explicitly capture the public article referenced by this Horizon discovery">
+        <Download size={14} /> Capture primary source
+      </button>
+      <small>This does not promote the radar signal. Review and approve the captured primary evidence separately.</small>
+    </div> : null}
+    {source.status === 'validated' ? <div className="source-inspector__actions">
+      {onAnalyze ? <button disabled={busy || !canWrite} onClick={() => onAnalyze(source)} title="Use the configured model to record a project-specific recommendation without changing source status"><Sparkles size={14} /> Analyze semantic fit</button> : null}
+      <button disabled={busy || !canWrite} onClick={() => onApprove(source)} title={isHorizonSignal ? 'A linked primary capture is still required before the signal can be compiled' : undefined}>
+        <CheckCircle2 size={14} /> {approvalLabel}
+      </button>
+    </div> : null}
+  </section>;
 }
 
 function HealthInspector({ health }: { health: KnowledgeHealth | null }) { if (!health) return <Empty text="Health records are unavailable until the workspace loads." />; return <div className="health-inspector"><HealthRow label="Dangling citations" value={health.dangling_citation_count} /><HealthRow label="Stale citations" value={health.stale_citation_count} /><HealthRow label="Stale pages" value={health.stale_page_ids.length} /><HealthRow label="Orphan pages" value={health.orphan_page_ids.length} /><HealthRow label="Uncited eligible evidence" value={health.uncited_eligible_source_ids.length} /><HealthRow label="Pending proposals" value={health.pending_proposal_ids.length} /><HealthRow label="Contradictions" value={health.contradiction_count} /></div>; }

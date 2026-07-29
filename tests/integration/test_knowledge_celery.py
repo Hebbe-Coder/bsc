@@ -56,3 +56,49 @@ def test_weekly_distillation_retries_after_evidence_arrives_and_reuses_cutoff(tm
         assert any(event["event_type"] == "knowledge.distillation.completed" for event in events)
     finally:
         repository.close()
+
+
+def test_source_sync_extracts_new_vault_assets_once_and_records_auditable_summary(tmp_path, monkeypatch):
+    root = tmp_path / "vault"
+    project_root = root / "projects" / "project-a"
+    source = project_root / "01_Sources" / "metrics.csv"
+    source.parent.mkdir(parents=True)
+    source.write_text("month,revenue_usd\n2026-06,120\n2026-07,180\n", encoding="utf-8")
+    repository = WikiRepository(db_path=str(tmp_path / "knowledge-source-sync.db"))
+    repository.configure_vault("project-a", "projects/project-a")
+    first_run = KnowledgeRun(project_id="project-a", run_type="source_sync", trigger="manual")
+    repository.create_run(first_run)
+    monkeypatch.setattr("app.tasks.knowledge_tasks.settings.OBSIDIAN_VAULT_ROOT", str(root))
+    monkeypatch.setattr("app.tasks.knowledge_tasks.settings.KNOWLEDGE_OBSIDIAN_SYNC_ENABLED", True)
+    try:
+        first = execute_knowledge_run("project-a", first_run.id, repository=repository)
+
+        assert first["status"] == "completed"
+        assert first["sync"]["multimodal_extraction"] == {
+            "attempted": 1,
+            "complete": 1,
+            "partial": 0,
+            "needs_review": 0,
+            "unavailable": 0,
+            "restricted": 0,
+            "skipped_existing": 0,
+        }
+        captured = repository.list_sources("project-a")
+        assert len(captured) == 1
+        asset = repository.list_media_assets("project-a", source_id=captured[0]["id"])[0]
+        extraction = repository.list_extraction_artifacts("project-a", source_id=captured[0]["id"])[0]
+        assert extraction["asset_id"] == asset["id"]
+        assert extraction["status"] == "complete"
+        assert repository.list_table_artifacts("project-a", extraction_id=extraction["id"])[0]["row_count"] == 2
+
+        repeat_run = KnowledgeRun(project_id="project-a", run_type="source_sync", trigger="manual")
+        repository.create_run(repeat_run)
+        repeated = execute_knowledge_run("project-a", repeat_run.id, repository=repository)
+        assert repeated["status"] == "completed"
+        assert repeated["sync"]["multimodal_extraction"]["attempted"] == 0
+        assert repeated["sync"]["multimodal_extraction"]["skipped_existing"] == 1
+        assert len(repository.list_extraction_artifacts("project-a", source_id=captured[0]["id"])) == 1
+        events = repository.list_run_events(project_id="project-a", run_id=first_run.id)
+        assert any(event["event_type"] == "knowledge.source.sync.completed" for event in events)
+    finally:
+        repository.close()

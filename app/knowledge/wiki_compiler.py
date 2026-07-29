@@ -25,6 +25,15 @@ class WikiCompilationError(ValueError):
     """Raised when a provider output cannot become a safe, reviewable proposal."""
 
 
+class WikiSourceAdmissionError(WikiCompilationError):
+    """Raised when caller-selected evidence has not passed the authoring gate."""
+
+    def __init__(self, source_id: str, reason: str) -> None:
+        self.source_id = source_id
+        self.reason = reason
+        super().__init__(f"source {source_id} is not admitted: {reason}")
+
+
 @dataclass(frozen=True)
 class WikiCompilationResult:
     proposal: dict[str, Any]
@@ -162,12 +171,23 @@ class WikiCompiler:
                 if candidate_ids:
                     selected = [source for source in eligible if source["id"] in candidate_ids]
         else:
-            selected_ids = set(source_ids)
-            selected = [source for source in eligible if source["id"] in selected_ids]
-            if selected_ids != {source["id"] for source in selected}:
-                raise WikiCompilationError(
-                    "all sources must exist in this project, be eligible, and pass current project triage"
-                )
+            project_sources = {str(source["id"]): source for source in self.repository.list_sources(project_id)}
+            selected = []
+            seen_ids: set[str] = set()
+            for raw_source_id in source_ids:
+                source_id = str(raw_source_id).strip()
+                if not source_id or source_id in seen_ids:
+                    continue
+                seen_ids.add(source_id)
+                source = project_sources.get(source_id)
+                if source is None:
+                    raise WikiSourceAdmissionError(source_id, "source_not_found_in_project")
+                if source.get("status") != SourceStatus.ELIGIBLE.value:
+                    raise WikiSourceAdmissionError(source_id, f"source_status_{source.get('status') or 'unknown'}")
+                reason = source_admission_reason(self.repository, project_id, source)
+                if reason:
+                    raise WikiSourceAdmissionError(source_id, reason)
+                selected.append(source)
         if not selected:
             raise WikiCompilationError("no eligible sources selected")
         return selected

@@ -20,12 +20,10 @@ import { TrustedAuditPanel } from './TrustedAuditPanel';
 import { CompilerEvalPanel } from './CompilerEvalPanel';
 import { EvolutionPanel } from './EvolutionPanel';
 import { AgentBriefPanel } from './AgentBriefPanel';
-import { BusinessGraph } from './BusinessGraph';
 import { SopPanel } from './SopPanel';
 import { AgentTerminal } from './AgentTerminal';
 import { ContextPolicyControl } from './ContextPolicyControl';
 import SkillMarket from './SkillMarket';
-import { KnowledgeWorkspace } from './KnowledgeWorkspace';
 import {
   Blocks,
   BarChart3,
@@ -37,11 +35,15 @@ import {
   Sparkles,
   Sprout,
   Workflow,
+  BrainCircuit,
 } from 'lucide-react';
 
 const GrowthWorkspace = lazy(() => import('./GrowthWorkspace').then((module) => ({ default: module.GrowthWorkspace })));
+const KnowledgeWorkspace = lazy(() => import('./KnowledgeWorkspace').then((module) => ({ default: module.KnowledgeWorkspace })));
 const BusinessControlCenter = lazy(() => import('./dbos/BusinessControlCenter').then((module) => ({ default: module.BusinessControlCenter })));
 const KnowledgeOperationsCockpit = lazy(() => import('./operations/KnowledgeOperationsCockpit').then((module) => ({ default: module.KnowledgeOperationsCockpit })));
+const PersonalGrowthCockpit = lazy(() => import('./pbos/PersonalGrowthCockpit').then((module) => ({ default: module.PersonalGrowthCockpit })));
+const BusinessGraph = lazy(() => import('./BusinessGraph').then((module) => ({ default: module.BusinessGraph })));
 
 // ---- Types ----
 type Mode = 'auto' | 'business' | 'analyze' | 'compile' | 'board';
@@ -107,9 +109,15 @@ const LOG_COLORS: Record<LogType, string> = {
 let logCounter = 0;
 // This is a non-secret marker for Vite's local-only authorized proxy. The
 // actual API key remains in the Vite process and overwrites this sentinel.
-const LOCAL_PROXY_SENTINEL = import.meta.env.DEV && import.meta.env.VITE_BSC_LOCAL_PROXY_AUTH === 'true'
+const LOCAL_PROXY_SENTINEL = import.meta.env.DEV
+  && typeof __BSC_LOCAL_PROXY_AUTH__ !== 'undefined'
+  && __BSC_LOCAL_PROXY_AUTH__
   ? 'local-proxy'
   : '';
+
+export function isLocalProxySession(runtimeAccessKey: string, sentinel = LOCAL_PROXY_SENTINEL): boolean {
+  return Boolean(sentinel) && runtimeAccessKey === sentinel;
+}
 
 // The rail renders actual runtime capability events, not a parallel UI-only plan.
 const PIPELINE_STAGES = [
@@ -164,15 +172,18 @@ export function UnifiedWorkspace() {
   const [growthOpen, setGrowthOpen] = useState(false);
   const [operationsOpen, setOperationsOpen] = useState(false);
   const [dbosOpen, setDbosOpen] = useState(false);
+  const [pbosOpen, setPbosOpen] = useState(false);
   const [dbosMissionId, setDbosMissionId] = useState('');
   const [dbosArtifactId, setDbosArtifactId] = useState('');
   const [dbosInitialRequest, setDbosInitialRequest] = useState('');
   const [runtimeAccessKey, setRuntimeAccessKey] = useState(LOCAL_PROXY_SENTINEL);
   const [knowledgeContext, setKnowledgeContext] = useState<KnowledgeContextMetadata | null>(null);
   const [knowledgeOutputRegistration, setKnowledgeOutputRegistration] = useState<KnowledgeOutputRegistration | null>(null);
+  const localProxySession = isLocalProxySession(runtimeAccessKey);
   const [contextManifest, setContextManifest] = useState<AgentContextManifest | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const runtimeAccessRef = useRef<HTMLInputElement>(null);
 
   // Workspace store
   const beginSession = useWorkspace((s) => s.beginSession);
@@ -402,6 +413,9 @@ export function UnifiedWorkspace() {
           <button type="button" className="skill-trigger" onClick={() => setOperationsOpen(true)}>
             <BarChart3 size={15} aria-hidden="true" /> Operate
           </button>
+          <button type="button" className="skill-trigger" onClick={() => setPbosOpen(true)}>
+            <BrainCircuit size={15} aria-hidden="true" /> PBOS
+          </button>
           <button type="button" className="skill-trigger" onClick={() => { setDbosMissionId(''); setDbosArtifactId(''); setDbosOpen(true); }}>
             <Workflow size={15} aria-hidden="true" /> Mission
           </button>
@@ -432,17 +446,18 @@ export function UnifiedWorkspace() {
           </section>
 
           <section className="rail-section runtime-access">
-            <div className="rail-section__heading"><p className="rail-label">RUNTIME ACCESS</p><span>{runtimeAccessKey ? (runtimeAccessKey === LOCAL_PROXY_SENTINEL ? 'local proxy' : 'ready') : 'required'}</span></div>
+            <div className="rail-section__heading"><p className="rail-label">RUNTIME ACCESS</p><span>{runtimeAccessKey ? (localProxySession ? 'local proxy' : 'ready') : 'required'}</span></div>
             <label className="runtime-access__field">
-              <span>{runtimeAccessKey === LOCAL_PROXY_SENTINEL ? 'Local proxy authentication' : 'API key'}</span>
+              <span>{localProxySession ? 'Local proxy authentication' : 'API key'}</span>
               <input
+                ref={runtimeAccessRef}
                 type="password"
-                value={runtimeAccessKey === LOCAL_PROXY_SENTINEL ? '' : runtimeAccessKey}
+                value={localProxySession ? '' : runtimeAccessKey}
                 onChange={(event) => {
                   const value = event.target.value;
                   setRuntimeAccessKey(value || LOCAL_PROXY_SENTINEL);
                 }}
-                placeholder={runtimeAccessKey === LOCAL_PROXY_SENTINEL ? 'Authenticated locally' : 'Runtime access key'}
+                placeholder={localProxySession ? 'Authenticated locally' : 'Runtime access key'}
                 aria-label="Runtime access key"
                 autoComplete="off"
               />
@@ -553,7 +568,7 @@ export function UnifiedWorkspace() {
           </section>
 
           {compiling && (businessModel && Object.keys(businessModel).length > 0 || sop && Object.keys(sop).length > 0) && (
-            <section className="artifact-preview"><div className="panel-heading"><div><p>IN-FLIGHT ARTIFACTS</p><h2>Streaming work products</h2></div></div>{businessModel && Object.keys(businessModel).length > 0 && <BusinessGraph model={businessModel} />}{sop && Object.keys(sop).length > 0 && <SopPanel sop={sop} />}</section>
+            <section className="artifact-preview"><div className="panel-heading"><div><p>IN-FLIGHT ARTIFACTS</p><h2>Streaming work products</h2></div></div>{businessModel && Object.keys(businessModel).length > 0 && <Suspense fallback={<div className="artifact-graph-loading" role="status">Loading workflow graph...</div>}><BusinessGraph model={businessModel} /></Suspense>}{sop && Object.keys(sop).length > 0 && <SopPanel sop={sop} />}</section>
           )}
         </div>
 
@@ -585,9 +600,10 @@ export function UnifiedWorkspace() {
 
       <footer className="studio-footer"><span>{mode === 'auto' && detectedMode ? `Auto -> ${MODE_LABELS[detectedMode]}` : MODE_LABELS[effectiveMode]}</span><span>Project: {knowledgeProjectId || 'unscoped'}</span><span>Session: {sessionDisplay}</span>{compiling && <span className="is-live">pipeline active</span>}{dashData && <span>coverage: {dashData.risk.coverage.coverage_pct}%</span>}<span className="studio-footer__right">BSC Studio 5.0</span></footer>
       {skillsOpen && <SkillMarket onClose={() => setSkillsOpen(false)} context={input || workspaceIdea} />}
-      {knowledgeOpen && <KnowledgeWorkspace onClose={() => setKnowledgeOpen(false)} runtimeAccessKey={runtimeAccessKey} />}
+      {knowledgeOpen && <Suspense fallback={<section className="knowledge-workspace" aria-label="Knowledge workspace"><div className="knowledge-loading" role="status">Loading knowledge workspace...</div></section>}><KnowledgeWorkspace onClose={() => setKnowledgeOpen(false)} runtimeAccessKey={runtimeAccessKey} /></Suspense>}
       {growthOpen && <Suspense fallback={<section className="growth-workspace" aria-label="Knowledge growth workspace"><div className="growth-state" role="status">Loading growth workspace...</div></section>}><GrowthWorkspace onClose={() => setGrowthOpen(false)} runtimeAccessKey={runtimeAccessKey} /></Suspense>}
       {operationsOpen && <Suspense fallback={<section className="operations-cockpit" aria-label="Knowledge operations cockpit"><div className="operations-loading" role="status">Loading knowledge operations...</div></section>}><KnowledgeOperationsCockpit onClose={() => setOperationsOpen(false)} initialProjectId={knowledgeProjectId} onOpenKnowledge={(projectId, entityId) => { setKnowledgeProjectId(projectId); useKnowledgeWorkspaceStore.getState().setNavigationTarget(entityId); setOperationsOpen(false); setKnowledgeOpen(true); }} onOpenGrowth={(projectId, entityId) => { setKnowledgeProjectId(projectId); const growthStore = useGrowthWorkspaceStore.getState(); growthStore.setProjectId(projectId); growthStore.setStage('review'); growthStore.setCenterView('assets'); growthStore.setSelectedId(entityId); setOperationsOpen(false); setGrowthOpen(true); }} onOpenDbos={(projectId, missionId, artifactId) => { setKnowledgeProjectId(projectId); setDbosMissionId(missionId); setDbosArtifactId(artifactId); setOperationsOpen(false); setDbosOpen(true); }} /></Suspense>}
+      {pbosOpen && <Suspense fallback={<section className="pbos-cockpit" aria-label="Personal Growth Cockpit"><p className="pbos-empty">Loading personal growth evidence...</p></section>}><PersonalGrowthCockpit projectId={knowledgeProjectId || 'default'} runtimeAccessKey={runtimeAccessKey} onClose={() => setPbosOpen(false)} onConfigureAccess={() => { setPbosOpen(false); window.requestAnimationFrame(() => runtimeAccessRef.current?.focus()); }} /></Suspense>}
       {dbosOpen && <Suspense fallback={<section className="dbos-control-center" aria-label="Business Control Center"><div className="dbos-message" role="status">Loading mission control center...</div></section>}><BusinessControlCenter onClose={() => setDbosOpen(false)} initialProjectId={knowledgeProjectId || 'default'} initialMissionId={dbosMissionId} initialArtifactId={dbosArtifactId} initialRequestText={dbosInitialRequest} autoStartIntake={Boolean(dbosInitialRequest)} /></Suspense>}
     </div>
   );

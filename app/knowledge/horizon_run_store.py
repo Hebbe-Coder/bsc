@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -68,13 +69,28 @@ class HorizonRunStoreEmptyError(HorizonClientError):
     """Raised when discovery finds no unpublished stage artifact."""
 
 
+class HorizonRunStoreProducerFailureError(HorizonClientError):
+    """Raised when a newer Horizon producer failure makes discovery unhealthy."""
+
+
+class HorizonRunStoreStaleArtifactError(HorizonClientError):
+    """Raised when automatic discovery would import an expired artifact."""
+
+
 class HorizonRunStoreClient:
     """Read Horizon's native MCP artifacts without requiring a Horizon REST service."""
 
-    def __init__(self, *, runs_root: str | Path, max_response_bytes: int = 2_000_000) -> None:
+    def __init__(
+        self,
+        *,
+        runs_root: str | Path,
+        max_response_bytes: int = 2_000_000,
+        max_artifact_age_hours: int = 48,
+    ) -> None:
         root = Path(runs_root).expanduser()
         self.runs_root = root.resolve()
         self.max_response_bytes = max_response_bytes
+        self.max_artifact_age_seconds = max(0, int(max_artifact_age_hours)) * 3600
         if not self.runs_root.is_dir():
             raise HorizonClientError("Horizon run artifact root does not exist")
 
@@ -129,7 +145,40 @@ class HorizonRunStoreClient:
                     break
             if selected:
                 candidates.append(selected)
-        if not candidates:
+        latest = max(candidates, key=lambda candidate: (candidate[0], candidate[1]), default=None)
+        producer_failure = self._latest_producer_failure()
+        if producer_failure and (latest is None or producer_failure[0] >= latest[0]):
+            raise HorizonRunStoreProducerFailureError(producer_failure[1])
+        if latest is None:
             raise HorizonRunStoreEmptyError("No new Horizon stage artifact was found")
-        _, run_id, stage = max(candidates, key=lambda candidate: (candidate[0], candidate[1]))
+        modified_at, run_id, stage = latest
+        if self.max_artifact_age_seconds:
+            age_seconds = max(0, (time.time_ns() - modified_at) // 1_000_000_000)
+            if age_seconds > self.max_artifact_age_seconds:
+                age_hours = age_seconds // 3600
+                raise HorizonRunStoreStaleArtifactError(
+                    f"Latest Horizon artifact is {age_hours} hours old and exceeds the discovery freshness limit"
+                )
         return self.fetch_stage(run_id=run_id, stage=stage)
+
+    def _latest_producer_failure(self) -> tuple[int, str] | None:
+        """Read the producer's status sidecar without treating it as source evidence.
+
+        The status file is only used to prevent an automated capture run from
+        presenting a failed collection as an ordinary "no new artifact" day.
+        A later successful stage always supersedes an earlier failure.
+        """
+        state_path = self.runs_root / "producer-state.json"
+        if not state_path.is_file() or state_path.is_symlink():
+            return None
+        try:
+            stat = state_path.stat()
+            if stat.st_size > self.max_response_bytes:
+                return None
+            payload = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            return None
+        if not isinstance(payload, dict) or str(payload.get("status") or "").lower() != "failed":
+            return None
+        message = str(payload.get("error") or "Horizon producer failed before publishing a stage artifact")
+        return stat.st_mtime_ns, message[:500]

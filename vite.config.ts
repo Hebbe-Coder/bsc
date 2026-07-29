@@ -25,6 +25,15 @@ export function resolveLocalRuntimeApiKey(
   return processEnv.BSC_LOCAL_API_KEY || fileEnv.BSC_LOCAL_API_KEY || '';
 }
 
+export function resolveLocalProxyAuthEnabled(
+  command: string,
+  mode: string,
+  processEnv: Record<string, string | undefined>,
+  fileEnv: Record<string, string | undefined>,
+): boolean {
+  return Boolean(resolveLocalRuntimeApiKey(command, mode, processEnv, fileEnv));
+}
+
 // https://vite.dev/config/
 export default defineConfig(({ mode, command }) => {
   // Vite config executes before it exposes .env values to import.meta.env.
@@ -37,6 +46,7 @@ export default defineConfig(({ mode, command }) => {
   // back to API_KEY would silently replace the key entered in Studio and make
   // an isolated/local runtime impossible to verify.
   const localRuntimeApiKey = resolveLocalRuntimeApiKey(command, mode, process.env, env);
+  const localProxyAuthEnabled = resolveLocalProxyAuthEnabled(command, mode, process.env, env);
   const authorizedProxy = {
     target: apiProxyTarget,
     changeOrigin: true,
@@ -59,8 +69,24 @@ export default defineConfig(({ mode, command }) => {
   };
 
   return {
+  // This is a non-secret UI state marker. The real credential is retained by
+  // the Vite process and is never serialized into the browser bundle.
+  define: {
+    __BSC_LOCAL_PROXY_AUTH__: JSON.stringify(localProxyAuthEnabled),
+  },
   build: {
     sourcemap: 'hidden',
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          const normalizedId = id.replace(/\\/g, '/');
+          if (normalizedId.includes('/node_modules/echarts/')) return 'vendor-echarts';
+          if (normalizedId.includes('/node_modules/echarts-for-react/')) return 'vendor-echarts';
+          if (normalizedId.includes('/node_modules/reactflow/')) return 'vendor-reactflow';
+          return undefined;
+        },
+      },
+    },
   },
   server: {
     watch: {

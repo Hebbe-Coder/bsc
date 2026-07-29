@@ -10,7 +10,7 @@ from app.knowledge.wiki_contracts import SourceRecord
 from app.knowledge.wiki_evaluator import WikiEvaluator
 from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.wiki_rules import build_default_agents_rules
-from app.knowledge.wiki_compiler import WikiCompilationError
+from app.knowledge.wiki_compiler import WikiCompilationError, WikiSourceAdmissionError
 from app.knowledge.wiki_llm_provider import WikiLLMProviderError
 from app.knowledge.scheduler import KnowledgeScheduler
 from app.tasks.knowledge_tasks import classify_knowledge_failure, execute_knowledge_run
@@ -23,6 +23,18 @@ def test_compiler_schema_failure_is_not_misclassified_as_missing_configuration()
     assert failure.__dict__ == {
         "category": "compiler",
         "code": "compiler_failed",
+        "retryable": False,
+    }
+
+
+def test_source_admission_failure_is_reported_as_a_non_retryable_policy_failure():
+    failure = classify_knowledge_failure(
+        WikiSourceAdmissionError("horizon-signal", "horizon_signal_requires_independent_primary_capture")
+    )
+
+    assert failure.__dict__ == {
+        "category": "policy",
+        "code": "source_not_admitted",
         "retryable": False,
     }
 
@@ -459,6 +471,41 @@ def test_scheduled_horizon_capture_discovers_latest_run_and_skips_it_after_impor
         assert len(repo.list_sources("project-a")) == 1
         events = repo.list_run_events(project_id="project-a", run_id=second.id)
         assert any(event["event_type"] == "knowledge.horizon.capture.skipped" for event in events)
+    finally:
+        repo.close()
+
+
+def test_scheduled_horizon_capture_records_a_newer_producer_failure(tmp_path, monkeypatch):
+    repo = WikiRepository(db_path=str(tmp_path / "tasks-horizon-producer-failure.db"))
+    runs_root = tmp_path / "mcp-runs"
+    run_dir = runs_root / "run-backlog"
+    run_dir.mkdir(parents=True)
+    (run_dir / "filtered_items.json").write_text(
+        json.dumps([{"id": "rss:backlog:1", "title": "Backlog"}]),
+        encoding="utf-8",
+    )
+    (runs_root / "producer-state.json").write_text(
+        json.dumps({"status": "failed", "error": "HZ_EMPTY_INPUT: No items available for scoring."}),
+        encoding="utf-8",
+    )
+    run = KnowledgeRun(project_id="project-a", run_type="horizon_capture", trigger="schedule")
+    repo.create_run(run)
+    monkeypatch.setattr("app.tasks.knowledge_tasks.settings.HORIZON_ENABLED", True)
+    monkeypatch.setattr("app.tasks.knowledge_tasks.settings.HORIZON_RUNS_ROOT", str(runs_root))
+    monkeypatch.setattr("app.tasks.knowledge_tasks.settings.HORIZON_API_BASE_URL", "")
+    try:
+        result = execute_knowledge_run("project-a", run.id, repository=repo)
+
+        assert result["status"] == "failed"
+        persisted = repo.get_run("project-a", run.id)
+        assert persisted["status"] == "failed"
+        assert persisted["output_refs"]["outcome"] == "producer_failure"
+        assert persisted["output_refs"]["failure"] == {
+            "category": "transient_dependency",
+            "code": "horizon_producer_failed",
+            "retryable": True,
+        }
+        assert "HZ_EMPTY_INPUT" in persisted["error"]
     finally:
         repo.close()
 

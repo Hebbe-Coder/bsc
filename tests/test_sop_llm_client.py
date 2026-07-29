@@ -173,6 +173,75 @@ def test_structured_retry_repairs_dirty_json_in_json_mode():
     assert bodies[1]["response_format"] == {"type": "json_object"}
 
 
+def test_structured_chat_can_cap_json_repair_to_one_provider_call():
+    client = SOPLLMClient(
+        provider="deepseek",
+        api_key="sk",
+        http_client=_FakeClient(
+            lambda _n, _url, _headers, _body: _FakeResp(
+                {"choices": [{"message": {"content": "not json"}}]}
+            )
+        ),
+    )
+
+    assert client.chat_structured("return JSON", "data", max_structured_attempts=1) is None
+    assert client._http.calls == 1
+    assert client.last_structured_failure == "response_payload_invalid"
+
+
+def test_structured_chat_classifies_an_empty_length_limited_completion_without_using_reasoning():
+    client = SOPLLMClient(
+        provider="deepseek",
+        api_key="sk",
+        http_client=_FakeClient(
+            lambda _n, _url, _headers, _body: _FakeResp(
+                {
+                    "choices": [
+                        {
+                            "finish_reason": "length",
+                            "message": {"content": None, "reasoning_content": "private reasoning"},
+                        }
+                    ]
+                }
+            )
+        ),
+    )
+
+    assert client.chat_structured("return JSON", "data", max_structured_attempts=1) is None
+    assert client.last_structured_failure == "response_truncated"
+    assert client.last_response_shape["finish_reason"] == "length"
+    assert client.last_response_shape["private_reasoning_present"] is True
+
+
+def test_structured_chat_repairs_with_a_larger_output_budget_after_invalid_json():
+    budgets = []
+
+    def handler(n, _url, _headers, body):
+        budgets.append(body["max_tokens"])
+        if n == 1:
+            return _FakeResp({"choices": [{"message": {"content": "not json"}}]})
+        return _FakeResp({"choices": [{"message": {"content": '{"answer":"repaired"}'}}]})
+
+    client = SOPLLMClient(provider="deepseek", api_key="sk", http_client=_FakeClient(handler))
+
+    assert client.chat_structured("return JSON", "data", max_tokens=900) == {"answer": "repaired"}
+    assert budgets == [900, 1800]
+    assert client.last_structured_attempts == [
+        {"attempt": 1, "json_mode": True, "max_tokens": 900, "result": "response_payload_invalid"},
+        {"attempt": 2, "json_mode": True, "max_tokens": 1800, "result": "valid_json"},
+    ]
+
+
+def test_chat_accepts_a_legacy_completion_text_payload_without_reasoning():
+    client = SOPLLMClient(
+        provider="deepseek",
+        api_key="sk",
+        http_client=_FakeClient(lambda _n, _url, _headers, _body: _FakeResp({"choices": [{"text": '{"answer":"legacy"}'}]})),
+    )
+
+    assert client.chat_structured("return JSON", "data", max_structured_attempts=1) == {"answer": "legacy"}
+
+
 def test_structured_chat_preserves_each_provider_usage_across_json_repair_attempts():
     def handler(n, url, headers, body):
         if n == 1:
@@ -244,6 +313,9 @@ def test_chat_structured_returns_none_on_persistent_failure():
         "message_type": "dict",
         "message_keys": ["content"],
         "content_type": "str",
+        "private_reasoning_present": False,
+        "refusal_present": False,
+        "tool_calls_present": False,
     }
 
 

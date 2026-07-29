@@ -1,6 +1,8 @@
 import pytest
 
-from app.knowledge.wiki_compiler import WikiCompilationError, WikiCompiler
+from app.knowledge.growth_repository import GrowthRepository
+from app.knowledge.source_triage import SourceTriageService
+from app.knowledge.wiki_compiler import WikiCompilationError, WikiCompiler, WikiSourceAdmissionError
 from app.knowledge.wiki_contracts import SourceRecord, SourceStatus
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_rules import build_default_agents_rules
@@ -64,7 +66,7 @@ def test_compiler_persists_draft_proposal_without_mutating_evidence(tmp_path):
         repo.close()
 
 
-def test_compiler_rejects_horizon_signal_without_current_project_triage(tmp_path):
+def test_compiler_reports_missing_project_triage_for_requested_horizon_signal(tmp_path):
     repo = WikiRepository(db_path=str(tmp_path / "compiler-horizon-admission.db"))
     repo.create_source(
         SourceRecord(
@@ -75,10 +77,54 @@ def test_compiler_rejects_horizon_signal_without_current_project_triage(tmp_path
         )
     )
     try:
-        with pytest.raises(WikiCompilationError, match="current project triage"):
+        with pytest.raises(
+            WikiSourceAdmissionError,
+            match="source horizon-pending is not admitted: current_project_triage_missing",
+        ):
             WikiCompiler(repo, FakeCompilerProvider({})).compile_maintenance(
                 project_id="project-a",
                 source_ids=["horizon-pending"],
+                trigger="manual",
+                rules_text=build_default_agents_rules("project-a"),
+            )
+    finally:
+        repo.close()
+
+
+def test_compiler_reports_primary_capture_requirement_for_requested_horizon_signal(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "compiler-horizon-primary-capture.db"))
+    repo.create_source(
+        SourceRecord(
+            id="horizon-signal",
+            project_id="project-a",
+            source_type="horizon_signal",
+            content_hash="e" * 64,
+            raw_content="A promising discovery that still needs its primary publication.",
+            status=SourceStatus.ELIGIBLE,
+            trust_level="reviewed",
+            metadata={
+                "admission_gate": "project_triage",
+                "relevance": 90,
+                "value": 90,
+                "freshness": 90,
+                "outputability": 90,
+                "connectedness": 90,
+            },
+        )
+    )
+    try:
+        SourceTriageService(GrowthRepository.borrow(repo)).triage_source("project-a", "horizon-signal")
+
+        with pytest.raises(
+            WikiSourceAdmissionError,
+            match=(
+                "source horizon-signal is not admitted: "
+                "horizon_signal_requires_independent_primary_capture"
+            ),
+        ):
+            WikiCompiler(repo, FakeCompilerProvider({})).compile_maintenance(
+                project_id="project-a",
+                source_ids=["horizon-signal"],
                 trigger="manual",
                 rules_text=build_default_agents_rules("project-a"),
             )

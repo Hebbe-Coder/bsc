@@ -35,3 +35,16 @@ def test_production_redis_rate_limit_fails_closed(monkeypatch):
     # return an honest protection failure rather than silently allowing traffic.
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "RATE_LIMIT_UNAVAILABLE"
+
+
+def test_runtime_disable_skips_an_already_initialized_redis_limiter(monkeypatch):
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+    monkeypatch.setattr(settings, "RATE_LIMIT_ENABLED", True)
+    monkeypatch.setattr(settings, "RATE_LIMIT_BACKEND", "redis")
+    monkeypatch.setattr(rate_limiter, "RedisTokenBucket", lambda _url: _UnavailableBucket())
+    client = _client()
+
+    assert client.get("/protected").status_code == 503
+
+    monkeypatch.setattr(settings, "RATE_LIMIT_ENABLED", False)
+    assert client.get("/protected").status_code == 200

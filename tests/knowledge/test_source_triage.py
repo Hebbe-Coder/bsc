@@ -238,6 +238,153 @@ def test_horizon_candidate_requires_an_independent_primary_capture_before_author
         repo.close()
 
 
+def test_horizon_candidate_can_be_used_only_after_an_explicit_independent_primary_capture(tmp_path):
+    repo = GrowthRepository(db_path=str(tmp_path / "triage-horizon-primary-link.db"))
+    try:
+        repo.save_profile(ProjectKnowledgeProfile(project_id="project-a"), actor_id="owner")
+        repo.create_source(
+            SourceRecord(
+                id="horizon-candidate",
+                project_id="project-a",
+                source_type="horizon_signal",
+                origin="https://news.example.com/approval-controls",
+                content_hash="8" * 64,
+                raw_content="A high-value radar discovery.",
+                status=SourceStatus.VALIDATED,
+                trust_level="trusted",
+                metadata={
+                    "admission_gate": "project_triage",
+                    **{key: 90 for key in ("relevance", "value", "freshness", "outputability", "connectedness")},
+                },
+            )
+        )
+        SourceTriageService(repo).triage_source("project-a", "horizon-candidate")
+        repo.create_source(
+            SourceRecord(
+                id="primary-capture",
+                project_id="project-a",
+                source_type="web_clip",
+                origin="https://news.example.com/approval-controls",
+                content_hash="7" * 64,
+                raw_content="The independently captured primary article.",
+                status=SourceStatus.ELIGIBLE,
+                trust_level="trusted",
+                metadata={
+                    "evidence_role": "primary_capture",
+                    "supports_horizon_signal_ids": ["horizon-candidate"],
+                },
+            )
+        )
+
+        horizon = repo.get_source("project-a", "horizon-candidate")
+
+        assert source_admission_reason(repo, "project-a", horizon) == ""
+    finally:
+        repo.close()
+
+
+def test_horizon_candidate_accepts_the_legacy_discovery_link_on_existing_primary_capture(tmp_path):
+    repo = GrowthRepository(db_path=str(tmp_path / "triage-horizon-legacy-primary-link.db"))
+    try:
+        repo.save_profile(ProjectKnowledgeProfile(project_id="project-a"), actor_id="owner")
+        repo.create_source(
+            SourceRecord(
+                id="horizon-candidate",
+                project_id="project-a",
+                source_type="horizon_signal",
+                origin="https://news.example.com/approval-controls",
+                content_hash="8" * 64,
+                raw_content="A high-value radar discovery.",
+                status=SourceStatus.VALIDATED,
+                trust_level="trusted",
+                metadata={
+                    "admission_gate": "project_triage",
+                    **{key: 90 for key in ("relevance", "value", "freshness", "outputability", "connectedness")},
+                },
+            )
+        )
+        SourceTriageService(repo).triage_source("project-a", "horizon-candidate")
+        repo.create_source(
+            SourceRecord(
+                id="legacy-primary-capture",
+                project_id="project-a",
+                source_type="primary_web",
+                origin="https://news.example.com/approval-controls",
+                content_hash="7" * 64,
+                raw_content="An independently captured primary article from an earlier BSC version.",
+                status=SourceStatus.ELIGIBLE,
+                trust_level="trusted",
+                metadata={
+                    "evidence_role": "primary_capture",
+                    "discovered_from_source_id": "horizon-candidate",
+                },
+            )
+        )
+
+        horizon = repo.get_source("project-a", "horizon-candidate")
+
+        assert source_admission_reason(repo, "project-a", horizon) == ""
+    finally:
+        repo.close()
+
+
+def test_horizon_candidate_rejects_cross_project_or_unlinked_primary_captures(tmp_path):
+    repo = GrowthRepository(db_path=str(tmp_path / "triage-horizon-primary-isolation.db"))
+    try:
+        repo.save_profile(ProjectKnowledgeProfile(project_id="project-a"), actor_id="owner")
+        repo.create_source(
+            SourceRecord(
+                id="horizon-candidate",
+                project_id="project-a",
+                source_type="horizon_signal",
+                content_hash="8" * 64,
+                raw_content="A high-value radar discovery.",
+                status=SourceStatus.VALIDATED,
+                trust_level="trusted",
+                metadata={
+                    "admission_gate": "project_triage",
+                    **{key: 90 for key in ("relevance", "value", "freshness", "outputability", "connectedness")},
+                },
+            )
+        )
+        SourceTriageService(repo).triage_source("project-a", "horizon-candidate")
+        repo.create_source(
+            SourceRecord(
+                id="unlinked-primary",
+                project_id="project-a",
+                source_type="web_clip",
+                content_hash="7" * 64,
+                raw_content="Another primary article.",
+                status=SourceStatus.ELIGIBLE,
+                trust_level="trusted",
+                metadata={"evidence_role": "primary_capture", "supports_horizon_signal_ids": ["other-signal"]},
+            )
+        )
+        repo.create_source(
+            SourceRecord(
+                id="foreign-primary",
+                project_id="project-b",
+                source_type="web_clip",
+                content_hash="6" * 64,
+                raw_content="A foreign project article.",
+                status=SourceStatus.ELIGIBLE,
+                trust_level="trusted",
+                metadata={
+                    "evidence_role": "primary_capture",
+                    "supports_horizon_signal_ids": ["horizon-candidate"],
+                },
+            )
+        )
+
+        horizon = repo.get_source("project-a", "horizon-candidate")
+
+        assert source_admission_reason(
+            repo, "project-a", horizon
+        ) == "horizon_signal_requires_independent_primary_capture"
+    finally:
+        repo.close()
+
+
 def test_preeligible_source_can_record_profile_bound_triage_without_lifecycle_regression(tmp_path):
     repo = GrowthRepository(db_path=str(tmp_path / "triage-preeligible.db"))
     try:

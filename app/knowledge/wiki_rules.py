@@ -77,6 +77,11 @@ Use only the page kinds declared in frontmatter.
 ## Frontmatter Schema
 Every page declares title, kind, status, and citations.
 
+## Metadata Contract
+BSC-controlled identifiers, hashes, capture timestamps, and managed flags are
+projection metadata. Editing an Obsidian property does not change lifecycle or
+authorization state.
+
 ## Citation Convention
 Every factual claim links to one or more source IDs.
 

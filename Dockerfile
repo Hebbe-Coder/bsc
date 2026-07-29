@@ -27,7 +27,10 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         libpangocairo-1.0-0 \
         libcairo2 \
         libgdk-pixbuf-2.0-0 \
-        libffi-dev; then \
+        libffi-dev \
+        ffmpeg \
+        tesseract-ocr \
+        tesseract-ocr-eng; then \
         installed=1; \
         break; \
       fi; \
