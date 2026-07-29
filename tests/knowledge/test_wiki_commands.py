@@ -216,6 +216,37 @@ def test_command_service_persists_celery_assignment_for_a_queued_run(tmp_path, m
         repo.close()
 
 
+def test_command_service_routes_growth_runs_to_the_bounded_growth_task(tmp_path, monkeypatch):
+    repo = WikiRepository(db_path=str(tmp_path / "commands-growth-celery-assignment.db"))
+    dispatched: list[list[str]] = []
+
+    class QueuedTask:
+        id = "growth-task-123"
+
+    monkeypatch.setattr("app.knowledge.wiki_commands.is_celery_real", lambda: True)
+    monkeypatch.setattr("app.knowledge.wiki_commands.is_celery_broker_available", lambda: True)
+    monkeypatch.setattr(
+        "app.tasks.growth_tasks.growth_execute.apply_async",
+        lambda args: dispatched.append(args) or QueuedTask(),
+    )
+    try:
+        result = WikiCommandService(repo).start_run(
+            project_id="project-a", job_type="growth_daily", trigger="http"
+        )
+
+        assert result["status"] == "queued"
+        assert result["task_id"] == "growth-task-123"
+        assert dispatched == [["project-a", result["run_id"]]]
+        events = repo.list_run_events(project_id="project-a", run_id=result["run_id"])
+        assert events[-1]["payload"] == {
+            "execution": "celery",
+            "task_name": "knowledge.growth.execute",
+            "task_id": "growth-task-123",
+        }
+    finally:
+        repo.close()
+
+
 def test_command_service_restores_a_prior_revision_through_a_new_gated_proposal(tmp_path, monkeypatch):
     vault_root = tmp_path / "vault"
     vault_root.mkdir()

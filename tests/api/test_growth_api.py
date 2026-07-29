@@ -1052,7 +1052,7 @@ def test_idempotent_growth_run_persists_one_celery_assignment(monkeypatch, tmp_p
     monkeypatch.setattr(growth_api_module, "is_celery_real", lambda: True)
     monkeypatch.setattr(growth_api_module, "is_celery_broker_available", lambda: True)
     monkeypatch.setattr(
-        "app.tasks.knowledge_tasks.knowledge_execute.apply_async",
+        "app.tasks.growth_tasks.growth_execute.apply_async",
         lambda args: dispatched.append(args) or QueuedTask(),
     )
     try:
@@ -1087,7 +1087,7 @@ def test_idempotent_growth_run_persists_one_celery_assignment(monkeypatch, tmp_p
         ]
         assert events[-1]["payload"] == {
             "execution": "celery",
-            "task_name": "knowledge.execute",
+            "task_name": "knowledge.growth.execute",
             "task_id": "growth-celery-task-123",
         }
     finally:

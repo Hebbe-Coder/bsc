@@ -1810,16 +1810,16 @@ def _start_run(
             output_refs={"failure": {"code": "scheduler_unavailable", "retryable": True}},
         )
         return {"status": "unavailable", "run_id": run_id}
-    from app.tasks.knowledge_tasks import knowledge_execute
+    from app.tasks.growth_tasks import growth_execute
 
-    task = knowledge_execute.apply_async(args=[project_id, run_id])
+    task = growth_execute.apply_async(args=[project_id, run_id])
     repo.append_run_event(
         project_id=project_id,
         run_id=run_id,
         event_type="knowledge.run.execution_assigned",
         payload={
             "execution": "celery",
-            "task_name": "knowledge.execute",
+            "task_name": "knowledge.growth.execute",
             "task_id": str(task.id),
         },
     )

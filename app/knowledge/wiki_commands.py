@@ -406,10 +406,19 @@ class WikiCommandService:
             return self._record_broker_unavailable(run)
         self.repository.create_run(run)
         try:
-            from app.tasks.knowledge_tasks import knowledge_execute
+            if job_type in {"growth_daily", "growth_weekly_distillation"}:
+                # Growth owns a tighter timeout/recovery contract than generic
+                # Wiki work. Manual and retry runs must use that same task.
+                from app.tasks.growth_tasks import growth_execute
 
-            task = knowledge_execute.apply_async(args=[project_id, run.id])
-            self._record_celery_assignment(run, task.id)
+                task = growth_execute.apply_async(args=[project_id, run.id])
+                task_name = "knowledge.growth.execute"
+            else:
+                from app.tasks.knowledge_tasks import knowledge_execute
+
+                task = knowledge_execute.apply_async(args=[project_id, run.id])
+                task_name = "knowledge.execute"
+            self._record_celery_assignment(run, task.id, task_name=task_name)
             return {"status": "queued", "run_id": run.id, "task_id": task.id}
         except Exception as exc:
             self.repository.update_run_status(project_id, run.id, RunStatus.FAILED, error=f"queue submission failed: {exc}")
@@ -565,7 +574,9 @@ class WikiCommandService:
             self.repository.update_run_status(project_id, run.id, RunStatus.FAILED, error=f"queue submission failed: {exc}")
             raise WikiCommandError(f"queue submission failed: {exc}") from exc
 
-    def _record_celery_assignment(self, run: KnowledgeRun, task_id: object) -> None:
+    def _record_celery_assignment(
+        self, run: KnowledgeRun, task_id: object, *, task_name: str = "knowledge.execute"
+    ) -> None:
         """Persist the broker handoff so a queued run remains auditable after reconnect."""
         self.repository.append_run_event(
             project_id=run.project_id,
@@ -573,7 +584,7 @@ class WikiCommandService:
             event_type="knowledge.run.execution_assigned",
             payload={
                 "execution": "celery",
-                "task_name": "knowledge.execute",
+                "task_name": task_name,
                 "task_id": str(task_id),
             },
         )
