@@ -30,6 +30,7 @@ from app.knowledge.source_triage import (
     SemanticSourceTriageEvaluator,
     SourceTriageService,
     current_project_triage_decisions,
+    requires_project_triage,
 )
 from app.knowledge.primary_web_capture import PrimaryWebCapture, PrimaryWebCaptureError
 from app.knowledge.wiki_source_capture import InvalidSourceTransition, SourceCaptureService
@@ -107,6 +108,8 @@ def _scheduler_available() -> bool:
 class SourceStatusRequest(BaseModel):
     project_id: str = Field(min_length=1)
     status: SourceStatus
+    triage_id: str = Field(default="", max_length=128)
+    approval_note: str = Field(default="", max_length=512)
 
 
 class SourceCaptureRequest(BaseModel):
@@ -741,10 +744,61 @@ def transition_workspace_source(
 ):
     project_id = _enforce_project_access(request, payload.project_id, write=True)
     try:
+        source = repo.get_source(project_id, source_id)
+        if not source:
+            raise KeyError(f"source not found: {source_id}")
+        approval = None
+        if payload.status is SourceStatus.ELIGIBLE and requires_project_triage(source):
+            triage_id = payload.triage_id.strip()
+            if triage_id:
+                approval = _build_triage_approval(repo, project_id, source, triage_id, payload.approval_note)
+            elif source.get("status") != SourceStatus.ELIGIBLE.value:
+                raise ValueError("eligible transition requires a current authoring-eligible triage_id")
         source = SourceCaptureService(repo).transition_source(project_id, source_id, payload.status)
+        if approval:
+            metadata = dict(source.get("metadata") or {})
+            metadata["admission_approval"] = approval
+            source = repo.update_source_metadata(project_id, source_id, metadata)
         return ApiResponse.ok({"source": _source_view(source)})
-    except (KeyError, InvalidSourceTransition) as exc:
+    except (KeyError, ValueError, InvalidSourceTransition) as exc:
         raise _command_error(exc) from exc
+
+
+def _build_triage_approval(
+    repo: WikiRepository,
+    project_id: str,
+    source: dict[str, Any],
+    triage_id: str,
+    approval_note: str,
+) -> dict[str, Any]:
+    """Bind an explicit source approval to one current, authoring-safe review."""
+    growth_repository = repo if hasattr(repo, "list_triage") else GrowthRepository.borrow(repo)
+    profile = growth_repository.get_profile(project_id) or {"revision": 0}
+    profile_revision = int(profile.get("revision", 0) or 0)
+    decision = next(
+        (
+            item
+            for item in growth_repository.list_triage(project_id, limit=500)
+            if str(item.get("id") or "") == triage_id
+        ),
+        None,
+    )
+    if decision is None or str(decision.get("source_id") or "") != str(source.get("id") or ""):
+        raise ValueError("triage_id does not belong to this source in the selected project")
+    if int(decision.get("profile_revision", -1)) != profile_revision:
+        raise ValueError("triage_id is stale for the current project profile")
+    if decision.get("evaluator_status") != "completed" or not bool(decision.get("reliability_pass")):
+        raise ValueError("triage_id is not a completed reliable review")
+    if decision.get("disposition") != "knowledge_candidate":
+        raise ValueError("triage_id is not approved for evidence authoring")
+    return {
+        "triage_id": triage_id,
+        "profile_revision": profile_revision,
+        "evaluator_revision": str(decision.get("evaluator_revision") or ""),
+        "approved_at": repo._now(),
+        "actor_id": "http",
+        **({"note": approval_note.strip()} if approval_note.strip() else {}),
+    }
 
 
 @router.get("/runs")

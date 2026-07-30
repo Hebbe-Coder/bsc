@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from copy import deepcopy
 
 from app.knowledge.wiki_contracts import ProposalStatus, SourceStatus, WikiOperationType, WikiProposal
@@ -222,7 +223,9 @@ class ProposalGate:
             if page["path"] in before
         }
         try:
-            staged = self.vault.stage(proposal)
+            staged_before_publication = self.vault.stage(proposal)
+            staged = self._materialize_published_statuses(staged_before_publication)
+            materialized_status_paths = self._materialized_status_paths(staged_before_publication, staged)
             self.vault.commit(staged)
             self.repository.record_publication(
                 project_id=proposal.project_id,
@@ -251,6 +254,7 @@ class ProposalGate:
             "evaluation_score": evaluation.score,
             "publication_policy": review_summary["publication_policy"],
             "indexing": indexing,
+            "materialized_status_paths": materialized_status_paths,
         }
 
     @staticmethod
@@ -259,7 +263,7 @@ class ProposalGate:
         for operation in proposal.operations:
             current = contents.get(operation.path)
             if operation.operation in {WikiOperationType.CREATE, WikiOperationType.REPLACE}:
-                if current != operation.content:
+                if current != ProposalGate._materialize_published_status(operation.path, operation.content):
                     return False
             elif operation.operation is WikiOperationType.APPEND:
                 if current is None or not current.endswith(operation.content):
@@ -271,6 +275,95 @@ class ProposalGate:
                 if current is not None or contents.get(operation.destination_path) is None:
                     return False
         return True
+
+    def reconcile_published_statuses(self, *, project_id: str) -> dict:
+        """Backfill only missing Vault status metadata for persisted Wiki pages.
+
+        This is an idempotent compatibility migration for pages published before
+        the frontmatter status contract existed. It refuses to write when a
+        managed Vault page differs from its durable BSC revision, so it cannot
+        overwrite a user edit while repairing metadata.
+        """
+        before = self.vault.contents
+        persisted_pages = self.repository.list_pages(project_id)
+        original_contents: dict[str, str] = {}
+        published_contents: dict[str, str] = {}
+        expected_content_hashes: dict[str, str] = {}
+        for page in persisted_pages:
+            path = str(page["path"])
+            revision = self.repository.get_page_content(project_id, str(page["id"]))
+            if revision is None:
+                raise ProposalGateError(f"published page revision is unavailable: {path}")
+            current_content = str(revision["content"])
+            original_contents[path] = current_content
+            published_contents[path] = self._materialize_published_status(path, current_content)
+            expected_content_hashes[path] = str(page["content_hash"])
+
+        changed_paths = sorted(
+            path for path, content in published_contents.items() if original_contents[path] != content
+        )
+        if not changed_paths:
+            return {"state": "already_materialized", "paths": [], "indexing": None}
+
+        for path in changed_paths:
+            if before.get(path) != original_contents[path]:
+                raise ProposalGateError(f"publication status migration conflict at {path}")
+
+        staged = dict(before)
+        staged.update({path: published_contents[path] for path in changed_paths})
+        try:
+            self.vault.commit(staged)
+            self.repository.record_publication(
+                project_id=project_id,
+                contents=published_contents,
+                source_ids=[],
+                expected_content_hashes=expected_content_hashes,
+            )
+        except Exception:
+            self.vault.commit(before)
+            raise
+        try:
+            indexing = self.search_index.sync_wiki_snapshot(project_id=project_id, contents=published_contents)
+        except Exception:
+            indexing = {"indexed": 0, "removed": 0, "failures": [{"path": "*", "code": "index_backend_exception"}]}
+        return {"state": "reconciled", "paths": changed_paths, "indexing": indexing}
+
+    @staticmethod
+    def _materialize_published_statuses(contents: dict[str, str]) -> dict[str, str]:
+        """Project the durable publication state into Obsidian page metadata.
+
+        The database is authoritative, but Obsidian views and Dataview query
+        frontmatter. A successfully published B-layer page must therefore never
+        continue to advertise itself as a draft in the Vault snapshot.
+        """
+        return {
+            path: ProposalGate._materialize_published_status(path, content)
+            for path, content in contents.items()
+        }
+
+    @staticmethod
+    def _materialized_status_paths(before: dict[str, str], after: dict[str, str]) -> list[str]:
+        return sorted(path for path, content in after.items() if before.get(path) != content)
+
+    @staticmethod
+    def _materialize_published_status(path: str, content: str) -> str:
+        if not path.startswith("wiki/") or not path.endswith(".md"):
+            return content
+        frontmatter = re.match(
+            r"\A(?P<opening>---\r?\n)(?P<body>.*?)(?P<closing>\r?\n---(?=\r?\n|\Z))",
+            content,
+            flags=re.DOTALL,
+        )
+        if not frontmatter:
+            return content
+        body = frontmatter.group("body")
+        line_ending = "\r\n" if "\r\n" in frontmatter.group("opening") else "\n"
+        if re.search(r"(?m)^status\s*:[^\r\n]*$", body):
+            normalized_body = re.sub(r"(?m)^status\s*:[^\r\n]*$", "status: published", body, count=1)
+        else:
+            separator = "" if not body or body.endswith(("\n", "\r")) else line_ending
+            normalized_body = f"{body}{separator}status: published"
+        return f"{frontmatter.group('opening')}{normalized_body}{frontmatter.group('closing')}{content[frontmatter.end():]}"
 
     @staticmethod
     def project_revision(contents: dict[str, str]) -> str:

@@ -68,6 +68,46 @@ def current_project_triage_decisions(repository: Any, project_id: str) -> dict[s
     return decisions
 
 
+def approved_project_triage_decision(
+    repository: Any,
+    project_id: str,
+    source: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Return a still-current, explicitly approved authoring decision.
+
+    Automatic triage remains useful for fresh recommendations, but it must not
+    silently revoke a user's approval of a specific semantic review. The
+    approval is valid only for the active profile revision and the immutable
+    source it names.
+    """
+    approval = (source.get("metadata") or {}).get("admission_approval")
+    if not isinstance(approval, dict):
+        return None
+    triage_id = str(approval.get("triage_id") or "").strip()
+    if not triage_id:
+        return None
+    triage_repository = repository
+    if not hasattr(triage_repository, "list_triage"):
+        triage_repository = GrowthRepository.borrow(repository)
+    profile = triage_repository.get_profile(project_id) or {"revision": 0}
+    profile_revision = int(profile.get("revision", 0) or 0)
+    if int(approval.get("profile_revision", -1)) != profile_revision:
+        return None
+    for decision in triage_repository.list_triage(project_id, limit=500):
+        if str(decision.get("id") or "") != triage_id:
+            continue
+        if str(decision.get("source_id") or "") != str(source.get("id") or ""):
+            return None
+        if int(decision.get("profile_revision", -1)) != profile_revision:
+            return None
+        if decision.get("evaluator_status") != "completed" or not bool(decision.get("reliability_pass")):
+            return None
+        if decision.get("disposition") != TriageDisposition.KNOWLEDGE_CANDIDATE.value:
+            return None
+        return decision
+    return None
+
+
 def source_admission_reason(
     repository: Any,
     project_id: str,
@@ -78,7 +118,11 @@ def source_admission_reason(
     """Explain why an otherwise eligible discovery source cannot be used yet."""
     if not requires_project_triage(source) or source.get("status") == SourceStatus.PROCESSED.value:
         return ""
-    decision = (current_decisions or current_project_triage_decisions(repository, project_id)).get(
+    metadata = source.get("metadata") or {}
+    approved_decision = approved_project_triage_decision(repository, project_id, source)
+    if isinstance(metadata.get("admission_approval"), dict) and approved_decision is None:
+        return "project_triage_approval_stale_or_invalid"
+    decision = approved_decision or (current_decisions or current_project_triage_decisions(repository, project_id)).get(
         str(source.get("id") or "")
     )
     if decision is None:

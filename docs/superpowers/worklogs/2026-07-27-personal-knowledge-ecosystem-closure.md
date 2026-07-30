@@ -331,3 +331,78 @@ criteria.
   `implemented_with_operational_proof_pending` for user-origin Claudian/Zotero
   outputs and for enough comparable real outcomes to validate business value
   or capability promotion.
+
+## 2026-07-30 Claudian Destination And Operational Recheck
+
+- Re-checked the user-visible Claudian configuration without inspecting plugin
+  code, private note content, or provider credentials. Its configured media
+  destination is `projects/default/04_Outputs/claudian`, matching the trusted
+  BSC output bridge. The configured directory exists and remained empty at the
+  time of inspection.
+- The visible Claudian sidebar conversation therefore proves that the plugin
+  is active, but it is not a filesystem export and cannot truthfully be
+  represented as a captured D-layer output. BSC requires a user-authored
+  Markdown file to be created or exported into that configured destination;
+  the existing five-minute `source_sync` schedule will then capture its
+  metadata, evidence link, output feedback, and downstream growth context.
+- Revalidated the surrounding runtime: Docker API, Worker, Beat, PostgreSQL,
+  Redis, and n8n were healthy; `docker compose --profile full config --quiet`
+  passed; the related scheduler, growth, A/B/C/D, and PBOS regression command
+  passed with `106 passed`. The overall state remains
+  `implemented_with_operational_proof_pending`, not `release_ready`, until a
+  real user-origin output and a later decision-changing feedback result exist.
+
+## 2026-07-30 Claudian Agent-Workspace Output Contract
+
+- Corrected an operationally misleading bridge assumption. Claudian's public
+  plugin contract gives its agent the Vault as a read/write workspace;
+  `mediaFolder` is an attachment location, not evidence that a sidebar chat
+  was exported. The runtime bridge therefore reports
+  `agent_workspace / agent_writes_declared_output_path` and remains
+  `ready_for_first_output` until a real file exists beneath
+  `04_Outputs/claudian/`.
+- Added the `bsc_output_contract: v1` parser for declared plugin outputs. It
+  accepts only bounded scalar metadata plus comma-separated project-local
+  source/page IDs, normalizes Windows CRLF, validates output kind and contract
+  revision, and rejects a declared project mismatch. Existing source/page
+  authorization remains enforced by `OutputRegistry`; output bodies and chat
+  sessions are not exposed in route status or work logs.
+- Added the durable-deliverable rule to the project `AGENTS.md` and configured
+  Claudian's system prompt to direct report, PRD, plan, SOP, article, research
+  brief, decision memo, and retrospective requests into the governed output
+  folder. Ordinary conversation remains chat-only. No user output was created
+  by BSC to satisfy this proof.
+- Verification: focused output/plugin route tests, source sync, knowledge and
+  growth Celery integration, and workspace/growth API tests passed with
+  `112 passed, 1 skipped`; focused frontend workspace tests passed with
+  `44 passed`; TypeScript check and production build passed. Rebuilt API,
+  Worker, and Beat; all Compose services are healthy and Celery returned
+  `pong`.
+- A post-deployment scheduled run `298cea42ee58` completed through the real
+  Worker. It scanned 11 existing managed-project files, had no mirror
+  conflicts, and reported `output_feedback.scanned=0` and `registered=0`.
+  This is the correct empty-route result, not a Claudian completion claim.
+  Status remains `implemented_with_operational_proof_pending` until the
+  plugin itself writes a user-origin output and a later evaluation/feedback
+  record changes a subsequent decision.
+
+## 2026-07-30 Published Wiki Metadata Reconciliation
+
+- A full quality-gate audit exposed eight older BSC-published Wiki pages whose
+  durable database status was `published` but whose Vault frontmatter lacked
+  `status: published`. The new contract does not weaken lint to accept this
+  mismatch. Instead, it provides an idempotent compatibility reconciliation
+  that changes only the missing generated metadata.
+- Before any write, the reconciler compares each page requiring repair against
+  its exact durable BSC revision. A missing page, changed file, or cross-version
+  mismatch raises a conflict and leaves the Vault untouched. Pages that already
+  satisfy the contract perform no filesystem or database write. The quality
+  run records the reconciliation result alongside its lint and evaluation
+  output, so a metadata repair cannot be mistaken for an evidence or knowledge
+  claim.
+- Verification: focused reconciliation/quality tests, the affected Obsidian,
+  triage, API, and PBOS suites passed; the complete backend suite passed
+  `838 passed, 9 skipped`, the full frontend suite passed `163` tests, and
+  TypeScript, production build, and Compose parsing passed. The current Docker
+  image predates this reconciliation code; a live repair is deliberately not
+  claimed until the rebuilt API and Worker are healthy.

@@ -2078,3 +2078,15 @@ body .knowledge-connection-path small {
 @media (max-width: 980px) { .pbos-today, .pbos-connectors, .pbos-grounding, .pbos-profile, .pbos-reflection, .pbos-chart, .pbos-lineage { grid-column: span 6; }.pbos-grid > section:nth-last-child(-n + 4) { grid-column: span 6; } }
 @media (max-width: 640px) { .pbos-cockpit > header { min-height: 62px; }.pbos-cockpit > header h2 { font-size: 16px; }.pbos-access-state { display: grid; margin: 56px 12px; }.pbos-access-state__actions { width: 100%; }.pbos-access-state__actions button { flex: 1 1 auto; }.pbos-grid { grid-template-columns: 1fr; padding: 12px; }.pbos-today, .pbos-connectors, .pbos-grounding, .pbos-profile, .pbos-reflection, .pbos-chart, .pbos-lineage, .pbos-grid > section:nth-last-child(-n + 4) { grid-column: auto; }.pbos-today dl { gap: 0; }.pbos-today dt { overflow: visible; white-space: normal; }.pbos-grounding dl { grid-template-columns: 1fr; }.pbos-health dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }.pbos-health dl > div:nth-child(n + 3) { border-top: 1px solid #263d44; }.pbos-profile form, .pbos-reflection form { grid-template-columns: 1fr; }.pbos-profile label, .pbos-reflection label:first-child { grid-column: auto; }.pbos-chart, .pbos-lineage { min-height: 270px !important; }.pbos-lineage .react-flow { height: 205px; }.pbos-lineage .react-flow__node-default { min-width: 78px; padding: 6px; font-size: 8px; } }
 @media (prefers-reduced-motion: reduce) { .pbos-cockpit *, .pbos-cockpit *::before, .pbos-cockpit *::after { scroll-behavior: auto !important; transition-duration: 0s !important; animation-duration: 0s !important; } }
+
+/* The compact relation graph is deliberately a decision focus, not a scaled desktop canvas. */
+.knowledge-graph-scope { align-self: end; min-height: 34px; white-space: nowrap; }
+.knowledge-flow-node--compact { max-width: 146px; padding: 7px 8px !important; font-size: 10px; }
+@media (max-width: 780px) {
+  .knowledge-graph-view .knowledge-content-header { display: grid; grid-template-columns: 1fr; gap: 12px; }
+  .knowledge-graph-filters { width: 100%; justify-content: stretch; }
+  .knowledge-graph-filters .knowledge-select-label { flex: 1 1 136px; }
+  .knowledge-graph-filters .knowledge-select-label select { width: 100%; }
+  .knowledge-graph-scope { flex: 1 1 136px; }
+  .knowledge-graph-canvas .react-flow__edge-text { display: none; }
+}

@@ -744,3 +744,71 @@ Live Horizon endpoint/API credentials and a real Wiki-maintenance LLM provider r
 ### Remaining Boundary
 
 - Google News and Reddit were unreachable during the successful producer run. Their failures remain source diagnostics; RSS, Hacker News, and GitHub yielded the 34 real candidates. No generated substitute was inserted for unavailable channels.
+
+## Source Sync Recovery And Runtime Regression (2026-07-30)
+
+### Implemented
+
+- Added a dedicated `900s` abandoned-run recovery window for the five-minute
+  `source_sync` schedule. The scheduler now uses this only for source
+  synchronization; longer-running knowledge jobs retain the global Celery
+  timeout. An interrupted sync is recorded as `failed` with
+  `abandoned_run` and remains retryable, rather than appearing indefinitely
+  as `running` or being overwritten by a later schedule claim.
+- Passed the recovery setting through application configuration, the API and
+  Worker Compose environment, and the durable schedule reconciler. Regression
+  coverage asserts the isolated timeout, non-source-job compatibility, and the
+  Compose contract.
+
+### Verification
+
+- The rebuilt Docker API, Worker, Beat, PostgreSQL, Redis, and n8n services
+  were healthy. The old orphaned source-sync ledger entry was terminally
+  recorded as `failed / abandoned_run`; a later real source-sync run completed
+  without modifying immutable prior evidence.
+- `pytest tests/knowledge/test_scheduler.py tests/knowledge/test_knowledge_tasks.py
+  tests/test_config_sop_llm.py tests/test_docker_compose_contract.py
+  tests/knowledge/test_growth_distillation.py tests/integration/test_abcd_growth_e2e.py
+  tests/integration/test_pbos_e2e.py -q` passed with `106 passed`.
+- `docker compose --profile full config --quiet` passed. This validation does
+  not read Vault note bodies, plugin source code, or credentials.
+
+### Boundary
+
+- Recovery and scheduling are operational proof for the BSC side of the
+  loop, not a claim that a third-party Obsidian plugin has exported content.
+  User-origin Claudian and Zotero files remain required before their own
+  capture paths can be promoted beyond `awaiting_export`.
+
+## Claudian Output Lineage Contract (2026-07-30)
+
+### Implemented
+
+- Reclassified Claudian as an agent-workspace producer. Its configured Vault
+  attachment folder is no longer presented as an automatic chat-export
+  destination. The bridge becomes a registered D-layer route only after the
+  agent writes an actual file below `04_Outputs/claudian/`.
+- Added a bounded `bsc_output_contract: v1` for external agent deliverables.
+  It retains declared title, output kind, goal, audience, channel, and only
+  already-resolvable source/page references. A mismatched project declaration
+  or unknown reference is rejected instead of crossing projects or creating
+  synthetic lineage.
+
+### Verification
+
+- Added route-semantic, provenance-lineage, cross-project rejection, and CRLF
+  parsing coverage. The affected backend integration/API suite passed with
+  `112 passed, 1 skipped`; workspace frontend tests passed with `44 passed`;
+  TypeScript and production builds passed.
+- Rebuilt Docker API, Worker, and Beat. Runtime route readback is
+  `agent_workspace`, `ready_for_first_output`, and `registered_outputs=0`.
+  Celery `inspect ping` returned `pong`; scheduled source-sync run
+  `298cea42ee58` completed with zero output files observed or registered.
+
+### Boundary
+
+- No BSC script wrote a file into the Claudian output route. The final
+  plugin-origin proof requires an actual Claudian request to write a durable
+  deliverable and a later evaluation/feedback action, so the governed loop
+  remains `implemented_with_operational_proof_pending` rather than claiming
+  release readiness prematurely.

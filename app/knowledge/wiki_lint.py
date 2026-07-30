@@ -162,6 +162,8 @@ class WikiLint:
                     findings.append(self._finding("missing_frontmatter", path, "Published Wiki pages require YAML frontmatter."))
                 elif metadata.get("kind") not in rules.allowed_page_kinds:
                     findings.append(self._finding("invalid_page_kind", path, "Published page kind is not allowed by AGENTS.md."))
+                elif metadata.get("status") != "published":
+                    findings.append(self._finding("invalid_publication_status", path, "Published Wiki pages must declare status: published."))
                 citations = _SOURCE_REF.findall(content)
                 if not citations:
                     findings.append(self._finding("missing_source_citation", path, "Substantive Wiki pages require at least one immutable source citation."))
@@ -207,6 +209,7 @@ class WikiLint:
         remediation = {
             "missing_frontmatter": "Add valid YAML frontmatter with an allowed page kind.",
             "invalid_page_kind": "Use a page kind allowed by AGENTS.md.",
+            "invalid_publication_status": "Publish through the proposal gate so the page metadata reflects its durable status.",
             "missing_source_citation": "Attach at least one resolvable [source:<id>] citation.",
             "unknown_source": "Replace the reference with an immutable source from this project.",
             "dangling_page_link": "Create the target through a governed proposal or remove the link.",

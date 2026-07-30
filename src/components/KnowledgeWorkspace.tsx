@@ -13,7 +13,7 @@ import {
   fetchWeeklyDistillation, fetchWeeklyDistillations, lintKnowledgeProposal, publishKnowledgeProposal,
   rejectKnowledgeProposal, restoreKnowledgePageRevision, retryKnowledgeRun, runKnowledgeJob, saveKnowledgeEvaluationCase, setKnowledgePluginTrust, setKnowledgeScheduleState,
   semanticTriageKnowledgeSource, streamKnowledgeRunEvents, transitionKnowledgeSource,
-  type FeishuKnowledgeExport, type KnowledgeEvaluationCaseInput, type KnowledgeGraphNode, type KnowledgeHealth, type KnowledgeWorkspaceData,
+  type FeishuKnowledgeExport, type KnowledgeEvaluationCaseInput, type KnowledgeGraphEdge, type KnowledgeGraphNode, type KnowledgeHealth, type KnowledgeWorkspaceData,
   type KnowledgePage, type KnowledgePageDetail, type KnowledgePluginBridge, type KnowledgeProposal, type KnowledgeRun, type KnowledgeWorkspaceProject,
   type KnowledgeRunEvent, type KnowledgeSchedule, type KnowledgeSource, type KnowledgeSourceTriage,
   type WeeklyDistillation, type WeeklyDistillationDetail,
@@ -26,6 +26,8 @@ import { describeKnowledgeSource, selectDefaultKnowledgePage } from './knowledge
 
 type Props = { onClose: () => void; runtimeAccessKey?: string };
 type GraphNodeData = { record: KnowledgeGraphNode; label: string };
+type KnowledgeGraphFocus = { nodes: KnowledgeGraphNode[]; edges: KnowledgeGraphEdge[] };
+const MOBILE_GRAPH_FOCUS_LIMIT = 8;
 
 export const KNOWLEDGE_JOB_OPTIONS = [
   { id: 'source_sync', label: 'Sync declared exports', defaultCron: '0 8 * * 1' },
@@ -46,6 +48,7 @@ export const OBSIDIAN_PLUGIN_PRESETS = [
   { id: 'feishu-cli', name: 'Feishu CLI export', adapter: 'filesystem_drop', input_paths: ['01_Sources/feishu'] },
   { id: 'docxer', name: 'Docxer export', adapter: 'filesystem_drop', input_paths: ['01_Sources/docxer'] },
   { id: 'obsidian-importer', name: 'Obsidian Importer export', adapter: 'filesystem_drop', input_paths: ['01_Sources/importer'] },
+  { id: 'realclaudian', name: 'Claudian agent output', adapter: 'filesystem_output', input_paths: ['04_Outputs/claudian'] },
   { id: 'hyperframes', name: 'HyperFrames output feedback', adapter: 'filesystem_output', input_paths: ['04_Outputs/hyperframes'] },
   { id: 'markdown-output', name: 'Markdown formatter output feedback', adapter: 'filesystem_output', input_paths: ['04_Outputs/articles'] },
   { id: 'project-raw', name: 'Legacy raw/ export', adapter: 'filesystem_drop', input_paths: ['raw/custom'] },
@@ -65,6 +68,34 @@ export function projectOptions(currentProjectId: string, projects: KnowledgeWork
   const unique = new Map(projects.map((project) => [project.id, project]));
   if (current && !unique.has(current)) unique.set(current, { id: current, name: current, created_at: '' });
   return [...unique.values()];
+}
+
+export function selectKnowledgeGraphFocus(
+  nodes: KnowledgeGraphNode[],
+  edges: KnowledgeGraphEdge[],
+  limit = MOBILE_GRAPH_FOCUS_LIMIT,
+): KnowledgeGraphFocus {
+  const knownNodeIds = new Set(nodes.map((node) => node.id));
+  const connectedEdges = edges.filter((edge) => knownNodeIds.has(edge.from_id) && knownNodeIds.has(edge.to_id));
+  const degree = new Map(nodes.map((node) => [node.id, 0]));
+  for (const edge of connectedEdges) {
+    degree.set(edge.from_id, (degree.get(edge.from_id) ?? 0) + 1);
+    degree.set(edge.to_id, (degree.get(edge.to_id) ?? 0) + 1);
+  }
+  const typePriority: Record<KnowledgeGraphNode['node_type'], number> = { page: 0, proposal: 1, source: 2 };
+  const focusNodes = [...nodes]
+    .sort((left, right) => (
+      (degree.get(right.id) ?? 0) - (degree.get(left.id) ?? 0)
+      || typePriority[left.node_type] - typePriority[right.node_type]
+      || left.label.localeCompare(right.label)
+      || left.id.localeCompare(right.id)
+    ))
+    .slice(0, Math.max(1, limit));
+  const focusIds = new Set(focusNodes.map((node) => node.id));
+  return {
+    nodes: focusNodes,
+    edges: connectedEdges.filter((edge) => focusIds.has(edge.from_id) && focusIds.has(edge.to_id)),
+  };
 }
 
 export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
@@ -87,6 +118,7 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
   const [pluginAdapter, setPluginAdapter] = useState<KnowledgePluginBridge['adapter']>('filesystem_drop');
   const [pluginPaths, setPluginPaths] = useState('00_Inbox/custom');
   const [includeDistillationHistory, setIncludeDistillationHistory] = useState(false);
+  const [showFullCompactGraph, setShowFullCompactGraph] = useState(false);
   const [selectedSourceTriage, setSelectedSourceTriage] = useState<KnowledgeSourceTriage | null>(null);
   const [evidenceRefreshVersion, setEvidenceRefreshVersion] = useState(0);
   const [projectDraft, setProjectDraft] = useState(projectId);
@@ -192,6 +224,9 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
     query.addEventListener('change', sync);
     return () => query.removeEventListener('change', sync);
   }, []);
+  useEffect(() => {
+    if (!isCompactViewport) setShowFullCompactGraph(false);
+  }, [isCompactViewport]);
 
   useEffect(() => {
     if (!selectedRun) return undefined;
@@ -290,7 +325,14 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
     if (persisted) inspectRun(persisted);
   });
   const promoteSource = (source: KnowledgeSource) => withAction(async () => {
-    await transitionKnowledgeSource(projectId, source.id, 'eligible');
+    const triage = selectedSource?.id === source.id && selectedSourceTriage
+      ? selectedSourceTriage
+      : (await fetchKnowledgeSourceTriage(projectId, source.id)).triage;
+    const needsTriageApproval = source.source_type === 'horizon_signal' || source.metadata.admission_gate === 'project_triage';
+    if (needsTriageApproval && (!triage || triage.disposition !== 'knowledge_candidate' || !Boolean(triage.reliability_pass))) {
+      throw new Error('Run semantic review and select a reliable knowledge candidate before approving this evidence.');
+    }
+    await transitionKnowledgeSource(projectId, source.id, 'eligible', needsTriageApproval ? triage?.id ?? '' : '');
     showMessage(`Evidence approved for governed synthesis: ${source.origin || source.id}.`);
     await load();
   });
@@ -455,18 +497,35 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
     (!graphNodeType || record.node_type === graphNodeType)
     && (!graphNodeStatus || record.status === graphNodeStatus)
   ));
-  const renderedRecords = filteredGraphNodes.slice(0, maxNodes);
+  const filteredGraphNodeIds = new Set(filteredGraphNodes.map((record) => record.id));
+  const filteredGraphEdges = graph.edges.filter((edge) => (
+    filteredGraphNodeIds.has(edge.from_id) && filteredGraphNodeIds.has(edge.to_id)
+  ));
+  const compactGraphFocus = selectKnowledgeGraphFocus(filteredGraphNodes, filteredGraphEdges);
+  const useCompactGraphFocus = isCompactViewport && !showFullCompactGraph && filteredGraphNodes.length > MOBILE_GRAPH_FOCUS_LIMIT;
+  const renderedRecords = (useCompactGraphFocus ? compactGraphFocus.nodes : filteredGraphNodes).slice(0, maxNodes);
   const visibleNodeIds = new Set(renderedRecords.map((record) => record.id));
+  const graphColumnCount = isCompactViewport ? 2 : 4;
   const flowNodes: Node<GraphNodeData>[] = renderedRecords.map((record, index) => ({
     id: record.id,
     data: { record, label: record.label },
     type: 'default',
-    position: { x: 40 + (index % 4) * 220, y: 36 + Math.floor(index / 4) * 118 },
-    className: `knowledge-flow-node knowledge-flow-node--${record.node_type}`,
+    position: {
+      x: (isCompactViewport ? 18 : 40) + (index % graphColumnCount) * (isCompactViewport ? 178 : 220),
+      y: (isCompactViewport ? 24 : 36) + Math.floor(index / graphColumnCount) * (isCompactViewport ? 118 : 118),
+    },
+    className: `knowledge-flow-node knowledge-flow-node--${record.node_type}${useCompactGraphFocus ? ' knowledge-flow-node--compact' : ''}`,
   }));
-  const flowEdges: Edge[] = graph.edges
+  const flowEdges: Edge[] = filteredGraphEdges
     .filter((edge) => visibleNodeIds.has(edge.from_id) && visibleNodeIds.has(edge.to_id))
-    .map((edge) => ({ id: edge.id, source: edge.from_id, target: edge.to_id, label: edge.edge_type, type: 'smoothstep', animated: false }));
+    .map((edge) => ({
+      id: edge.id,
+      source: edge.from_id,
+      target: edge.to_id,
+      label: useCompactGraphFocus ? undefined : edge.edge_type,
+      type: 'smoothstep',
+      animated: false,
+    }));
   const graphTypes = [...new Set(graph.edges.map((edge) => edge.edge_type))];
   const graphNodeTypes = [...new Set(graph.nodes.map((node) => node.node_type))].sort();
   const graphNodeStatuses = [...new Set(graph.nodes.map((node) => node.status).filter(Boolean))].sort();
@@ -602,11 +661,12 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
           {centerView === 'proposal' && <ProposalReview proposal={selectedProposal} baselines={proposalBaselines} busy={actionBusy} canWrite={canWrite} onLint={lintProposal} onPublish={publishProposal} onReject={rejectProposal} onSaveEvaluationCase={saveProposalEvaluationCase} />}
           {centerView === 'run' && <RunTimeline runs={runs} selectedRun={selectedRun} events={runEvents} busy={actionBusy} onSelect={inspectRun} onRetry={retryRun} />}
           {centerView === 'graph' && <section className="knowledge-graph-view">
-            <header className="knowledge-content-header"><div><span className="eyebrow">RELATIONSHIP GRAPH</span><h3>Traceable knowledge relations</h3></div><div className="knowledge-graph-filters"><label className="knowledge-select-label">Edge filter<select value={graphEdgeType} onChange={(event) => setGraphEdgeType(event.target.value)}><option value="">All edges</option>{graphTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label><label className="knowledge-select-label">Node type<select value={graphNodeType} onChange={(event) => setGraphNodeType(event.target.value)}><option value="">All types</option>{graphNodeTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label><label className="knowledge-select-label">Node status<select value={graphNodeStatus} onChange={(event) => setGraphNodeStatus(event.target.value)}><option value="">All states</option>{graphNodeStatuses.map((status) => <option key={status} value={status}>{status}</option>)}</select></label></div></header>
+            <header className="knowledge-content-header"><div><span className="eyebrow">RELATIONSHIP GRAPH</span><h3>Traceable knowledge relations</h3></div><div className="knowledge-graph-filters"><label className="knowledge-select-label">Edge filter<select value={graphEdgeType} onChange={(event) => setGraphEdgeType(event.target.value)}><option value="">All edges</option>{graphTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label><label className="knowledge-select-label">Node type<select value={graphNodeType} onChange={(event) => setGraphNodeType(event.target.value)}><option value="">All types</option>{graphNodeTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label><label className="knowledge-select-label">Node status<select value={graphNodeStatus} onChange={(event) => setGraphNodeStatus(event.target.value)}><option value="">All states</option>{graphNodeStatuses.map((status) => <option key={status} value={status}>{status}</option>)}</select></label>{isCompactViewport && filteredGraphNodes.length > MOBILE_GRAPH_FOCUS_LIMIT && <button type="button" className="knowledge-graph-scope" aria-pressed={showFullCompactGraph} onClick={() => setShowFullCompactGraph((current) => !current)}>{showFullCompactGraph ? 'Focus graph' : 'All records'}</button>}</div></header>
             <div className="knowledge-graph-canvas">{flowNodes.length ? <ReactFlow
               nodes={flowNodes}
               edges={flowEdges}
               fitView
+              fitViewOptions={{ padding: useCompactGraphFocus ? 0.2 : 0.12 }}
               nodesDraggable={false}
               nodesConnectable={false}
               onNodeClick={(_, node) => {
@@ -623,7 +683,8 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
                 if (target.node_type === 'proposal') { const proposal = proposals.find((item) => item.id === target.id); if (proposal) inspectProposal(proposal); }
               }}
             ><Background gap={22} size={1} /><Controls showInteractive={false} /></ReactFlow> : <Empty text="No persisted relationships match the selected graph filters." />}</div>
-            {(graph.truncated || filteredGraphNodes.length > maxNodes) && <p className="knowledge-limit-note">Showing a bounded relationship slice ({flowNodes.length} nodes / {graph.edges.length} of {graph.total} edges). Narrow the filters to inspect another slice.</p>}
+            {useCompactGraphFocus && <p className="knowledge-limit-note">Mobile focus: {flowNodes.length} highest-connected records and {flowEdges.length} direct relations from {filteredGraphNodes.length} filtered records.</p>}
+            {!useCompactGraphFocus && (graph.truncated || filteredGraphNodes.length > maxNodes) && <p className="knowledge-limit-note">Showing a bounded relationship slice ({flowNodes.length} nodes / {filteredGraphEdges.length} filtered edges). Narrow the filters to inspect another slice.</p>}
           </section>}
           {centerView === 'intelligence' && <InformationOperationsPanel projectId={projectId} canWrite={canWrite} refreshToken={evidenceRefreshVersion} />}
           {centerView === 'distillation' && <DistillationReader records={distillations} selected={selectedDistillation} onSelect={inspectDistillation} includeHistory={includeDistillationHistory} onIncludeHistoryChange={setDistillationHistory} />}
@@ -654,6 +715,7 @@ function pluginRuntimeDetail(plugin: KnowledgeWorkspaceData['plugins']['plugins'
   switch (plugin.runtime_configuration?.state) {
     case 'configured': return 'Plugin destination matches this governed bridge.';
     case 'interactive_destination': return 'Choose this declared folder in the plugin import dialog before importing.';
+    case 'agent_workspace': return 'The agent writes durable deliverables into this declared Vault path; a chat reply alone is not an output.';
     case 'mismatch': return 'Plugin destination differs from this bridge; correct the plugin setting before Sync.';
     case 'unavailable': return 'Plugin settings could not be verified from the Vault.';
     case 'unverified': return 'Plugin settings cannot be checked until the Vault is available.';

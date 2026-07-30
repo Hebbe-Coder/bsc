@@ -257,5 +257,5 @@ def test_project_lint_reports_orphan_stale_and_uncited_pages():
     )
 
     codes = {finding.code for finding in report.findings}
-    assert {"orphan_page", "stale_page", "missing_source_citation"} <= codes
+    assert {"orphan_page", "stale_page", "missing_source_citation", "invalid_publication_status"} <= codes
     assert all(finding.remediation for finding in report.findings)

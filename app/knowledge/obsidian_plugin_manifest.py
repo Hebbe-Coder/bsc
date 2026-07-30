@@ -45,9 +45,12 @@ _RUNTIME_SETTING_PROBES = {
         Path(".obsidian/plugins/obsidian-zotero-desktop-connector/data.json"),
         "noteImportFolder",
     ),
-    "realclaudian": (Path(".claudian/claudian-settings.json"), "mediaFolder"),
 }
 _INTERACTIVE_DESTINATION_PLUGINS = frozenset({"obsidian-importer", "docxer"})
+# Claudian agents work from the Vault and can create files directly. Its
+# ``mediaFolder`` setting is for attachments, not a chat-transcript export
+# destination, so it must never be used as proof that an output was written.
+_AGENT_WORKSPACE_PLUGINS = frozenset({"realclaudian"})
 
 
 @dataclass(frozen=True)
@@ -553,6 +556,11 @@ class ObsidianPluginManifest:
             return {
                 "state": "interactive_destination",
                 "detail_code": "plugin_selects_destination_per_import",
+            }
+        if plugin.plugin_id in _AGENT_WORKSPACE_PLUGINS:
+            return {
+                "state": "agent_workspace",
+                "detail_code": "agent_writes_declared_output_path",
             }
         probe = _RUNTIME_SETTING_PROBES.get(plugin.plugin_id)
         if probe is None:

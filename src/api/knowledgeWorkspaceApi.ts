@@ -47,7 +47,7 @@ export type KnowledgeWorkspaceData = {
       missing_managed_directories?: string[];
     };
   };
-  plugins: { configured: boolean; supported_adapters: string[]; plugins: Array<{ id: string; name: string; adapter: 'filesystem_drop' | 'filesystem_output' | 'filesystem_context'; input_paths: string[]; trust_state: 'trusted' | 'untrusted' | 'configuration_changed' | 'unavailable'; trusted_at: string; trust_actor: string; path_status: 'ready' | 'missing' | 'unavailable' | 'unverified'; runtime_configuration?: { state: 'configured' | 'interactive_destination' | 'declared_only' | 'mismatch' | 'unavailable' | 'unverified'; detail_code: string }; status: 'awaiting_export' | 'captured' | 'awaiting_output' | 'registered_output' | 'awaiting_trust' | 'trust_stale' | 'trust_unavailable'; capture_state?: 'awaiting_trust' | 'trust_stale' | 'trust_unavailable' | 'captured' | 'registered_output' | 'ready_for_first_export' | 'ready_for_first_output' | 'files_detected_pending_capture' | 'files_detected_pending_registration' | 'route_unavailable'; export_observation?: { state: 'empty' | 'files_detected' | 'file_limit_reached' | 'unavailable'; file_count: number; latest_modified_at: string }; captured_sources: number; registered_outputs: number; last_captured_at: string; last_registered_at: string }>; errors: string[] };
+  plugins: { configured: boolean; supported_adapters: string[]; plugins: Array<{ id: string; name: string; adapter: 'filesystem_drop' | 'filesystem_output' | 'filesystem_context'; input_paths: string[]; trust_state: 'trusted' | 'untrusted' | 'configuration_changed' | 'unavailable'; trusted_at: string; trust_actor: string; path_status: 'ready' | 'missing' | 'unavailable' | 'unverified'; runtime_configuration?: { state: 'configured' | 'interactive_destination' | 'agent_workspace' | 'declared_only' | 'mismatch' | 'unavailable' | 'unverified'; detail_code: string }; status: 'awaiting_export' | 'captured' | 'awaiting_output' | 'registered_output' | 'awaiting_trust' | 'trust_stale' | 'trust_unavailable'; capture_state?: 'awaiting_trust' | 'trust_stale' | 'trust_unavailable' | 'captured' | 'registered_output' | 'ready_for_first_export' | 'ready_for_first_output' | 'files_detected_pending_capture' | 'files_detected_pending_registration' | 'route_unavailable'; export_observation?: { state: 'empty' | 'files_detected' | 'file_limit_reached' | 'unavailable'; file_count: number; latest_modified_at: string }; captured_sources: number; registered_outputs: number; last_captured_at: string; last_registered_at: string }>; errors: string[] };
   sources: number;
   runs: number;
   schedules: number;
@@ -344,7 +344,11 @@ export const rejectKnowledgeProposal = (projectId: string, proposalId: string) =
 export const saveKnowledgeEvaluationCase = (projectId: string, evaluationCase: KnowledgeEvaluationCaseInput) => post<{ eval_case: { case_id: string; case_type: string; expected: Record<string, unknown> } }>('/knowledge/eval-cases', { project_id: projectId, ...evaluationCase });
 export const runKnowledgeJob = (projectId: string, jobType: string) => post<{ status: string; run_id: string; execution?: string }>("/knowledge/runs", { project_id: projectId, job_type: jobType });
 export const retryKnowledgeRun = (projectId: string, runId: string) => post<{ status: string; run_id: string; execution?: string }>(`/knowledge/runs/${encodeURIComponent(runId)}/retry?project_id=${encodeURIComponent(projectId)}`, {});
-export const transitionKnowledgeSource = (projectId: string, sourceId: string, status: string) => post<{ source: KnowledgeSource }>(`/knowledge/sources/${encodeURIComponent(sourceId)}/status`, { project_id: projectId, status });
+export const transitionKnowledgeSource = (projectId: string, sourceId: string, status: string, triageId = '') => post<{ source: KnowledgeSource }>(`/knowledge/sources/${encodeURIComponent(sourceId)}/status`, {
+  project_id: projectId,
+  status,
+  ...(triageId ? { triage_id: triageId } : {}),
+});
 export const setKnowledgeScheduleState = (projectId: string, scheduleId: string, enabled: boolean) => request<{ schedule: KnowledgeSchedule }>(`/knowledge/schedules/${encodeURIComponent(scheduleId)}`, { method: 'PATCH', body: JSON.stringify({ project_id: projectId, enabled }) });
 
 export async function streamKnowledgeRunEvents(

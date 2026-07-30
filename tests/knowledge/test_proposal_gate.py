@@ -54,8 +54,106 @@ def test_gate_publishes_all_pages_only_after_lint_and_baseline_pass(tmp_path):
 
         assert result["status"] == "published"
         assert "wiki/concepts/approval.md" in vault.contents
+        assert "status: published" in vault.contents["wiki/concepts/approval.md"]
+        assert "status: published" in vault.contents["wiki/overview.md"]
+        assert set(result["materialized_status_paths"]) == {"wiki/concepts/approval.md", "wiki/overview.md"}
         assert repo.get_proposal("project-a", proposal.id)["status"] == "published"
         assert repo.get_source("project-a", source["id"])["status"] == "processed"
+    finally:
+        repo.close()
+
+
+def test_gate_replaces_stale_draft_frontmatter_during_a_reviewable_repair(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "gate-status-repair.db"))
+    source = _source(repo)
+    original = "---\ntitle: Approval\nkind: concept\nstatus: draft\n---\nHuman approval is mandatory. [source:%s]\n" % source["id"]
+    vault = InMemoryWikiVault({
+        "wiki/concepts/approval.md": original,
+        "wiki/index.md": "# Index\n- [[wiki/concepts/approval.md]]\n",
+        "wiki/overview.md": "---\ntitle: Overview\nkind: brief\nstatus: draft\n---\n[[wiki/concepts/approval.md]] [source:%s]\n" % source["id"],
+        "wiki/log.md": "# Log\n",
+    })
+    proposal = WikiProposal(
+        project_id="project-a",
+        source_ids=[source["id"]],
+        base_revision=ProposalGate.project_revision(vault.contents),
+        operations=[
+            WikiOperation(
+                operation=WikiOperationType.REPLACE,
+                path="wiki/concepts/approval.md",
+                content=original,
+                expected_content_hash=hashlib.sha256(original.encode("utf-8")).hexdigest(),
+                source_ids=[source["id"]],
+            ),
+            WikiOperation(
+                operation=WikiOperationType.APPEND,
+                path="wiki/index.md",
+                content="- Publication metadata repaired.\n",
+                source_ids=[source["id"]],
+            ),
+            WikiOperation(
+                operation=WikiOperationType.APPEND,
+                path="wiki/log.md",
+                content="- Repaired publication metadata. [source:%s]\n" % source["id"],
+                source_ids=[source["id"]],
+            ),
+        ],
+    )
+    repo.create_proposal(proposal)
+    WikiEvaluator(repo).save_case(
+        project_id="project-a", case_id="status-repair", case_type="citation", expected={"source_ids": [source["id"]]}
+    )
+    try:
+        result = ProposalGate(repo, vault).publish(proposal=proposal, rules_text=build_default_agents_rules("project-a"))
+
+        assert result["materialized_status_paths"] == ["wiki/concepts/approval.md", "wiki/overview.md"]
+        assert vault.contents["wiki/concepts/approval.md"].split("---", 2)[1].count("status: published") == 1
+        assert "status: published" in vault.contents["wiki/overview.md"]
+        assert ProposalGate.effects_applied(proposal, vault.contents) is True
+    finally:
+        repo.close()
+
+
+def test_gate_reconciles_legacy_published_statuses_once_without_changing_claims(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "gate-status-migration.db"))
+    source = _source(repo)
+    vault = InMemoryWikiVault({
+        "AGENTS.md": build_default_agents_rules("project-a"),
+        "wiki/index.md": "# Index\n- [[wiki/concepts/approval.md]]\n",
+        "wiki/log.md": "# Log\n",
+        "wiki/overview.md": "---\ntitle: Overview\nkind: brief\n---\n[[wiki/concepts/approval.md]] [source:%s]\n" % source["id"],
+        "wiki/concepts/approval.md": "---\ntitle: Approval\nkind: concept\n---\nHuman approval is mandatory. [source:%s]\n" % source["id"],
+    })
+    repo.record_publication(project_id="project-a", contents=vault.contents, source_ids=[])
+    try:
+        first = ProposalGate(repo, vault).reconcile_published_statuses(project_id="project-a")
+        approval = next(page for page in repo.list_pages("project-a") if page["path"] == "wiki/concepts/approval.md")
+        stored = repo.get_page_content("project-a", approval["id"])
+        second = ProposalGate(repo, vault).reconcile_published_statuses(project_id="project-a")
+
+        assert first["state"] == "reconciled"
+        assert first["paths"] == ["wiki/concepts/approval.md", "wiki/overview.md"]
+        assert "status: published" in vault.contents["wiki/concepts/approval.md"]
+        assert stored and "status: published" in stored["content"]
+        assert second["state"] == "already_materialized"
+    finally:
+        repo.close()
+
+
+def test_gate_status_reconciliation_rejects_vault_divergence(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "gate-status-migration-conflict.db"))
+    source = _source(repo)
+    original = "---\ntitle: Approval\nkind: concept\n---\nHuman approval is mandatory. [source:%s]\n" % source["id"]
+    vault = InMemoryWikiVault({"wiki/concepts/approval.md": original})
+    repo.record_publication(project_id="project-a", contents=vault.contents, source_ids=[])
+    vault.contents["wiki/concepts/approval.md"] = original + "\nUnpublished user edit.\n"
+    try:
+        with pytest.raises(ProposalGateError, match="migration conflict"):
+            ProposalGate(repo, vault).reconcile_published_statuses(project_id="project-a")
+
+        page = repo.list_pages("project-a")[0]
+        assert "status: published" not in (repo.get_page_content("project-a", page["id"]) or {})["content"]
+        assert vault.contents["wiki/concepts/approval.md"].endswith("Unpublished user edit.\n")
     finally:
         repo.close()
 

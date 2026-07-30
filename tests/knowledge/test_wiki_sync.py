@@ -294,6 +294,41 @@ def test_plugin_status_marks_interactive_importers_without_claiming_a_saved_dest
     }
 
 
+def test_claudian_agent_workspace_does_not_treat_media_folder_as_an_automatic_chat_export(tmp_path):
+    root = tmp_path / "vault"
+    project_root = root / "projects" / "project-a"
+    (project_root / "04_Outputs" / "claudian").mkdir(parents=True)
+    (project_root / "bsc-plugins.json").write_text(
+        '{"plugins":[{"id":"realclaudian","name":"Claudian output","adapter":"filesystem_output","input_paths":["04_Outputs/claudian"]}]}',
+        encoding="utf-8",
+    )
+    settings_path = root / ".claudian" / "claudian-settings.json"
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(
+        '{"mediaFolder":"projects/project-a/04_Outputs/claudian"}',
+        encoding="utf-8",
+    )
+    ObsidianPluginManifest.load(project_root).set_trust(
+        project_root,
+        plugin_ids=["realclaudian"],
+        trusted=True,
+        actor_id="test",
+        reason="fixture",
+    )
+
+    route = ObsidianPluginManifest.load(project_root).public_status(
+        project_root=project_root,
+        vault_root=root,
+    )["plugins"][0]
+
+    assert route["runtime_configuration"] == {
+        "state": "agent_workspace",
+        "detail_code": "agent_writes_declared_output_path",
+    }
+    assert route["status"] == "awaiting_output"
+    assert route["capture_state"] == "ready_for_first_output"
+
+
 def test_plugin_status_distinguishes_an_empty_route_from_an_unprocessed_export(tmp_path):
     root = tmp_path / "vault"
     project_root = root / "projects" / "project-a"

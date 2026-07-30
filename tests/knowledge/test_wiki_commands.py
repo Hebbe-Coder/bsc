@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from app.knowledge.vault import FilesystemWikiVault
+from app.knowledge.proposal_gate import ProposalGate
 from app.knowledge.wiki_commands import WikiCommandService
 from app.knowledge.wiki_contracts import KnowledgeRun, ProposalStatus, RunStatus
 from app.knowledge.wiki_repository import WikiRepository
@@ -300,10 +301,14 @@ def test_command_service_restores_a_prior_revision_through_a_new_gated_proposal(
 
         assert rollback["status"] == "draft"
         assert rollback["operations"][0]["operation"] == "replace"
-        assert rollback["operations"][0]["content"] == version_one
+        assert rollback["operations"][0]["content"] == ProposalGate._materialize_published_status(
+            "wiki/concepts/approval.md", version_one
+        )
         assert service.lint_proposal(project_id="project-a", proposal_id=rollback["id"])["valid"] is True
         service.publish_proposal(project_id="project-a", proposal_id=rollback["id"])
-        assert repo.get_page_content("project-a", page["id"])["content"] == version_one
+        assert repo.get_page_content("project-a", page["id"])["content"] == ProposalGate._materialize_published_status(
+            "wiki/concepts/approval.md", version_one
+        )
         assert len(repo.list_page_revisions("project-a", page["id"])) == 3
     finally:
         repo.close()
@@ -337,7 +342,8 @@ def test_command_service_recovers_an_interrupted_publish_when_all_effects_reache
         )
         repo.update_proposal_status("project-a", proposal["id"], ProposalStatus.VALIDATING)
         vault = FilesystemWikiVault(vault_root, "project-a", "projects/project-a")
-        vault.commit(vault.stage(service._proposal("project-a", proposal["id"])))
+        staged = vault.stage(service._proposal("project-a", proposal["id"]))
+        vault.commit(ProposalGate._materialize_published_statuses(staged))
         run = KnowledgeRun(
             project_id="project-a", run_type="wiki_publish", trigger="manual", status=RunStatus.RUNNING,
             input_refs={"proposal_id": proposal["id"]},

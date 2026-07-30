@@ -3,7 +3,7 @@ import '@testing-library/jest-dom/vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { KnowledgePage, KnowledgeProposal, KnowledgeSource, WeeklyDistillation, WeeklyDistillationDetail } from '../api/knowledgeWorkspaceApi';
+import type { KnowledgeGraphEdge, KnowledgeGraphNode, KnowledgePage, KnowledgeProposal, KnowledgeSource, WeeklyDistillation, WeeklyDistillationDetail } from '../api/knowledgeWorkspaceApi';
 import {
   DistillationReader,
   EvidenceRecord,
@@ -11,6 +11,7 @@ import {
   OBSIDIAN_PLUGIN_PRESETS,
   projectOptions,
   ProposalReview,
+  selectKnowledgeGraphFocus,
   SourceInspector,
   WikiReader,
 } from './KnowledgeWorkspace';
@@ -81,6 +82,7 @@ describe('KnowledgeWorkspace focused components', () => {
       expect.objectContaining({ id: 'xiaohongshu-importer', input_paths: ['00_Inbox/social'] }),
       expect.objectContaining({ id: 'docxer', input_paths: ['01_Sources/docxer'] }),
       expect.objectContaining({ id: 'obsidian-importer', input_paths: ['01_Sources/importer'] }),
+      expect.objectContaining({ id: 'realclaudian', adapter: 'filesystem_output', input_paths: ['04_Outputs/claudian'] }),
     ]));
     expect(OBSIDIAN_PLUGIN_PRESETS).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'horizon' }),
@@ -144,6 +146,27 @@ describe('KnowledgeWorkspace focused components', () => {
     expect(screen.getByRole('button', { name: /approve for synthesis/i })).toBeDisabled();
     expect(screen.getByText(source.content_hash)).toBeVisible();
     expect(screen.getByText('Readwise Export')).toBeVisible();
+  });
+
+  it('keeps a compact graph focused on the most connected reviewable records', () => {
+    const nodes: KnowledgeGraphNode[] = [
+      { id: 'source-high', node_type: 'source', label: 'High-signal source', status: 'validated', created_at: '' },
+      { id: 'page-linked', node_type: 'page', label: 'Linked Wiki page', status: 'published', created_at: '' },
+      { id: 'source-support', node_type: 'source', label: 'Supporting source', status: 'validated', created_at: '' },
+      { id: 'proposal-linked', node_type: 'proposal', label: 'Review proposal', status: 'draft', created_at: '' },
+      { id: 'isolated', node_type: 'source', label: 'Isolated record', status: 'captured', created_at: '' },
+    ];
+    const edges: KnowledgeGraphEdge[] = [
+      { id: 'edge-page', from_id: 'source-high', to_id: 'page-linked', edge_type: 'supports', created_at: '' },
+      { id: 'edge-support', from_id: 'source-high', to_id: 'source-support', edge_type: 'corroborates', created_at: '' },
+      { id: 'edge-proposal', from_id: 'source-high', to_id: 'proposal-linked', edge_type: 'informs', created_at: '' },
+    ];
+
+    const focus = selectKnowledgeGraphFocus(nodes, edges, 2);
+
+    expect(focus.nodes.map((node) => node.id)).toEqual(['source-high', 'page-linked']);
+    expect(focus.edges.map((edge) => edge.id)).toEqual(['edge-page']);
+    expect(focus.nodes.map((node) => node.id)).not.toContain('isolated');
   });
 
   it('shows a semantic project-fit recommendation without replacing explicit approval', () => {

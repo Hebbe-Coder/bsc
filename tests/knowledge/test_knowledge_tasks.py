@@ -726,23 +726,23 @@ def test_quality_task_runs_project_lint_and_persisted_evaluation(tmp_path, monke
     project_root = root / "projects" / "project-a"
     project_root.mkdir(parents=True)
     rules = build_default_agents_rules("project-a")
-    (project_root / "AGENTS.md").write_text(rules, encoding="utf-8")
     repo = WikiRepository(db_path=str(tmp_path / "tasks-quality.db"))
     repo.configure_vault("project-a", "projects/project-a")
     source = SourceCaptureService(repo).capture(
         CapturedSourceInput(project_id="project-a", source_type="manual_upload", raw_content="Approval evidence", trust_level="trusted")
     ).source
-    repo.record_publication(
-        project_id="project-a",
-        contents={
-            "AGENTS.md": rules,
-            "wiki/overview.md": f"---\ntitle: Overview\nkind: brief\n---\n# Overview\n[[wiki/concepts/approval.md]] [source:{source['id']}]",
-            "wiki/index.md": "# Index\n[[wiki/concepts/approval.md]]",
-            "wiki/log.md": "# Log\n",
-            "wiki/concepts/approval.md": f"---\ntitle: Approval\nkind: concept\n---\nApproval required. [source:{source['id']}]",
-        },
-        source_ids=[],
-    )
+    contents = {
+        "AGENTS.md": rules,
+        "wiki/overview.md": f"---\ntitle: Overview\nkind: brief\n---\n# Overview\n[[wiki/concepts/approval.md]] [source:{source['id']}]",
+        "wiki/index.md": "# Index\n[[wiki/concepts/approval.md]]",
+        "wiki/log.md": "# Log\n",
+        "wiki/concepts/approval.md": f"---\ntitle: Approval\nkind: concept\n---\nApproval required. [source:{source['id']}]",
+    }
+    for relative_path, content in contents.items():
+        destination = project_root / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(content, encoding="utf-8")
+    repo.record_publication(project_id="project-a", contents=contents, source_ids=[])
     WikiEvaluator(repo).save_case(
         project_id="project-a",
         case_id="citation",
@@ -761,6 +761,11 @@ def test_quality_task_runs_project_lint_and_persisted_evaluation(tmp_path, monke
         assert result["status"] == "completed"
         assert result["lint"]["valid"] is True
         assert result["evaluation"]["status"] == "passed"
+        assert result["publication_status_reconciliation"]["state"] == "reconciled"
+        assert result["publication_status_reconciliation"]["paths"] == [
+            "wiki/concepts/approval.md",
+            "wiki/overview.md",
+        ]
         assert repo.get_run("project-a", run.id)["output_refs"]["evaluation"]["score"] == 1.0
     finally:
         repo.close()

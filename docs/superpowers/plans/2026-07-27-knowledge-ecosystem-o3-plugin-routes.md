@@ -59,6 +59,10 @@ export, BSC source bodies, output evaluation rules, or Local REST credentials.
 3. Configure declared output folders through supported plugin settings. For
    interactive Importer and Docxer destinations, retain the user-visible
    destination selection and report `awaiting_export` until a file exists.
+   Claudian is an agent workspace, not a chat-transcript exporter: it must
+   write a durable file to its declared `04_Outputs/claudian/` path under the
+   project `AGENTS.md` output contract. Its attachment `mediaFolder` is never
+   evidence that a result was written.
 4. Require a source record with immutable hash and plugin provenance before
    changing a source bridge to `captured`; require OutputRegistry registration
    before a Claudian bridge becomes `registered`.

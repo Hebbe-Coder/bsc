@@ -31,7 +31,7 @@ from app.knowledge.multimodal_extraction import CURRENT_EXTRACTOR_REVISION, Loca
 from app.knowledge.source_triage import source_admission_reason
 from app.knowledge.wiki_sync import ObsidianSyncService
 from app.knowledge.wiki_compiler import WikiCompilationError, WikiCompiler, WikiSourceAdmissionError
-from app.knowledge.proposal_gate import ProposalGateError
+from app.knowledge.proposal_gate import ProposalGate, ProposalGateError
 from app.knowledge.wiki_index import WikiSearchIndex
 from app.knowledge.wiki_llm_provider import SOPWikiCompilerProvider, WikiLLMProviderError
 from app.knowledge.wiki_commands import WikiCommandService
@@ -797,6 +797,17 @@ def execute_knowledge_run(
                     failure=KnowledgeFailure("configuration", "project_rules_missing", False),
                 )
             rules = parse_project_rules(rules_path.read_text(encoding="utf-8"))
+            try:
+                status_reconciliation = ProposalGate(repo, vault).reconcile_published_statuses(project_id=project_id)
+            except ProposalGateError as exc:
+                return _record_terminal_failure(
+                    repo,
+                    project_id=project_id,
+                    run_id=run_id,
+                    status=RunStatus.FAILED,
+                    message=str(exc),
+                    failure=KnowledgeFailure("write_conflict", "publication_status_reconciliation_failed", False),
+                )
             pages = []
             for page in repo.list_pages(project_id):
                 content = repo.get_page_content(project_id, page["id"])
@@ -821,6 +832,7 @@ def execute_knowledge_run(
             output = {
                 "lint": {"valid": lint.valid, "findings": [finding.model_dump() for finding in lint.findings]},
                 "evaluation": evaluation.model_dump(),
+                "publication_status_reconciliation": status_reconciliation,
             }
             terminal = (
                 RunStatus.UNAVAILABLE if evaluation.status == "unavailable"

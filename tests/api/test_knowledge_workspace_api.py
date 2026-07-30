@@ -143,6 +143,24 @@ def test_workspace_semantic_triage_is_review_only_and_queryable(tmp_path, monkey
         assert "raw_content" not in payload["source"]
         assert repo.get_source("project-a", captured.source["id"])["status"] == "validated"
 
+        approval = client.post(
+            f"/knowledge/sources/{captured.source['id']}/status",
+            headers=headers,
+            json={
+                "project_id": "project-a",
+                "status": "eligible",
+                "triage_id": payload["triage"]["id"],
+            },
+        )
+        assert approval.status_code == 200
+        assert approval.json()["data"]["source"]["metadata"]["admission_approval"] == {
+            "triage_id": payload["triage"]["id"],
+            "profile_revision": 0,
+            "evaluator_revision": "semantic-source-triage-v1",
+            "approved_at": approval.json()["data"]["source"]["metadata"]["admission_approval"]["approved_at"],
+            "actor_id": "http",
+        }
+
         current = client.get(
             f"/knowledge/sources/{captured.source['id']}/triage?project_id=project-a",
             headers=headers,
@@ -694,6 +712,38 @@ def test_workspace_source_transition_requires_scoped_writer_and_changes_lifecycl
 
         assert response.status_code == 200
         assert response.json()["data"]["source"]["status"] == "eligible"
+    finally:
+        settings.API_KEY = previous_key
+        app.dependency_overrides.clear()
+        repo.close()
+
+
+def test_workspace_source_transition_requires_an_authoring_safe_triage_for_governed_evidence(tmp_path):
+    repo = GrowthRepository(db_path=str(tmp_path / "workspace-transition-triage.db"))
+    source = SourceCaptureService(repo).capture(
+        CapturedSourceInput(
+            project_id="project-a",
+            source_type="primary_web",
+            origin="https://publisher.example/primary",
+            raw_content="Reviewable primary evidence.",
+            trust_level="reviewed",
+            metadata={"admission_gate": "project_triage"},
+        )
+    ).source
+    previous_key = settings.API_KEY
+    settings.API_KEY = "workspace-admin"
+    app.dependency_overrides[get_wiki_repository] = lambda: repo
+    client = TestClient(app)
+    try:
+        response = client.post(
+            f"/knowledge/sources/{source['id']}/status",
+            headers={"Authorization": "Bearer workspace-admin"},
+            json={"project_id": "project-a", "status": "eligible"},
+        )
+
+        assert response.status_code == 400
+        assert "authoring-eligible triage_id" in response.text
+        assert repo.get_source("project-a", source["id"])["status"] == "validated"
     finally:
         settings.API_KEY = previous_key
         app.dependency_overrides.clear()

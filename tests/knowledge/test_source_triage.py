@@ -1,4 +1,4 @@
-from app.knowledge.growth_contracts import ProjectKnowledgeProfile, TriageDisposition
+from app.knowledge.growth_contracts import ProjectKnowledgeProfile, SourceTriage, TriageDisposition
 from app.knowledge.growth_repository import GrowthRepository
 import pytest
 from types import SimpleNamespace
@@ -9,6 +9,7 @@ from app.knowledge.source_triage import (
     SemanticSourceTriageEvaluator,
     SourceTriageService,
     TriageEvaluation,
+    approved_project_triage_decision,
     source_admission_reason,
 )
 from app.knowledge.wiki_contracts import SourceRecord, SourceStatus
@@ -204,6 +205,71 @@ def test_reference_evidence_requires_corroboration_before_authoring(tmp_path):
         assert result["disposition"] == TriageDisposition.REFERENCE.value
         assert source["status"] == SourceStatus.ELIGIBLE.value
         assert source_admission_reason(repo, "project-a", source) == "project_triage_reference_requires_corroboration"
+    finally:
+        repo.close()
+
+
+def test_explicit_semantic_approval_survives_a_later_automatic_triage_recommendation(tmp_path):
+    repo = GrowthRepository(db_path=str(tmp_path / "triage-explicit-approval.db"))
+    try:
+        repo.save_profile(ProjectKnowledgeProfile(project_id="project-a"), actor_id="owner")
+        repo.create_source(
+            SourceRecord(
+                id="approved-source",
+                project_id="project-a",
+                source_type="primary_web",
+                content_hash="a" * 64,
+                raw_content="A complete primary evidence record.",
+                status=SourceStatus.ELIGIBLE,
+                trust_level="reviewed",
+                metadata={
+                    "admission_gate": "project_triage",
+                    "admission_approval": {
+                        "triage_id": "semantic-approved",
+                        "profile_revision": 1,
+                        "evaluator_revision": "semantic-source-triage-v3",
+                    },
+                },
+            )
+        )
+        repo.save_triage(
+            SourceTriage(
+                id="semantic-approved",
+                project_id="project-a",
+                source_id="approved-source",
+                profile_revision=1,
+                relevance=90,
+                value=90,
+                freshness=90,
+                outputability=90,
+                connectedness=90,
+                priority=90,
+                reliability_pass=True,
+                disposition=TriageDisposition.KNOWLEDGE_CANDIDATE,
+                evaluator_revision="semantic-source-triage-v3",
+            )
+        )
+        repo.save_triage(
+            SourceTriage(
+                id="automatic-later",
+                project_id="project-a",
+                source_id="approved-source",
+                profile_revision=1,
+                relevance=50,
+                value=50,
+                freshness=50,
+                outputability=50,
+                connectedness=50,
+                priority=50,
+                reliability_pass=True,
+                disposition=TriageDisposition.ARCHIVE,
+                evaluator_revision="profile-aware-v2",
+            )
+        )
+        source = repo.get_source("project-a", "approved-source")
+
+        assert approved_project_triage_decision(repo, "project-a", source)["id"] == "semantic-approved"
+        assert source_admission_reason(repo, "project-a", source) == ""
     finally:
         repo.close()
 
