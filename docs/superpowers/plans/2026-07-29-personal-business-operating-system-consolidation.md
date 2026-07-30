@@ -256,3 +256,63 @@ npm run build
   --quiet` passed. Rollback removes only the capture endpoint and Cockpit
   controls; persisted evidence stays audit-visible and no record is promoted
   by rollback.
+
+## Post-Consolidation Product Correction: Completed Setup Cannot Become Today Action
+
+- **Resolved deviation:** an existing live `llm_contextual` plan for the
+  default New Media Mission recommended BSC-to-Obsidian source projection after
+  that projection had completed. The result contradicted PBOS's central promise
+  that daily actions advance the user's current Mission.
+- **Implemented contract:** `PBOSGovernedContextProvider` now emits a bounded
+  operational-state projection: lifecycle counts, mirror availability/count,
+  published Wiki count, and weekly-handoff availability. The PBOS compiler
+  sends it to the model and persists only the normalized metadata. When its
+  managed mirror is available, a narrow post-normalization guard replaces a
+  BSC/Obsidian source sync, import, mirror, or projection phase with the same
+  Mission's deterministic execution phase. It does not block genuine evidence
+  collection while the mirror is absent.
+- **Test evidence:** `tests/pbos/test_pbos_contextual_compiler.py` verifies
+  that operational state has no evidence body; a completed mirror changes the
+  same model proposal into `Audience and signal diagnosis`; and an absent
+  mirror preserves a requested projection. The full PBOS REST/MCP/integration
+  suite passed `48` tests.
+- **Runtime evidence:** after rebuilding `bsc-backend`, `celery-worker`, and
+  `celery-beat`, `/ready` returned 200. The authorized default-project compile
+  persisted plan `art_f102a21c2dbe` and projected it to Obsidian. Its state
+  reported 89 managed evidence files, 11 published pages, and an available
+  weekly handoff; one repeated phase was replaced. The API's current daily
+  action is `选定关键绩效指标（如互动率/触达比）`, with plan/Mission lineage,
+  rather than a source-projection instruction.
+- **Residual limit:** this proves plan relevance and evidence linkage, not
+  earned personal ability. The default project still lacks three comparable
+  user-accepted, receipt-backed, reflected AI-delivery outcomes, so its zero
+  Capability and Strategy Genome counts remain correct. GitHub and Feishu also
+  remain `awaiting_authorization` and are not marked synchronized.
+
+## Final Runtime Hardening: Evidence Ownership And Chinese Action Quality
+
+- **Mirror ownership gate:** availability now requires both a physical managed
+  `01_Sources/bsc-evidence/` file and a source record carrying BSC's
+  `obsidian_source_mirror` metadata. A regression test proves an unledgered
+  file cannot suppress a real projection task.
+- **Language contract:** PBOS prompts the provider with the Mission response
+  language. For Chinese Missions, fully English sentence-like actions are
+  replaced by bounded Chinese actions tied to the active objective, while
+  technical commands/identifiers are preserved. Replacement is recorded as
+  `compiler_metadata.language_guard`, rather than silently rewriting evidence
+  or a user's reflection.
+- **Final runtime proof:** after a final API/Worker/Beat Docker rebuild,
+  `/ready` was healthy. The authorized live compile produced
+  `art_7a82762ae802` in `llm_contextual` mode, synced it to Obsidian, reported
+  a 89-file ledger-backed mirror, and contained no completed-projection action.
+  Its first and current daily action is
+  `基于BSC证据定义内容曝光与互动关键指标` under phase
+  `确定核心运营指标与基线`.
+- **Final verification:** `pytest tests/pbos tests/api/test_pbos_api.py
+  tests/mcp/test_pbos_http_contract.py tests/integration/test_pbos_e2e.py`
+  passed `52`; the shared Artifact/Runtime/Wiki/Distillation suite passed
+  `99` with one existing skip; frontend tests passed `169`; TypeScript check,
+  Docker build, Compose parsing, production health, protected API readback,
+  and desktop/390px authorization-gate rendering were verified. `ruff` was
+  not installed in the configured Python environment, so no ruff invocation
+  was represented as a passing check.

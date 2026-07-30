@@ -34,6 +34,8 @@ Evidence-poor requests must produce a capture plan, never an invented personalis
 5. The Personal Growth Cockpit shows only traceable information: today action, project health, capability evidence, strategy versions, failure patterns, and lineage.
 6. GitHub and Feishu are read-only, explicitly authorised connectors. Without credentials their state is `awaiting_authorization`.
 7. Daily, weekly, and monthly jobs are durable and auditable. No job claims external completion without a receipt.
+8. The compiler consumes bounded operational state (source lifecycle counts, managed evidence-mirror availability, published Wiki count, and weekly-handoff availability). When the managed BSC-to-Obsidian evidence mirror is already available, a new plan must advance a Mission decision, metric, experiment, or delivery instead of repeating source projection.
+9. User-facing plan actions follow the Mission's primary language. For a Chinese Mission, a complete English sentence returned by a provider is replaced with a bounded, Mission-specific Chinese action; commands and identifiers are not translated or treated as personal evidence.
 
 ## Safety And Acceptance
 
@@ -42,4 +44,7 @@ Evidence-poor requests must produce a capture plan, never an invented personalis
 - Every plan, outcome, promotion, and rollback links to its governing evidence.
 - A user-entered quality score is an acceptance decision, not proof by itself. It is eligible for learning only when its own execution record includes a server-verified receipt and a reflection.
 - Two comparable personal contexts must compile materially different execution plans when their history, constraints, or capabilities differ.
+- A completed managed evidence mirror must materially change planning behavior: a model suggestion to sync, import, mirror, or project BSC evidence into Obsidian is replaced by the same Mission's bounded execution phase. The state projection must never include source bodies, credentials, or private note content.
+- Mirror availability requires both a recorded BSC projection ledger entry and at least one managed mirror file. A directory or file without BSC ownership metadata cannot suppress a needed source-projection task.
+- For a Chinese Mission, the visible next action must be Chinese unless it is a short technical identifier or command; the plan records any language fallback as compiler metadata.
 - Remote credentials never enter artifacts, Vault files, logs, or API responses.

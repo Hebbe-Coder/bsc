@@ -135,6 +135,86 @@ def test_governed_context_retrieves_only_published_wiki_with_source_lineage(tmp_
         repo.close()
 
 
+def test_governed_context_exposes_metadata_only_operational_state_for_completed_mirror(tmp_path):
+    vault_root = tmp_path / "vault"
+    project_root = vault_root / "projects" / "project-a"
+    mirror = project_root / "01_Sources" / "bsc-evidence"
+    mirror.mkdir(parents=True)
+    # This deliberately proves the operational projection does not include
+    # evidence bodies even when the managed mirror exists.
+    (mirror / "source-a.md").write_text("private source body must remain out of plan state", encoding="utf-8")
+    repo = WikiRepository(db_path=str(tmp_path / "operational-state.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    repo.create_source(
+        SourceRecord(
+            id="source-a",
+            project_id="project-a",
+            source_type="manual_upload",
+            origin="evidence.md",
+            content_hash="a" * 64,
+            raw_content="private source body must remain out of plan state",
+            trust_level="trusted",
+            metadata={"obsidian_source_mirror": {"path": "01_Sources/bsc-evidence/source-a.md"}},
+        )
+    )
+
+    class NoGovernedContext:
+        def build_context(self, **_kwargs):
+            return None
+
+    provider = PBOSGovernedContextProvider(
+        project_root,
+        project_id="project-a",
+        vault_root=vault_root,
+        repository=repo,
+        wiki_context_provider=NoGovernedContext(),
+    )
+    try:
+        context = provider.build(task_constraints=["delivery"])
+
+        assert context["operational_state"]["source_lifecycle_counts"] == {"captured": 1}
+        assert context["operational_state"]["managed_source_mirror"] == {
+            "state": "available",
+            "path": "01_Sources/bsc-evidence",
+            "file_count": 1,
+            "file_count_truncated": False,
+            "recorded_source_count": 1,
+        }
+        assert "private source body" not in json.dumps(context, ensure_ascii=False)
+    finally:
+        repo.close()
+
+
+def test_governed_context_does_not_treat_an_unledgered_managed_file_as_completed_mirror(tmp_path):
+    vault_root = tmp_path / "vault"
+    project_root = vault_root / "projects" / "project-a"
+    mirror = project_root / "01_Sources" / "bsc-evidence"
+    mirror.mkdir(parents=True)
+    (mirror / "unledgered.md").write_text("a file alone must not claim BSC projection", encoding="utf-8")
+    repo = WikiRepository(db_path=str(tmp_path / "unledgered-mirror.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+
+    class NoGovernedContext:
+        def build_context(self, **_kwargs):
+            return None
+
+    provider = PBOSGovernedContextProvider(
+        project_root,
+        project_id="project-a",
+        vault_root=vault_root,
+        repository=repo,
+        wiki_context_provider=NoGovernedContext(),
+    )
+    try:
+        state = provider.build()["operational_state"]["managed_source_mirror"]
+
+        assert state["file_count"] == 1
+        assert state["recorded_source_count"] == 0
+        assert state["state"] == "awaiting_projection"
+    finally:
+        repo.close()
+
+
 def test_governed_context_retains_a_retrieved_published_page_when_source_budget_displaces_it(tmp_path):
     vault_root = tmp_path / "vault"
     project_root = vault_root / "projects" / "project-a"
@@ -308,6 +388,180 @@ def test_structured_model_output_is_traceable_to_the_same_context(tmp_path):
     assert any("Personal focus: AI systems" in item for item in plan.rationale)
     assert plan.phases[0]["why_now"] == "A prior scope failure needs an early boundary."
     assert plan.phases[0]["decision_point"]["adapt_when"] == "Capture the missing constraint."
+
+
+def test_completed_evidence_mirror_replaces_repeated_projection_with_mission_action(tmp_path):
+    class RepeatingProjectionClient:
+        provider = "test"
+        model = "repeat-projection"
+
+        def __init__(self):
+            self.prompts: list[dict] = []
+
+        def chat_structured(self, **kwargs):
+            self.prompts.append(json.loads(kwargs["user_prompt"]))
+            return {
+                "title": "Growth delivery system",
+                "phases": [
+                    {"title": "Source projection", "actions": ["Project BSC evidence into Obsidian"]},
+                    {"title": "Experiment", "actions": ["Run the audience experiment"]},
+                    {"title": "Reflection", "actions": ["Record the experiment outcome"]},
+                ],
+            }
+
+    context = {
+        "availability": "available",
+        "documents": [{"ref": "vault:03_Projects/active/growth.md", "path": "03_Projects/active/growth.md", "title": "Growth brief", "excerpt": "Improve retention for the named audience."}],
+        "refs": ["vault:03_Projects/active/growth.md"],
+        "operational_state": {
+            "source_lifecycle_counts": {"processed": 12},
+            "managed_source_mirror": {"state": "available", "file_count": 12, "recorded_source_count": 12},
+            "published_wiki": {"page_count": 3},
+            "weekly_handoff": {"state": "available", "path": "distillations/weekly/next-context.md"},
+        },
+    }
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(store, "growth", "Content growth experiment", "Improve short-video retention for an AI product")
+    client = RepeatingProjectionClient()
+    service = PBOSService(
+        store,
+        "personal",
+        context_provider=lambda: context,
+        plan_compiler=PBOSPlanCompiler(client=client),
+    )
+    service.save_profile({"focus": ["content growth"]})
+
+    plan = service.compile_plan("growth")
+
+    assert client.prompts[0]["operational_state"]["managed_source_mirror"]["state"] == "available"
+    assert plan.phases[0]["title"] == "Audience and signal diagnosis"
+    assert all("project bsc evidence into obsidian" not in action.casefold() for phase in plan.phases for action in phase["actions"])
+    assert plan.compiler_metadata["completed_operation_guard"] == {
+        "operation": "bsc_obsidian_evidence_projection",
+        "replacement_phase_indexes": [1],
+        "reason": "managed_source_mirror_available",
+    }
+
+
+def test_absent_mirror_does_not_hide_a_requested_projection_action(tmp_path):
+    class RepeatingProjectionClient:
+        provider = "test"
+        model = "repeat-projection"
+
+        def chat_structured(self, **_kwargs):
+            return {
+                "title": "Growth delivery system",
+                "phases": [
+                    {"title": "Source projection", "actions": ["Project BSC evidence into Obsidian"]},
+                    {"title": "Experiment", "actions": ["Run the audience experiment"]},
+                    {"title": "Reflection", "actions": ["Record the experiment outcome"]},
+                ],
+            }
+
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(store, "growth", "Content growth experiment", "Improve short-video retention for an AI product")
+    service = PBOSService(
+        store,
+        "personal",
+        context_provider=lambda: {
+            "availability": "available",
+            "documents": [],
+            "refs": [],
+            "operational_state": {"managed_source_mirror": {"state": "awaiting_projection"}},
+        },
+        plan_compiler=PBOSPlanCompiler(client=RepeatingProjectionClient()),
+    )
+    service.save_profile({"focus": ["content growth"]})
+
+    plan = service.compile_plan("growth")
+
+    assert plan.phases[0]["actions"] == ["Project BSC evidence into Obsidian"]
+    assert "completed_operation_guard" not in plan.compiler_metadata
+
+
+def test_chinese_mission_replaces_complete_english_llm_actions_with_localized_mission_actions(tmp_path):
+    class EnglishClient:
+        provider = "test"
+        model = "english-output"
+
+        def __init__(self):
+            self.prompt: dict = {}
+
+        def chat_structured(self, **kwargs):
+            self.prompt = json.loads(kwargs["user_prompt"])
+            return {
+                "title": "Content delivery system",
+                "phases": [
+                    {"title": "Metric selection", "actions": ["Select a primary engagement metric from the dashboard"]},
+                    {"title": "Experiment design", "actions": ["Create two content variants with one changed variable"]},
+                    {"title": "Review", "actions": ["Record the outcome and decide the next experiment"]},
+                ],
+            }
+
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(store, "growth", "新媒体运营", "提升短视频完播率")
+    client = EnglishClient()
+    service = PBOSService(
+        store,
+        "personal",
+        context_provider=lambda: {"availability": "available", "documents": [], "refs": []},
+        plan_compiler=PBOSPlanCompiler(client=client),
+    )
+    service.save_profile({"focus": ["内容增长"]})
+
+    plan = service.compile_plan("growth")
+
+    assert client.prompt["response_language"] == "Chinese"
+    assert all(
+        any("\u4e00" <= character <= "\u9fff" for character in action)
+        for phase in plan.phases
+        for action in phase["actions"]
+    )
+    assert plan.compiler_metadata["language_guard"]["mission_language"] == "zh"
+    assert plan.compiler_metadata["language_guard"]["replacement_phases"] == [
+        {"phase_index": 1, "action_count": 1},
+        {"phase_index": 2, "action_count": 1},
+        {"phase_index": 3, "action_count": 1},
+    ]
+
+
+def test_chinese_mission_localizes_the_deterministic_completed_projection_replacement(tmp_path):
+    class RepeatingProjectionClient:
+        provider = "test"
+        model = "repeat-projection"
+
+        def chat_structured(self, **_kwargs):
+            return {
+                "title": "内容执行计划",
+                "phases": [
+                    {"title": "Source projection", "actions": ["Project BSC evidence into Obsidian"]},
+                    {"title": "实验", "actions": ["设计一个内容变量实验"]},
+                    {"title": "复盘", "actions": ["记录结果并决定下一次实验"]},
+                ],
+            }
+
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(store, "growth", "新媒体运营", "提升短视频完播率")
+    service = PBOSService(
+        store,
+        "personal",
+        context_provider=lambda: {
+            "availability": "available",
+            "documents": [],
+            "refs": [],
+            "operational_state": {
+                "managed_source_mirror": {"state": "available", "file_count": 1, "recorded_source_count": 1},
+            },
+        },
+        plan_compiler=PBOSPlanCompiler(client=RepeatingProjectionClient()),
+    )
+    service.save_profile({"focus": ["内容增长"]})
+
+    plan = service.compile_plan("growth")
+
+    assert plan.compiler_metadata["completed_operation_guard"]["replacement_phase_indexes"] == [1]
+    assert plan.compiler_metadata["language_guard"]["replacement_phases"][0]["phase_index"] == 1
+    assert all(any("\u4e00" <= character <= "\u9fff" for character in action) for action in plan.phases[0]["actions"])
 
 
 def test_compiler_replaces_verbatim_vault_echoes_with_traceable_references(tmp_path):

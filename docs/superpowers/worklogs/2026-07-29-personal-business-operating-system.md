@@ -589,3 +589,58 @@
   has zero learning-eligible outcomes, Capabilities, and Strategy Genomes.
   PBOS can now collect qualifying evidence through the Studio, but it must not
   invent the three comparable accepted deliveries required for promotion.
+
+## 2026-07-30 Operational-State Plan Correction
+
+- Found a product-level planning defect in the live default project: its active
+  `llm_contextual` New Media Mission still recommended projecting BSC raw
+  evidence into Obsidian even though the managed Vault mirror had already been
+  completed. This made the daily action look like setup work rather than a
+  Mission-specific next step.
+- Added a bounded, metadata-only `operational_state` to PBOS governed context.
+  It includes source lifecycle counts, managed mirror availability and file
+  count, published Wiki count, and current weekly-handoff availability. It
+  contains no source text, origins, titles, credentials, or user-note bodies.
+- The model prompt now receives this operational state. A deterministic guard
+  replaces only repeated BSC-to-Obsidian source sync/import/mirror/projection
+  phases after the mirror is proven available; the replacement is the same
+  Mission's bounded execution phase. Ordinary Mission-specific evidence
+  collection is not blocked when the mirror is absent.
+- Verification: `pytest tests/pbos tests/api/test_pbos_api.py
+  tests/mcp/test_pbos_http_contract.py tests/integration/test_pbos_e2e.py`
+  passed (`48 passed`). Docker API, Worker, and Beat were rebuilt; `/ready`
+  remained healthy. An authenticated in-container REST compile of default
+  Mission `art_de3a69d67b6e` created `art_f102a21c2dbe`, synced it to the
+  managed Vault, and returned `managed_source_mirror=available` with 89 files,
+  11 published Wiki pages, and an available weekly handoff. The guard replaced
+  one repeated phase. `GET /today-action` then returned the real first action
+  `选定关键绩效指标（如互动率/触达比）`, not source projection.
+- Rollback: remove the `operational_state` context projection and compiler
+  completion guard together. Existing plans, mirrors, sources, and Artifacts
+  remain intact. This rollback restores prior planner behavior and must not be
+  used to represent a completed mirror as absent.
+
+## 2026-07-30 Final Plan-Relevance Hardening
+
+- Strengthened managed-mirror completion: PBOS now requires both a BSC
+  `obsidian_source_mirror` ledger record and a physical managed evidence page.
+  An unledgered file in `01_Sources/bsc-evidence/` remains
+  `awaiting_projection`, so an accidental directory/file cannot hide a real
+  source-projection need.
+- Added Mission-language alignment. The prompt declares the response language;
+  if a Chinese Mission still receives a complete English sentence as an action,
+  PBOS replaces only that sentence with a bounded Chinese action tied to the
+  Mission's current objective. Technical identifiers and commands remain
+  untouched. Any such replacement is audit-visible in `language_guard` plan
+  metadata and is not a claim of personal knowledge.
+- Verification: the full PBOS/API/MCP/integration suite passed (`52 passed`).
+  Docker API, Worker, and Beat were rebuilt from the final source. A live
+  authenticated default-project compile persisted `art_7a82762ae802` with
+  `mode=llm_contextual`, a ledger-backed mirror of 89 files, no completed
+  projection action, and a managed Vault sync. Its first action was
+  `基于BSC证据定义内容曝光与互动关键指标`; the live `/today-action`
+  projection returned that exact action and plan/Mission lineage.
+- Rollback: remove the ledger/file conjunction and language guard as one
+  compiler behavior change. The existing evidence mirror, plans, source
+  records, and Obsidian projections are retained and no PBOS Capability or
+  Strategy Genome is altered.

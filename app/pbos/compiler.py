@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import hashlib
 from typing import Any
@@ -59,8 +60,15 @@ class PBOSPlanCompiler:
             feedback=feedback,
             knowledge_context=knowledge_context,
         )
+        deterministic_phases = copy.deepcopy(baseline["phases"])
         if self.client is None:
-            return self._remove_vault_echoes(baseline, documents)
+            return self._finalize_plan(
+                baseline,
+                documents,
+                knowledge_context,
+                deterministic_phases,
+                mission,
+            )
         prompt_payload = self._prompt_payload(
             mission, diagnosis, profile, capabilities, experiences, feedback, knowledge_context
         )
@@ -84,12 +92,24 @@ class PBOSPlanCompiler:
         except Exception as exc:
             baseline["compiler_metadata"]["llm_failure"] = str(getattr(exc, "category", "request_failed"))
             self._record_llm_diagnostics(baseline)
-            return self._remove_vault_echoes(baseline, documents)
+            return self._finalize_plan(
+                baseline,
+                documents,
+                knowledge_context,
+                deterministic_phases,
+                mission,
+            )
         if normalized is None:
             baseline["compiler_metadata"]["llm_failure"] = str(
                 getattr(self.client, "last_structured_failure", "structured_response_invalid")
             )
-            return self._remove_vault_echoes(baseline, documents)
+            return self._finalize_plan(
+                baseline,
+                documents,
+                knowledge_context,
+                deterministic_phases,
+                mission,
+            )
         # The model may improve the execution wording, but cannot erase the
         # declared profile, evidence state, or governed-context traceability.
         for key in ("rationale", "risks", "success_criteria", "evidence_gap_plan"):
@@ -102,7 +122,13 @@ class PBOSPlanCompiler:
             "provider": str(getattr(self.client, "provider", "configured")),
             "model": str(getattr(self.client, "model", "")),
         }
-        return self._remove_vault_echoes(baseline, documents)
+        return self._finalize_plan(
+            baseline,
+            documents,
+            knowledge_context,
+            deterministic_phases,
+            mission,
+        )
 
     def _record_llm_diagnostics(self, baseline: dict[str, Any]) -> None:
         """Persist only structural provider diagnostics, never a model response body."""
@@ -151,6 +177,200 @@ class PBOSPlanCompiler:
                     value[key] = candidate
             merged.append(value)
         return merged or base
+
+    def _finalize_plan(
+        self,
+        plan: dict[str, Any],
+        documents: list[dict[str, Any]],
+        knowledge_context: dict[str, Any],
+        deterministic_phases: list[dict[str, Any]],
+        mission: MissionArtifact,
+    ) -> dict[str, Any]:
+        """Apply non-negotiable plan constraints after all model merging."""
+        finalized = self._apply_operational_completion_guard(
+            self._remove_vault_echoes(plan, documents),
+            knowledge_context,
+            deterministic_phases,
+        )
+        phases = finalized.get("phases")
+        if not isinstance(phases, list):
+            return finalized
+        finalized["phases"], language_replacements = self._apply_mission_language_guard(phases, mission)
+        if language_replacements:
+            finalized.setdefault("compiler_metadata", {})["language_guard"] = {
+                "mission_language": "zh",
+                "replacement_phases": language_replacements,
+            }
+        return finalized
+
+    @classmethod
+    def _apply_operational_completion_guard(
+        cls,
+        plan: dict[str, Any],
+        knowledge_context: dict[str, Any],
+        deterministic_phases: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Do not turn a completed BSC-to-Obsidian mirror into the next task.
+
+        The guard is deliberately narrow. It only replaces a phase when the
+        model asks to sync, import, mirror, or project BSC evidence into
+        Obsidian after the metadata-only operational state proves that the
+        managed mirror already contains files. Normal Mission-specific
+        evidence collection remains available.
+        """
+        operational_state = cls._safe_operational_state(knowledge_context)
+        mirror = operational_state["managed_source_mirror"]
+        metadata = plan.setdefault("compiler_metadata", {})
+        metadata["operational_state"] = operational_state
+        if mirror["state"] != "available":
+            return plan
+
+        replaced: list[int] = []
+        phases = plan.get("phases")
+        if not isinstance(phases, list):
+            return plan
+        for index, phase in enumerate(phases):
+            if not isinstance(phase, dict) or not cls._repeats_completed_source_projection(phase):
+                continue
+            if index < len(deterministic_phases):
+                phases[index] = copy.deepcopy(deterministic_phases[index])
+                replaced.append(index + 1)
+        if replaced:
+            metadata["completed_operation_guard"] = {
+                "operation": "bsc_obsidian_evidence_projection",
+                "replacement_phase_indexes": replaced,
+                "reason": "managed_source_mirror_available",
+            }
+        return plan
+
+    @staticmethod
+    def _safe_operational_state(knowledge_context: dict[str, Any]) -> dict[str, Any]:
+        """Normalize planner-facing operational state to simple, non-secret facts."""
+        raw = knowledge_context.get("operational_state")
+        raw = raw if isinstance(raw, dict) else {}
+        raw_mirror = raw.get("managed_source_mirror")
+        raw_mirror = raw_mirror if isinstance(raw_mirror, dict) else {}
+        raw_counts = raw.get("source_lifecycle_counts")
+        source_counts = {
+            str(key)[:64]: max(0, int(value))
+            for key, value in (raw_counts.items() if isinstance(raw_counts, dict) else [])
+            if isinstance(value, int) and not isinstance(value, bool)
+        }
+        raw_wiki = raw.get("published_wiki")
+        raw_wiki = raw_wiki if isinstance(raw_wiki, dict) else {}
+        raw_handoff = raw.get("weekly_handoff")
+        raw_handoff = raw_handoff if isinstance(raw_handoff, dict) else {}
+        return {
+            "source_lifecycle_counts": dict(sorted(source_counts.items())),
+            "managed_source_mirror": {
+                "state": "available" if str(raw_mirror.get("state") or "") == "available" else "awaiting_projection",
+                "path": "01_Sources/bsc-evidence",
+                "file_count": PBOSPlanCompiler._safe_nonnegative_int(raw_mirror.get("file_count")),
+                "recorded_source_count": PBOSPlanCompiler._safe_nonnegative_int(raw_mirror.get("recorded_source_count")),
+            },
+            "published_wiki": {"page_count": PBOSPlanCompiler._safe_nonnegative_int(raw_wiki.get("page_count"))},
+            "weekly_handoff": {
+                "state": "available" if str(raw_handoff.get("state") or "") == "available" else "unavailable",
+                "path": str(raw_handoff.get("path") or "")[:300],
+            },
+        }
+
+    @staticmethod
+    def _safe_nonnegative_int(value: Any) -> int:
+        if isinstance(value, bool):
+            return 0
+        try:
+            return max(0, int(value))
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def _repeats_completed_source_projection(phase: dict[str, Any]) -> bool:
+        values = [
+            phase.get("title"),
+            phase.get("why_now"),
+            *(phase.get("actions") or []),
+            *(phase.get("outputs") or []),
+            *(phase.get("checks") or []),
+        ]
+        text = " ".join(str(value).casefold() for value in values if str(value).strip())
+        english_target = ("obsidian" in text or "vault" in text) and (
+            "bsc" in text or "source" in text or "evidence" in text
+        )
+        english_operation = any(term in text for term in ("sync", "import", "mirror", "projection")) or (
+            "project" in text and ("source" in text or "evidence" in text or "bsc" in text)
+        )
+        chinese_target = ("obsidian" in text or "vault" in text) and ("bsc" in text or "来源" in text or "证据" in text)
+        chinese_operation = any(term in text for term in ("同步", "导入", "镜像", "投影"))
+        return (english_target and english_operation) or (chinese_target and chinese_operation)
+
+    @classmethod
+    def _apply_mission_language_guard(
+        cls,
+        phases: list[dict[str, Any]],
+        mission: MissionArtifact,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, int]]]:
+        """Keep an LLM's user-facing next actions in the Mission's language.
+
+        Technical identifiers such as ``pytest`` remain valid, but a complete
+        English instruction is a poor result for a Chinese Mission. This is a
+        presentation guard, not translation: it replaces only fully English
+        sentence-like actions with a bounded Mission-specific fallback.
+        """
+        if not cls._uses_chinese(mission.title, mission.intent):
+            return phases, []
+        replacements: list[dict[str, Any]] = []
+        fallback_actions = cls._chinese_fallback_actions(mission)
+        for index, phase in enumerate(phases):
+            if not isinstance(phase, dict):
+                continue
+            actions = [str(item).strip() for item in phase.get("actions") or [] if str(item).strip()]
+            changed = False
+            for action_index, action in enumerate(actions):
+                if not cls._is_english_sentence(action):
+                    continue
+                actions[action_index] = fallback_actions[min(index, len(fallback_actions) - 1)]
+                changed = True
+            if changed:
+                phase["actions"] = list(dict.fromkeys(actions))[:2]
+                replacements.append({"phase_index": index + 1, "action_count": len(actions)})
+        if replacements:
+            return phases, replacements
+        return phases, []
+
+    @staticmethod
+    def _uses_chinese(*values: str) -> bool:
+        return any("\u4e00" <= character <= "\u9fff" for value in values for character in str(value))
+
+    @staticmethod
+    def _is_english_sentence(value: str) -> bool:
+        if any("\u4e00" <= character <= "\u9fff" for character in value):
+            return False
+        latin_words = [word for word in value.replace("/", " ").split() if any(character.isalpha() for character in word)]
+        return len(latin_words) >= 3
+
+    @staticmethod
+    def _chinese_fallback_actions(mission: MissionArtifact) -> list[str]:
+        mission_context = mission.context if isinstance(mission.context, dict) else {}
+        objective = str(mission_context.get("goal") or mission.intent or mission.title).strip()[:120]
+        kind = PBOSPlanCompiler._task_kind(f"{mission.title} {mission.intent}".lower())
+        if kind == "growth":
+            return [
+                f"围绕“{objective}”确定一个可量化的内容成效指标。",
+                "设计只改变一个变量的内容对照实验，并记录基线。",
+                "复盘实验结果，保留有效模式并明确下一次调整。",
+            ]
+        if kind == "engineering":
+            return [
+                f"将“{objective}”收敛为一个可验收的工程边界。",
+                "实现一个可运行的最小闭环并保留测试或构建回执。",
+                "记录结果、阻塞和下一次边界调整。",
+            ]
+        return [
+            f"为“{objective}”区分事实、约束和待验证问题。",
+            "执行一个受约束的最小动作并保留可审查结果。",
+            "复盘结果和失败边界，再决定是否形成可复用方法。",
+        ]
 
     @staticmethod
     def _prompt_usage(payload: dict[str, Any], *, documents_available: int) -> dict[str, int]:
@@ -304,6 +524,11 @@ class PBOSPlanCompiler:
             f"Vault context: {', '.join(document_titles[:3]) if document_titles else 'none available'}",
             f"Verified personal assets: {', '.join(verified_capabilities + verified_experiences) if (verified_capabilities or verified_experiences) else 'none yet'}",
         ]
+        operational_state = self._safe_operational_state(knowledge_context)
+        if operational_state["managed_source_mirror"]["state"] == "available":
+            rationale.append(
+                "Operational state: the BSC evidence mirror is already available; advance the Mission instead of repeating source projection."
+            )
         rationale.extend(f"Governed source available for review: {source}" for source in source_references[:2])
         rationale.extend(
             f"Recorded feedback (unverified direction): {item}"
@@ -339,6 +564,7 @@ class PBOSPlanCompiler:
                 "document_paths": [str(item.get("path") or "") for item in documents],
                 "task_kind": kind,
                 "diagnosis_context": diagnosis_context,
+                "operational_state": operational_state,
             },
         }
 
@@ -531,7 +757,10 @@ class PBOSPlanCompiler:
             "{title:string, actions:[string]}, {title:string, actions:[string]}]}. "
             "Return exactly three phases, no other keys, at most two actions per phase. "
             "Keep every title under 12 words and every action under 18 words. "
-            "Make phases specific to the mission, constraints, profile, and governed context; never write a generic SOP."
+            "Make phases specific to the mission, constraints, profile, and governed context; never write a generic SOP. "
+            "Use response_language for user-facing titles and actions. "
+            "When operational_state says managed_source_mirror is available, never recommend BSC-to-Obsidian source sync, import, mirroring, or projection. "
+            "In that case phase one must advance a Mission-specific decision, metric, experiment, or delivery."
         )
 
     @classmethod
@@ -561,6 +790,7 @@ class PBOSPlanCompiler:
                 "constraints": [cls._bounded_prompt_text(item, 80) for item in profile.constraints[:6]],
             }
         return {
+            "response_language": "Chinese" if cls._uses_chinese(mission.title, mission.intent) else "Match the Mission's primary language",
             "mission": {
                 "title": cls._bounded_prompt_text(mission.title, 100),
                 "intent": cls._bounded_prompt_text(mission.intent, 160),
@@ -596,6 +826,7 @@ class PBOSPlanCompiler:
                 }
                 for item in feedback[:3] if isinstance(item, dict)
             ],
+            "operational_state": cls._safe_operational_state(knowledge_context),
             "vault_context": [
                 {
                     "ref": cls._bounded_prompt_text(item.get("ref"), 80),

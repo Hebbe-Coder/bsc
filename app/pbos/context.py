@@ -192,6 +192,7 @@ class PBOSGovernedContextProvider:
                 task_constraints=task_constraints,
             )
             governed = self._published_documents(repository, pack)
+            operational_state = self._operational_state(repository)
         finally:
             if owns_repository:
                 repository.close()
@@ -220,7 +221,71 @@ class PBOSGovernedContextProvider:
                 "source_ids": list(pack.source_ids) if pack is not None else [],
                 "retrieval_refs": list(pack.retrieval_refs) if pack is not None else [],
             },
+            "operational_state": operational_state,
         }
+
+    def _operational_state(self, repository: WikiRepository) -> dict[str, Any]:
+        """Report bounded operational facts without loading evidence bodies.
+
+        A planner needs to know whether the evidence mirror and the weekly
+        handoff already exist. Treating that state as implicit lets a model
+        repeatedly recommend setup work that has already finished. This
+        projection is intentionally metadata-only: source content, titles,
+        origins, and user notes do not leave their authorities here.
+        """
+        sources = repository.list_sources(self.project_id)
+        lifecycle_counts: dict[str, int] = {}
+        recorded_mirrors = 0
+        for source in sources:
+            status = str(source.get("status") or "unknown")[:64]
+            lifecycle_counts[status] = lifecycle_counts.get(status, 0) + 1
+            metadata = source.get("metadata")
+            if isinstance(metadata, dict) and isinstance(metadata.get("obsidian_source_mirror"), dict):
+                recorded_mirrors += 1
+
+        mirror_root = self.project_root / "01_Sources" / "bsc-evidence"
+        mirror_files, mirror_truncated = self._managed_file_count(mirror_root)
+        latest_handoff = self.working_context._latest_weekly_context()
+        handoff_path = ""
+        if latest_handoff is not None:
+            try:
+                handoff_path = latest_handoff.resolve().relative_to(self.project_root).as_posix()
+            except ValueError:
+                handoff_path = ""
+        pages = repository.list_pages(self.project_id)
+        mirror_available = bool(mirror_files and recorded_mirrors)
+        return {
+            "source_lifecycle_counts": dict(sorted(lifecycle_counts.items())),
+            "managed_source_mirror": {
+                "state": "available" if mirror_available else "awaiting_projection",
+                "path": "01_Sources/bsc-evidence",
+                "file_count": mirror_files,
+                "file_count_truncated": mirror_truncated,
+                "recorded_source_count": recorded_mirrors,
+            },
+            "published_wiki": {"page_count": len(pages)},
+            "weekly_handoff": {
+                "state": "available" if handoff_path else "unavailable",
+                "path": handoff_path,
+            },
+        }
+
+    @staticmethod
+    def _managed_file_count(root: Path, limit: int = 10_000) -> tuple[int, bool]:
+        """Count managed evidence pages safely, with a fixed planning bound."""
+        if not root.is_dir():
+            return 0, False
+        count = 0
+        try:
+            for candidate in root.rglob("*"):
+                if candidate.is_symlink() or not candidate.is_file():
+                    continue
+                count += 1
+                if count >= limit:
+                    return count, True
+        except OSError:
+            return count, True
+        return count, False
 
     def _published_documents(self, repository: WikiRepository, pack: Any) -> list[dict[str, Any]]:
         if pack is None:
