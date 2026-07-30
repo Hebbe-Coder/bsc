@@ -39,6 +39,14 @@ function visibleVaultRef(reference: string): string {
   return reference.replace(/^vault:/u, '');
 }
 
+function planStrings(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean) : [];
+}
+
+function planObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
 export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '', onConfigureAccess }: Props) {
   const [data, setData] = useState<PbosCockpit | null>(null);
   const [profile, setProfile] = useState<PbosProfile | null>(null);
@@ -82,11 +90,19 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
   const strategies = data?.strategies ?? [];
   const failurePatterns = data?.failure_patterns ?? [];
   const projectHealth = data?.project_health ?? {};
+  const todayAction = planObject(data?.today_action);
   const acceptedOutcomes = outcomes.filter((item) => item.acceptance_status === 'accepted').length;
   const qualitySeries = outcomes.slice().reverse();
   const contextReferences = stringRefs(data?.today?.knowledge_context_refs);
   const weeklyHandoffs = contextReferences.filter((item) => /^vault:distillations\/每周蒸馏\/[^/]+\/03-下周上下文包\.md$/u.test(item));
   const feedbackReferences = stringRefs(data?.today?.feedback_refs);
+  const phases = Array.isArray(data?.today?.phases) ? data.today.phases.map(planObject) : [];
+  const currentPhase = phases[0] ?? {};
+  const phaseInputs = planStrings(currentPhase.inputs);
+  const phaseOutputs = planStrings(currentPhase.outputs);
+  const phaseActions = planStrings(currentPhase.actions);
+  const decisionPoint = planObject(currentPhase.decision_point);
+  const executionContract = planObject(data?.today?.execution_contract);
   const todayGuidance = data?.today?.compilation_state === 'capture_required'
     ? 'PBOS needs evidence before it can claim a personal next step.'
     : capabilities.length
@@ -172,9 +188,10 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
     {error && <p className="pbos-error"><AlertTriangle size={16} />{error}</p>}
     {!data && !error && !accessState && <p className="pbos-empty">Loading verified personal evidence...</p>}
     {data && <div className="pbos-grid">
-      <section className="pbos-today"><div className="pbos-panel-heading"><p className="pbos-label">CURRENT LOOP</p><span className={projectHealth.evidence_ready ? 'is-ready' : 'is-pending'}><ShieldCheck size={14} />{projectHealth.evidence_ready ? 'evidence ready' : 'evidence gap'}</span></div><h3>{String(data.today?.title || 'Capture a real execution receipt')}</h3><p>{todayGuidance}</p><dl><div><dt>Accepted outcomes</dt><dd>{acceptedOutcomes}</dd></div><div><dt>Feedback inputs</dt><dd>{feedback.length}</dd></div><div><dt>Verified capabilities</dt><dd>{capabilities.length}</dd></div></dl></section>
+      <section className="pbos-today"><div className="pbos-panel-heading"><p className="pbos-label">CURRENT LOOP</p><span className={projectHealth.evidence_ready ? 'is-ready' : 'is-pending'}><ShieldCheck size={14} />{projectHealth.evidence_ready ? 'evidence ready' : 'evidence gap'}</span></div><h3>{String(data.today?.title || todayAction.title || 'Capture a real execution receipt')}</h3><p>{todayGuidance}</p>{todayAction.success_check && <small>Success check: {String(todayAction.success_check)}</small>}<dl><div><dt>Accepted outcomes</dt><dd>{acceptedOutcomes}</dd></div><div><dt>Feedback inputs</dt><dd>{feedback.length}</dd></div><div><dt>Verified capabilities</dt><dd>{capabilities.length}</dd></div></dl></section>
+      {Object.keys(currentPhase).length > 0 && <section className="pbos-execution-path"><div className="pbos-panel-heading"><p className="pbos-label">TODAY'S EXECUTION PATH</p><span>phase 1 of {phases.length}</span></div><h3>{String(currentPhase.title || 'Clarify the next evidence-backed slice')}</h3>{currentPhase.why_now && <p>{String(currentPhase.why_now)}</p>}<div className="pbos-execution-path__io"><div><strong>Inputs</strong>{phaseInputs.slice(0, 3).map((item) => <span key={item}>{item}</span>)}</div><div><strong>Reviewable output</strong>{phaseOutputs.slice(0, 2).map((item) => <span key={item}>{item}</span>)}</div></div>{phaseActions.length > 0 && <ol>{phaseActions.slice(0, 3).map((item) => <li key={item}>{item}</li>)}</ol>}{decisionPoint.question && <div className="pbos-decision-point"><strong>Decision: {String(decisionPoint.question)}</strong><span>Proceed: {String(decisionPoint.proceed_when || 'when the phase output is reviewable')}</span><span>Adapt: {String(decisionPoint.adapt_when || 'when the evidence boundary is not met')}</span></div>}{executionContract.reflection_entry && <small>{String(executionContract.reflection_entry)}</small>}</section>}
       <section className="pbos-connectors"><div className="pbos-panel-heading"><p className="pbos-label">CONNECTORS</p><span>{Object.keys(data.connectors).length} configured</span></div><div>{Object.entries(data.connectors).map(([name, state]) => <p key={name}><strong>{name}</strong><span data-state={state}>{connectorLabel(state)}</span></p>)}</div><small>External sources stay outside personal evidence until their scoped authorization and receipts are available.</small></section>
-      <section className="pbos-health"><div className="pbos-panel-heading"><p className="pbos-label">PROJECT HEALTH</p><span>ledger projection</span></div><dl><div><dt>Accepted</dt><dd>{String(projectHealth.accepted_outcomes ?? 0)}</dd></div><div><dt>Unverified</dt><dd>{String(projectHealth.unverified_outcomes ?? 0)}</dd></div><div><dt>Active strategies</dt><dd>{String(projectHealth.active_strategies ?? 0)}</dd></div><div><dt>Evidence-ready</dt><dd>{projectHealth.evidence_ready ? 'yes' : 'no'}</dd></div></dl></section>
+      <section className="pbos-health"><div className="pbos-panel-heading"><p className="pbos-label">PROJECT HEALTH</p><span>ledger projection</span></div><dl><div><dt>Accepted</dt><dd>{String(projectHealth.accepted_outcomes ?? 0)}</dd></div><div><dt>Learning-eligible</dt><dd>{String(projectHealth.eligible_personal_outcomes ?? 0)}</dd></div><div><dt>Unverified</dt><dd>{String(projectHealth.unverified_outcomes ?? 0)}</dd></div><div><dt>Active strategies</dt><dd>{String(projectHealth.active_strategies ?? 0)}</dd></div><div><dt>Evidence-ready</dt><dd>{projectHealth.evidence_ready ? 'yes' : 'no'}</dd></div></dl></section>
       {data.today && <section className="pbos-grounding"><div className="pbos-panel-heading"><p className="pbos-label">PLAN GROUNDING</p><span>{contextReferences.length} governed reference{contextReferences.length === 1 ? '' : 's'}</span></div><dl><div><dt>Weekly handoff</dt><dd>{weeklyHandoffs.length} weekly handoff{weeklyHandoffs.length === 1 ? '' : 's'}</dd></div><div><dt>Feedback input</dt><dd>{feedbackReferences.length} feedback input{feedbackReferences.length === 1 ? '' : 's'}</dd></div></dl>{contextReferences.length ? <ul>{contextReferences.slice(0, 4).map((item) => <li key={item}><code>{visibleVaultRef(item)}</code></li>)}</ul> : <p className="pbos-grounding-empty">No governed context was selected for this plan.</p>}<p>These are planning inputs. They do not establish a personal capability without verified execution evidence.</p></section>}
       <section className="pbos-profile"><p className="pbos-label">PERSONAL CONTEXT</p><form onSubmit={saveProfile}><label>Focus<input value={focus} onChange={(event) => setFocus(event.target.value)} placeholder="AI systems, knowledge engineering" /></label><label>Goals<input value={goals} onChange={(event) => setGoals(event.target.value)} placeholder="Ship a verified personal operating system" /></label><label>Resources<input value={resources} onChange={(event) => setResources(event.target.value)} placeholder="Obsidian, BSC" /></label><label>Constraints<input value={constraints} onChange={(event) => setConstraints(event.target.value)} placeholder="Solo delivery, limited time" /></label><button type="submit" disabled={saving} title="Save personal context">Save personal context</button></form><p>{profile ? 'This is declared context. Capability claims still require execution evidence.' : 'Add your real operating context before PBOS personalizes a plan.'}</p></section>
       {data.today && <section className="pbos-reflection"><p className="pbos-label">THREE-MINUTE REFLECTION</p><form onSubmit={submitReflection}><label>What changed?<textarea value={reflection} onChange={(event) => setReflection(event.target.value)} required placeholder="Completed, observed result, or decision made" /></label><label>What blocked you?<input value={blocker} onChange={(event) => setBlocker(event.target.value)} placeholder="Optional blocker" /></label><label>What should change next time?<input value={feedbackDraft} onChange={(event) => setFeedbackDraft(event.target.value)} placeholder="Optional feedback for the next plan" /></label><button type="submit" disabled={saving || !reflection.trim()} title="Record an unverified reflection">Record reflection</button></form><p>A reflection is recorded as unverified until a result and receipt corroborate it.</p></section>}

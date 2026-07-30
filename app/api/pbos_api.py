@@ -16,7 +16,7 @@ from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.wiki_repository import WikiRepository
 from app.pbos import PBOSProjectionService, PBOSReportService, PBOSScheduleCoordinator, PBOSService
 from app.pbos.compiler import PBOSPlanCompiler
-from app.pbos.context import PBOSVaultContextBuilder
+from app.pbos.context import PBOSGovernedContextProvider
 
 router = APIRouter(prefix="/api/pbos", tags=["Personal Business Operating System"])
 
@@ -70,7 +70,11 @@ def _pbos(request: Request, project_id: str, *, write: bool) -> PBOSService:
     return PBOSService(
         _service(request, project_id, write=write).store,
         project_id,
-        context_provider=PBOSVaultContextBuilder(project_root).build,
+        context_provider=PBOSGovernedContextProvider(
+            project_root,
+            project_id=project_id,
+            vault_root=settings.OBSIDIAN_VAULT_ROOT,
+        ).build,
         plan_compiler=PBOSPlanCompiler.from_settings() if write else PBOSPlanCompiler(),
     )
 
@@ -162,6 +166,12 @@ def reconcile(
 @router.get("/projects/{project_id}/cockpit")
 def cockpit(project_id: str, request: Request):
     return _pbos(request, project_id, write=False).cockpit()
+
+
+@router.get("/projects/{project_id}/today-action")
+def today_action(project_id: str, request: Request):
+    """Read the current action without creating a plan or causing side effects."""
+    return _pbos(request, project_id, write=False).today_action()
 
 
 @router.post("/projects/{project_id}/reports/weekly")

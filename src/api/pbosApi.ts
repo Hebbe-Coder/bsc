@@ -3,8 +3,10 @@ import { fetchWrapper } from './fetchWrapper';
 export interface PbosCockpit {
   profile: PbosProfile | null;
   today: Record<string, unknown> | null;
+  today_action?: Record<string, unknown>;
   capabilities: Array<Record<string, unknown>>;
   outcomes: Array<Record<string, unknown>>;
+  outcome_observations?: Array<Record<string, unknown>>;
   feedback: Array<Record<string, unknown>>;
   strategies: Array<Record<string, unknown>>;
   failure_patterns: Array<Record<string, unknown>>;

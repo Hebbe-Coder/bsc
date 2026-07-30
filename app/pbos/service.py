@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from statistics import median
 from typing import Any
 
@@ -111,7 +112,7 @@ class PBOSService:
         diagnosis = self.store.get(diagnosis_id) if diagnosis_id else None
         if diagnosis_id and not isinstance(diagnosis, DiagnosisArtifact):
             raise ValueError("PBOS plan requires a project-scoped Diagnosis")
-        knowledge_context = self.context_provider()
+        knowledge_context = self._build_knowledge_context(mission)
         if not isinstance(knowledge_context, dict):
             knowledge_context = {"availability": "unavailable", "documents": [], "refs": []}
         plan_values = self.plan_compiler.compile(
@@ -139,6 +140,27 @@ class PBOSService:
         )
         self.store.add(artifact)
         return artifact
+
+    def _build_knowledge_context(self, mission: MissionArtifact) -> dict[str, Any]:
+        mission_context = mission.context if isinstance(mission.context, dict) else {}
+        task_constraints = [
+            mission.title,
+            mission.intent,
+            str(mission_context.get("goal") or ""),
+            *[str(item) for item in mission_context.get("constraints") or []],
+        ]
+        try:
+            parameters = inspect.signature(self.context_provider).parameters.values()
+            accepts_constraints = any(
+                parameter.kind is inspect.Parameter.VAR_KEYWORD
+                or parameter.name == "task_constraints"
+                for parameter in parameters
+            )
+        except (TypeError, ValueError):
+            accepts_constraints = False
+        if accepts_constraints:
+            return self.context_provider(task_constraints=task_constraints)
+        return self.context_provider()
 
     def _recent_feedback(self, limit: int = 3) -> list[WorkFeedbackArtifact]:
         """Return the bounded feedback context without promoting it to evidence."""
@@ -197,6 +219,69 @@ class PBOSService:
             }
         return self._promote(active, complete, key, context, baseline, median_quality, hard_failure_resolved, summary)
 
+    def today_action(self) -> dict[str, Any]:
+        """Select the first unfinished, reviewable action from the active personal plan.
+
+        Plans are ordered by their compiler-produced phases. This deliberately
+        surfaces that order instead of inventing a priority from incomplete
+        personal evidence.
+        """
+        plans = self._latest([
+            item for item in self.store.get_by_type(ArtifactType.PERSONAL_EXECUTION_PLAN)
+            if isinstance(item, PersonalExecutionPlanArtifact)
+        ])
+        if not plans:
+            return {
+                "state": "capture_required",
+                "title": "Capture a bounded Mission and one governed project context.",
+                "rationale": ["PBOS has no active personal execution plan to prioritize yet."],
+                "success_check": "The Mission, its constraint, and one reviewable input are recorded.",
+                "knowledge_context_refs": [],
+                "plan_id": "",
+                "mission_id": "",
+                "phase_title": "Evidence capture",
+                "selection_basis": "no_active_plan",
+            }
+
+        plan = plans[0]
+        completed_actions = {
+            str(action).strip()
+            for record in self.store.get_by_type(ArtifactType.WORK_EXECUTION_RECORD)
+            if isinstance(record, WorkExecutionRecordArtifact) and record.plan_id == plan.artifact_id
+            for action in record.actions
+            if str(action).strip()
+        }
+        selected_phase: dict[str, Any] = {}
+        selected_action = ""
+        for phase in plan.phases:
+            if not isinstance(phase, dict):
+                continue
+            actions = [str(item).strip() for item in phase.get("actions") or [] if str(item).strip()]
+            pending = next((item for item in actions if item not in completed_actions), "")
+            if pending:
+                selected_phase = phase
+                selected_action = pending
+                break
+            if not selected_phase:
+                selected_phase = phase
+
+        if not selected_action:
+            selected_action = str(selected_phase.get("title") or plan.title or "Record the next reviewable delivery result.").strip()
+        checks = [str(item).strip() for item in selected_phase.get("checks") or [] if str(item).strip()]
+        if not checks:
+            checks = [str(item).strip() for item in plan.success_criteria if str(item).strip()]
+        return {
+            "state": "recommended" if plan.compilation_state != "capture_required" else "capture_required",
+            "title": selected_action,
+            "rationale": [str(item).strip() for item in plan.rationale[:3] if str(item).strip()],
+            "success_check": checks[0] if checks else "Record an observable receipt and a concise reflection.",
+            "knowledge_context_refs": list(plan.knowledge_context_refs),
+            "plan_id": plan.artifact_id,
+            "mission_id": plan.mission_id,
+            "phase_title": str(selected_phase.get("title") or "Current plan phase"),
+            "selection_basis": "first_unfinished_compiler_phase_action",
+        }
+
     def cockpit(self) -> dict[str, Any]:
         capabilities = self._latest_capabilities()
         plans = self._latest([
@@ -213,22 +298,58 @@ class PBOSService:
             if isinstance(item, SOPVersionArtifact)
         ])
         accepted = [item for item in outcomes if item.acceptance_status == "accepted"]
+        outcome_observations = [self._outcome_observation(item) for item in outcomes]
+        eligible_outcomes = [item for item in outcome_observations if item["eligible_for_evolution"]]
         return {
             "profile": profile.model_dump(mode="json") if (profile := self.profile()) else None,
             "today": plans[0].model_dump(mode="json") if plans else None,
+            "today_action": self.today_action(),
             "capabilities": [item.model_dump(mode="json") for item in capabilities],
             "outcomes": [item.model_dump(mode="json") for item in outcomes],
+            "outcome_observations": outcome_observations,
             "feedback": [item.model_dump(mode="json") for item in feedback],
             "strategies": [item.model_dump(mode="json") for item in strategies],
             "failure_patterns": self._failure_patterns(outcomes, feedback),
             "project_health": {
                 "accepted_outcomes": len(accepted),
+                "eligible_personal_outcomes": len(eligible_outcomes),
                 "unverified_outcomes": len([item for item in outcomes if item.acceptance_status != "accepted"]),
                 "verified_capabilities": len(capabilities),
                 "active_strategies": len([item for item in strategies if item.status == ArtifactStatus.ACTIVE]),
                 "evidence_ready": bool(plans and plans[0].compilation_state == "personalized"),
             },
             "connectors": {"github": "awaiting_authorization", "feishu": "awaiting_authorization"},
+        }
+
+    def _outcome_observation(self, outcome: WorkOutcomeArtifact) -> dict[str, Any]:
+        """Expose whether an accepted outcome is sufficiently complete to teach PBOS.
+
+        Acceptance alone can represent a technical delivery check. Personal
+        learning additionally requires a reviewable execution receipt and a
+        reflection, so historical validation runs cannot silently inflate a
+        user's capability profile.
+        """
+        missing: list[str] = []
+        if outcome.acceptance_status != "accepted":
+            missing.append("accepted_outcome")
+        if outcome.quality_score is None:
+            missing.append("quality_score")
+        execution = self.store.get(outcome.execution_record_id)
+        if not isinstance(execution, WorkExecutionRecordArtifact):
+            missing.append("execution_record")
+        else:
+            if not execution.actions:
+                missing.append("actions")
+            if not execution.tool_receipts:
+                missing.append("tool_receipts")
+            if not any(str(value).strip() for value in execution.reflection.values()):
+                missing.append("reflection")
+        return {
+            "artifact_id": outcome.artifact_id,
+            "acceptance_status": outcome.acceptance_status,
+            "quality_score": outcome.quality_score,
+            "eligible_for_evolution": not missing,
+            "missing_requirements": missing,
         }
 
     def _latest_capabilities(self) -> list[CapabilityArtifact]:

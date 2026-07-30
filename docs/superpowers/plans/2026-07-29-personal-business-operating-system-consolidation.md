@@ -121,3 +121,91 @@ npm run build
   presented as verified capability evidence. Real Strategy Genome and
   Capability promotion remain intentionally incomplete until three comparable,
   accepted real deliveries meet the evolution gates.
+
+## 2026-07-30 Model Reliability And Live Loop Evidence
+
+- The DeepSeek PBOS compiler no longer makes a single structured-output attempt.
+  It retries JSON mode with a bounded larger completion budget, supports
+  documented OpenAI-compatible legacy text payloads, and keeps the model's
+  private reasoning and response body outside logs, Artifact Graph records, and
+  Obsidian. If both attempts fail, the plan records only a safe response shape
+  and attempt ledger before returning the evidence-grounded deterministic
+  fallback.
+- Source evidence: `tests/test_sop_llm_client.py` and
+  `tests/pbos/test_pbos_contextual_compiler.py` cover output-budget repair,
+  legacy text compatibility, private-reasoning non-use, and safe fallback
+  metadata. The focused client/compiler run passed `28` tests; the PBOS REST,
+  MCP, and integration run passed `30` tests. The broader PBOS/Artifact/
+  knowledge command passed `125`, with one existing skip.
+- Runtime evidence: project `pbos-llm-proof-20260730` used a fresh profile,
+  governed Obsidian project note, DBOS diagnosis, and production `/api/pbos`
+  endpoint. Two consecutive DeepSeek plans (`art_63e4d5e0b020` and
+  `art_98cc5818bff3`) were persisted with `compiler_metadata.mode =
+  llm_contextual`. The latter references feedback `art_66805ff644bd`, proving
+  `Mission -> Plan -> Execution -> Outcome -> Feedback -> Next Plan` in the
+  same project ledger and its `pbos/` Vault projections.
+- The actual execution record is deliberately conservative: outcome
+  `art_8eb0f911f885` is `unverified` and zero Capability/Strategy assets are
+  shown in the live Cockpit. The plan is context-grounded, not yet an earned
+  personal method, because no three comparable user-accepted AI deliveries
+  exist. This is expected product behavior, not an incomplete persistence or
+  UI path.
+- Production container inspection confirmed it runs the retry-enabled compiler;
+  its services were healthy. `npm run test:frontend` passed `162` tests;
+  `npm run check`, `npm run build`, and `docker compose config --quiet` passed.
+  Browser readback of the isolated project confirmed the actual one-reference,
+  one-unverified-outcome, one-feedback, zero-capability payload. At 390px its
+  measured page width was 384px, with no horizontal overflow.
+
+## Remaining Product Evidence
+
+1. Collect three comparable, complete, user-accepted AI-project deliveries
+   from ordinary PBOS use before evaluating a Strategy Genome or Capability.
+   Test fixtures and technical-validation results remain excluded by design.
+2. Continue recording provider health over normal use. The compiler now repairs
+   transient structured-output failures and diagnoses fallbacks safely, but no
+   external provider can be truthfully guaranteed never to time out.
+3. GitHub and Feishu remain read-only `awaiting_authorization`; no remote data
+   was claimed as synchronized or used as personal evidence.
+
+## Recovery Evidence
+
+- A Docker Desktop restart interrupted a discretionary default-project plan
+  request before it returned; no partial response was represented as an
+  Artifact or a Vault projection. Once healthy, authenticated Cockpit readback
+  recovered both the default and isolated project ledgers. Their current plans
+  both report `llm_contextual`, while their Capability counts remain zero. This
+  is direct runtime evidence that model-plan persistence, project isolation,
+  and evidence gates survive a service restart.
+
+## Post-Consolidation Runtime Closure: Daily Action And Evidence Eligibility
+
+- The first-round implementation now also has a concrete daily entrypoint:
+  `GET /api/pbos/projects/{project_id}/today-action` is a side-effect-free
+  projection of the first unfinished action in the current Personal Execution
+  Plan. It returns the plan/Mission lineage, success check, rationale, and
+  governed context references. Cockpit and periodic reports consume this same
+  projection, preventing a separate template-only daily writer.
+- BSC-managed periodic projections contain a content hash footer. The default
+  project's real `knowledge_runs` record `ca71623ad429` completed on
+  2026-07-30 and refreshed
+  `pbos/reviews/daily/2026-07-30/daily-action.md`. The result names the
+  current acceptance-card action and eight actual governed Vault references.
+  A report edited after its footer returns `conflict`; unowned content is not
+  overwritten.
+- The Cockpit separates `accepted_outcomes` from
+  `eligible_personal_outcomes`. The latter requires accepted quality, execution
+  actions, receipts, and a reflection. Runtime REST readback confirmed the
+  default project has a recommended action, eight grounding references, zero
+  learning-eligible outcomes, zero capabilities, and zero strategy assets.
+  The old accepted technical validation outcome is labelled ineligible because
+  it lacks a reflection, so it cannot distort personal growth claims.
+- Verified after the final source state: PBOS service/scheduler/API/integration
+  suite `24 passed`; focused Cockpit suite `4 passed`; TypeScript checking and
+  Docker production build passed; API/Worker/Beat restarted and `/ready`
+  returned `200`. The build's ECharts chunk advisory remains non-blocking.
+- The remaining product-evidence condition is intentional and unchanged:
+  collect three comparable, real, user-accepted AI-project deliveries with
+  receipts, scores, and three-minute reflections before any Strategy Genome,
+  Experience, or Capability is promoted. GitHub and Feishu remain
+  `awaiting_authorization` and are not treated as data sources.

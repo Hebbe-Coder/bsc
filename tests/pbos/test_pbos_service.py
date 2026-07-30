@@ -182,6 +182,56 @@ def test_weekly_report_writes_only_observed_pbos_state(tmp_path):
     assert "No verified outcome" in content
 
 
+def test_today_action_and_daily_report_use_the_first_pending_grounded_plan_step(tmp_path):
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(store, "mission-action")
+    plan = PersonalExecutionPlanArtifact(
+        project_id="personal",
+        mission_id="mission-action",
+        title="Close the governed Vault delivery loop",
+        compilation_state="context_grounded",
+        rationale=["The active project requires a reviewable evidence boundary before expansion."],
+        knowledge_context_refs=["vault:03_Projects/active/control-plane.md"],
+        phases=[{
+            "title": "Freeze the evidence boundary",
+            "actions": ["Map the current Vault evidence to the delivery acceptance card."],
+            "checks": ["Every delivery claim links to a governed source or receipt."],
+        }],
+    )
+    store.add(plan)
+    service = PBOSService(store, "personal")
+
+    action = service.today_action()
+    cockpit = service.cockpit()
+    report = PBOSReportService(service, tmp_path).periodic("pbos_daily", "2026-07-30")
+    content = (tmp_path / report["path"]).read_text(encoding="utf-8")
+
+    assert action["state"] == "recommended"
+    assert action["title"] == "Map the current Vault evidence to the delivery acceptance card."
+    assert action["success_check"] == "Every delivery claim links to a governed source or receipt."
+    assert cockpit["today_action"]["plan_id"] == plan.artifact_id
+    assert "Map the current Vault evidence" in content
+    assert "Every delivery claim links" in content
+    assert "vault:03_Projects/active/control-plane.md" in content
+    assert "pbos-managed-sha256" in content
+
+
+def test_managed_daily_report_refreshes_but_preserves_user_edits_as_a_conflict(tmp_path):
+    service = PBOSService(ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal"), "personal")
+    reports = PBOSReportService(service, tmp_path)
+    first = reports.periodic("pbos_daily", "2026-07-30")
+    path = tmp_path / first["path"]
+
+    # Legacy BSC-owned reports are eligible for the integrity-marker upgrade.
+    legacy = path.read_text(encoding="utf-8").replace("<!-- pbos-managed-sha256", "<!-- legacy-pbos-managed-sha256")
+    path.write_text(legacy, encoding="utf-8")
+    assert reports.periodic("pbos_daily", "2026-07-30")["state"] == "written"
+    assert "pbos-managed-sha256" in path.read_text(encoding="utf-8")
+
+    path.write_text(path.read_text(encoding="utf-8") + "\nUser note: do not overwrite.\n", encoding="utf-8")
+    assert reports.periodic("pbos_daily", "2026-07-30")["state"] == "conflict"
+
+
 def test_project_scope_hides_another_personal_profile(tmp_path):
     root = tmp_path / "shared"
     alpha = PBOSService(ArtifactGraphStore(str(root), project_id="alpha"), "alpha")
@@ -233,6 +283,30 @@ def test_one_complete_outcome_cannot_promote_a_strategy(tmp_path):
     record = service.record_execution("mission", "", {"actions": ["deliver"], "tool_receipts": [{"kind": "test", "verified": True}]})
     service.record_outcome(record.artifact_id, {"quality_score": 99, "acceptance_status": "accepted"})
     assert service.evolve()["state"] == "insufficient_evidence"
+
+
+def test_cockpit_marks_incomplete_accepted_outcomes_ineligible_for_personal_learning(tmp_path):
+    store = ArtifactGraphStore(str(tmp_path), project_id="personal")
+    _mission(store)
+    service = PBOSService(store, "personal")
+    record = service.record_execution(
+        "mission",
+        "",
+        {"actions": ["Ran the release check."], "tool_receipts": [{"kind": "test", "passed": True}]},
+    )
+    service.record_outcome(record.artifact_id, {"acceptance_status": "accepted", "quality_score": 100})
+
+    cockpit = service.cockpit()
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    report = PBOSReportService(service, vault).periodic("pbos_daily", "2026-07-30")
+    content = (tmp_path / "vault" / report["path"]).read_text(encoding="utf-8")
+
+    assert cockpit["project_health"]["accepted_outcomes"] == 1
+    assert cockpit["project_health"]["eligible_personal_outcomes"] == 0
+    assert cockpit["outcome_observations"][0]["eligible_for_evolution"] is False
+    assert "reflection" in cockpit["outcome_observations"][0]["missing_requirements"]
+    assert "not eligible for personal learning" in content
 
 
 def test_feedback_is_a_traceable_constraint_for_the_next_plan(tmp_path):

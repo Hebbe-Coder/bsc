@@ -712,6 +712,8 @@ class PersonalExecutionPlanArtifact(BaseArtifact):
     comparison_context: str = ""
     personal_context_fingerprint: str = ""
     strategy_refs: list[str] = Field(default_factory=list)
+    personalization_basis: list[dict[str, Any]] = Field(default_factory=list)
+    execution_contract: dict[str, Any] = Field(default_factory=dict)
     compiler_metadata: dict[str, Any] = Field(default_factory=dict)
 
 

@@ -1,5 +1,11 @@
 from app.artifacts import ArtifactGraphStore, DiagnosisArtifact, MissionArtifact
-from app.pbos.context import PBOSVaultContextBuilder
+from app.core.config import settings
+from app.knowledge.context_pack import WikiContextProvider
+from app.knowledge.vault import FilesystemWikiVault
+from app.knowledge.wiki_contracts import SourceRecord
+from app.knowledge.wiki_repository import WikiRepository
+from app.knowledge.wiki_rules import build_default_agents_rules
+from app.pbos.context import PBOSGovernedContextProvider, PBOSVaultContextBuilder
 from app.pbos.compiler import PBOSPlanCompiler
 from app.pbos.service import PBOSService
 
@@ -18,6 +24,16 @@ def _mission(store: ArtifactGraphStore, artifact_id: str, title: str, intent: st
     return mission
 
 
+def test_settings_compiler_uses_the_isolated_pbos_request_timeout(monkeypatch):
+    monkeypatch.setattr(settings, "SOP_LLM_PROVIDER", "deepseek")
+    monkeypatch.setattr(settings, "DEEPSEEK_API_KEY", "configured-test-key")
+
+    compiler = PBOSPlanCompiler.from_settings()
+
+    assert compiler.client is not None
+    assert compiler.client.timeout == settings.PBOS_LLM_TIMEOUT_SECONDS
+
+
 def test_vault_context_is_bounded_and_excludes_raw_sources(tmp_path):
     active = tmp_path / "03_Projects" / "active"
     active.mkdir(parents=True)
@@ -33,7 +49,7 @@ def test_vault_context_is_bounded_and_excludes_raw_sources(tmp_path):
     assert "unreviewed" not in str(context)
 
 
-def test_vault_context_prioritizes_governed_methods_and_skips_drawing_exports(tmp_path):
+def test_vault_context_prioritizes_working_methods_and_skips_unpublished_wiki_files(tmp_path):
     active = tmp_path / "03_Projects" / "active"
     active.mkdir(parents=True)
     (active / "boundary.md").write_text("---\ntitle: Boundary\n---\n# Delivery boundary\nUse an evidence gate.", encoding="utf-8")
@@ -50,13 +66,128 @@ def test_vault_context_prioritizes_governed_methods_and_skips_drawing_exports(tm
 
     context = PBOSVaultContextBuilder(tmp_path).build()
 
-    assert [item["path"] for item in context["documents"]][:3] == [
+    assert [item["path"] for item in context["documents"]][:2] == [
         "03_Projects/active/boundary.md",
         "methods/delivery-loop/SKILL.md",
-        "wiki/concepts/evidence.md",
     ]
+    assert "wiki/concepts/evidence.md" not in [item["path"] for item in context["documents"]]
     assert not any("excalidraw" in item["path"] for item in context["documents"])
     assert "title: Boundary" not in context["documents"][0]["excerpt"]
+
+
+def test_governed_context_retrieves_only_published_wiki_with_source_lineage(tmp_path):
+    vault_root = tmp_path / "vault"
+    project_root = vault_root / "projects" / "project-a"
+    project_root.mkdir(parents=True)
+    repo = WikiRepository(db_path=str(tmp_path / "governed-context.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    source = repo.create_source(
+        SourceRecord(
+            id="source-a",
+            project_id="project-a",
+            source_type="manual_upload",
+            origin="evidence.md",
+            content_hash="a" * 64,
+            raw_content="Published evidence about plugin extension delivery.",
+            trust_level="trusted",
+        )
+    )
+    published = (
+        "---\ntitle: Published plugin extension\nkind: concept\nstatus: published\n---\n"
+        "Use the governed plugin extension boundary. [source:source-a]\n"
+    )
+    contents = {
+        "AGENTS.md": build_default_agents_rules("project-a"),
+        "wiki/index.md": "# Index\n- [[wiki/concepts/published.md]]\n",
+        "wiki/log.md": "# Log\n",
+        "wiki/concepts/published.md": published,
+    }
+    vault = FilesystemWikiVault(vault_root, "project-a", "projects/project-a")
+    vault.commit(contents)
+    repo.record_publication(project_id="project-a", contents=contents, source_ids=[source["id"]])
+    (project_root / "wiki" / "concepts" / "unpublished.md").write_text(
+        "# Unpublished\nThis file must not enter a governed plan.", encoding="utf-8"
+    )
+
+    class Retrieval:
+        def retrieve(self, *_args, **_kwargs):
+            return [{"source": "wiki://project-a/wiki/concepts/published.md"}]
+
+    provider = PBOSGovernedContextProvider(
+        project_root,
+        project_id="project-a",
+        vault_root=vault_root,
+        repository=repo,
+        wiki_context_provider=WikiContextProvider(repo, vault_root=vault_root, retrieval_service=Retrieval()),
+    )
+    try:
+        context = provider.build(task_constraints=["plugin extension delivery"])
+
+        assert context["availability"] == "available"
+        assert context["documents"][0]["path"] == "wiki/concepts/published.md"
+        assert context["documents"][0]["ref"].startswith("wiki:")
+        assert context["documents"][0]["supporting_refs"] == ["source:source-a@" + "a" * 64]
+        assert context["governed_wiki"]["page_ids"]
+        assert "unpublished" not in str(context)
+    finally:
+        repo.close()
+
+
+def test_governed_context_retains_a_retrieved_published_page_when_source_budget_displaces_it(tmp_path):
+    vault_root = tmp_path / "vault"
+    project_root = vault_root / "projects" / "project-a"
+    project_root.mkdir(parents=True)
+    repo = WikiRepository(db_path=str(tmp_path / "governed-context-budget.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    source = repo.create_source(
+        SourceRecord(
+            id="source-a",
+            project_id="project-a",
+            source_type="manual_upload",
+            origin="evidence.md",
+            content_hash="a" * 64,
+            raw_content="Published evidence about plugin extension delivery. " * 300,
+            trust_level="trusted",
+        )
+    )
+    published = (
+        "---\ntitle: Published plugin extension\nkind: concept\nstatus: published\n---\n"
+        "Use the governed plugin extension boundary. [source:source-a]\n"
+        + ("Published plugin extension evidence. " * 340)
+    )
+    contents = {
+        "AGENTS.md": build_default_agents_rules("project-a"),
+        "wiki/index.md": "# Index\n- [[wiki/concepts/published.md]]\n",
+        "wiki/log.md": "# Log\n",
+        "wiki/concepts/published.md": published,
+    }
+    vault = FilesystemWikiVault(vault_root, "project-a", "projects/project-a")
+    vault.commit(contents)
+    repo.record_publication(project_id="project-a", contents=contents, source_ids=[source["id"]])
+
+    class Retrieval:
+        def retrieve(self, *_args, **_kwargs):
+            return [
+                {"source": "wiki://project-a/wiki/concepts/published.md"},
+                {"source": "evidence://project-a/source-a"},
+            ]
+
+    provider = PBOSGovernedContextProvider(
+        project_root,
+        project_id="project-a",
+        vault_root=vault_root,
+        repository=repo,
+        wiki_context_provider=WikiContextProvider(repo, vault_root=vault_root, retrieval_service=Retrieval()),
+    )
+    try:
+        context = provider.build(task_constraints=["plugin extension delivery"])
+
+        assert context["governed_wiki"]["page_ids"] == []
+        assert context["documents"][0]["path"] == "wiki/concepts/published.md"
+        assert context["documents"][0]["ref"].startswith("wiki:")
+        assert context["documents"][0]["supporting_refs"] == ["source:source-a@" + "a" * 64]
+    finally:
+        repo.close()
 
 
 def test_vault_context_prioritizes_latest_weekly_next_context_before_full_active_root(tmp_path):
@@ -121,7 +252,14 @@ def test_compiler_changes_execution_system_by_mission_and_cites_vault_context(tm
     assert engineering.phases[0]["title"] != growth.phases[0]["title"]
     assert any("contract" in action.lower() for phase in engineering.phases for action in phase["actions"])
     assert any("audience" in action.lower() or "retention" in action.lower() for phase in growth.phases for action in phase["actions"])
-    assert any("Governed context signal" in item for item in engineering.rationale)
+    assert any("Governed source available for review" in item for item in engineering.rationale)
+    assert "Freeze contracts before platform expansion." not in engineering.model_dump_json()
+    assert any("Review Current delivery (vault:03_Projects/active/delivery.md)" in action for phase in engineering.phases for action in phase["actions"])
+    assert engineering.personalization_basis[0]["kind"] == "declared_profile"
+    assert engineering.phases[0]["inputs"]
+    assert engineering.phases[0]["outputs"]
+    assert engineering.phases[0]["decision_point"]["question"]
+    assert "side_effect_boundary" in engineering.execution_contract
 
 
 def test_structured_model_output_is_traceable_to_the_same_context(tmp_path):
@@ -134,7 +272,7 @@ def test_structured_model_output_is_traceable_to_the_same_context(tmp_path):
             return {
                 "title": "Evidence-bound delivery system",
                 "rationale": ["Use the active delivery boundary before expanding scope."],
-                "phases": [{"title": "Contract gate", "actions": ["Freeze the API contract"], "checks": ["Run the focused tests"]}],
+                "phases": [{"title": "Contract gate", "why_now": "A prior scope failure needs an early boundary.", "inputs": ["Active Vault boundary"], "actions": ["Freeze the API contract"], "outputs": ["Accepted contract"], "checks": ["Run the focused tests"], "decision_point": {"question": "Is the contract bounded?", "proceed_when": "The owner accepts it.", "adapt_when": "Capture the missing constraint."}}],
                 "risks": ["Scope expansion before a verified receipt"],
                 "success_criteria": ["One reviewable loop is complete"],
                 "evidence_gap_plan": [],
@@ -162,6 +300,59 @@ def test_structured_model_output_is_traceable_to_the_same_context(tmp_path):
     assert plan.knowledge_context_refs == ["vault:03_Projects/active/delivery.md"]
     assert any("Mission intent:" in item for item in plan.rationale)
     assert any("Personal focus: AI systems" in item for item in plan.rationale)
+    assert plan.phases[0]["why_now"] == "A prior scope failure needs an early boundary."
+    assert plan.phases[0]["decision_point"]["adapt_when"] == "Capture the missing constraint."
+
+
+def test_compiler_replaces_verbatim_vault_echoes_with_traceable_references(tmp_path):
+    raw_source_line = "Do not expose this confidential raw Vault sentence in a persisted plan."
+
+    class EchoingClient:
+        provider = "test"
+        model = "echoing-test"
+
+        def chat_structured(self, **_kwargs):
+            return {
+                "title": "Evidence-bound delivery system",
+                "rationale": [raw_source_line],
+                "phases": [{
+                    "title": "Boundary gate",
+                    "why_now": raw_source_line,
+                    "inputs": [raw_source_line],
+                    "actions": [f"Follow this source exactly: {raw_source_line}"],
+                    "outputs": [raw_source_line],
+                    "checks": [raw_source_line],
+                    "decision_point": {
+                        "question": raw_source_line,
+                        "proceed_when": raw_source_line,
+                        "adapt_when": raw_source_line,
+                    },
+                }],
+                "risks": [raw_source_line],
+                "success_criteria": [raw_source_line],
+                "evidence_gap_plan": [raw_source_line],
+            }
+
+    root = tmp_path / "vault"
+    active = root / "03_Projects" / "active"
+    active.mkdir(parents=True)
+    (active / "delivery.md").write_text(f"# Delivery boundary\n{raw_source_line}", encoding="utf-8")
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(store, "mission", "Agent runtime delivery", "Deliver the verified runtime loop")
+    service = PBOSService(
+        store,
+        "personal",
+        context_provider=PBOSVaultContextBuilder(root).build,
+        plan_compiler=PBOSPlanCompiler(client=EchoingClient()),
+    )
+    service.save_profile({"focus": ["AI systems"]})
+
+    plan = service.compile_plan("mission")
+
+    assert raw_source_line not in plan.model_dump_json()
+    assert plan.compiler_metadata["mode"] == "llm_contextual"
+    assert "vault:03_Projects/active/delivery.md" in plan.phases[0]["actions"][0]
+    assert plan.phases[0]["decision_point"]["question"] == "Is the cited evidence sufficient for the next bounded decision?"
 
 
 def test_structured_model_fallback_records_safe_shape_and_attempts(tmp_path):

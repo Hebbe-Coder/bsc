@@ -210,3 +210,167 @@
   eight Vault references, two feedback inputs, and zero promoted capabilities.
   Desktop and 390px mobile checks found no horizontal overflow and no overlap
   across the seven lineage nodes.
+
+## 2026-07-30 DeepSeek Structured Plan Recovery And Fresh Live Loop
+
+- Closed the remaining PBOS model-quality reliability gap without weakening
+  evidence rules. The structured client now accepts documented OpenAI-compatible
+  text variants, emits safe response-shape diagnostics only, and performs a
+  second JSON-mode repair attempt with a bounded larger output budget. It never
+  reads, stores, or promotes `reasoning_content`, model response bodies, or
+  credentials.
+- The PBOS compiler now requests two bounded structured attempts (`2600`, then
+  `5200` tokens) and records only safe shape/attempt metadata when it must fall
+  back. This differentiates a provider truncation or proxy-shape defect from an
+  invented personalized result. New regression coverage proves the repair
+  budget, legacy completion shape, safe private-reasoning flag, and persisted
+  PBOS fallback diagnostics.
+- A fresh isolated Docker/Vault project `pbos-llm-proof-20260730` exercised the
+  production REST path: Mission `art_ac151ffde5bc` -> Profile
+  `art_33ddfc2ae3ae` -> Diagnosis `art_0a422a628df1` -> DeepSeek Personal Plan
+  `art_63e4d5e0b020`. The plan used the explicit solo-AI-product-engineer
+  diagnosis and the governed Vault boundary
+  `03_Projects/active/ai-delivery-boundary.md`, projected to
+  `pbos/plans/art_63e4d5e0b020.md`, and reported `compiler_metadata.mode =
+  llm_contextual` with provider `deepseek` / model `deepseek-v4-pro`.
+- A second real compiler run after the reflection also returned
+  `llm_contextual`: execution `art_7eec706ad538` -> deliberately unverified
+  outcome `art_8eb0f911f885` -> feedback `art_66805ff644bd` -> next plan
+  `art_98cc5818bff3`. The next plan contains the feedback parent/reference and
+  its own Obsidian projection. This proves feedback changes the next planning
+  context while preserving the no-promotion gate.
+- The technical validation outcome intentionally has no accepted quality score:
+  it records the real `125 passed, 1 skipped` PBOS/Artifact/knowledge command,
+  production readiness readback, and Vault projection. It is not represented as
+  a user-accepted AI-project delivery, Capability, Experience, or Strategy
+  Genome.
+- Runtime verification: the production container was checked to contain the
+  new two-attempt compiler and safe attempt ledger. Docker API, PostgreSQL,
+  Redis, worker, and beat were healthy; `docker compose config --quiet` and
+  `git diff --check` passed. Frontend verification passed `162` tests; `npm run
+  check` and `npm run build` passed (the existing ECharts chunk-size warning
+  remains non-blocking).
+- Browser acceptance loaded the isolated project's actual Cockpit payload via
+  the local authenticated proxy. It displayed one governed Vault reference,
+  one unverified outcome, one feedback input, zero active strategies, and zero
+  verified capabilities. At 390px, the measured content width was 384px with
+  no horizontal overflow, and the screenshot showed no overlapping panel text.
+  The browser later rejected a temporary viewport reset, so this entry claims
+  the live desktop DOM inspection and the completed mobile screenshot only;
+  it does not invent a second desktop screenshot.
+- Rollback: remove only the PBOS structured-output repair, diagnostics, and
+  related tests to restore the old one-shot behavior. Do not remove the
+  isolated Vault project or reclassify its unverified outcome as personal
+  evidence. GitHub and Feishu remain `awaiting_authorization`.
+
+## 2026-07-30 Docker Recovery Readback
+
+- Docker Desktop restarted while a discretionary default-project recompilation
+  request was starting. The request produced no result and was not counted as
+  a plan, execution, or Vault write. After the runtime recovered, production
+  API readback confirmed durable recovery rather than an in-memory illusion:
+  both `default` and `pbos-llm-proof-20260730` retained their Profile, current
+  plan, Outcome, and Feedback artifacts.
+- The recovered default project reports two outcomes, two feedback items, zero
+  verified capabilities, and a current `llm_contextual` plan. The isolated
+  project reports one outcome, one feedback item, zero capabilities, and a
+  current `llm_contextual` plan. This verifies project isolation, persistence,
+  honest non-promotion, and structured-LLM recovery across a real runtime
+  restart.
+
+## 2026-07-30 Governed Wiki Context Wiring
+
+- Identified and closed a source-level integration defect: the PBOS API used a
+  plain filesystem scan that could read arbitrary `wiki/` files and did not
+  use the task-specific retrieval already available to the knowledge system.
+  This made a published page available to the orchestrator without reliably
+  grounding PBOS plans.
+- Added `PBOSGovernedContextProvider`. It accepts Mission title, intent,
+  goal, and constraints as retrieval inputs; obtains only BSC-published Wiki
+  pages through `WikiContextProvider`; and records both immutable page
+  revision references and processed supporting source hashes in
+  `knowledge_context_refs`. Plain Vault context remains a bounded supplement
+  for current project work, but `wiki/` is no longer a filesystem-scanned
+  bypass around the publication gate.
+- Regression coverage proves a physical unpublished Wiki file cannot enter a
+  plan while a retrieved published page with a processed source citation does.
+  PBOS receives the selected page and its source lineage, not a synthetic
+  summary. PBOS contextual compiler, service, API, Wiki publication, source
+  triage, task, and recovery regression completed with `150 passed`.
+- Deployment boundary: this PBOS context wiring passes local Python
+  compilation, TypeScript checking, and production frontend build, but Docker
+  Desktop BuildKit stopped emitting progress while rebuilding the updated
+  image. Existing Docker API, Worker, Beat, PostgreSQL, Redis, and the already
+  deployed Wiki-status repair remain healthy. This entry deliberately does not
+  claim that the new PBOS provider has been loaded by the current container;
+  it requires a successful image rebuild and the same real Mission-to-plan
+  readback before runtime closure.
+
+## 2026-07-30 PBOS Governed Context Deployment Closure
+
+- The prior deployment boundary is superseded. The Docker API, Worker, and
+  Beat were rebuilt and restarted after the PBOS provider repair; `/ready`
+  returned `200`, the container loaded `mcp==1.28.1` with `FastMCP`, and the
+  active Celery worker returned `pong` through the configured Redis control
+  plane.
+- The live proof uncovered and corrected a budget-edge defect: when a long
+  selected evidence source displaced a retrieved page from rendered context,
+  PBOS lost the page reference. `PBOSGovernedContextProvider` now retains only
+  retrieval-selected, BSC-published pages as immutable planning references and
+  attaches their processed citation lineage. It does not scan `wiki/` from the
+  filesystem or expose unpublished content.
+- A temporary, discarded Artifact Graph inside the production API container
+  compiled a default-project Obsidian plugin-extension Mission. Its resulting
+  plan carried both the actual published page revision
+  `wiki:6d695376a04e63d49958c84c@eb769555c96456a076186ecc81468f5b350ce0bd489589696cdfff4d93274a53`
+  and source revision
+  `source:d868c7bd34af@5c71bef8236b9dcaeb55216e523afc503fb12f0d15f6f0738b7bc9dde0c69b0c`.
+  No fabricated mission, plan, or Vault content was persisted for this check.
+- Regression: `tests/pbos/test_pbos_contextual_compiler.py -q` passed with
+  `10 passed`, including the source-budget displacement case. The live Wiki
+  snapshot remains lint-clean with 10 pages, 153 sources, 37 citations,
+  citation coverage `1.0`, no dangling/stale citations or pending proposals,
+  and 78 persisted graph edges.
+
+## 2026-07-30 Daily Action And Personal-Evidence Closure
+
+- Corrected a product-level gap in the daily loop. The report previously
+  rendered only the plan title and a legacy BSC-owned report could remain stale
+  without an integrity footer. `PBOSService.today_action()` now deterministically
+  selects the first unfinished compiler phase action, its success check,
+  rationale, plan/Mission IDs, and governed references. It is exposed at
+  `GET /api/pbos/projects/{project_id}/today-action`, returned from Cockpit,
+  rendered in the cockpit header, and written into daily/weekly/monthly PBOS
+  projections.
+- Periodic reports now carry a `pbos-managed-sha256` footer. Untouched
+  BSC-managed reports, including the one-time legacy format, can refresh; a
+  user edit after the footer resolves to `conflict` and is never overwritten.
+  This keeps the managed daily action current without taking ownership of
+  human-authored changes.
+- Added a separate `eligible_personal_outcomes` health measure and per-outcome
+  eligibility observations. An accepted result still requires an execution,
+  actions, tool receipts, reflection, and quality score before it can teach a
+  personal method. The default ledger's historical `accepted` technical test
+  has no reflection, so it remains visible but explicitly reports `not eligible
+  for personal learning`; it does not create a Capability, Experience, or
+  Strategy Genome.
+- Live validation used the durable `knowledge_runs` path, not a test fixture:
+  run `ca71623ad429` (`pbos_daily`, `manual_validation`) completed and wrote
+  `pbos/reviews/daily/2026-07-30/daily-action.md` in the mapped default Vault.
+  It selected the current contextual plan's acceptance-card action, cited eight
+  governed planning references, and retained the evidence gap. A protected
+  in-container REST readback returned `recommended`, the same plan ID,
+  eight references, `eligible_personal_outcomes=0`, `verified_capabilities=0`,
+  and `active_strategies=0`.
+- Verification: `pytest tests/pbos/test_pbos_service.py tests/pbos/test_pbos_scheduler.py
+  tests/api/test_pbos_api.py tests/integration/test_pbos_e2e.py -q` passed
+  (`24 passed`); focused Cockpit tests passed (`4 passed`); `npm run check`
+  passed; Docker API, Worker, and Beat were rebuilt and `/ready` returned 200.
+  The final in-container production build completed with only the existing
+  non-blocking ECharts chunk-size advisory.
+- Rollback: remove `today_action`, the report integrity-footer renderer, and
+  their focused tests; existing reports retain their latest BSC-managed body.
+  Do not reclassify technical validation outcomes as user-accepted personal
+  evidence. Three comparable real AI-project deliveries with reviewable
+  receipts, quality, and reflection are still required before the evolution
+  gate can promote a personal method.

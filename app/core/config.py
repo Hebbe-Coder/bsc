@@ -179,6 +179,10 @@ class Settings(BaseSettings):
     # requests. Keep its request budget isolated from generic LLM calls.
     KNOWLEDGE_WIKI_LLM_TIMEOUT_SECONDS: float = 90.0
     KNOWLEDGE_WIKI_LLM_MAX_ATTEMPTS: int = 1
+    # PBOS structured plans can use the same high-reasoning provider as
+    # knowledge distillation, but they must not inherit the short interactive
+    # request budget. Keep this independently configurable and bounded.
+    PBOS_LLM_TIMEOUT_SECONDS: float = 120.0
     KNOWLEDGE_GROWTH_LLM_MODEL: str = ""
     # Weekly distillation can legitimately need a longer provider read budget
     # than interactive chat while keeping the general LLM timeout unchanged.

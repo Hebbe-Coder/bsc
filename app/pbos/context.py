@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterable
+
+from app.knowledge.context_pack import WikiContextProvider
+from app.knowledge.wiki_repository import WikiRepository
 
 
 class PBOSVaultContextBuilder:
@@ -18,7 +21,6 @@ class PBOSVaultContextBuilder:
         "03_Projects/active",
         "02_Assets/curated",
         "methods",
-        "wiki",
         "04_Outputs",
         "outputs",
         "distillations",
@@ -149,3 +151,131 @@ class PBOSVaultContextBuilder:
             if value.startswith("# "):
                 return value[2:].strip()[:200] or fallback
         return fallback[:200]
+
+
+class PBOSGovernedContextProvider:
+    """Combine bounded working notes with retrieval-selected published Wiki pages.
+
+    The filesystem is useful for the user's current project context, but it is
+    not an authority for B-layer knowledge. Published pages and their evidence
+    lineage are therefore selected from BSC's project-scoped repository first.
+    """
+
+    def __init__(
+        self,
+        project_root: Path | str,
+        *,
+        project_id: str,
+        vault_root: Path | str,
+        repository: WikiRepository | None = None,
+        wiki_context_provider: WikiContextProvider | None = None,
+        repository_factory: Callable[[], WikiRepository] = WikiRepository,
+    ) -> None:
+        self.project_root = Path(project_root).resolve()
+        self.project_id = project_id
+        self.vault_root = Path(vault_root).resolve()
+        self.repository = repository
+        self.wiki_context_provider = wiki_context_provider
+        self.repository_factory = repository_factory
+        self.working_context = PBOSVaultContextBuilder(self.project_root)
+
+    def build(self, *, task_constraints: Iterable[str] = ()) -> dict[str, Any]:
+        working = self.working_context.build()
+        repository = self.repository or self.repository_factory()
+        owns_repository = self.repository is None
+        try:
+            provider = self.wiki_context_provider or WikiContextProvider(
+                repository, vault_root=self.vault_root
+            )
+            pack = provider.build_context(
+                project_id=self.project_id,
+                task_constraints=task_constraints,
+            )
+            governed = self._published_documents(repository, pack)
+        finally:
+            if owns_repository:
+                repository.close()
+        documents = [*governed, *working["documents"]][: PBOSVaultContextBuilder.MAX_DOCUMENTS]
+        refs = list(dict.fromkeys(
+            [
+                str(reference)
+                for document in documents
+                for reference in [
+                    document.get("ref"),
+                    *(document.get("supporting_refs") or []),
+                ]
+                if str(reference)
+            ]
+        ))
+        return {
+            "availability": "available" if documents else (
+                "no_governed_context" if pack is not None else working["availability"]
+            ),
+            "documents": documents,
+            "refs": refs,
+            "governed_wiki": {
+                "available": pack is not None,
+                "revision": pack.revision if pack is not None else "",
+                "page_ids": list(pack.page_ids) if pack is not None else [],
+                "source_ids": list(pack.source_ids) if pack is not None else [],
+                "retrieval_refs": list(pack.retrieval_refs) if pack is not None else [],
+            },
+        }
+
+    def _published_documents(self, repository: WikiRepository, pack: Any) -> list[dict[str, Any]]:
+        if pack is None:
+            return []
+        page_ids: list[str] = []
+        for reference in pack.section_refs:
+            kind, separator, page_id = str(reference).partition(":")
+            if separator and kind in {"page", "decision"} and page_id not in page_ids:
+                page_ids.append(page_id)
+        # The rendered context reserves enough room for at least one primary
+        # source. A long source can therefore displace a retrieved Wiki page
+        # from ``section_refs`` even though retrieval selected it for this
+        # task. Retain those selected *published* pages as immutable planning
+        # references; never fall back to arbitrary Vault files.
+        retrieved_paths = {
+            str(reference)
+            for reference in pack.retrieval_refs
+            if str(reference).startswith("wiki/") or str(reference) == "AGENTS.md"
+        }
+        if retrieved_paths:
+            for page in repository.list_pages(self.project_id):
+                page_id = str(page.get("id") or "")
+                if (
+                    page_id
+                    and str(page.get("path") or "") in retrieved_paths
+                    and page.get("status") == "published"
+                    and page_id not in page_ids
+                ):
+                    page_ids.append(page_id)
+        documents: list[dict[str, Any]] = []
+        for page_id in page_ids:
+            page = repository.get_page(self.project_id, page_id)
+            revision = repository.get_page_content(self.project_id, page_id)
+            if not page or not revision or page.get("status") != "published":
+                continue
+            supporting_refs = [
+                self._source_ref(repository, citation["source_id"])
+                for citation in repository.list_citations(self.project_id, page_id)
+            ]
+            content = str(revision["content"])
+            documents.append(
+                {
+                    "ref": f"wiki:{page_id}@{revision['content_hash']}",
+                    "path": str(page["path"]),
+                    "title": str(page.get("title") or page["path"]),
+                    "excerpt": self.working_context._excerpt(content),
+                    "sha256": str(revision["content_hash"]),
+                    "kind": "published_wiki",
+                    "supporting_refs": [reference for reference in supporting_refs if reference],
+                }
+            )
+        return documents
+
+    def _source_ref(self, repository: WikiRepository, source_id: str) -> str:
+        source = repository.get_source(self.project_id, source_id)
+        if not source or source.get("status") != "processed":
+            return ""
+        return f"source:{source_id}@{source['content_hash']}"

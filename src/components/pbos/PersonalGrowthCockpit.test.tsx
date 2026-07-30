@@ -61,6 +61,20 @@ describe('PersonalGrowthCockpit', () => {
           'vault:wiki/concepts/evidence.md',
         ],
         feedback_refs: ['feedback-1'],
+        phases: [{
+          title: 'Freeze the evidence boundary',
+          why_now: 'The current project needs a reviewable scope before implementation.',
+          inputs: ['Mission objective', 'Governed Vault boundary'],
+          actions: ['Define the acceptance card'],
+          outputs: ['Reviewable acceptance card'],
+          decision_point: { question: 'Is the boundary explicit?', proceed_when: 'Owner and metric are named.', adapt_when: 'Capture the missing constraint.' },
+        }],
+        execution_contract: { reflection_entry: 'Record what changed after the first observable receipt.' },
+      },
+      today_action: {
+        state: 'recommended',
+        title: 'Define the acceptance card',
+        success_check: 'Owner and metric are named.',
       },
       capabilities: [], outcomes: [], feedback: [],
       strategies: [], failure_patterns: [], project_health: {},
@@ -73,11 +87,16 @@ describe('PersonalGrowthCockpit', () => {
     render(<PersonalGrowthCockpit projectId="default" onClose={vi.fn()} runtimeAccessKey="session-key" />);
 
     expect(await screen.findByText(/governed Vault evidence/i)).toBeVisible();
+    expect(screen.getAllByText('Define the acceptance card')[0]).toBeVisible();
+    expect(screen.getByText(/Success check: Owner and metric are named/i)).toBeVisible();
     expect(screen.getByText(/Capability claims still await verified execution evidence/i)).toBeVisible();
     expect(screen.getByText('PLAN GROUNDING')).toBeVisible();
     expect(screen.getByText(/1 weekly handoff/i)).toBeVisible();
     expect(screen.getByText(/03-下周上下文包\.md/i)).toBeVisible();
     expect(screen.getByText(/1 feedback input/i)).toBeVisible();
+    expect(screen.getByText("TODAY'S EXECUTION PATH")).toBeVisible();
+    expect(screen.getByText('Freeze the evidence boundary')).toBeVisible();
+    expect(screen.getByText(/Is the boundary explicit/i)).toBeVisible();
     expect(screen.getByTestId('workflow-lineage')).toHaveAttribute('data-node-labels', expect.stringContaining('1 weekly handoff'));
     expect(screen.getByTestId('workflow-lineage')).toHaveAttribute('data-node-labels', expect.stringContaining('2 Vault refs'));
     expect(screen.getByTestId('workflow-lineage')).toHaveAttribute('data-node-labels', expect.stringContaining('1 feedback input'));
@@ -88,6 +107,7 @@ describe('PersonalGrowthCockpit', () => {
     vi.mocked(fetchPbosCockpit).mockResolvedValue({
       profile: null,
       today: null,
+      today_action: { state: 'no_plan' },
       capabilities: [],
       outcomes: [],
       feedback: [],

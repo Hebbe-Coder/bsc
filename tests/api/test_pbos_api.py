@@ -50,3 +50,10 @@ def test_pbos_plan_api_uses_project_vault_context(monkeypatch, tmp_path):
     assert payload["compilation_state"] == "context_grounded"
     assert payload["knowledge_context_refs"] == ["vault:03_Projects/active/context.md"]
     assert payload["compiler_metadata"]["mode"] == "contextual_deterministic"
+
+    action = client.get("/api/pbos/projects/personal/today-action")
+
+    assert action.status_code == 200
+    assert action.json()["state"] == "recommended"
+    assert action.json()["plan_id"] == payload["artifact_id"]
+    assert action.json()["knowledge_context_refs"] == ["vault:03_Projects/active/context.md"]
