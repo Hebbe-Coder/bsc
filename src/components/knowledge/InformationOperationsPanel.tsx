@@ -98,7 +98,9 @@ export function InformationOperationsPanel({ projectId, canWrite, refreshToken }
     </header>
     <div className="information-metrics" aria-label="Information intake metrics">
       <Metric icon={<Radio size={16} />} label="Enabled feeds" value={overview.counts.available_sources} detail={`${overview.counts.unavailable_sources} unavailable adapters`} />
-      <Metric icon={<CheckCircle2 size={16} />} label="Evidence captured" value={overview.counts.captured} detail="BSC receipt and immutable source present" />
+      <Metric icon={<CheckCircle2 size={16} />} label="Evidence receipts" value={overview.counts.captured} detail="All BSC receipts, including repeat discoveries" />
+      <Metric icon={<CheckCircle2 size={16} />} label="New sources" value={overview.counts.new_sources} detail={`${overview.counts.new_sources} new evidence asset(s)`} />
+      <Metric icon={<RefreshCw size={16} />} label="Repeat discoveries" value={overview.counts.duplicate_sources} detail={`${overview.counts.duplicate_sources} repeat receipt(s), no source growth`} />
       <Metric icon={<Inbox size={16} />} label="Needs original source" value={overview.counts.lead_only} detail="Discovery lead only, not evidence" />
       <Metric icon={<ShieldAlert size={16} />} label="Rejected items" value={overview.counts.rejected} detail="Policy, registry, or payload failure" />
     </div>

@@ -897,7 +897,7 @@ body .knowledge-workspace .information-operations--loading { padding: 34px; colo
 body .knowledge-workspace .information-operations--error { display: flex; gap: 10px; margin: 16px; border: 1px solid #814853; padding: 14px; color: #ffb9b6; background: #2e1d24; }
 body .knowledge-workspace .information-operations--error strong { color: #ffe2e0; font: 12px ui-monospace, monospace; }
 body .knowledge-workspace .information-operations--error p { margin: 4px 0 10px; font: 10px/1.5 ui-monospace, monospace; }
-body .knowledge-workspace .information-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid #29404c; background: #29404c; gap: 1px; }
+body .knowledge-workspace .information-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); border-bottom: 1px solid #29404c; background: #29404c; gap: 1px; }
 body .knowledge-workspace .information-metrics > div { display: grid; min-width: 0; grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; padding: 12px; background: #101c25; }
 body .knowledge-workspace .information-metrics > div > span { grid-row: 1 / span 3; color: #7ad6c0; }
 body .knowledge-workspace .information-metrics strong { color: #edf8f5; font: 600 20px ui-monospace, monospace; }

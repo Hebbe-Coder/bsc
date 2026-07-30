@@ -184,6 +184,13 @@ class InformationIntelligenceService:
         sources = self.list_sources(project_id)
         receipts = self.list_receipts(project_id, limit=500)
         runs = [run for run in self.repository.list_runs(project_id, limit=100) if run["run_type"] == "information_signal_ingress"]
+        captured_receipts = [receipt for receipt in receipts if receipt["disposition"] == "captured"]
+        duplicate_sources = sum(
+            1
+            for receipt in captured_receipts
+            if receipt["reason"] == "duplicate_source"
+            or (isinstance(receipt.get("metadata"), dict) and receipt["metadata"].get("source_created") is False)
+        )
         return {
             "state": "ready" if sources else "no_sources",
             "source_registry": sources,
@@ -193,7 +200,9 @@ class InformationIntelligenceService:
                 "sources": len(sources),
                 "available_sources": sum(1 for source in sources if source["availability"] == "available" and source["enabled"]),
                 "unavailable_sources": sum(1 for source in sources if source["availability"] == "unavailable"),
-                "captured": sum(1 for receipt in receipts if receipt["disposition"] == "captured"),
+                "captured": len(captured_receipts),
+                "new_sources": len(captured_receipts) - duplicate_sources,
+                "duplicate_sources": duplicate_sources,
                 "lead_only": sum(1 for receipt in receipts if receipt["disposition"] == "lead_only"),
                 "rejected": sum(1 for receipt in receipts if receipt["disposition"] == "rejected"),
             },

@@ -250,7 +250,16 @@ export type KnowledgeInformationOverview = {
   source_registry: InformationRegistrySource[];
   receipts: InformationSignalReceipt[];
   runs: KnowledgeRun[];
-  counts: { sources: number; available_sources: number; unavailable_sources: number; captured: number; lead_only: number; rejected: number };
+  counts: {
+    sources: number;
+    available_sources: number;
+    unavailable_sources: number;
+    captured: number;
+    new_sources: number;
+    duplicate_sources: number;
+    lead_only: number;
+    rejected: number;
+  };
 };
 
 export class KnowledgeRequestError extends Error {

@@ -147,6 +147,31 @@ def test_signal_batch_keeps_raw_evidence_and_derivatives_separate_and_replays_id
         repository.close()
 
 
+def test_information_overview_separates_new_sources_from_repeat_discovery_receipts(tmp_path):
+    repository = WikiRepository(db_path=str(tmp_path / "intelligence-overview-dedup.db"))
+    service = InformationIntelligenceService(repository)
+    try:
+        registry = service.register_source(_entry())
+        first = service.ingest(_batch(registry["id"], batch_id="batch-first"))
+        repeated = service.ingest(_batch(registry["id"], batch_id="batch-repeat"))
+
+        assert first["receipts"][0]["metadata"]["source_created"] is True
+        assert repeated["receipts"][0]["reason"] == "duplicate_source"
+        assert repeated["receipts"][0]["metadata"]["source_created"] is False
+        assert service.overview("project-a")["counts"] == {
+            "sources": 1,
+            "available_sources": 1,
+            "unavailable_sources": 0,
+            "captured": 2,
+            "new_sources": 1,
+            "duplicate_sources": 1,
+            "lead_only": 0,
+            "rejected": 0,
+        }
+    finally:
+        repository.close()
+
+
 def test_lead_only_never_claims_to_have_captured_primary_evidence(tmp_path):
     repository = WikiRepository(db_path=str(tmp_path / "intelligence.db"))
     service = InformationIntelligenceService(repository)
