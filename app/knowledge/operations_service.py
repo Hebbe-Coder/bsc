@@ -37,12 +37,19 @@ _ACTION_ORDER = {
     "unresolved_risk": 0,
     "evidence_gap": 1,
     "failed_verification": 2,
-    "unverified_execution": 3,
-    "unvalidated_assumption": 4,
-    "pending_proposal": 5,
+    "pending_output_evaluation": 3,
+    "unverified_execution": 4,
+    "unvalidated_assumption": 5,
+    "pending_proposal": 6,
+    "rejected_output": 7,
 }
 _SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 _PUBLISHABLE_SOURCE_STATUSES = {"eligible", "processed"}
+_PUBLISHED_PAGE_STATUSES = {"published"}
+_PUBLISHED_METHOD_STATUSES = {"published"}
+_REUSABLE_MEMORY_STATUSES = {"accepted", "published", "reusable"}
+_ATTENTION_METHOD_STATUSES = {"rejected", "deprecated", "superseded"}
+_ATTENTION_OUTPUT_STATUSES = {"rejected", "superseded", "archived"}
 _PENDING_METHOD_STATUSES = {"candidate", "validating", "approved"}
 # A single completed run is useful evidence, but not a reliable performance rate.
 MINIMUM_AGENT_SAMPLE_SIZE = 3
@@ -76,16 +83,16 @@ class KnowledgeOperationsService:
         actions = self._actions(snapshots)
         project_summaries = self._project_summaries(project_records, snapshots, actions)
 
-        sources = sum(len(snapshot["sources"]) for snapshot in snapshots)
-        pages = sum(len(snapshot["pages"]) for snapshot in snapshots)
-        methods = sum(len(snapshot["methods"]) for snapshot in snapshots)
-        outputs = sum(len(snapshot["outputs"]) for snapshot in snapshots)
-        memories = sum(len(snapshot["memories"]) for snapshot in snapshots)
+        sources = sum(len(snapshot["asset_records"]["sources"]) for snapshot in snapshots)
+        pages = sum(len(snapshot["asset_records"]["pages"]) for snapshot in snapshots)
+        methods = sum(len(snapshot["asset_records"]["methods"]) for snapshot in snapshots)
+        outputs = sum(len(snapshot["asset_records"]["outputs"]) for snapshot in snapshots)
+        memories = sum(len(snapshot["asset_records"]["memories"]) for snapshot in snapshots)
         verified = sum(snapshot["verified"] for snapshot in snapshots)
         pending = sum(snapshot["pending_validation"] for snapshot in snapshots)
         attention = sum(snapshot["requires_attention"] for snapshot in snapshots)
         durable_references = sum(snapshot["durable_references"] for snapshot in snapshots)
-        record_count = sources + pages + methods + outputs + memories
+        record_count = sum(self._audited_record_count(snapshot) for snapshot in snapshots)
         unavailable_dbos = [snapshot["project_id"] for snapshot in snapshots if snapshot["dbos_unavailable"]]
         coverage = OperationsCoverage(
             state=(OperationsMetricState.UNAVAILABLE if unavailable_dbos else OperationsMetricState.AVAILABLE),
@@ -110,6 +117,7 @@ class KnowledgeOperationsService:
             "coverage": coverage,
             "metrics": {
                 "assets": {
+                    "qualified_total": self._metric("qualified_total", sources + pages + methods + outputs + memories),
                     "sources": self._metric("sources", sources),
                     "pages": self._metric("pages", pages),
                     "methods": self._metric("methods", methods),
@@ -171,11 +179,8 @@ class KnowledgeOperationsService:
             if artifact.execution_id
         }
 
-        verified = (
-            sum(str(source.get("status") or "") in _PUBLISHABLE_SOURCE_STATUSES for source in sources)
-            + sum(str(method.get("status") or "") == "published" for method in methods)
-            + sum(is_verified_output_status(output.get("status")) for output in outputs)
-        )
+        asset_records = self._asset_records(sources, pages, methods, outputs, memories)
+        verified = sum(len(records) for records in asset_records.values())
         pending_validation = (
             sum(str(source.get("status") or "") == "validated" for source in sources)
             + sum(str(method.get("status") or "") in {"candidate", "validating"} for method in methods)
@@ -183,6 +188,8 @@ class KnowledgeOperationsService:
         )
         requires_attention = (
             sum(str(source.get("status") or "") in {"rejected", "superseded"} for source in sources)
+            + sum(str(method.get("status") or "") in _ATTENTION_METHOD_STATUSES for method in methods)
+            + sum(str(output.get("status") or "") in _ATTENTION_OUTPUT_STATUSES for output in outputs)
             + len([failure for failure in failures if str(failure.get("status") or "") != "resolved"])
             + sum(
                 isinstance(artifact, RiskArtifact) and self._severity(artifact.severity) in {"critical", "high"}
@@ -197,7 +204,7 @@ class KnowledgeOperationsService:
                 for artifact in artifacts
             )
         )
-        durable_references = sum(bool(output.get("method_revision_id")) for output in outputs)
+        durable_references = sum(bool(output.get("method_revision_id")) for output in asset_records["outputs"])
         durable_references += sum(len(context.method_ids) for context in contexts)
 
         return {
@@ -212,6 +219,7 @@ class KnowledgeOperationsService:
             "executions": executions,
             "verifications": verifications,
             "routing": routing,
+            "asset_records": asset_records,
             "verified": verified,
             "pending_validation": pending_validation,
             "requires_attention": requires_attention,
@@ -245,10 +253,10 @@ class KnowledgeOperationsService:
         actions: list[dict[str, Any]],
     ) -> dict[str, Any]:
         project_id = str(project["id"])
-        asset_count = len(snapshot["sources"]) + len(snapshot["pages"]) + len(snapshot["methods"]) + len(snapshot["outputs"]) + len(snapshot["memories"])
+        asset_count = sum(len(records) for records in snapshot["asset_records"].values())
         coverage = OperationsCoverage(
             state=OperationsMetricState.UNAVAILABLE if snapshot["dbos_unavailable"] else OperationsMetricState.AVAILABLE,
-            record_count=asset_count,
+            record_count=self._audited_record_count(snapshot),
             reason="DBOS lifecycle records are unavailable for this authorized project." if snapshot["dbos_unavailable"] else "",
         )
         summary = OperationsProjectSummary(
@@ -324,12 +332,12 @@ class KnowledgeOperationsService:
     def _asset_growth(self, snapshots: list[dict[str, Any]]) -> list[dict[str, Any]]:
         buckets: dict[str, dict[str, Any]] = defaultdict(lambda: {"sources": 0, "methods": 0, "outputs": 0})
         for snapshot in snapshots:
-            for source in snapshot["sources"]:
-                self._increment_bucket(buckets, source.get("captured_at") or source.get("created_at"), "sources")
-            for method in snapshot["methods"]:
-                self._increment_bucket(buckets, method.get("created_at"), "methods")
-            for output in snapshot["outputs"]:
-                self._increment_bucket(buckets, output.get("created_at"), "outputs")
+            for source in snapshot["asset_records"]["sources"]:
+                self._increment_bucket(buckets, source.get("updated_at") or source.get("captured_at") or source.get("created_at"), "sources")
+            for method in snapshot["asset_records"]["methods"]:
+                self._increment_bucket(buckets, method.get("updated_at") or method.get("created_at"), "methods")
+            for output in snapshot["asset_records"]["outputs"]:
+                self._increment_bucket(buckets, output.get("updated_at") or output.get("created_at"), "outputs")
         return [{"date": date, **buckets[date]} for date in sorted(buckets)]
 
     def _agent_evolution_trend(self, snapshots: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -411,6 +419,33 @@ class KnowledgeOperationsService:
                     created_at=self._timestamp(proposal.get("created_at")),
                     drilldown=OperationsDrilldown(surface="growth", entity_id=proposal_id),
                 ))
+            for output in snapshot["outputs"]:
+                output_id = str(output.get("id") or "")
+                if not output_id:
+                    continue
+                status = str(output.get("status") or "")
+                if status in {"registered", "evaluating"}:
+                    actions.append(OperationalAction(
+                        id=f"action:pending_output_evaluation:{output_id}",
+                        project_id=project_id,
+                        kind="pending_output_evaluation",
+                        severity="medium",
+                        source_refs=(f"output:{output_id}",),
+                        recommendation="Evaluate this output before counting it as a reusable knowledge asset.",
+                        created_at=self._timestamp(output.get("updated_at") or output.get("created_at")),
+                        drilldown=OperationsDrilldown(surface="growth", entity_id=output_id),
+                    ))
+                elif status in _ATTENTION_OUTPUT_STATUSES:
+                    actions.append(OperationalAction(
+                        id=f"action:rejected_output:{output_id}",
+                        project_id=project_id,
+                        kind="rejected_output",
+                        severity="medium",
+                        source_refs=(f"output:{output_id}",),
+                        recommendation="Review the rejected or retired output and retain its feedback as negative evidence, not a reusable asset.",
+                        created_at=self._timestamp(output.get("updated_at") or output.get("created_at")),
+                        drilldown=OperationsDrilldown(surface="growth", entity_id=output_id),
+                    ))
         actions.sort(key=lambda action: (
             _ACTION_ORDER.get(action.kind, len(_ACTION_ORDER)),
             _SEVERITY_ORDER.get(action.severity, _SEVERITY_ORDER["info"]),
@@ -434,6 +469,28 @@ class KnowledgeOperationsService:
                 mission_id=str(getattr(artifact, "mission_id", "") or ""),
             ),
         )
+
+    @staticmethod
+    def _asset_records(
+        sources: list[dict[str, Any]],
+        pages: list[dict[str, Any]],
+        methods: list[dict[str, Any]],
+        outputs: list[dict[str, Any]],
+        memories: list[MemoryArtifact],
+    ) -> dict[str, list[Any]]:
+        """Select assets whose persisted status permits operational reuse."""
+        return {
+            "sources": [source for source in sources if str(source.get("status") or "") in _PUBLISHABLE_SOURCE_STATUSES],
+            "pages": [page for page in pages if str(page.get("status") or "").lower() in _PUBLISHED_PAGE_STATUSES],
+            "methods": [method for method in methods if str(method.get("status") or "").lower() in _PUBLISHED_METHOD_STATUSES],
+            "outputs": [output for output in outputs if is_verified_output_status(output.get("status"))],
+            "memories": [memory for memory in memories if str(memory.governance_status or "").lower() in _REUSABLE_MEMORY_STATUSES],
+        }
+
+    @staticmethod
+    def _audited_record_count(snapshot: dict[str, Any]) -> int:
+        """Keep audit coverage independent from the narrower reusable-asset total."""
+        return sum(len(snapshot[key]) for key in ("sources", "pages", "methods", "outputs", "memories"))
 
     @staticmethod
     def _metric(key: str, value: int) -> dict[str, Any]:

@@ -101,7 +101,7 @@ def test_operations_overview_uses_real_scoped_growth_and_dbos_records(tmp_path):
             session_id="dbos",
         )
         store = stores[("tenant-a", "project-a")]
-        store.add(MemoryArtifact(project_id="project-a", artifact_id="memory-a"))
+        store.add(MemoryArtifact(project_id="project-a", artifact_id="memory-a", governance_status="accepted"))
         store.add(
             ExecutionResultArtifact(
                 project_id="project-a",
@@ -226,7 +226,7 @@ def test_operations_overview_uses_real_scoped_growth_and_dbos_records(tmp_path):
         assert overview["metrics"]["assets"]["methods"]["value"] == 1
         assert overview["metrics"]["assets"]["outputs"]["value"] == 1
         assert overview["metrics"]["assets"]["memories"]["value"] == 1
-        assert overview["metrics"]["quality"]["verified"]["value"] == 3
+        assert overview["metrics"]["quality"]["verified"]["value"] == 4
         assert overview["metrics"]["reuse"]["durable_references"]["value"] == 2
         assert overview["metrics"]["agent_evolution"]["verification_pass_rate"]["value"] == 66.67
         assert overview["metrics"]["agent_evolution"]["median_execution_attempt"]["value"] == 2.0
@@ -236,7 +236,7 @@ def test_operations_overview_uses_real_scoped_growth_and_dbos_records(tmp_path):
         assert project_summary["project_id"] == "project-a"
         assert project_summary["project_name"] == "Project A"
         assert project_summary["metrics"]["asset_count"]["value"] == 4
-        assert project_summary["metrics"]["verified"]["value"] == 3
+        assert project_summary["metrics"]["verified"]["value"] == 4
         assert project_summary["metrics"]["durable_references"]["value"] == 2
         assert project_summary["freshness"]["state"] == OperationsMetricState.AVAILABLE.value
         assert overview["trends"]["asset_growth"] == [
@@ -254,6 +254,88 @@ def test_operations_overview_uses_real_scoped_growth_and_dbos_records(tmp_path):
             }
         ]
         assert "immutable source material" not in str(overview)
+    finally:
+        repository.close()
+
+
+def test_operations_keeps_unqualified_assets_in_audit_and_action_queues(tmp_path):
+    repository = GrowthRepository(db_path=str(tmp_path / "asset-states.db"))
+    project_repository = _project_repository(repository)
+    captured_at = datetime(2026, 7, 27, tzinfo=timezone.utc)
+    try:
+        project_repository.create_project("project-a", "Project A", tenant_id="tenant-a")
+        for source_id, status, content_hash in (
+            ("source-eligible", SourceStatus.ELIGIBLE, "a" * 64),
+            ("source-validated", SourceStatus.VALIDATED, "b" * 64),
+            ("source-rejected", SourceStatus.REJECTED, "c" * 64),
+        ):
+            repository.create_source(SourceRecord(
+                id=source_id,
+                project_id="project-a",
+                source_type="article",
+                content_hash=content_hash,
+                raw_content=f"{source_id} audit body",
+                status=status,
+                captured_at=captured_at,
+                updated_at=captured_at,
+            ))
+        for method_id, status in (
+            ("method-published", MethodStatus.PUBLISHED),
+            ("method-candidate", MethodStatus.CANDIDATE),
+            ("method-rejected", MethodStatus.REJECTED),
+        ):
+            repository.create_method(MethodAsset(
+                id=method_id,
+                project_id="project-a",
+                slug=method_id,
+                name=method_id,
+                status=status,
+                created_at=captured_at,
+                updated_at=captured_at,
+            ))
+        for output_id, status, content_hash in (
+            ("output-accepted", OutputStatus.ACCEPTED, "d" * 64),
+            ("output-registered", OutputStatus.REGISTERED, "e" * 64),
+            ("output-rejected", OutputStatus.REJECTED, "f" * 64),
+        ):
+            repository.register_output(OutputAsset(
+                id=output_id,
+                project_id="project-a",
+                kind="report",
+                title=output_id,
+                content_hash=content_hash,
+                vault_path=f"04_Outputs/{output_id}.md",
+                idempotency_key=output_id,
+                status=status,
+                created_at=captured_at,
+                updated_at=captured_at,
+            ))
+
+        service = KnowledgeOperationsService(
+            repository=repository,
+            project_repository=project_repository,
+            dbos_store_factory=lambda project_id, tenant_id: ArtifactGraphStore(
+                str(tmp_path / tenant_id / project_id),
+                tenant_id=tenant_id,
+                project_id=project_id,
+                session_id="dbos",
+            ),
+        )
+        overview = service.overview(OperationsScope(tenant_id="tenant-a", role="tenant_admin"))
+
+        assert overview["metrics"]["assets"]["qualified_total"]["value"] == 3
+        assert overview["metrics"]["assets"]["sources"]["value"] == 1
+        assert overview["metrics"]["assets"]["methods"]["value"] == 1
+        assert overview["metrics"]["assets"]["outputs"]["value"] == 1
+        assert overview["metrics"]["quality"]["verified"]["value"] == 3
+        assert overview["metrics"]["quality"]["pending_validation"]["value"] == 3
+        assert overview["metrics"]["quality"]["requires_attention"]["value"] == 3
+        assert overview["coverage"]["record_count"] == 9
+        assert overview["project_summaries"][0]["metrics"]["asset_count"]["value"] == 3
+        assert {action["kind"] for action in overview["actions"]} == {
+            "pending_output_evaluation",
+            "rejected_output",
+        }
     finally:
         repository.close()
 

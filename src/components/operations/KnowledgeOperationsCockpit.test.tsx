@@ -71,7 +71,7 @@ describe('KnowledgeOperationsCockpit', () => {
     const openDbos = vi.fn();
     vi.mocked(operationsApi.fetchOperationsPortfolio).mockResolvedValue(overview);
     render(<KnowledgeOperationsCockpit onClose={vi.fn()} onOpenDbos={openDbos} />);
-    await waitFor(() => expect(screen.getByText('Verified assets')).toBeTruthy());
+    await waitFor(() => expect(within(screen.getByLabelText('Decision summary')).getByText('Governed assets')).toBeTruthy());
     expect(screen.getAllByText('2').length).toBeGreaterThan(0);
     screen.getByRole('button', { name: /unresolved risk/i }).click();
     expect(openDbos).toHaveBeenCalledWith('project-a', 'mission-a', 'risk-a');
@@ -87,12 +87,12 @@ describe('KnowledgeOperationsCockpit', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Project' }));
     await waitFor(() => expect(screen.getByLabelText('Decision summary')).toBeTruthy());
     const summary = within(screen.getByLabelText('Decision summary'));
-    expect(summary.getByText('Verified assets')).toBeTruthy();
+    expect(summary.getByText('Governed assets')).toBeTruthy();
     expect(summary.getByText('Pending validation')).toBeTruthy();
-    expect(summary.getByText('Risk debt')).toBeTruthy();
+    expect(summary.getByText('Needs attention')).toBeTruthy();
     expect(summary.getByText('Reusable references')).toBeTruthy();
     expect(summary.getByText('Open actions')).toBeTruthy();
-    expect(screen.getByText('Coverage 4 durable records')).toBeTruthy();
+    expect(screen.getByText('Coverage 4 authorized audit records')).toBeTruthy();
     expect(screen.getByLabelText('Lifecycle closure audit').textContent).toContain('0/1 risks have a complete durable lifecycle');
     expect(screen.getByLabelText('Lifecycle closure audit').textContent).toContain('Missing: evidence, method or SOP, validation, memory or feedback');
   });

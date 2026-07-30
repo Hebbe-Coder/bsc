@@ -175,11 +175,11 @@ function OperationsChart({ option, label, emptyText }: { option: EChartsOption; 
   return <div ref={ref} className="operations-chart" role="img" aria-label={label} data-chart={label} />;
 }
 
-function OverviewMetric({ label, metric, tone = '' }: { label: string; metric: OperationsMetric | undefined; tone?: string }) {
+function OverviewMetric({ label, metric, tone = '', detail = 'persisted records' }: { label: string; metric: OperationsMetric | undefined; tone?: string; detail?: string }) {
   return <article className={`operations-metric ${tone}`}>
     <span>{label}</span>
     <strong>{metricValue(metric)}</strong>
-    <small>{metric?.state === 'available' ? `${metric.record_count} persisted records` : (metric?.reason || 'No qualified record')}</small>
+    <small>{metric?.state === 'available' ? `${metric.record_count} ${detail}` : (metric?.reason || 'No qualified record')}</small>
   </article>;
 }
 
@@ -187,7 +187,7 @@ function ActionCountMetric({ count, coverage }: { count: number; coverage: Opera
   return <article className="operations-metric is-action">
     <span>Open actions</span>
     <strong>{count}</strong>
-    <small>{coverage?.state === 'available' ? `${coverage.record_count} authorized records considered` : (coverage?.reason || 'No qualified record')}</small>
+    <small>{coverage?.state === 'available' ? `${coverage.record_count} authorized audit records considered` : (coverage?.reason || 'No qualified record')}</small>
   </article>;
 }
 
@@ -231,8 +231,8 @@ function PortfolioProjects({ summaries, onOpenProject }: { summaries: Operations
       {summaries.map((summary) => <li key={summary.project_id}>
         <div className="operations-projects__identity"><strong>{summary.project_name}</strong><small>{summary.project_id}</small><span data-state={summary.coverage.state}>{summary.coverage.state === 'available' ? `${summary.coverage.record_count} projected records` : 'Lifecycle unavailable'}</span></div>
         <dl>
-          <div><dt>Assets</dt><dd>{metricValue(summary.metrics.asset_count)}</dd></div>
-          <div><dt>Verified</dt><dd>{metricValue(summary.metrics.verified)}</dd></div>
+          <div><dt>Governed assets</dt><dd>{metricValue(summary.metrics.asset_count)}</dd></div>
+          <div><dt>Qualified states</dt><dd>{metricValue(summary.metrics.verified)}</dd></div>
           <div><dt>Risk debt</dt><dd>{metricValue(summary.metrics.risk_debt)}</dd></div>
           <div><dt>Reuse</dt><dd>{metricValue(summary.metrics.durable_references)}</dd></div>
         </dl>
@@ -466,7 +466,7 @@ export function KnowledgeOperationsCockpit({ onClose, initialProjectId = '', onO
     ] : [],
   };
   const qualityOption: EChartsOption = {
-    animation: false, grid: { top: 18, right: 14, bottom: 26, left: 78 }, xAxis: { type: 'value', minInterval: 1, axisLabel: { color: '#8295a4', fontSize: 9 }, splitLine: { lineStyle: { color: '#1d303a' } } }, yAxis: { type: 'category', data: ['Verified', 'Pending', 'Attention'], axisLabel: { color: '#a8bac3', fontSize: 10 }, axisLine: { lineStyle: { color: '#29404c' } } },
+    animation: false, grid: { top: 18, right: 14, bottom: 26, left: 78 }, xAxis: { type: 'value', minInterval: 1, axisLabel: { color: '#8295a4', fontSize: 9 }, splitLine: { lineStyle: { color: '#1d303a' } } }, yAxis: { type: 'category', data: ['Qualified', 'Pending', 'Attention'], axisLabel: { color: '#a8bac3', fontSize: 10 }, axisLine: { lineStyle: { color: '#29404c' } } },
     series: quality ? [{ type: 'bar', barMaxWidth: 22, data: [quality.verified?.value ?? 0, quality.pending_validation?.value ?? 0, quality.requires_attention?.value ?? 0], itemStyle: { color: (params: { dataIndex: number }) => ['#72c5a7', '#d7aa63', '#e1848d'][params.dataIndex] } }] : [],
   };
   const agentOption: EChartsOption = {
@@ -503,20 +503,20 @@ export function KnowledgeOperationsCockpit({ onClose, initialProjectId = '', onO
     </div>}
 
     {isFailure ? <div className="operations-state" role="alert"><AlertTriangle size={20} /><div><strong>{state} operations data</strong><p>{message || 'No previous cockpit data is shown after a failed request.'}</p></div><button type="button" onClick={() => void load()}><RefreshCw size={14} />Retry</button></div> : <>
-      <div className="operations-disclosure"><span className={`operations-state-dot is-${state}`} />{state === 'loading' ? 'Reading authorized operational records...' : `${overview?.scope.mode || view} view`}<span>{overview ? `${overview.project_count} authorized project${overview.project_count === 1 ? '' : 's'}` : 'No record shown'}</span><span>{overview?.coverage ? `Coverage ${overview.coverage.record_count} durable records` : ''}</span><span>{overview?.generated_at ? `Projection generated ${new Date(overview.generated_at).toLocaleString()}` : ''}</span>{message && <span className="is-warning">{message}</span>}</div>
+      <div className="operations-disclosure"><span className={`operations-state-dot is-${state}`} />{state === 'loading' ? 'Reading authorized operational records...' : `${overview?.scope.mode || view} view`}<span>{overview ? `${overview.project_count} authorized project${overview.project_count === 1 ? '' : 's'}` : 'No record shown'}</span><span>{overview?.coverage ? `Coverage ${overview.coverage.record_count} authorized audit records` : ''}</span><span>{overview?.generated_at ? `Projection generated ${new Date(overview.generated_at).toLocaleString()}` : ''}</span>{message && <span className="is-warning">{message}</span>}</div>
       {state === 'loading' ? <div className="operations-loading" role="status"><RefreshCw size={20} className="spin" />Loading real operational records...</div> : <>
         <section className="operations-decision-strip" aria-label="Decision summary">
-          <OverviewMetric label="Verified assets" metric={quality?.verified} tone="is-good" />
-          <OverviewMetric label="Pending validation" metric={quality?.pending_validation} tone="is-pending" />
-          <OverviewMetric label="Risk debt" metric={quality?.requires_attention} tone="is-risk" />
-          <OverviewMetric label="Reusable references" metric={overview?.metrics.reuse.durable_references} tone="is-info" />
+          <OverviewMetric label="Governed assets" metric={assets?.qualified_total} tone="is-good" detail="status-qualified assets" />
+          <OverviewMetric label="Pending validation" metric={quality?.pending_validation} tone="is-pending" detail="records waiting for a gate" />
+          <OverviewMetric label="Needs attention" metric={quality?.requires_attention} tone="is-risk" detail="rejected, retired, or risk records" />
+          <OverviewMetric label="Reusable references" metric={overview?.metrics.reuse.durable_references} tone="is-info" detail="durable reuse references" />
           <ActionCountMetric count={overview?.actions.length ?? 0} coverage={overview?.coverage} />
         </section>
         <div className="operations-layout" ref={layoutRef}>
           <main className="operations-main">
             {view === 'portfolio' && <PortfolioProjects summaries={overview?.project_summaries ?? []} onOpenProject={openProjectCockpit} />}
-            <section className="operations-panel operations-panel--charts"><header><div><p>ASSET MOVEMENT</p><h3>Evidence becoming reusable work</h3></div><span>{metricValue(assets?.sources)} sources / {metricValue(assets?.methods)} methods / {metricValue(assets?.outputs)} outputs</span></header><OperationsChart option={growthOption} label="Knowledge asset growth" emptyText="No persisted source, method or output timestamps exist for this scope." /></section>
-            <section className="operations-panel operations-panel--charts"><header><div><p>QUALITY AND DEBT</p><h3>Verification is not inferred from generation</h3></div><span>{overview?.coverage.record_count ?? 0} projected records</span></header><OperationsChart option={qualityOption} label="Knowledge quality and risk composition" emptyText="No quality records are available for this scope." /></section>
+            <section className="operations-panel operations-panel--charts"><header><div><p>ASSET MOVEMENT</p><h3>Evidence becoming reusable work</h3></div><span>{metricValue(assets?.sources)} eligible evidence / {metricValue(assets?.methods)} published methods / {metricValue(assets?.outputs)} accepted outputs</span></header><OperationsChart option={growthOption} label="Knowledge asset growth" emptyText="No status-qualified source, method, or output timestamps exist for this scope." /></section>
+            <section className="operations-panel operations-panel--charts"><header><div><p>QUALITY AND DEBT</p><h3>Approval state is not inferred from generation</h3></div><span>{overview?.coverage.record_count ?? 0} authorized audit records</span></header><OperationsChart option={qualityOption} label="Knowledge qualification and risk composition" emptyText="No quality records are available for this scope." /></section>
             <section className="operations-panel operations-panel--agent-chart"><header><div><p>AGENT EVOLUTION</p><h3>Observed validation evidence over time</h3></div><span>3+ persisted observations per rate</span></header><OperationsChart option={agentOption} label="Agent verification and holdout trends" emptyText="No sufficiently sampled verification or holdout results exist for this scope." /></section>
             {view === 'project' && <section className="operations-panel operations-panel--graph"><header><div><p>SEMANTIC LIFECYCLE</p><h3>Business problem to reusable experience</h3></div><span>Read-only projection</span></header><LifecycleGraph graph={graph} catalog={graphCatalog} filters={graphFilters} onFiltersChange={updateGraphFilters} selectedNode={selectedNode} onSelect={setSelectedNode} /></section>}
           </main>
