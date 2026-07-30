@@ -7,7 +7,15 @@ import json
 import hashlib
 from typing import Any
 
-from app.artifacts import CapabilityArtifact, DiagnosisArtifact, ExperienceArtifact, MissionArtifact, PersonalProfileArtifact
+from app.artifacts import (
+    ArtifactStatus,
+    CapabilityArtifact,
+    DiagnosisArtifact,
+    ExperienceArtifact,
+    MissionArtifact,
+    PersonalProfileArtifact,
+    SOPVersionArtifact,
+)
 from app.core.config import settings
 from app.core.prompt_context import estimate_prompt_tokens, truncate_prompt_text
 from app.services.sop_llm_client import PROVIDER_KEY_MAP, PROVIDER_REGISTRY, SOPLLMClient
@@ -47,6 +55,7 @@ class PBOSPlanCompiler:
         profile: PersonalProfileArtifact | None,
         capabilities: list[CapabilityArtifact],
         experiences: list[ExperienceArtifact],
+        strategies: list[SOPVersionArtifact],
         feedback: list[dict[str, str]],
         knowledge_context: dict[str, Any],
     ) -> dict[str, Any]:
@@ -60,6 +69,12 @@ class PBOSPlanCompiler:
             feedback=feedback,
             knowledge_context=knowledge_context,
         )
+        strategy_assets = self._matching_strategy_assets(
+            strategies,
+            comparison_key=str(baseline.get("comparison_key") or ""),
+            comparison_context=str(baseline.get("comparison_context") or ""),
+        )
+        self._apply_strategy_assets(baseline, strategy_assets)
         deterministic_phases = copy.deepcopy(baseline["phases"])
         if self.client is None:
             return self._finalize_plan(
@@ -70,7 +85,7 @@ class PBOSPlanCompiler:
                 mission,
             )
         prompt_payload = self._prompt_payload(
-            mission, diagnosis, profile, capabilities, experiences, feedback, knowledge_context
+            mission, diagnosis, profile, capabilities, experiences, strategy_assets, feedback, knowledge_context
         )
         baseline["compiler_metadata"]["llm_prompt_context"] = self._prompt_usage(
             prompt_payload,
@@ -192,6 +207,7 @@ class PBOSPlanCompiler:
             knowledge_context,
             deterministic_phases,
         )
+        finalized = self._ensure_strategy_guidance(finalized)
         phases = finalized.get("phases")
         if not isinstance(phases, list):
             return finalized
@@ -569,6 +585,124 @@ class PBOSPlanCompiler:
         }
 
     @staticmethod
+    def _matching_strategy_assets(
+        strategies: list[SOPVersionArtifact],
+        *,
+        comparison_key: str,
+        comparison_context: str,
+    ) -> list[dict[str, Any]]:
+        """Expose only active, exact-context Strategy Genomes to a new plan."""
+        assets: list[dict[str, Any]] = []
+        for strategy in strategies:
+            if not isinstance(strategy, SOPVersionArtifact) or strategy.status != ArtifactStatus.ACTIVE:
+                continue
+            genome = strategy.genome if isinstance(strategy.genome, dict) else {}
+            if (
+                str(genome.get("comparison_key") or "") != comparison_key
+                or str(genome.get("comparison_context") or "") != comparison_context
+            ):
+                continue
+            asset = {
+                "artifact_id": str(strategy.artifact_id),
+                "strategy_name": str(strategy.strategy_name or strategy.label or "Personal strategy")[:160],
+                "version": int(strategy.version),
+                "decision_rules": PBOSPlanCompiler._strategy_text_items(genome.get("decision_rules"), limit=2),
+                "execution_paths": PBOSPlanCompiler._strategy_text_items(genome.get("execution_paths"), limit=2),
+                "failure_boundaries": PBOSPlanCompiler._strategy_text_items(genome.get("failure_boundaries"), limit=2),
+                "success_metrics": PBOSPlanCompiler._strategy_text_items(genome.get("success_metrics"), limit=2),
+                "confidence": PBOSPlanCompiler._strategy_confidence(genome.get("confidence")),
+            }
+            if asset["artifact_id"] and asset["strategy_name"]:
+                assets.append(asset)
+        return assets[:3]
+
+    @staticmethod
+    def _strategy_text_items(value: Any, *, limit: int) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        items: list[str] = []
+        for item in value:
+            text = str(item).strip()[:320]
+            if text and text not in items:
+                items.append(text)
+            if len(items) >= limit:
+                break
+        return items
+
+    @staticmethod
+    def _strategy_confidence(value: Any) -> float:
+        try:
+            return max(0.0, min(1.0, float(value)))
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _apply_strategy_assets(self, baseline: dict[str, Any], assets: list[dict[str, Any]]) -> None:
+        """Bind prior verified strategies without letting them erase Mission context."""
+        if not assets:
+            baseline["strategy_refs"] = []
+            return
+        metadata = baseline.setdefault("compiler_metadata", {})
+        metadata["active_strategy_assets"] = assets
+        baseline["strategy_refs"] = [str(asset["artifact_id"]) for asset in assets]
+        references = [
+            f"{asset['strategy_name']} v{asset['version']} ({asset['artifact_id']})"
+            for asset in assets
+        ]
+        baseline.setdefault("rationale", []).append(
+            f"Verified Strategy Genome in this comparable context: {', '.join(references)}"
+        )
+        basis = baseline.setdefault("personalization_basis", [])
+        basis.append({
+            "kind": "verified_strategy_genome",
+            "signals": {"refs": baseline["strategy_refs"], "names": references},
+            "state": "verified",
+        })
+        # A matching promoted strategy is evidence-backed personal history. It
+        # can personalize a plan only after profile and governed context are
+        # also present; it never turns an evidence-poor plan into a claim.
+        if baseline.get("compilation_state") == "context_grounded":
+            baseline["compilation_state"] = "personalized"
+            baseline["confidence"] = max(float(baseline.get("confidence") or 0), 0.82)
+        contract = baseline.setdefault("execution_contract", {})
+        contract["strategy_application"] = {
+            "strategy_refs": list(baseline["strategy_refs"]),
+            "scope": "exact comparison_key and comparison_context match required",
+            "rollback_boundary": "Preserve the Strategy Genome failure boundaries during execution review.",
+        }
+        self._ensure_strategy_guidance(baseline)
+
+    @staticmethod
+    def _ensure_strategy_guidance(plan: dict[str, Any]) -> dict[str, Any]:
+        """Prevent an LLM wording pass from silently dropping verified strategy use."""
+        metadata = plan.get("compiler_metadata")
+        assets = metadata.get("active_strategy_assets") if isinstance(metadata, dict) else None
+        if not isinstance(assets, list) or not assets:
+            return plan
+        first = next((item for item in assets if isinstance(item, dict)), None)
+        phases = plan.get("phases")
+        if not isinstance(first, dict) or not isinstance(phases, list) or not phases:
+            return plan
+        strategy_name = str(first.get("strategy_name") or "Personal strategy")[:160]
+        version = str(first.get("version") or "1")[:20]
+        reference = str(first.get("artifact_id") or "")[:160]
+        rules = [str(item).strip() for item in first.get("decision_rules") or [] if str(item).strip()]
+        boundaries = [str(item).strip() for item in first.get("failure_boundaries") or [] if str(item).strip()]
+        phase = phases[0] if isinstance(phases[0], dict) else None
+        if phase is None:
+            return plan
+        strategy_input = f"Verified Strategy Genome: {strategy_name} v{version} ({reference})"
+        inputs = [strategy_input, *[str(item).strip() for item in phase.get("inputs") or [] if str(item).strip()]]
+        phase["inputs"] = list(dict.fromkeys(inputs))[:6]
+        if rules:
+            strategy_action = f"Apply verified strategy decision rule: {rules[0]}"
+            actions = [strategy_action, *[str(item).strip() for item in phase.get("actions") or [] if str(item).strip()]]
+            phase["actions"] = list(dict.fromkeys(actions))[:2]
+        if boundaries:
+            checks = [*[str(item).strip() for item in phase.get("checks") or [] if str(item).strip()], f"Respect strategy failure boundary: {boundaries[0]}"]
+            phase["checks"] = list(dict.fromkeys(checks))[:6]
+        return plan
+
+    @staticmethod
     def _personalization_basis(
         profile: PersonalProfileArtifact | None,
         diagnosis: dict[str, Any],
@@ -758,6 +892,7 @@ class PBOSPlanCompiler:
             "Return exactly three phases, no other keys, at most two actions per phase. "
             "Keep every title under 12 words and every action under 18 words. "
             "Make phases specific to the mission, constraints, profile, and governed context; never write a generic SOP. "
+            "Use active_strategy_genomes only when supplied: preserve their decision rule and failure boundary in the plan, and never invent a strategy reference. "
             "Use response_language for user-facing titles and actions. "
             "When operational_state says managed_source_mirror is available, never recommend BSC-to-Obsidian source sync, import, mirroring, or projection. "
             "In that case phase one must advance a Mission-specific decision, metric, experiment, or delivery."
@@ -771,6 +906,7 @@ class PBOSPlanCompiler:
         profile: PersonalProfileArtifact | None,
         capabilities: list[CapabilityArtifact],
         experiences: list[ExperienceArtifact],
+        strategy_assets: list[dict[str, Any]],
         feedback: list[dict[str, str]],
         knowledge_context: dict[str, Any],
     ) -> dict[str, Any]:
@@ -819,6 +955,19 @@ class PBOSPlanCompiler:
                 }
                 for item in experiences
             ][:4],
+            "active_strategy_genomes": [
+                {
+                    "artifact_id": cls._bounded_prompt_text(item.get("artifact_id"), 80),
+                    "strategy_name": cls._bounded_prompt_text(item.get("strategy_name"), 80),
+                    "version": item.get("version"),
+                    "decision_rules": [cls._bounded_prompt_text(value, 80) for value in item.get("decision_rules") or []],
+                    "execution_paths": [cls._bounded_prompt_text(value, 80) for value in item.get("execution_paths") or []],
+                    "failure_boundaries": [cls._bounded_prompt_text(value, 80) for value in item.get("failure_boundaries") or []],
+                    "success_metrics": [cls._bounded_prompt_text(value, 80) for value in item.get("success_metrics") or []],
+                    "confidence": item.get("confidence"),
+                }
+                for item in strategy_assets[:3] if isinstance(item, dict)
+            ],
             "feedback": [
                 {
                     "source": cls._bounded_prompt_text(item.get("source", ""), 40),

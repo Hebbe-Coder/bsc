@@ -1,6 +1,6 @@
 import json
 
-from app.artifacts import ArtifactGraphStore, DiagnosisArtifact, MissionArtifact
+from app.artifacts import ArtifactGraphStore, ArtifactStatus, DiagnosisArtifact, MissionArtifact, SOPVersionArtifact
 from app.core.config import settings
 from app.knowledge.context_pack import WikiContextProvider
 from app.knowledge.vault import FilesystemWikiVault
@@ -342,6 +342,132 @@ def test_compiler_changes_execution_system_by_mission_and_cites_vault_context(tm
     assert engineering.phases[0]["outputs"]
     assert engineering.phases[0]["decision_point"]["question"]
     assert "side_effect_boundary" in engineering.execution_contract
+
+
+def test_matching_strategy_genome_guides_the_next_plan_without_leaking_to_other_contexts(tmp_path):
+    root = tmp_path / "vault"
+    active = root / "03_Projects" / "active"
+    active.mkdir(parents=True)
+    (active / "delivery.md").write_text("# Delivery boundary\nShip a reviewable runtime slice before platform expansion.", encoding="utf-8")
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(store, "matching", "Agent runtime delivery", "Deliver one verified Agent runtime slice")
+    _mission(store, "other", "Content growth experiment", "Improve short-video retention for an AI product")
+    matching = SOPVersionArtifact(
+        artifact_id="strategy-matching",
+        project_id="personal",
+        strategy_name="AI project delivery",
+        version=2,
+        status=ArtifactStatus.ACTIVE,
+        genome={
+            "comparison_key": "engineering",
+            "comparison_context": "engineering",
+            "decision_rules": ["Freeze the API contract before implementation."],
+            "execution_paths": ["Run the focused API contract tests."],
+            "failure_boundaries": ["Stop after two unreviewable contract changes."],
+            "success_metrics": ["One accepted contract test run."],
+            "confidence": 0.83,
+        },
+    )
+    unrelated = SOPVersionArtifact(
+        artifact_id="strategy-unrelated",
+        project_id="personal",
+        strategy_name="Content growth",
+        version=1,
+        status=ArtifactStatus.ACTIVE,
+        genome={
+            "comparison_key": "growth",
+            "comparison_context": "growth",
+            "decision_rules": ["Use an audience retention experiment."],
+        },
+    )
+    store.add(matching)
+    store.add(unrelated)
+    service = PBOSService(
+        store,
+        "personal",
+        context_provider=PBOSVaultContextBuilder(root).build,
+        plan_compiler=PBOSPlanCompiler(),
+    )
+    service.save_profile({"focus": ["AI systems"]})
+
+    plan = service.compile_plan("matching")
+    other = service.compile_plan("other")
+
+    assert plan.compilation_state == "personalized"
+    assert plan.strategy_refs == [matching.artifact_id]
+    assert plan.compiler_metadata["active_strategy_assets"][0]["artifact_id"] == matching.artifact_id
+    assert any(item["kind"] == "verified_strategy_genome" for item in plan.personalization_basis)
+    assert any("Freeze the API contract" in action for phase in plan.phases for action in phase["actions"])
+    assert any("Stop after two unreviewable contract changes" in check for phase in plan.phases for check in phase["checks"])
+    assert other.strategy_refs == [unrelated.artifact_id]
+    assert all(matching.artifact_id not in str(value) for value in other.model_dump().values())
+
+
+def test_model_prompt_receives_only_the_matching_strategy_genome(tmp_path):
+    class CapturingClient:
+        provider = "test"
+        model = "strategy-aware"
+
+        def __init__(self):
+            self.payload: dict = {}
+
+        def chat_structured(self, **kwargs):
+            self.payload = json.loads(kwargs["user_prompt"])
+            return {
+                "title": "Strategy-aware runtime plan",
+                "phases": [
+                    {"title": "Contract gate", "actions": ["Implement the bounded contract"]},
+                    {"title": "Verification", "actions": ["Run the focused verification"]},
+                    {"title": "Reflection", "actions": ["Record the reviewable result"]},
+                ],
+            }
+
+    root = tmp_path / "vault"
+    active = root / "03_Projects" / "active"
+    active.mkdir(parents=True)
+    (active / "delivery.md").write_text("# Delivery boundary\nKeep one reviewable runtime slice.", encoding="utf-8")
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(store, "mission", "Agent runtime delivery", "Deliver one verified Agent runtime slice")
+    strategy = SOPVersionArtifact(
+        artifact_id="strategy-runtime",
+        project_id="personal",
+        strategy_name="AI project delivery",
+        version=3,
+        status=ArtifactStatus.ACTIVE,
+        genome={
+            "comparison_key": "engineering",
+            "comparison_context": "engineering",
+            "decision_rules": ["Freeze one public contract before coding."],
+            "execution_paths": ["Run focused contract tests."],
+            "failure_boundaries": ["Do not widen the public API before verification."],
+            "success_metrics": ["A focused contract test passes."],
+            "confidence": 0.88,
+        },
+    )
+    store.add(strategy)
+    client = CapturingClient()
+    service = PBOSService(
+        store,
+        "personal",
+        context_provider=PBOSVaultContextBuilder(root).build,
+        plan_compiler=PBOSPlanCompiler(client=client),
+    )
+    service.save_profile({"focus": ["AI systems"]})
+
+    plan = service.compile_plan("mission")
+
+    assert client.payload["active_strategy_genomes"] == [{
+        "artifact_id": "strategy-runtime",
+        "strategy_name": "AI project delivery",
+        "version": 3,
+        "decision_rules": ["Freeze one public contract before coding."],
+        "execution_paths": ["Run focused contract tests."],
+        "failure_boundaries": ["Do not widen the public API before verification."],
+        "success_metrics": ["A focused contract test passes."],
+        "confidence": 0.88,
+    }]
+    assert plan.strategy_refs == [strategy.artifact_id]
+    assert any("Freeze one public contract" in action for phase in plan.phases for action in phase["actions"])
 
 
 def test_structured_model_output_is_traceable_to_the_same_context(tmp_path):

@@ -147,6 +147,31 @@ describe('PersonalGrowthCockpit', () => {
     expect(recordPbosOutcome).toHaveBeenCalledWith('default', 'execution-1', expect.objectContaining({ acceptance_status: 'accepted', quality_score: 86 }));
   });
 
+  it('shows the verified strategy genome that is applied to the current plan', async () => {
+    vi.mocked(fetchPbosCockpit).mockResolvedValue({
+      profile: { focus: ['AI delivery'], goals: [], preferences: {}, resources: [], constraints: [] },
+      today: {
+        artifact_id: 'plan-strategy-1', mission_id: 'mission-strategy-1', title: 'Runtime delivery plan', compilation_state: 'personalized',
+        knowledge_context_refs: ['vault:03_Projects/active/runtime.md'], strategy_refs: ['strategy-runtime-2'], feedback_refs: [],
+        phases: [], execution_contract: {}, compiler_metadata: { mode: 'contextual_deterministic' },
+      },
+      today_action: { state: 'recommended', title: 'Freeze the public contract' },
+      capabilities: [], outcomes: [], feedback: [],
+      strategies: [{ artifact_id: 'strategy-runtime-2', strategy_name: 'AI project delivery', version: 2, status: 'active', genome: { comparison_context: 'engineering' } }],
+      failure_patterns: [], project_health: { knowledge_context_ready: true, personal_learning_ready: true }, connectors: {},
+    });
+    vi.mocked(fetchPbosProfile).mockResolvedValue({
+      profile: { focus: ['AI delivery'], goals: [], preferences: {}, resources: [], constraints: [] },
+    });
+
+    render(<PersonalGrowthCockpit projectId="default" onClose={vi.fn()} runtimeAccessKey="session-key" />);
+
+    expect(await screen.findByText('PLAN GROUNDING')).toBeVisible();
+    expect(screen.getByText('1 verified strategy applied')).toBeVisible();
+    expect(screen.getAllByText('AI project delivery v2')).toHaveLength(2);
+    expect(screen.queryByText('not yet earned')).not.toBeInTheDocument();
+  });
+
   it('renders strategy, health, and failure state only from the cockpit payload', async () => {
     vi.mocked(fetchPbosCockpit).mockResolvedValue({
       profile: null,

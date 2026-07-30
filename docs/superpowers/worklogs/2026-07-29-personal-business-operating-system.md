@@ -723,3 +723,49 @@
 - **Rollback:** revert the PBOS execution-summary and Atlas projection changes
   independently from the audit data. Existing executions, historical rejected
   sources, outcomes, and governed references remain retained and unmodified.
+
+## 2026-07-30 Strategy Genome Reuse Closes The Personal Learning Loop
+
+- **Resolved product gap:** an approved `SOPVersionArtifact` was durable and
+  auditable, but it did not previously affect a later Personal Execution Plan.
+  That left PBOS able to record a personal method without proving that the
+  method improved the next comparable Mission.
+- **Implemented contract:** `PBOSPlanCompiler` now receives active Strategy
+  Genomes. It selects no more than three only when both `comparison_key` and
+  `comparison_context` exactly match the newly compiled Mission. Selected
+  strategies are recorded in `strategy_refs`, `personalization_basis`,
+  `execution_contract.strategy_application`, and bounded
+  `compiler_metadata.active_strategy_assets`. The client prompt receives the
+  same bounded asset projection only.
+- **Non-negotiable application:** after any LLM wording merge, the compiler
+  restores the selected strategy's reference, first decision rule, and first
+  failure boundary into the plan. A model therefore cannot silently omit a
+  proven strategy. A matching strategy changes a contextual plan to
+  `personalized` only because the baseline already requires both declared
+  profile and governed Vault context; an evidence-poor plan remains
+  `capture_required`.
+- **Isolation proof:** focused regression coverage creates engineering and
+  content-growth strategies in the same project and proves each Mission sees
+  only its exact-context strategy. A capturing LLM client verifies that the
+  prompt contains only the matching bounded Strategy Genome. The Cockpit test
+  verifies the applied strategy is visible as a planning input rather than a
+  fabricated capability claim.
+- **Runtime proof:** the rebuilt API/Worker/Beat image compiled an isolated
+  temporary Artifact Store containing one verified matching strategy. The
+  resulting plan reported `state=personalized`,
+  `strategy_refs=[strategy-runtime-proof]`, first action `Apply verified
+  strategy decision rule: Freeze the public contract before coding.`, and
+  the retained failure boundary `Do not widen the API before verification.`
+  The temporary store was not the user project and produced no user-facing
+  Capability, Outcome, Experience, or Strategy artifact.
+- **Browser acceptance:** through the local authorized Studio, the default
+  project rendered `Vault context connected`, 22 governed references,
+  `Personal strategy: not yet earned`, and the evidence/acceptance gate. At
+  a 390x844 viewport the rendered document was 384px wide with a 384px scroll
+  width and no console errors. Its one accepted outcome remains
+  learning-ineligible, so the visible zero-strategy state is consistent with
+  the Artifact lifecycle rather than an empty-UI fallback.
+- **Rollback:** revert the compiler/service/UI/test change together. Existing
+  Strategy Genome artifacts remain immutable and retained, but future plans
+  will no longer consume them. No promotion rule, connector authorization,
+  Vault source, or historical execution record is changed by this rollback.

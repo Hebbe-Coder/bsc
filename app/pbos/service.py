@@ -180,6 +180,10 @@ class PBOSService:
         profile = self.profile()
         capabilities = self._latest_capabilities()
         experiences = [item for item in self.store.get_by_type(ArtifactType.EXPERIENCE) if isinstance(item, ExperienceArtifact) and item.verification_state == "verified"]
+        strategies = self._latest([
+            item for item in self.store.get_by_type(ArtifactType.SOP_VERSION)
+            if isinstance(item, SOPVersionArtifact) and item.status == ArtifactStatus.ACTIVE
+        ])
         feedback = self._recent_feedback()
         parents = [value for value in (mission_id, diagnosis_id, profile.artifact_id if profile else "", *(item.artifact_id for item in feedback)) if value]
         mission = self.store.get(mission_id)
@@ -197,15 +201,10 @@ class PBOSService:
             profile=profile,
             capabilities=capabilities,
             experiences=experiences,
+            strategies=strategies,
             feedback=[{"statement": item.statement, "source": item.source} for item in feedback],
             knowledge_context=knowledge_context,
         )
-        plan_values["strategy_refs"] = [
-            item.artifact_id for item in self._active_strategies(
-                str(plan_values.get("comparison_key") or ""),
-                str(plan_values.get("comparison_context") or ""),
-            )
-        ]
         artifact = PersonalExecutionPlanArtifact(
             project_id=self.project_id,
             mission_id=mission_id,

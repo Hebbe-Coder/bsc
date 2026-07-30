@@ -360,3 +360,62 @@ npm run build
   connection failure: PBOS must receive three comparable user-accepted,
   receipt-backed and reflected AI-project deliveries before it can promote a
   personal strategy.
+
+## Post-Consolidation Learning-Loop Completion: Strategy Genome Reuse
+
+### Implemented Delta
+
+- `PBOSPlanCompiler` and `PBOSService` now make a promoted active
+  `SOPVersionArtifact` an input to the next comparable Personal Execution
+  Plan. Selection requires an exact match on both the plan's
+  `comparison_key` and `comparison_context`; active strategies in another
+  role, industry, task kind, or context do not cross the boundary.
+- The plan persists the selected immutable artifact IDs in `strategy_refs`,
+  exposes their bounded metadata in
+  `compiler_metadata.active_strategy_assets`, explains the source in
+  `personalization_basis`, and carries the enforcement boundary in
+  `execution_contract.strategy_application`. The strategy remains a
+  traceable Artifact Graph parent asset rather than becoming generated prose.
+- Model-assisted compilation receives only a bounded projection of matching
+  Strategy Genomes. A post-merge compiler guard restores a referenced
+  decision rule and failure boundary into the first phase, preventing model
+  output from converting a proven personal strategy back into a generic SOP.
+- The Personal Growth Cockpit now distinguishes `Personal strategy: not yet
+  earned` from `N verified strategy applied` and lists the applied strategy
+  name/version. It explicitly states that a plan input alone does not prove a
+  Capability.
+
+### Evidence And Acceptance
+
+- `pytest tests/pbos/test_pbos_contextual_compiler.py
+  tests/pbos/test_pbos_service.py -q` passed with `44 passed`, covering
+  matching selection, cross-context isolation, bounded LLM prompt input, and
+  existing service behavior.
+- The PBOS REST/MCP/integration suite passed with `55 passed`; frontend tests
+  passed with `170 passed`; TypeScript check, production build, shared
+  Artifact/Runtime/Wiki/Distillation coverage (`100 passed, 1 skipped`), and
+  `docker compose config --quiet` passed.
+- After rebuilding the runtime images, an isolated in-container temporary
+  ledger compiled an engineering plan with a matching verified strategy. It
+  returned `personalized`, the expected `strategy_refs`, its decision rule,
+  and its failure boundary. This proves the deployed service consumes the
+  asset without writing demonstration data into the default project.
+- Browser acceptance through the local authorized Studio rendered the default
+  project's 22 governed references, connected Vault state, personal-learning
+  gate, and `Personal strategy: not yet earned`. At `390x844`, document
+  client/scroll width measured `384/384` and the console had no errors. The
+  project's accepted outcome is still not learning-eligible, so the absence
+  of a personal Strategy Genome is an expected lifecycle state.
+
+### Residual Risk And Next Evidence
+
+- This verifies the product mechanism, not a claimed individual learning
+  result. The default personal project still has no user-accepted comparable
+  outcomes and therefore correctly reports `Personal strategy: not yet
+  earned`. Three real, receipt-backed, reflected AI-project deliveries remain
+  the first acceptance gate before the system can create its own promoted
+  Strategy Genome.
+- **Rollback point:** revert the dedicated Strategy Genome reuse commit. The
+  rollback disables future plan reuse only; it does not mutate existing
+  immutable strategies, Vault content, connector authorization, execution
+  receipts, or outcomes.
