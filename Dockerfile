@@ -28,6 +28,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         libcairo2 \
         libgdk-pixbuf-2.0-0 \
         libffi-dev \
+        git \
         ffmpeg \
         tesseract-ocr \
         tesseract-ocr-eng; then \

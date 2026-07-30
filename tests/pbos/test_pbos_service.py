@@ -1,3 +1,5 @@
+import subprocess
+
 import pytest
 
 from app.artifacts import ArtifactGraphStore, ArtifactStatus, ArtifactType, MissionArtifact, PersonalExecutionPlanArtifact, PersonalProfileArtifact, SOPVersionArtifact
@@ -210,6 +212,34 @@ def test_bsc_workspace_capture_uses_the_configured_read_only_workspace_root(monk
         receipt["kind"] == "local_file" and receipt["path"] == "tests/delivery-proof.txt"
         for receipt in record.tool_receipts
     )
+
+
+def test_bsc_workspace_capture_records_the_workspace_git_revision(tmp_path):
+    workspace = tmp_path / "git-workspace"
+    evidence = workspace / "tests" / "delivery-proof.txt"
+    evidence.parent.mkdir(parents=True)
+    evidence.write_text("focused test passed", encoding="utf-8")
+    for command in (
+        ["git", "init", str(workspace)],
+        ["git", "-C", str(workspace), "config", "user.email", "pbos@example.test"],
+        ["git", "-C", str(workspace), "config", "user.name", "PBOS Test"],
+        ["git", "-C", str(workspace), "add", "tests/delivery-proof.txt"],
+        ["git", "-C", str(workspace), "commit", "-m", "test evidence"],
+    ):
+        subprocess.run(command, check=True, capture_output=True, text=True)
+
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(store)
+    record = PBOSService(store, "personal").capture_bsc_workspace_execution(
+        "mission",
+        "",
+        paths=["tests/delivery-proof.txt"],
+        workspace_root=workspace,
+    )
+
+    git_receipt = next(receipt for receipt in record.tool_receipts if receipt["kind"] == "git_commit")
+    assert git_receipt["verified"] is True
+    assert len(git_receipt["value"]) == 40
 
 
 def test_cockpit_exposes_reviewable_execution_receipts_without_promoting_personal_learning(tmp_path):
