@@ -313,7 +313,7 @@ class GrowthDistillationService:
     # schedule timezone. Interpret those legacy timestamps consistently with
     # the persisted Asia/Shanghai growth cadence before comparing a cutoff.
     REPOSITORY_TIMEZONE = ZoneInfo("Asia/Shanghai")
-    DISTILLATION_CONTRACT_REVISION = 27
+    DISTILLATION_CONTRACT_REVISION = 28
     MAX_TARGETED_WEEKLY_QUALITY_REPAIRS_PER_DOCUMENT = 2
     DAILY_CONTEXT_CHARACTER_BUDGET = 4_000
     WEEKLY_CONTEXT_CHARACTER_BUDGET = 10_000
@@ -1230,6 +1230,11 @@ class GrowthDistillationService:
             return "", "invalid_reference"
         if cls._UNSUPPORTED_PROJECT_STATE_CLAIM.search(normalized):
             return "", "unsupported_project_state"
+        # The heading is deterministic, so it cannot by itself establish that
+        # the model preserved a real evidence boundary. Validate citation
+        # ownership first so a forged reference keeps the more useful reason.
+        if not cls._UNCERTAINTY_MARKER.search(sections["open_question"]):
+            return "", "missing_uncertainty"
         return normalized, ""
 
     @classmethod
@@ -1241,7 +1246,9 @@ class GrowthDistillationService:
             "Each non-headline field must be nonempty and include one exact allowed [source:<id>] or "
             "[page:<id>] label. Do not use any other square-bracket text. Do not claim the project, BSC, "
             "or Obsidian already changed, decided, published, deployed, or completed work. State a bounded "
-            "recommendation or verification instead, and keep the unresolved question explicit."
+            "recommendation or verification instead. The open_question body must include an explicit evidence "
+            "gap or verification marker such as 'requires verification', 'uncertain', 'evidence gap', or "
+            "'待验证'."
             + cls._allowed_citation_labels(context)
         )
 

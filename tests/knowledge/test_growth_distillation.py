@@ -49,7 +49,7 @@ class _NarrativeProvider:
                     "signal": "[source:source-a@revision-a] shows that review gates remain a required control.",
                     "project_implication": "The project should keep the review gate explicit in its publication flow [source:source-a].",
                     "next_review": "Verify the owner and escalation path before the next publication [source:source-a].",
-                    "open_question": "The evidence does not identify whether the current owner can meet the required review SLA [source:source-a].",
+                    "open_question": "The evidence does not identify whether the current owner can meet the required review SLA and requires verification [source:source-a].",
                 }
             }
         names = GrowthDistillationService.WEEKLY_NARRATIVE_SLOTS
@@ -456,7 +456,7 @@ def test_configured_narrative_provider_prefers_growth_model_override(monkeypatch
                     "signal": "[source:source-a] is retained for review.",
                     "project_implication": "The project must assess its relevance [source:source-a].",
                     "next_review": "Confirm the evidence owner [source:source-a].",
-                    "open_question": "The operational impact is not yet known [source:source-a].",
+                    "open_question": "The operational impact requires verification [source:source-a].",
                 }
             }
 
@@ -609,6 +609,22 @@ def test_daily_narrative_requires_a_citation_in_every_evidence_section():
     )
 
     assert daily == ""
+
+
+def test_daily_narrative_requires_an_explicit_uncertainty_in_the_question_body():
+    daily, reason = GrowthDistillationService._validated_daily_narrative_with_reason(
+        {
+            "headline": "A grounded daily card",
+            "signal": "The signal is supported [source:source-a].",
+            "project_implication": "Keep the evidence boundary visible [source:source-a].",
+            "next_review": "Verify the source before acting [source:source-a].",
+            "open_question": "Which reviewer owns the next check [source:source-a]?",
+        },
+        {"citation_source_ids": ["source-a"]},
+    )
+
+    assert daily == ""
+    assert reason == "missing_uncertainty"
 
 
 def test_weekly_distillation_is_idempotent_and_writes_dual_track_bundle(tmp_path):

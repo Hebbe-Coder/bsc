@@ -574,3 +574,203 @@ criteria.
 - Status remains `implemented_with_operational_proof_pending`: this removes a
   visualization/data-boundary defect, but does not substitute for a genuine
   reviewed Copilot output and feedback loop.
+
+## 2026-07-30 Active Knowledge Projection Consistency Closure
+
+- Browser acceptance exposed a second-order aggregation defect after the Atlas
+  repair: the Evidence Atlas correctly showed `151` active sources, while the
+  Knowledge workspace header and source list still displayed the historical
+  stored total of `170`. This was an active-view inconsistency, not a missing
+  audit record.
+- Introduced one shared active-evidence predicate and applied it to the
+  workspace status/source list, plugin bridge status inputs, Wiki graph
+  visualization, Knowledge Health snapshot/trend, and the tenant-scoped
+  operations projection. Source records carrying the mapped-root exclusion
+  are therefore excluded before counts, trend points, graph nodes, graph
+  edges, citations, health debt, and operations actions are calculated. The
+  durable rows and graph edges remain unchanged for audit and repair history.
+- The default sources endpoint is now an active operational view. An explicit
+  `include_scope_excluded=true` audit query remains available only to an
+  administrator or project administrator, returning the existing redacted
+  source projection rather than a source body.
+- Runtime proof after rebuilding the Compose API: protected workspace,
+  sources, graph, and health requests all reported `151` sources. The graph
+  reported `85` active relations, and Health reported `38` active citations.
+  Browser refresh at `http://127.0.0.1:5174/` confirmed the header's Evidence
+  metric is `151` and the Evidence Atlas reports `151 source records`; no
+  stale `170 source records` string remained in the rendered active workspace.
+- Regression: focused workspace/evidence/graph/health tests passed with `50`
+  tests, operations projection tests passed with `5`, and the complete backend
+  suite passed with `1539 passed, 14 skipped`. Full frontend regression passed
+  with `23 files, 170 tests`; `npm run check`, `npm run lint` (zero errors,
+  211 pre-existing warnings), and production build passed. Compose API,
+  PostgreSQL, Redis, n8n and Worker were healthy; Worker inspection returned
+  `pong`.
+- During full frontend validation, one new PBOS strategy-grounding test used a
+  unique-text query despite the intended UI showing the same verified strategy
+  in both the plan-input and strategy-asset views. The test now asserts both
+  instances, preserving the UI behavior and restoring the full suite. No PBOS
+  runtime behavior changed in this closure.
+
+## 2026-07-30 Obsidian Copilot Bridge Operational Verification
+
+- Verified the actual Obsidian Vault host rather than the project subfolder:
+  `D:\\bsc\\bsc\\.obsidian` has Copilot, Local REST API, Clipper, Importer,
+  Docxer, Dataview, Metadata Menu, Zotero, Excalidraw and social-import
+  plugins enabled. Claudian remains installed for local history but is not in
+  Obsidian's enabled-plugin list.
+- Local REST API is listening only on `127.0.0.1:27124`. Authenticated root and
+  Vault requests both returned HTTP 200 without logging its credential. Copilot
+  saved an actual successful chat receipt using its configured DeepSeek model.
+  Copilot API secrets are intentionally stored through Obsidian Keychain and
+  were neither read nor copied into BSC.
+- Removed the inactive `realclaudian` route from the active project plugin
+  manifest. Its historical trust record remains intact for audit; it is no
+  longer presented as an executable output bridge. Copilot and Codex retain
+  their governed `04_Outputs/` routes.
+- Added the native Copilot slash command `BSC 知识审查与沉淀` under
+  `D:\\bsc\\bsc\\copilot\\copilot-custom-prompts`. It requires evidence/
+  inference separation, project-specific decisions and validation before a
+  reusable method or SOP is proposed, and emits the BSC D-layer contract only
+  when the user explicitly elects to save a reviewed durable deliverable.
+- Ran a real BSC `source_sync` after the bridge verification. Run
+  `33d6a8e9ee69` completed through Celery: it scanned one declared Codex D-layer
+  file and reported it as one idempotent duplicate, with zero registrations,
+  rejections, blocks or skipped files. No Copilot content was fabricated:
+  `04_Outputs/copilot/` is still empty and accurately remains
+  `awaiting_output`.
+- Verified the protected API's active projection: workspace sources `151`,
+  Wiki graph total `85`, output registry `11`, Evidence Atlas and Operations
+  project views both available. This is a configuration and transport proof,
+  not content-quality or feedback-loop proof.
+- Remaining real-world proof: a user-reviewed Copilot deliverable must be
+  intentionally saved to `projects/default/04_Outputs/copilot/`, captured,
+  evaluated, and given feedback before it can support a claim that the Copilot
+  D-layer loop is operationally closed.
+
+### Copilot Index Submission
+
+- Discovered the Local REST API command contract from the installed plugin and
+  submitted `copilot:index-vault-to-copilot-index` through its authenticated,
+  loopback-only endpoint at `2026-07-30T15:38:50Z`. Obsidian returned HTTP 204
+  and the listener remained healthy after observation.
+- This proves the official index refresh command was accepted; it does not
+  expose the asynchronous embedding completion state. Semantic-index coverage
+  must therefore remain unverified until Copilot's own indexed-file or search
+  UI reports a completed index. No embedding credential, source body, or
+  private note content was read during the verification.
+
+## 2026-07-30 Current Project Plugin Capture Bridge And Provider Probe
+
+- Confirmed the deployed provider route with a minimal real request. The
+  configured DeepSeek `deepseek-v4-pro` route returned a valid structured
+  response; the probe recorded only provider/model and token counts, never
+  response content or credentials. This is connectivity proof, not a claim
+  that a content-generation workflow has completed.
+- Audited the actual Vault host at `D:\\bsc\\bsc`. The managed personal
+  project is `projects/proj_b8a285642094`, while the enabled Clipper,
+  Xiaohongshu Importer, and Zotero Integration settings still targeted
+  `projects/default/...`. Their settings were changed only at the documented
+  export-directory fields to the matching current-project A-layer routes:
+  `00_Inbox/web-clipper`, `00_Inbox/social`, and `01_Sources/zotero`.
+  No plugin source, executable code, unrelated setting, Local REST secret, or
+  Copilot credential was read or changed.
+- Registered those exact three `filesystem_drop` bridges through the protected
+  BSC Workspace API. The durable manifest and trust ledger now report each
+  bridge as `trusted`, `path_status=ready`, and
+  `runtime_configuration=destination_matches_bridge`. Empty managed target
+  folders were created so the plugins have valid destinations; they contain no
+  fabricated imports. All bridges therefore honestly remain
+  `awaiting_export` / `ready_for_first_export` with zero captured sources.
+- Submitted two protected Celery `source_sync` runs after bridge registration
+  (`737680c7d635` and `e943c072db62`). Both completed. Each scanned zero new
+  bridge files, created/deleted/rejected/blocked zero sources, retained 27
+  eligible active records in the evidence mirror, and indexed five Wiki pages.
+  This proves the configured bridge scan is idempotent and does not invent a
+  user-origin source when no plugin has exported one.
+- Post-sync consistency readback: the Vault is ready; active knowledge health
+  reports 27 sources, five pages, five citations, no dangling or stale
+  citations, no pending proposal, and a passed evaluation baseline of `1.0`.
+  The graph visualization contains nine visible nodes and eight active edges.
+  A PowerShell absent-property count initially looked like a graph mismatch;
+  the authoritative in-container API schema has no dangling/stale fields on
+  the graph endpoint, while the Health endpoint is the citation-validity
+  authority.
+- Browser visual re-acceptance remains unverified in this execution context.
+  The controlled in-app browser can only navigate its original `5180` local
+  address, but the active authorized Studio is on `5174`; the environment
+  rejected background process startup needed to mirror the Vite server to
+  `5180`. This is not recorded as a rendering pass or failure. Earlier
+  authorized Studio acceptance remains historical evidence only; a future
+  browser run must verify the current page at the active authorized port.
+- Rollback: set the three documented plugin destination fields back to their
+  recorded `projects/default/...` values and replace the project plugin
+  manifest with an empty protected Workspace API declaration. This revokes the
+  active bridge routes without deleting captured sources, audit records, Wiki
+  pages, distillations, or external plugin content.
+
+### Verification
+
+- `./.venv/Scripts/python.exe -m pytest tests/knowledge/test_wiki_sync.py
+  tests/knowledge/test_obsidian_output_sync.py
+  tests/knowledge/test_knowledge_tasks.py tests/knowledge/test_knowledge_graph.py
+  tests/api/test_knowledge_workspace_api.py -q` completed with `84 passed,
+  1 skipped`. The skip is the existing declared environment boundary.
+- `npm run test:frontend -- --run src/components/KnowledgeWorkspace.test.tsx`
+  completed with `13 passed`.
+- `git diff --check` reported no patch errors. Its only output was the
+  existing repository LF-to-CRLF advisory for modified files.
+
+## 2026-07-30 Knowledge Operations Metric Integrity And Runtime Readback
+
+- Confirmed the user-disabled Claudian state against the actual Vault host:
+  `realclaudian` is absent from `.obsidian/community-plugins.json` and from
+  the active default-project `bsc-plugins.json` bridge declaration. Its prior
+  trust record remains historical audit data only; the workspace no longer
+  presents it as an available bridge.
+- Corrected the operations projection so a governed asset means a persisted
+  status-qualified record, not merely a row in a registry. Counts now include
+  only `eligible`/`processed` evidence, published Wiki pages and methods,
+  accepted/filed outputs, and explicitly reusable memory. `validated`
+  evidence, candidate methods, registered/evaluating outputs, rejected,
+  retired, and candidate-memory records remain in the authorized audit
+  coverage and never inflate the asset or reusable-reference totals.
+- Added deterministic output governance actions. Registered/evaluating outputs
+  emit `pending_output_evaluation`; rejected, superseded, or archived outputs
+  emit `rejected_output`. These actions route to the existing governed Growth
+  review surface rather than asserting automatic remediation.
+- Updated the Operations Cockpit language to distinguish authorized audit
+  coverage from governed assets, label the asset movement series by its status
+  gates, and surface pending/attention states explicitly. The qualification
+  chart is therefore not a visual claim that generation equals verification.
+- Rebuilt and restarted Compose API, Celery Worker, and Celery Beat after
+  Docker Desktop's Linux engine recovered. API, PostgreSQL, Redis, n8n, Worker
+  and Beat were healthy; Celery inspection returned `pong`.
+- Live protected portfolio readback after deployment: 206 authorized audit
+  records across two projects, 63 governed assets, 116 records pending a
+  validation gate, 64 requiring attention, and 41 deterministic actions.
+  The actions included nine pending output evaluations and one rejected-output
+  review. These are live operational counts, not fixture values.
+- Verified the prior Codex bridge smoke output `fb729180904522df8cf6bfb9` is
+  `rejected`, has one persisted evaluation, and has processed feedback
+  `a6e7ffca0ec849ea912eaed2`. It remains visible only as negative evidence and
+  a governance action, never as a reusable asset.
+
+### Verification
+
+- `./.venv/Scripts/python.exe -m pytest tests/knowledge/test_operations_service.py
+  tests/knowledge/test_operations_contracts.py -q` completed with `10 passed`.
+  The new mixed-status regression proves qualified assets, audit coverage,
+  pending validation, attention debt, and output actions remain distinct.
+- `npm run test:frontend -- --run
+  src/components/operations/KnowledgeOperationsCockpit.test.tsx
+  src/components/KnowledgeWorkspace.test.tsx` completed with `21 passed`.
+- `docker compose up -d --build bsc-backend celery-worker celery-beat`
+  completed successfully, and `docker compose ps` showed a healthy API plus
+  live Worker and Beat. `git diff --check` reports no patch errors; its
+  line-ending advisories are pre-existing workspace behavior.
+- The overall ecosystem state remains
+  `implemented_with_operational_proof_pending`: a real user-reviewed Copilot
+  output still has to be saved through the declared `04_Outputs/copilot/`
+  route, captured, evaluated, and fed back before the Copilot D-layer can be
+  called operationally closed.
