@@ -368,6 +368,10 @@ class PBOSService:
             item for item in self.store.get_by_type(ArtifactType.WORK_OUTCOME)
             if isinstance(item, WorkOutcomeArtifact)
         ])
+        executions = self._latest([
+            item for item in self.store.get_by_type(ArtifactType.WORK_EXECUTION_RECORD)
+            if isinstance(item, WorkExecutionRecordArtifact)
+        ])
         feedback = self._recent_feedback()
         strategies = self._latest([
             item for item in self.store.get_by_type(ArtifactType.SOP_VERSION)
@@ -376,6 +380,21 @@ class PBOSService:
         accepted = [item for item in outcomes if item.acceptance_status == "accepted"]
         outcome_observations = [self._outcome_observation(item) for item in outcomes]
         eligible_outcomes = [item for item in outcome_observations if item["eligible_for_evolution"]]
+        active_plan = plans[0] if plans else None
+        knowledge_context_refs = list(active_plan.knowledge_context_refs) if active_plan else []
+        # A governed Vault input and learned personal evidence are distinct
+        # states. Keeping them separate prevents a useful context pack from
+        # being misreported as a missing connection just because PBOS has not
+        # yet earned a personal capability claim.
+        knowledge_context_ready = bool(knowledge_context_refs)
+        personal_learning_ready = bool(
+            active_plan and active_plan.compilation_state == "personalized"
+        )
+        outcome_by_execution_id = {str(item.execution_record_id): observation for item, observation in zip(outcomes, outcome_observations)}
+        execution_observations = [
+            self._execution_observation(item, outcome_by_execution_id.get(item.artifact_id))
+            for item in executions[:6]
+        ]
         return {
             "profile": profile.model_dump(mode="json") if (profile := self.profile()) else None,
             "today": plans[0].model_dump(mode="json") if plans else None,
@@ -383,6 +402,7 @@ class PBOSService:
             "capabilities": [item.model_dump(mode="json") for item in capabilities],
             "outcomes": [item.model_dump(mode="json") for item in outcomes],
             "outcome_observations": outcome_observations,
+            "executions": execution_observations,
             "feedback": [item.model_dump(mode="json") for item in feedback],
             "strategies": [item.model_dump(mode="json") for item in strategies],
             "failure_patterns": self._failure_patterns(outcomes, feedback),
@@ -390,12 +410,56 @@ class PBOSService:
                 "accepted_outcomes": len(accepted),
                 "eligible_personal_outcomes": len(eligible_outcomes),
                 "unverified_outcomes": len([item for item in outcomes if item.acceptance_status != "accepted"]),
+                "reviewable_executions": len([item for item in executions if self._is_reviewable_execution(item)]),
                 "verified_capabilities": len(capabilities),
                 "active_strategies": len([item for item in strategies if item.status == ArtifactStatus.ACTIVE]),
-                "evidence_ready": bool(plans and plans[0].compilation_state == "personalized"),
+                "knowledge_context_ready": knowledge_context_ready,
+                "knowledge_context_reference_count": len(knowledge_context_refs),
+                "personal_learning_ready": personal_learning_ready,
+                # Compatibility alias for earlier Cockpit consumers. It has
+                # always meant personal-plan readiness, not Vault connection.
+                "evidence_ready": personal_learning_ready,
             },
             "connectors": {"github": "awaiting_authorization", "feishu": "awaiting_authorization"},
         }
+
+    def _execution_observation(
+        self,
+        execution: WorkExecutionRecordArtifact,
+        outcome_observation: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Expose receipt integrity, not raw work content, to the cockpit."""
+        verified_receipt_count = sum(
+            1 for receipt in execution.tool_receipts
+            if isinstance(receipt, dict) and receipt.get("verified") is True
+        )
+        if outcome_observation is None:
+            outcome_state = "awaiting_outcome"
+        elif outcome_observation["eligible_for_evolution"]:
+            outcome_state = "learning_eligible"
+        elif outcome_observation["acceptance_status"] == "accepted":
+            outcome_state = "accepted_incomplete"
+        else:
+            outcome_state = "unverified_outcome"
+        return {
+            "artifact_id": execution.artifact_id,
+            "mission_id": execution.mission_id,
+            "plan_id": execution.plan_id,
+            "actions_count": len(execution.actions),
+            "receipt_count": len(execution.tool_receipts),
+            "verified_receipt_count": verified_receipt_count,
+            "reflection_recorded": any(str(value).strip() for value in execution.reflection.values()),
+            "outcome_state": outcome_state,
+            "created_at": str(execution.created_at),
+        }
+
+    @staticmethod
+    def _is_reviewable_execution(execution: WorkExecutionRecordArtifact) -> bool:
+        return bool(
+            execution.actions
+            and PBOSService._has_verified_receipt(execution)
+            and any(str(value).strip() for value in execution.reflection.values())
+        )
 
     def _outcome_observation(self, outcome: WorkOutcomeArtifact) -> dict[str, Any]:
         """Expose whether an accepted outcome is sufficiently complete to teach PBOS.

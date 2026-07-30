@@ -331,3 +331,32 @@ npm run build
 - This is a verified usage path, not an automatic acceptance of a personal
   delivery. No evidence, reflection, score, or connector authorization was
   fabricated during browser testing.
+
+## Post-Consolidation UX Accuracy: Connected Knowledge Is Not Personal Learning
+
+- **Resolved deviation:** the Cockpit reused `evidence_ready` for both
+  personal learning readiness and the visible Vault-connection badge. Its
+  actual meaning was the former, so a plan grounded in Obsidian could
+  misleadingly state `evidence gap` before it had earned a personal method.
+- **Implemented API mapping:** `project_health.knowledge_context_ready` is
+  true only when the active Personal Execution Plan has governed context refs;
+  `knowledge_context_reference_count` exposes their bounded count;
+  `personal_learning_ready` means the plan has verified personal inputs.
+  `evidence_ready` remains a compatibility alias for the latter only.
+- **Live default-project evidence:** authenticated Studio readback after an
+  API/Worker/Beat rebuild rendered `Vault context connected`, `connected
+  (22)`, and `Personal learning: awaiting evidence`, alongside the current
+  contextual Chinese action, a weekly handoff, and receipt lineage. This
+  confirms BSC is consuming governed Obsidian context without falsely claiming
+  a learned capability.
+- **Verification and rollback:** PBOS REST/MCP/integration `53 passed`;
+  shared Artifact/Runtime/Wiki/Distillation `100 passed, 1 skipped`; frontend
+  `169 passed`; TypeScript, production build, Compose validation, API health,
+  desktop, and `390x844` browser acceptance all passed. Revert the health
+  fields and Cockpit labels together to restore old display semantics; no
+  Artifact or Vault record needs to be removed.
+- **Residual product boundary:** the default project still has no
+  learning-eligible outcome, Capability, or Strategy Genome. That is not a
+  connection failure: PBOS must receive three comparable user-accepted,
+  receipt-backed and reflected AI-project deliveries before it can promote a
+  personal strategy.

@@ -79,7 +79,12 @@ describe('PersonalGrowthCockpit', () => {
         success_check: 'Owner and metric are named.',
       },
       capabilities: [], outcomes: [], feedback: [],
-      strategies: [], failure_patterns: [], project_health: {},
+      strategies: [], failure_patterns: [], project_health: {
+        knowledge_context_ready: true,
+        knowledge_context_reference_count: 2,
+        personal_learning_ready: false,
+        evidence_ready: false,
+      },
       connectors: { github: 'awaiting_authorization', feishu: 'awaiting_authorization' },
     });
     vi.mocked(fetchPbosProfile).mockResolvedValue({
@@ -92,6 +97,9 @@ describe('PersonalGrowthCockpit', () => {
     expect(screen.getAllByText('Define the acceptance card')[0]).toBeVisible();
     expect(screen.getByText(/Success check: Owner and metric are named/i)).toBeVisible();
     expect(screen.getByText(/Capability claims still await verified execution evidence/i)).toBeVisible();
+    expect(screen.getByText('Vault context connected')).toBeVisible();
+    expect(screen.getByText('connected (2)')).toBeVisible();
+    expect(screen.getByText('awaiting evidence')).toBeVisible();
     expect(screen.getByText('PLAN GROUNDING')).toBeVisible();
     expect(screen.getByText('LLM contextual')).toBeVisible();
     expect(screen.getByText('deepseek / deepseek-v4-pro')).toBeVisible();
@@ -160,6 +168,31 @@ describe('PersonalGrowthCockpit', () => {
     expect(screen.getByText('STRATEGY ASSETS')).toBeVisible();
     expect(screen.getByText(/Personal AI project delivery v2/i)).toBeVisible();
     expect(screen.getByText(/SEVERE FAILURE/i)).toBeVisible();
+  });
+
+  it('shows reviewable execution receipt summaries without presenting them as learned capabilities', async () => {
+    vi.mocked(fetchPbosCockpit).mockResolvedValue({
+      profile: null,
+      today: null,
+      today_action: { state: 'no_plan' },
+      capabilities: [], outcomes: [], feedback: [], strategies: [], failure_patterns: [],
+      executions: [{
+        artifact_id: 'execution-safe-1', mission_id: 'mission-1', plan_id: 'plan-1',
+        actions_count: 1, receipt_count: 2, verified_receipt_count: 2,
+        reflection_recorded: true, outcome_state: 'awaiting_outcome', created_at: '2026-07-30T15:00:00Z',
+      }],
+      project_health: { reviewable_executions: 1, eligible_personal_outcomes: 0 },
+      connectors: {},
+    });
+    vi.mocked(fetchPbosProfile).mockResolvedValue({ profile: null });
+
+    render(<PersonalGrowthCockpit projectId="default" onClose={vi.fn()} runtimeAccessKey="session-key" />);
+
+    expect(await screen.findByText('RECENT EXECUTION RECEIPTS')).toBeVisible();
+    expect(screen.getByText('execution-safe-1')).toBeVisible();
+    expect(screen.getByText(/2 verified receipts/i)).toBeVisible();
+    expect(screen.getByText(/Awaiting explicit outcome/i)).toBeVisible();
+    expect(screen.queryByText(/Verified capability/i)).not.toBeInTheDocument();
   });
 
   it('shows a safe model fallback category instead of presenting it as an LLM plan', async () => {

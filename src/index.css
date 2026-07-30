@@ -2049,16 +2049,19 @@ body .knowledge-connection-path small {
 .pbos-connectors small { color: #768f96; font: 9px/1.45 var(--font-mono); }
 .pbos-health { grid-column: 1 / -1; min-height: auto !important; padding: 0 !important; }
 .pbos-health .pbos-panel-heading { min-height: 46px; border-bottom: 1px solid #263d44; padding: 0 16px; }
-.pbos-health dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin: 0; background: #263d44; }
+.pbos-health dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; margin: 0; background: #263d44; }
 .pbos-health dl > div { min-width: 0; padding: 12px 16px; background: #0d1b21; }
-.pbos-health dd { margin: 5px 0 0; color: #d7e9e2; font: 700 19px/1 var(--font-mono); }
-.pbos-health dl > div:last-child dd { color: #e0c177; }
-.pbos-grounding, .pbos-profile, .pbos-reflection { grid-column: span 6; }
+.pbos-health dd { overflow-wrap: anywhere; margin: 5px 0 0; color: #d7e9e2; font: 700 14px/1.2 var(--font-mono); }
+.pbos-health dd.is-ready { color: #9ad9bd; }.pbos-health dd.is-pending { color: #e0c177; }
+.pbos-grounding, .pbos-profile, .pbos-reflection, .pbos-executions { grid-column: span 6; }
 .pbos-grounding { display: grid; align-content: start; gap: 11px; }
 .pbos-grounding dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; margin: 0; background: #263d44; }
 .pbos-grounding dl > div { min-width: 0; padding: 9px 10px; background: #0b181e; }
 .pbos-grounding dt { color: #819ba1; font: 8px var(--font-mono); text-transform: uppercase; }
 .pbos-grounding dd { overflow-wrap: anywhere; margin: 4px 0 0; color: #b8d5ca; font: 10px/1.35 var(--font-mono); }
+.pbos-plan-generation { display: inline-flex; width: fit-content; border: 1px solid #3f6c60; padding: 2px 5px; color: #9ad9bd; background: #112b26; font: 8px var(--font-mono); text-transform: uppercase; }
+.pbos-plan-generation.is-pending { border-color: #705f38; color: #e2c274; background: #292419; }
+.pbos-grounding dd small { display: block; margin-top: 4px; color: #718d93; font: 8px/1.35 var(--font-mono); }
 .pbos-grounding ul { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
 .pbos-grounding li { min-width: 0; border-left: 2px solid #47786e; padding-left: 8px; }
 .pbos-grounding code { display: block; overflow-wrap: anywhere; color: #a8c5c2; font: 9px/1.35 var(--font-mono); }
@@ -2070,6 +2073,9 @@ body .knowledge-connection-path small {
 .pbos-reflection textarea { min-height: 76px; resize: vertical; }.pbos-reflection label:first-child { grid-column: 1 / -1; }
 .pbos-profile button, .pbos-reflection button { justify-self: start; min-height: 32px; padding: 0 10px; font: 700 10px var(--font-mono); }
 .pbos-profile > p, .pbos-reflection > p { color: #718d93 !important; font: 9px/1.5 var(--font-mono) !important; }
+.pbos-executions > p { color: #718d93 !important; font: 9px/1.5 var(--font-mono) !important; }
+.pbos-executions .pbos-outcomes { max-height: 182px; overflow: auto; }
+.pbos-executions .pbos-outcomes em { margin-left: auto; color: #e0c177; font: 8px/1.35 var(--font-mono); font-style: normal; text-align: right; }
 .pbos-chart, .pbos-lineage { min-height: 288px !important; grid-column: span 6; }
 .pbos-chart > div:not(.pbos-panel-heading) { margin-top: 5px; }
 .pbos-lineage .pbos-label { display: block; margin-bottom: 11px; }
@@ -2084,13 +2090,15 @@ body .knowledge-connection-path small {
 .pbos-outcomes { display: grid; gap: 7px; margin-top: 12px; }.pbos-outcomes p { display: flex; gap: 7px; align-items: flex-start; padding-bottom: 7px; border-bottom: 1px solid #233b43; color: #a9bdc0; font: 10px/1.45 var(--font-mono); }.pbos-outcomes p:last-child { border-bottom: 0; }.pbos-outcomes svg { flex: 0 0 auto; margin-top: 1px; color: #9cd8bf; }.pbos-outcomes p > span { display: grid; min-width: 0; gap: 2px; color: #a9bdc0; }.pbos-outcomes strong { color: #d8e8e5; font-size: 10px; }.pbos-outcomes small { color: #7f989e; font-size: 9px; line-height: 1.35; }
 .pbos-error, .pbos-empty { display: flex; max-width: 1100px; align-items: center; gap: 8px; margin: 30px auto; border: 1px solid #75494d; padding: 14px; color: #e9afb3; background: #241519; font: 11px var(--font-mono); }
 .pbos-empty { border-color: #38545c; color: #9bb2b7; background: #0d1b21; }
-@media (max-width: 980px) { .pbos-today, .pbos-execution-path, .pbos-connectors, .pbos-grounding, .pbos-profile, .pbos-reflection, .pbos-chart, .pbos-lineage { grid-column: span 6; }.pbos-grid > section:nth-last-child(-n + 4) { grid-column: span 6; } }
-@media (max-width: 640px) { .pbos-cockpit > header { min-height: 62px; }.pbos-cockpit > header h2 { font-size: 16px; }.pbos-access-state { display: grid; margin: 56px 12px; }.pbos-access-state__actions { width: 100%; }.pbos-access-state__actions button { flex: 1 1 auto; }.pbos-grid { grid-template-columns: 1fr; padding: 12px; }.pbos-today, .pbos-execution-path, .pbos-connectors, .pbos-grounding, .pbos-profile, .pbos-reflection, .pbos-chart, .pbos-lineage, .pbos-grid > section:nth-last-child(-n + 4) { grid-column: auto; }.pbos-today dl { gap: 0; }.pbos-today dt { overflow: visible; white-space: normal; }.pbos-grounding dl, .pbos-execution-path__io { grid-template-columns: 1fr; }.pbos-health dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }.pbos-health dl > div:nth-child(n + 3) { border-top: 1px solid #263d44; }.pbos-profile form, .pbos-reflection form { grid-template-columns: 1fr; }.pbos-profile label, .pbos-reflection label:first-child { grid-column: auto; }.pbos-chart, .pbos-lineage { min-height: 270px !important; }.pbos-lineage .react-flow { height: 205px; }.pbos-lineage .react-flow__node-default { min-width: 78px; padding: 6px; font-size: 8px; } }
+@media (max-width: 980px) { .pbos-today, .pbos-execution-path, .pbos-connectors, .pbos-grounding, .pbos-profile, .pbos-reflection, .pbos-executions, .pbos-chart, .pbos-lineage { grid-column: span 6; }.pbos-grid > section:nth-last-child(-n + 4) { grid-column: span 6; } }
+@media (max-width: 640px) { .pbos-cockpit > header { min-height: 62px; }.pbos-cockpit > header h2 { font-size: 16px; }.pbos-access-state { display: grid; margin: 56px 12px; }.pbos-access-state__actions { width: 100%; }.pbos-access-state__actions button { flex: 1 1 auto; }.pbos-grid { grid-template-columns: 1fr; padding: 12px; }.pbos-today, .pbos-execution-path, .pbos-connectors, .pbos-grounding, .pbos-profile, .pbos-reflection, .pbos-executions, .pbos-chart, .pbos-lineage, .pbos-grid > section:nth-last-child(-n + 4) { grid-column: auto; }.pbos-today dl { gap: 0; }.pbos-today dt { overflow: visible; white-space: normal; }.pbos-grounding dl, .pbos-execution-path__io { grid-template-columns: 1fr; }.pbos-health dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }.pbos-health dl > div:nth-child(n + 3) { border-top: 1px solid #263d44; }.pbos-profile form, .pbos-reflection form { grid-template-columns: 1fr; }.pbos-profile label, .pbos-reflection label:first-child { grid-column: auto; }.pbos-chart, .pbos-lineage { min-height: 270px !important; }.pbos-lineage .react-flow { height: 205px; }.pbos-lineage .react-flow__node-default { min-width: 78px; padding: 6px; font-size: 8px; } }
 @media (prefers-reduced-motion: reduce) { .pbos-cockpit *, .pbos-cockpit *::before, .pbos-cockpit *::after { scroll-behavior: auto !important; transition-duration: 0s !important; animation-duration: 0s !important; } }
 
 /* The compact relation graph is deliberately a decision focus, not a scaled desktop canvas. */
 .knowledge-graph-scope { align-self: end; min-height: 34px; white-space: nowrap; }
 .knowledge-flow-node--compact { max-width: 146px; padding: 7px 8px !important; font-size: 10px; }
+.evidence-flow-node--compact { max-width: 146px; padding: 7px 8px !important; font-size: 9px; }
+.evidence-graph-scope { min-height: 29px; margin-left: auto; padding: 5px 7px !important; white-space: nowrap; font-size: 9px !important; }
 @media (max-width: 780px) {
   .knowledge-graph-view .knowledge-content-header { display: grid; grid-template-columns: 1fr; gap: 12px; }
   .knowledge-graph-filters { width: 100%; justify-content: stretch; }
@@ -2098,4 +2106,8 @@ body .knowledge-connection-path small {
   .knowledge-graph-filters .knowledge-select-label select { width: 100%; }
   .knowledge-graph-scope { flex: 1 1 136px; }
   .knowledge-graph-canvas .react-flow__edge-text { display: none; }
+  .evidence-card--graph > header { flex-wrap: wrap; align-items: flex-start !important; }
+  .evidence-card--graph > header small { width: 100%; }
+  .evidence-graph-scope { margin-left: 0; }
+  .evidence-flow .react-flow__edge-text { display: none; }
 }

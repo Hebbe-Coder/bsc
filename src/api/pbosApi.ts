@@ -6,12 +6,37 @@ export interface PbosCockpit {
   today_action?: Record<string, unknown>;
   capabilities: Array<Record<string, unknown>>;
   outcomes: Array<Record<string, unknown>>;
+  executions?: Array<{
+    artifact_id: string;
+    mission_id: string;
+    plan_id: string;
+    actions_count: number;
+    receipt_count: number;
+    verified_receipt_count: number;
+    reflection_recorded: boolean;
+    outcome_state: 'awaiting_outcome' | 'unverified_outcome' | 'accepted_incomplete' | 'learning_eligible' | string;
+    created_at: string;
+  }>;
   outcome_observations?: Array<Record<string, unknown>>;
   feedback: Array<Record<string, unknown>>;
   strategies: Array<Record<string, unknown>>;
   failure_patterns: Array<Record<string, unknown>>;
-  project_health: Record<string, unknown>;
+  project_health: PbosProjectHealth;
   connectors: Record<string, string>;
+}
+
+export interface PbosProjectHealth {
+  accepted_outcomes?: number;
+  eligible_personal_outcomes?: number;
+  unverified_outcomes?: number;
+  reviewable_executions?: number;
+  verified_capabilities?: number;
+  active_strategies?: number;
+  knowledge_context_ready?: boolean;
+  knowledge_context_reference_count?: number;
+  personal_learning_ready?: boolean;
+  /** @deprecated Use personal_learning_ready. */
+  evidence_ready?: boolean;
 }
 
 export interface PbosProfile {

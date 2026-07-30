@@ -58,6 +58,14 @@ def test_pbos_plan_api_uses_project_vault_context(monkeypatch, tmp_path):
     assert action.json()["plan_id"] == payload["artifact_id"]
     assert action.json()["knowledge_context_refs"] == ["vault:03_Projects/active/context.md"]
 
+    cockpit = client.get("/api/pbos/projects/personal/cockpit")
+
+    assert cockpit.status_code == 200
+    health = cockpit.json()["project_health"]
+    assert health["knowledge_context_ready"] is True
+    assert health["knowledge_context_reference_count"] == 1
+    assert health["personal_learning_ready"] is False
+
 
 def test_pbos_workspace_capture_records_one_execution_with_safe_receipt_and_reflection(monkeypatch, tmp_path):
     monkeypatch.setattr(dbos_api, "DBOS_DATA_ROOT", tmp_path / "dbos")

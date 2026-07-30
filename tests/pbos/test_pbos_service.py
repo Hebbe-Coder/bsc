@@ -188,6 +188,42 @@ def test_bsc_workspace_capture_attaches_safe_receipts_and_the_same_reflection(tm
     assert record.tool_receipts[0]["path"] == "tests/delivery-proof.txt"
 
 
+def test_cockpit_exposes_reviewable_execution_receipts_without_promoting_personal_learning(tmp_path):
+    workspace = tmp_path / "workspace"
+    evidence = workspace / "tests" / "delivery-proof.txt"
+    evidence.parent.mkdir(parents=True)
+    evidence.write_text("focused test passed", encoding="utf-8")
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(store)
+    service = PBOSService(store, "personal")
+    record = service.capture_bsc_workspace_execution(
+        "mission",
+        "",
+        paths=["tests/delivery-proof.txt"],
+        actions=["Validated the evidence path."],
+        reflection={"completed": "Recorded a reviewable engineering observation."},
+        workspace_root=workspace,
+    )
+
+    cockpit = service.cockpit()
+
+    assert cockpit["project_health"]["reviewable_executions"] == 1
+    assert cockpit["project_health"]["eligible_personal_outcomes"] == 0
+    assert cockpit["executions"] == [{
+        "artifact_id": record.artifact_id,
+        "mission_id": "mission",
+        "plan_id": "",
+        "actions_count": 1,
+        "receipt_count": 1,
+        "verified_receipt_count": 1,
+        "reflection_recorded": True,
+        "outcome_state": "awaiting_outcome",
+        "created_at": str(record.created_at),
+    }]
+    assert "reflection" not in cockpit["executions"][0]
+    assert "tool_receipts" not in cockpit["executions"][0]
+
+
 def test_bsc_workspace_capture_rejects_paths_outside_the_safe_project_allowlist(tmp_path):
     store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
     _mission(store)
@@ -287,6 +323,28 @@ def test_today_action_and_daily_report_use_the_first_pending_grounded_plan_step(
     assert "Every delivery claim links" in content
     assert "vault:03_Projects/active/control-plane.md" in content
     assert "pbos-managed-sha256" in content
+
+
+def test_cockpit_distinguishes_connected_vault_context_from_personal_learning(tmp_path):
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(store, "mission-context")
+    store.add(PersonalExecutionPlanArtifact(
+        project_id="personal",
+        mission_id="mission-context",
+        title="Use governed context without inventing personal history",
+        compilation_state="context_grounded",
+        knowledge_context_refs=[
+            "vault:03_Projects/active/delivery.md",
+            "vault:wiki/concepts/evidence.md",
+        ],
+    ))
+    cockpit = PBOSService(store, "personal").cockpit()
+
+    health = cockpit["project_health"]
+    assert health["knowledge_context_ready"] is True
+    assert health["knowledge_context_reference_count"] == 2
+    assert health["personal_learning_ready"] is False
+    assert health["evidence_ready"] is False
 
 
 def test_managed_daily_report_refreshes_but_preserves_user_edits_as_a_conflict(tmp_path):

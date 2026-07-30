@@ -668,3 +668,32 @@
   or outcome was submitted during this verification. PBOS therefore continues
   to show its honest zero-capability/zero-strategy state until the project
   owner records real delivery evidence.
+
+## 2026-07-30 Context Connection And Personal Learning State Correction
+
+- **Resolved product ambiguity:** `evidence_ready` described whether a plan
+  had earned personalized-learning inputs, but the Cockpit rendered it as an
+  Obsidian evidence connection verdict. A project with governed Vault context
+  could therefore show `evidence gap` even while PBOS was actively using that
+  context.
+- **Implemented contract:** `project_health` now exposes
+  `knowledge_context_ready`, `knowledge_context_reference_count`, and
+  `personal_learning_ready`. The legacy `evidence_ready` field remains as a
+  backward-compatible alias for `personal_learning_ready`; it must not be
+  interpreted as Vault connection state.
+- **Cockpit behavior:** the live default project now shows `Vault context
+  connected` and `connected (22)` separately from `Personal learning:
+  awaiting evidence`. This preserves the distinction between governed
+  Obsidian/BSC planning context and a personal Capability or Strategy Genome,
+  which still requires verified, accepted delivery evidence.
+- **Verification:** targeted PBOS/API tests passed `27`; full PBOS REST/MCP/
+  integration passed `53`; shared Artifact Runtime/Wiki/Distillation coverage
+  passed `100` with one existing symlink skip; frontend passed `169`;
+  TypeScript and production builds passed. API, Worker, and Beat were rebuilt
+  and `/ready` confirmed healthy PostgreSQL and Redis dependencies. Browser
+  acceptance through the local authorized Studio rendered the live state at
+  desktop and `390x844`; the mobile document width was `384/384` with no
+  horizontal overflow.
+- **Rollback:** reverting this Cockpit/API state change restores the prior
+  single-field display only. It does not alter Vault references, evidence
+  records, outcomes, capabilities, strategies, or connector authorization.
