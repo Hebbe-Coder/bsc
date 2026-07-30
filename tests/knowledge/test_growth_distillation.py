@@ -231,6 +231,49 @@ class _ProductionFinalStrictRepairNarrativeProvider:
         }
 
 
+class _ProductionFinalStrictBatchRepairNarrativeProvider:
+    supports_quality_retry = True
+    supports_targeted_weekly_retry = True
+    supports_final_strict_batch_weekly_retry = True
+    max_weekly_model_invocations = 3
+
+    def __init__(self) -> None:
+        self.targets: list[tuple[str, ...]] = []
+        self.feedback: list[str] = []
+
+    def render(self, *, kind, project_id, period, context, weekly_document_names=(), quality_feedback="", **_kwargs):
+        self.targets.append(tuple(weekly_document_names))
+        self.feedback.append(quality_feedback)
+        if kind == "daily":
+            return _NarrativeProvider().render(kind=kind, project_id=project_id, period=period, context=context)
+        slots = GrowthDistillationService.WEEKLY_NARRATIVE_SLOTS
+        slots_by_document = dict(zip(GrowthDistillationService.WEEKLY_DOCUMENTS, slots, strict=True))
+        if len(self.targets) == 1:
+            return {
+                "weekly": {
+                    slots[0]: _valid_weekly_document("Initial accepted evidence"),
+                    **{
+                        slot: _valid_weekly_document("Invalid citation evidence") + "\n\n[source:not-in-ledger]"
+                        for slot in slots[1:]
+                    },
+                }
+            }
+        if len(self.targets) == 2:
+            return {
+                "weekly": {
+                    slots_by_document[name]: _valid_weekly_document("Still invalid citation evidence")
+                    + "\n\n[page:not-in-ledger]"
+                    for name in weekly_document_names
+                }
+            }
+        return {
+            "weekly": {
+                slots_by_document[name]: _valid_weekly_document("Strict batch repair evidence")
+                for name in weekly_document_names
+            }
+        }
+
+
 class _UnsupportedProjectStateNarrativeProvider:
     def render(self, *, kind, project_id, period, context):
         if kind == "daily":
@@ -252,6 +295,33 @@ class _RetryableNarrativeProvider:
         if quality_feedback:
             return _NarrativeProvider().render(kind=kind, project_id=project_id, period=period, context=context)
         return _UnsupportedProjectStateNarrativeProvider().render(
+            kind=kind,
+            project_id=project_id,
+            period=period,
+            context=context,
+        )
+
+
+class _DailyRepairNarrativeProvider:
+    supports_quality_retry = True
+    max_daily_model_invocations = 2
+
+    def __init__(self) -> None:
+        self.feedback: list[str] = []
+
+    def render(self, *, kind, project_id, period, context, quality_feedback=""):
+        self.feedback.append(quality_feedback)
+        if kind == "daily" and not quality_feedback:
+            return {
+                "daily": {
+                    "headline": "Invalid first response",
+                    "signal": "Unverified signal [source:forged].",
+                    "project_implication": "Do not use this reference [source:forged].",
+                    "next_review": "Verify the cited evidence [source:forged].",
+                    "open_question": "The provenance is unresolved [source:forged].",
+                }
+            }
+        return _NarrativeProvider().render(
             kind=kind,
             project_id=project_id,
             period=period,
@@ -701,6 +771,7 @@ def test_daily_distillation_rejects_a_thin_cited_paragraph_and_uses_the_full_fal
             "provider": "",
             "model": "",
             "reason": "provider_response_rejected",
+            "rejection_reasons": {"daily": "invalid_shape"},
         }
         assert "One-line evidence update" not in daily
         assert "# Daily knowledge growth" in daily
@@ -831,6 +902,43 @@ def test_distillation_rejects_uncited_narrative_and_uses_governed_fallback(tmp_p
             "[source:source-a]" in (root / "projects" / "project-a" / path).read_text(encoding="utf-8")
             for path in result["paths"]
         )
+    finally:
+        repo.close()
+
+
+def test_daily_distillation_repairs_an_invalid_model_card_once_without_relaxing_citations(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "daily-quality-repair.db"))
+    provider = _DailyRepairNarrativeProvider()
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        repo.create_source(
+            SourceRecord(
+                id="source-a",
+                project_id="project-a",
+                source_type="article",
+                content_hash="a" * 64,
+                raw_content="Review gates are required before publication.",
+                trust_level="trusted",
+                status=SourceStatus.ELIGIBLE,
+                captured_at=_CUTOFF_SAFE_TIME,
+                updated_at=_CUTOFF_SAFE_TIME,
+            )
+        )
+
+        result = GrowthDistillationService(repo, root, narrative_provider=provider).run_daily(
+            "project-a", "2026-07-24", source_cutoff="2026-07-24T09:00:00Z"
+        )
+
+        generation = result["manifest"]["generation"]
+        assert generation["mode"] == "llm"
+        assert generation["quality_retry_count"] == 1
+        assert provider.feedback[0] == ""
+        assert "invalid_reference" in provider.feedback[1]
+        daily = (root / "projects" / "project-a" / result["paths"][0]).read_text(encoding="utf-8")
+        assert "[source:source-a]" in daily
+        assert "[source:forged]" not in daily
     finally:
         repo.close()
 
@@ -1082,6 +1190,42 @@ def test_production_weekly_uses_one_final_strict_repair_for_a_single_remaining_d
         generation = result["manifest"]["generation"]
         assert provider.calls == 3
         assert provider.targets == [(), (GrowthDistillationService.WEEKLY_DOCUMENTS[0],), (GrowthDistillationService.WEEKLY_DOCUMENTS[0],)]
+        assert generation["mode"] == "llm"
+        assert generation["fallback_documents"] == []
+        assert generation["quality_retry_count"] == 2
+    finally:
+        repo.close()
+
+
+def test_production_weekly_uses_final_strict_batch_repair_for_multiple_invalid_references(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "distillation-production-final-strict-batch.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        repo.create_source(
+            SourceRecord(
+                id="source-a",
+                project_id="project-a",
+                source_type="article",
+                content_hash="a" * 64,
+                raw_content="Review gates are required before publication.",
+                trust_level="trusted",
+                status=SourceStatus.ELIGIBLE,
+                captured_at=_CUTOFF_SAFE_TIME,
+                updated_at=_CUTOFF_SAFE_TIME,
+            )
+        )
+        provider = _ProductionFinalStrictBatchRepairNarrativeProvider()
+
+        result = GrowthDistillationService(repo, root, narrative_provider=provider).run_weekly(
+            "project-a", "2026-W30", source_cutoff="2026-07-24T09:00:00Z"
+        )
+
+        rejected = tuple(GrowthDistillationService.WEEKLY_DOCUMENTS[1:])
+        generation = result["manifest"]["generation"]
+        assert provider.targets == [(), rejected, rejected]
+        assert "[source:source-a]" in provider.feedback[-1]
         assert generation["mode"] == "llm"
         assert generation["fallback_documents"] == []
         assert generation["quality_retry_count"] == 2

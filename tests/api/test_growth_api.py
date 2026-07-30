@@ -1084,11 +1084,13 @@ def test_idempotent_growth_run_persists_one_celery_assignment(monkeypatch, tmp_p
         assert [event["event_type"] for event in events] == [
             "knowledge.run.queued",
             "knowledge.run.execution_assigned",
+            "knowledge.growth.dispatched",
         ]
         assert events[-1]["payload"] == {
             "execution": "celery",
             "task_name": "knowledge.growth.execute",
             "task_id": "growth-celery-task-123",
+            "trigger": "http",
         }
     finally:
         repo.close()

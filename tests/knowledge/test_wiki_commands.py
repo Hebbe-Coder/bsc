@@ -239,10 +239,16 @@ def test_command_service_routes_growth_runs_to_the_bounded_growth_task(tmp_path,
         assert result["task_id"] == "growth-task-123"
         assert dispatched == [["project-a", result["run_id"]]]
         events = repo.list_run_events(project_id="project-a", run_id=result["run_id"])
+        assert [event["event_type"] for event in events] == [
+            "knowledge.run.queued",
+            "knowledge.run.execution_assigned",
+            "knowledge.growth.dispatched",
+        ]
         assert events[-1]["payload"] == {
             "execution": "celery",
             "task_name": "knowledge.growth.execute",
             "task_id": "growth-task-123",
+            "trigger": "http",
         }
     finally:
         repo.close()

@@ -365,6 +365,29 @@ def test_abandoned_growth_run_is_replayed_once_with_original_inputs(tmp_path):
         repo.close()
 
 
+def test_recovery_does_not_redispatch_a_celery_assigned_growth_run(tmp_path):
+    repo = GrowthRepository(db_path=str(tmp_path / "growth-assignment-recovery.db"))
+    run = _queued_run(repo, run_id="assigned-growth", trigger="manual")
+    repo.append_run_event(
+        project_id="project-a",
+        run_id=run.id,
+        event_type="knowledge.run.execution_assigned",
+        payload={"execution": "celery", "task_name": "knowledge.growth.execute", "task_id": "task-123"},
+    )
+    dispatched = []
+    try:
+        recovered = recover_abandoned_growth_runs(
+            repo,
+            dispatch=lambda project_id, run_id: dispatched.append((project_id, run_id)),
+        )
+
+        assert recovered == {"recovered": 0, "failures": 0}
+        assert dispatched == []
+        assert repo.get_run("project-a", run.id)["status"] == "queued"
+    finally:
+        repo.close()
+
+
 def test_broker_failure_leaves_recovery_queued_and_replays_on_next_reconcile(tmp_path):
     repo = GrowthRepository(db_path=str(tmp_path / "growth-broker-replay.db"))
     run = _queued_run(repo, run_id="broker-failure", trigger="schedule")

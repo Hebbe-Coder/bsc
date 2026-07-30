@@ -41,11 +41,15 @@ class ConfiguredDistillationNarrativeProvider:
     supports_quality_retry = True
     supports_targeted_weekly_retry = True
     supports_final_strict_weekly_retry = True
+    supports_final_strict_batch_weekly_retry = True
     requires_complete_weekly_llm_for_replacement = True
     # A complete weekly bundle has five independently validated documents.
     # Permit one bounded batch repair and, only when that leaves exactly one
     # file, one strict single-document repair. Never fan out by document.
     max_weekly_model_invocations = 3
+    # A daily card is one structured document. Permit exactly one corrective
+    # render when the initial model response misses the evidence contract.
+    max_daily_model_invocations = 2
     # DeepSeek reasoning tokens are included in the provider completion
     # budget. Five independently useful, cited documents need room beyond a
     # one-page response, otherwise later JSON slots are predictably truncated.
@@ -280,11 +284,18 @@ class ConfiguredDistillationNarrativeProvider:
         )
         prompt += weekly_document_contract
         if quality_feedback:
-            prompt += (
-                "\n\nA prior weekly draft failed the deterministic quality gate. Regenerate only the "
-                "requested weekly document keys from the evidence ledger and address this internal correction: "
-                f"{quality_feedback}"
-            )
+            if kind == "daily":
+                prompt += (
+                    "\n\nA prior daily card failed the deterministic quality gate. Regenerate the exact "
+                    "daily JSON object from the evidence ledger and address this internal correction: "
+                    f"{quality_feedback}"
+                )
+            else:
+                prompt += (
+                    "\n\nA prior weekly draft failed the deterministic quality gate. Regenerate only the "
+                    "requested weekly document keys from the evidence ledger and address this internal correction: "
+                    f"{quality_feedback}"
+                )
         prompt += targeted_guidance
         return prompt
 
@@ -302,7 +313,7 @@ class GrowthDistillationService:
     # schedule timezone. Interpret those legacy timestamps consistently with
     # the persisted Asia/Shanghai growth cadence before comparing a cutoff.
     REPOSITORY_TIMEZONE = ZoneInfo("Asia/Shanghai")
-    DISTILLATION_CONTRACT_REVISION = 25
+    DISTILLATION_CONTRACT_REVISION = 27
     MAX_TARGETED_WEEKLY_QUALITY_REPAIRS_PER_DOCUMENT = 2
     DAILY_CONTEXT_CHARACTER_BUDGET = 4_000
     WEEKLY_CONTEXT_CHARACTER_BUDGET = 10_000
@@ -906,9 +917,31 @@ class GrowthDistillationService:
             reason = str(getattr(self.narrative_provider, "unavailable_reason", "") or fallback["reason"])
             return {}, {**fallback, "reason": reason}
         quality_retry_count = 0
+        daily_rejection_reason = ""
         try:
             if kind == "daily":
-                daily = self._validated_daily_narrative(rendered.get("daily"), context)
+                daily, daily_rejection_reason = self._validated_daily_narrative_with_reason(
+                    rendered.get("daily"), context
+                )
+                invocation_limit = int(
+                    getattr(self.narrative_provider, "max_daily_model_invocations", 0) or 0
+                )
+                invocation_count = len(getattr(self.narrative_provider, "prompt_runs", ()) or ())
+                retry_budget_available = not invocation_limit or invocation_count < invocation_limit
+                if (
+                    not daily
+                    and retry_budget_available
+                    and bool(getattr(self.narrative_provider, "supports_quality_retry", False))
+                ):
+                    quality_retry_count = 1
+                    repaired = self.narrative_provider.render(
+                        **render_args,
+                        quality_feedback=self._daily_quality_feedback(daily_rejection_reason, context),
+                    )
+                    daily, daily_rejection_reason = self._validated_daily_narrative_with_reason(
+                        repaired.get("daily") if isinstance(repaired, dict) else None,
+                        context,
+                    )
                 if not daily:
                     raise ValueError("daily_narrative_missing")
                 payload: dict[str, Any] = {"daily": daily}
@@ -950,6 +983,7 @@ class GrowthDistillationService:
                                 "quality_feedback": self._weekly_quality_feedback(
                                     list(targets),
                                     rejection_reasons,
+                                    context,
                                 ),
                             }
                             if supports_targeted_retry:
@@ -1010,11 +1044,58 @@ class GrowthDistillationService:
                         )
                         for name in rejected
                     }
+                # Model drafts can copy a source-like identifier from the
+                # bounded context instead of the small citation ledger. Keep
+                # one final batch repair for that multi-document case; it
+                # remains all-or-nothing and never relaxes the quality gate.
+                final_invocation_count = len(getattr(self.narrative_provider, "prompt_runs", ()) or ())
+                final_retry_budget_available = (
+                    not invocation_limit or final_invocation_count < invocation_limit
+                )
+                if (
+                    len(rejected) > 1
+                    and final_retry_budget_available
+                    and bool(getattr(self.narrative_provider, "supports_final_strict_batch_weekly_retry", False))
+                ):
+                    targets = tuple(rejected)
+                    quality_retry_count += 1
+                    final_rendered = self.narrative_provider.render(
+                        **render_args,
+                        quality_feedback=self._strict_weekly_batch_quality_feedback(
+                            targets,
+                            rejection_reasons,
+                            context,
+                        ),
+                        weekly_document_names=targets,
+                    )
+                    final_accepted, _, final_rejection_reasons = self._validated_weekly_narrative_with_reasons(
+                        final_rendered,
+                        context,
+                        expected_documents=targets,
+                    )
+                    accepted.update(final_accepted)
+                    rejected = [name for name in rejected if name not in final_accepted]
+                    rejection_reasons = {
+                        name: final_rejection_reasons.get(
+                            name,
+                            rejection_reasons.get(name, "invalid_shape"),
+                        )
+                        for name in rejected
+                    }
                 if not accepted:
                     raise ValueError("weekly_narrative_content_invalid")
                 payload = {"weekly": accepted}
         except (TypeError, ValueError):
-            return {}, {**fallback, "reason": "provider_response_rejected"}
+            rejection = (
+                {"daily": daily_rejection_reason or "invalid_shape"}
+                if kind == "daily"
+                else {}
+            )
+            return {}, {
+                **fallback,
+                "reason": "provider_response_rejected",
+                **({"rejection_reasons": rejection} if rejection else {}),
+            }
         fallback_documents = []
         if kind == "weekly":
             fallback_documents = [name for name in self.WEEKLY_DOCUMENTS if name not in payload["weekly"]]
@@ -1104,9 +1185,15 @@ class GrowthDistillationService:
     @classmethod
     def _validated_daily_narrative(cls, value: Any, context: dict[str, Any]) -> str:
         """Require a scannable daily knowledge card, not a cited paragraph."""
+        content, _ = cls._validated_daily_narrative_with_reason(value, context)
+        return content
+
+    @classmethod
+    def _validated_daily_narrative_with_reason(cls, value: Any, context: dict[str, Any]) -> tuple[str, str]:
+        """Validate a daily card without retaining rejected model content."""
         if isinstance(value, dict):
             if set(value) != set(cls.DAILY_NARRATIVE_FIELDS):
-                return ""
+                return "", "invalid_shape"
             headline = str(value.get("headline") or "").strip()
             sections = {
                 field: str(value.get(field) or "").strip()
@@ -1119,7 +1206,7 @@ class GrowthDistillationService:
                 or headline.startswith("#")
                 or any(not text for text in sections.values())
             ):
-                return ""
+                return "", "invalid_shape"
             content = (
                 f"# {headline}\n\n"
                 f"## Evidence signal\n\n{sections['signal']}\n\n"
@@ -1131,14 +1218,32 @@ class GrowthDistillationService:
             # A free-form response cannot prove which assertion belongs to
             # which evidence section. Preserve attribution with the complete
             # deterministic fallback instead of guessing from Markdown.
-            return ""
+            return "", "invalid_shape"
 
         citation_pattern = r"\[(?:source|page):[^\]]+\]"
         if any(not re.search(citation_pattern, text) for text in sections.values()):
-            return ""
+            return "", "missing_citation"
         if not content.startswith("# ") or len(re.findall(r"(?m)^##\s+\S", content)) < 4:
-            return ""
-        return cls._validated_markdown(content, context)
+            return "", "missing_sections"
+        normalized = cls._validated_markdown(content, context)
+        if not normalized:
+            return "", "invalid_reference"
+        if cls._UNSUPPORTED_PROJECT_STATE_CLAIM.search(normalized):
+            return "", "unsupported_project_state"
+        return normalized, ""
+
+    @classmethod
+    def _daily_quality_feedback(cls, rejection_reason: str, context: dict[str, Any]) -> str:
+        return (
+            "The prior daily card failed the deterministic quality gate with "
+            f"{rejection_reason or 'invalid_shape'}. Return only the exact daily JSON object with the five "
+            "required fields: headline, signal, project_implication, next_review, and open_question. "
+            "Each non-headline field must be nonempty and include one exact allowed [source:<id>] or "
+            "[page:<id>] label. Do not use any other square-bracket text. Do not claim the project, BSC, "
+            "or Obsidian already changed, decided, published, deployed, or completed work. State a bounded "
+            "recommendation or verification instead, and keep the unresolved question explicit."
+            + cls._allowed_citation_labels(context)
+        )
 
     @classmethod
     def _validated_weekly_narrative(
@@ -1241,7 +1346,12 @@ class GrowthDistillationService:
         return content, ""
 
     @classmethod
-    def _weekly_quality_feedback(cls, rejected: list[str], rejection_reasons: dict[str, str]) -> str:
+    def _weekly_quality_feedback(
+        cls,
+        rejected: list[str],
+        rejection_reasons: dict[str, str],
+        context: dict[str, Any] | None = None,
+    ) -> str:
         labels = ", ".join(
             f"{name} ({rejection_reasons.get(name, 'invalid_shape')})" for name in rejected
         )
@@ -1255,6 +1365,7 @@ class GrowthDistillationService:
             "an allowed ledger label; too_short means the document was under 260 non-whitespace characters; "
             "missing_sections means fewer than two ## headings; missing_uncertainty means no explicit open "
             "question or evidence gap; unsupported_project_state means the draft claimed unproven project work."
+            + cls._allowed_citation_labels(context)
         )
 
     @staticmethod
@@ -1269,6 +1380,40 @@ class GrowthDistillationService:
             "Describe only what the cited evidence establishes, what it does not establish, and a proposed "
             "verification boundary. Copy each citation label exactly from the ledger."
         )
+
+    @classmethod
+    def _strict_weekly_batch_quality_feedback(
+        cls,
+        document_names: tuple[str, ...],
+        rejection_reasons: dict[str, str],
+        context: dict[str, Any],
+    ) -> str:
+        labels = ", ".join(
+            f"{name} ({rejection_reasons.get(name, 'invalid_shape')})"
+            for name in document_names
+        )
+        return (
+            f"Final strict batch repair for exactly these documents: {labels}. Return only their JSON slots. "
+            "Each document must contain exactly three Markdown sections, with the final section titled "
+            "## Open question or ## Evidence gap. Do not emit any square-bracket text except the permitted "
+            "source/page citations below. Every factual sentence must begin with Evidence or a permitted "
+            "citation. Do not use BSC, Obsidian, project, system, we, current, this week, last week, "
+            "published, deployed, migrated, updated, added, decided, or completed anywhere in the documents. "
+            "Describe only what cited evidence establishes, what it does not establish, and a proposed "
+            "verification boundary."
+            + cls._allowed_citation_labels(context)
+        )
+
+    @staticmethod
+    def _allowed_citation_labels(context: dict[str, Any] | None) -> str:
+        if not context:
+            return ""
+        source_ids = tuple(dict.fromkeys(str(item) for item in context.get("citation_source_ids") or []))
+        page_ids = tuple(dict.fromkeys(str(item) for item in context.get("citation_page_ids") or []))
+        labels = [*(f"[source:{item}]" for item in source_ids), *(f"[page:{item}]" for item in page_ids)]
+        if not labels:
+            return ""
+        return " Allowed citation labels (copy literally; use no others): " + ", ".join(labels) + "."
 
     @staticmethod
     def _validated_markdown(value: Any, context: dict[str, Any]) -> str:

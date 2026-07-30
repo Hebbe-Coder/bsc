@@ -23,6 +23,13 @@ from app.knowledge.wiki_repository import WikiRepository
 
 
 GROWTH_RUN_TYPES = {"growth_daily", "growth_weekly_distillation"}
+# A broker assignment is durable dispatch evidence for runs created by the
+# command/API paths. The growth-specific event is emitted by recovery and new
+# submissions; both forms must prevent a second enqueue.
+GROWTH_DISPATCH_EVENT_TYPES = (
+    "knowledge.run.execution_assigned",
+    "knowledge.growth.dispatched",
+)
 
 
 @dataclass(frozen=True)
@@ -285,9 +292,9 @@ def _undispatched_growth_runs(repository: WikiRepository) -> list[dict]:
         "SELECT run.* FROM knowledge_runs AS run "
         "WHERE run.status=? AND run.run_type IN (?,?) "
         "AND NOT EXISTS (SELECT 1 FROM knowledge_run_events AS event "
-        "WHERE event.project_id=run.project_id AND event.run_id=run.id AND event.event_type=?) "
+        "WHERE event.project_id=run.project_id AND event.run_id=run.id AND event.event_type IN (?,?)) "
         "ORDER BY run.created_at,run.id",
-        (RunStatus.QUEUED.value, *sorted(GROWTH_RUN_TYPES), "knowledge.growth.dispatched"),
+        (RunStatus.QUEUED.value, *sorted(GROWTH_RUN_TYPES), *GROWTH_DISPATCH_EVENT_TYPES),
     ).fetchall()
     return [repository._decode(row, ("input_refs_json", "output_refs_json")) or {} for row in rows]
 

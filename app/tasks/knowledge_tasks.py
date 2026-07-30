@@ -1180,7 +1180,11 @@ def _submit_task(task, args: list[str]):
 
 def _run_was_dispatched(repository: WikiRepository, project_id: str, run_id: str) -> bool:
     return any(
-        event["event_type"] in {"knowledge.run.execution_dispatched", "knowledge.growth.dispatched"}
+        event["event_type"] in {
+            "knowledge.run.execution_assigned",
+            "knowledge.run.execution_dispatched",
+            "knowledge.growth.dispatched",
+        }
         for event in repository.list_run_events(project_id=project_id, run_id=run_id)
     )
 

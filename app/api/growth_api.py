@@ -1818,15 +1818,22 @@ def _start_run(
     from app.tasks.growth_tasks import growth_execute
 
     task = growth_execute.apply_async(args=[project_id, run_id])
+    assignment = {
+        "execution": "celery",
+        "task_name": "knowledge.growth.execute",
+        "task_id": str(task.id),
+    }
     repo.append_run_event(
         project_id=project_id,
         run_id=run_id,
         event_type="knowledge.run.execution_assigned",
-        payload={
-            "execution": "celery",
-            "task_name": "knowledge.growth.execute",
-            "task_id": str(task.id),
-        },
+        payload=assignment,
+    )
+    repo.append_run_event(
+        project_id=project_id,
+        run_id=run_id,
+        event_type="knowledge.growth.dispatched",
+        payload={**assignment, "trigger": run.trigger},
     )
     return {"status": "queued", "run_id": run_id, "task_id": task.id}
 
