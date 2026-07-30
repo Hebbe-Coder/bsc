@@ -419,3 +419,51 @@ npm run build
   rollback disables future plan reuse only; it does not mutate existing
   immutable strategies, Vault content, connector authorization, execution
   receipts, or outcomes.
+
+## Post-Consolidation Runtime Evidence: Local AI-Project Delivery Capture
+
+### Implemented Delta
+
+- The Compose API service can now mount the configured local BSC workspace at
+  `/workspace:ro`; `PBOS_WORKSPACE_ROOT` makes that path the source for
+  server-side PBOS evidence capture. The mount is read-only and capture keeps
+  the established approved-path allowlist. It does not expose raw content,
+  `.env`, credentials, arbitrary files, or traversal paths to the Artifact
+  Graph or Vault.
+- The runtime image includes Git so `local_receipts` can attach the exact
+  workspace revision alongside safe file hashes. The service has regression
+  coverage for both a configured mounted root and a Git-backed workspace.
+  This completes the required v1 evidence inputs for local AI-project
+  delivery: code/document/test-file evidence plus a reviewable revision.
+
+### Real Runtime Evidence
+
+- Commits `de0438f` and `cf193b4` contain the read-only mount/configuration,
+  workspace-root selection, Git runtime dependency, verification record, and
+  regression coverage.
+- In the rebuilt Compose runtime, `/workspace` was verified read-only and Git
+  resolved the live mounted revision. PBOS captured
+  `art_b214ec6af750` under the existing validation Mission with eight
+  server-verified receipts (one Git revision and seven allowlisted file
+  hashes). The capture and its unverified result
+  `art_7b250a198085` were both projected into the mapped Obsidian Vault.
+- Cockpit readback reports the execution as reviewable, with `8` verified
+  receipts and a reflection, while its associated result remains
+  `unverified_outcome`, without a quality score or learning eligibility. This
+  is the expected end-to-end behavior: capture has begun, but PBOS has not
+  manufactured a personal ability, experience, or Strategy Genome.
+- Local Studio browser acceptance rendered that exact state on desktop and at
+  `390x844`; the mobile document was `384/384` client/scroll width and had no
+  console errors.
+
+### Remaining Acceptance
+
+- The owner must review this delivery and explicitly accept or reject it. An
+  accepted score would make this one result eligible, but promotion still
+  requires two additional real, comparable AI-project deliveries satisfying
+  the same receipt, reflection, and quality rules. No external connector was
+  authorized or synchronized during this capture.
+- **Rollback point:** revert the workspace-capture commits. New container
+  captures then fall back to image-local allowlisted files; existing ledger
+  records, Vault projections, outcomes, and user acceptance decisions remain
+  intact.

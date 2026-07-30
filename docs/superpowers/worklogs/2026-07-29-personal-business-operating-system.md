@@ -769,3 +769,46 @@
   Strategy Genome artifacts remain immutable and retained, but future plans
   will no longer consume them. No promotion rule, connector authorization,
   Vault source, or historical execution record is changed by this rollback.
+
+## 2026-07-30 Read-Only Workspace Evidence Capture Is Live
+
+- **Resolved runtime gap:** the production image intentionally excludes
+  `tests/`, so the original BSC workspace capture could hash application files
+  but could not capture the local test file or a Git revision. This prevented
+  an AI-project delivery from carrying the complete bounded evidence set into
+  PBOS.
+- **Implemented contract:** Compose mounts the declared local BSC workspace at
+  `/workspace` as read-only, and `PBOS_WORKSPACE_ROOT` directs capture to that
+  mount. Capture remains constrained to the existing allowlist (`app/`,
+  `src/`, `tests/`, `docs/`, and a fixed root-file set); path traversal,
+  arbitrary files, `.env`, credentials, source bodies, and test-output bodies
+  remain excluded. The runtime image now includes `git` solely to record the
+  current revision as a receipt.
+- **Test evidence:** configured-root coverage and temporary Git-repository
+  coverage were added. Focused PBOS/API/MCP/integration validation passed
+  `51`; the frontend suite passed `170`; TypeScript, Compose validation, and
+  the earlier shared Artifact/Runtime/Wiki gate passed. The verification
+  command/result record is retained at
+  `docs/superpowers/verification/2026-07-30-pbos-workspace-evidence-capture.md`.
+- **Live project evidence:** the rebuilt Docker API confirmed a read-only
+  `/workspace` mount, `git version 2.47.3`, and commit
+  `08b45e474c35f911be5e132a7412831a1204ef79`. It then captured execution
+  `art_b214ec6af750` for the existing PBOS validation Mission with eight
+  server-verified receipts: one Git revision and seven safe file hashes. Its
+  associated result `art_7b250a198085` was deliberately persisted as
+  `unverified` with no quality score and projected to Obsidian under
+  `pbos/executions/` and `pbos/outcomes/`.
+- **Cockpit readback:** the new execution reports `8/8 verified receipts`, a
+  recorded reflection, and `unverified_outcome`. Project health remains
+  truthful: one historical accepted outcome, zero learning-eligible outcomes,
+  zero verified capabilities, and zero active strategies. Its only remaining
+  requirements are an explicit user acceptance decision and quality score.
+- **Browser acceptance:** the authorized local Studio rendered the captured
+  `8 verified receipts`, `unverified outcome`, Strategy Genome gate, Vault
+  connection, and three-minute acceptance gate at desktop and `390x844`.
+  The mobile document measured `384/384` client/scroll width and the browser
+  console contained no errors.
+- **Rollback:** revert `de0438f` to remove the optional read-only workspace
+  mount and configured root; revert `cf193b4` to remove Git receipt capture.
+  Existing execution/outcome artifacts and Obsidian projections remain
+  auditable historical facts and are not deleted.
