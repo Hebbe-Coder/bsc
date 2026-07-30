@@ -68,7 +68,7 @@ def test_obsidian_sync_imports_text_and_canvas_as_immutable_structured_evidence(
         repo.close()
 
 
-def test_obsidian_sync_excludes_all_configured_managed_project_roots(tmp_path):
+def test_obsidian_sync_scopes_a_mapped_project_to_its_own_vault_directory(tmp_path):
     root = tmp_path / "vault"
     root.mkdir()
     (root / "research.md").write_text("External research", encoding="utf-8")
@@ -88,10 +88,48 @@ def test_obsidian_sync_excludes_all_configured_managed_project_roots(tmp_path):
     try:
         report = ObsidianSyncService(repo, root).sync(project_id="project-a")
 
-        assert report == {"scanned": 3, "created": 3, "duplicates": 0, "rejected": 0, "deleted": 0, "skipped": 0, "blocked": 0}
+        assert report == {"scanned": 2, "created": 2, "duplicates": 0, "rejected": 0, "deleted": 0, "skipped": 0, "blocked": 0}
         assert {source["origin"] for source in repo.list_sources("project-a")} == {
-            "research.md", "clients/acme/raw/brief.md", "clients/acme/inbox/signal.json"
+            "clients/acme/raw/brief.md", "clients/acme/inbox/signal.json"
         }
+    finally:
+        repo.close()
+
+
+def test_obsidian_sync_quarantines_legacy_unscoped_records_without_reading_their_files(tmp_path):
+    root = tmp_path / "vault"
+    project_root = root / "projects" / "project-a"
+    (project_root / "01_Sources").mkdir(parents=True)
+    (project_root / "01_Sources" / "brief.md").write_text("Project-scoped evidence", encoding="utf-8")
+    transient = root / "copilot" / "copilot-conversations" / "chat.md"
+    transient.parent.mkdir(parents=True)
+    transient.write_text("Transient conversation that must not be read", encoding="utf-8")
+    repo = WikiRepository(db_path=str(tmp_path / "sync-scope-repair.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    legacy = repo.create_source(
+        SourceRecord(
+            project_id="project-a",
+            source_type="obsidian_markdown",
+            origin="copilot/copilot-conversations/chat.md",
+            vault_path="copilot/copilot-conversations/chat.md",
+            content_hash="a" * 64,
+            raw_content="Legacy out-of-scope source retained only for audit",
+            status=SourceStatus.VALIDATED,
+            metadata={"sync": "obsidian"},
+        )
+    )
+    try:
+        report = ObsidianSyncService(repo, root).sync(project_id="project-a")
+        current = repo.get_source("project-a", legacy["id"])
+
+        assert report == {"scanned": 1, "created": 1, "duplicates": 0, "rejected": 1, "deleted": 0, "skipped": 0, "blocked": 0}
+        assert {source["origin"] for source in repo.list_sources("project-a")} == {
+            "projects/project-a/01_Sources/brief.md", "copilot/copilot-conversations/chat.md"
+        }
+        assert current["status"] == SourceStatus.REJECTED.value
+        assert current["metadata"]["source_present"] is False
+        assert current["metadata"]["scope_exclusion"]["reason"] == "outside_mapped_project_root"
+        assert current["metadata"]["scope_exclusion"]["project_root"] == "projects/project-a"
     finally:
         repo.close()
 

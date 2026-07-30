@@ -9,6 +9,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from app.core.config import settings
+from app.knowledge.evidence_scope import is_active_evidence_source, is_scope_excluded_source
 from app.knowledge.multimodal_extraction import LocalMultimodalExtractor
 from app.knowledge.wiki_repository import WikiRepository
 
@@ -50,8 +51,6 @@ _MAX_TABLE_PREVIEW_PAGE_SIZE = 100
 _MAX_TABLE_PREVIEW_CELL_CHARS = 1_024
 _MAX_IMAGE_PREVIEW_BYTES = 10 * 1024 * 1024
 _MAX_IMAGE_PREVIEW_EDGE = 1_280
-
-
 def _metadata(value: Any, allowed: frozenset[str]) -> dict[str, Any]:
     raw = value if isinstance(value, dict) else {}
     return {key: raw[key] for key in sorted(allowed) if key in raw}
@@ -65,11 +64,28 @@ class EvidenceReadService:
 
     def overview(self, project_id: str, *, limit: int = 100) -> dict[str, Any]:
         bounded_limit = max(1, min(int(limit), 200))
-        sources = [self._source(item) for item in self.repository.list_sources(project_id)]
-        assets = [self._asset(item) for item in self.repository.list_media_assets(project_id, limit=500)]
-        extractions = [self._extraction(item) for item in self.repository.list_extraction_artifacts(project_id, limit=500)]
-        tables = [self._table(item) for item in self.repository.list_table_artifacts(project_id, limit=500)]
-        references = self._references(project_id)
+        source_records = [
+            item for item in self.repository.list_sources(project_id)
+            if is_active_evidence_source(item)
+        ]
+        active_source_ids = {str(item["id"]) for item in source_records}
+        sources = [self._source(item) for item in source_records]
+        assets = [
+            self._asset(item)
+            for item in self.repository.list_media_assets(project_id, limit=500)
+            if str(item.get("source_id") or "") in active_source_ids
+        ]
+        extractions = [
+            self._extraction(item)
+            for item in self.repository.list_extraction_artifacts(project_id, limit=500)
+            if str(item.get("source_id") or "") in active_source_ids
+        ]
+        tables = [
+            self._table(item)
+            for item in self.repository.list_table_artifacts(project_id, limit=500)
+            if str(item.get("source_id") or "") in active_source_ids
+        ]
+        references = self._references(project_id, active_source_ids)
         timeline = self._timeline(sources, assets, extractions, tables, references, limit=bounded_limit)
         graph = self._graph(sources, assets, extractions, tables, references, limit=bounded_limit)
         extraction_counts = Counter(str(item["status"]) for item in extractions)
@@ -101,27 +117,27 @@ class EvidenceReadService:
     def record(self, project_id: str, record_type: str, record_id: str) -> dict[str, Any] | None:
         if record_type == "source":
             value = self.repository.get_source(project_id, record_id)
-            return self._source(value) if value else None
+            return self._source(value) if value and is_active_evidence_source(value) else None
         if record_type == "asset":
             value = self.repository.get_media_asset(project_id, record_id)
-            return self._asset(value) if value else None
+            return self._asset(value) if value and self._source_is_visible(project_id, value.get("source_id")) else None
         if record_type == "extraction":
             value = self.repository.get_extraction_artifact(project_id, record_id)
-            return self._extraction(value) if value else None
+            return self._extraction(value) if value and self._source_is_visible(project_id, value.get("source_id")) else None
         if record_type == "table":
             value = self.repository.get_table_artifact(project_id, record_id)
-            return self._table(value) if value else None
+            return self._table(value) if value and self._source_is_visible(project_id, value.get("source_id")) else None
         if record_type == "reference":
             value = self.repository.get_reference_link(project_id, record_id)
-            if value:
+            if value and self._source_is_visible(project_id, value.get("source_id")):
                 return self._reference(value)
             if record_id.startswith("citation:"):
                 citation = self.repository.get_citation(project_id, record_id.removeprefix("citation:"))
-                return self._citation_reference(citation) if citation else None
+                return self._citation_reference(citation) if citation and self._source_is_visible(project_id, citation.get("source_id")) else None
             return None
         raise ValueError("unsupported evidence record type")
 
-    def _references(self, project_id: str) -> list[dict[str, Any]]:
+    def _references(self, project_id: str, active_source_ids: set[str]) -> list[dict[str, Any]]:
         """Join explicit evidence links with redacted, read-only Wiki citations.
 
         Wiki publication owns ``knowledge_citations`` and its immutable claim
@@ -129,10 +145,15 @@ class EvidenceReadService:
         duplicate or expose the claim. These synthetic records make that edge
         inspectable without migrating, mutating, or merging the two domains.
         """
-        explicit = [self._reference(item) for item in self.repository.list_reference_links(project_id, limit=500)]
+        explicit = [
+            self._reference(item)
+            for item in self.repository.list_reference_links(project_id, limit=500)
+            if str(item.get("source_id") or "") in active_source_ids
+        ]
         citations = [
             self._citation_reference(item)
             for item in self.repository.list_citations(project_id, include_stale=True)
+            if str(item.get("source_id") or "") in active_source_ids
         ]
         return sorted([*explicit, *citations], key=lambda item: (str(item["created_at"]), str(item["id"])), reverse=True)
 
@@ -151,7 +172,7 @@ class EvidenceReadService:
         inspector path, never through the graph or metadata catalog.
         """
         table = self.repository.get_table_artifact(project_id, table_id)
-        if table is None:
+        if table is None or not self._source_is_visible(project_id, table.get("source_id")):
             return None
 
         bounded_page = max(1, int(page))
@@ -218,7 +239,11 @@ class EvidenceReadService:
         first pass the same project authorization gate as every evidence read.
         """
         asset = self.repository.get_media_asset(project_id, asset_id)
-        if asset is None or not str(asset.get("mime_type") or "").lower().startswith("image/"):
+        if (
+            asset is None
+            or not self._source_is_visible(project_id, asset.get("source_id"))
+            or not str(asset.get("mime_type") or "").lower().startswith("image/")
+        ):
             return None
         vault = self.repository.get_vault(project_id)
         project_path = str((vault or {}).get("vault_path") or "")
@@ -257,6 +282,12 @@ class EvidenceReadService:
                 return output.getvalue()
         except (OSError, ValueError):
             return None
+
+    def _source_is_visible(self, project_id: str, source_id: Any) -> bool:
+        if not source_id:
+            return False
+        source = self.repository.get_source(project_id, str(source_id))
+        return bool(source) and is_active_evidence_source(source)
 
     @staticmethod
     def _table_rows(content: str, schema: list[str]) -> list[list[str]]:

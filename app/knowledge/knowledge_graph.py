@@ -6,6 +6,7 @@ import hashlib
 import re
 from typing import Any
 
+from app.knowledge.evidence_scope import is_active_evidence_source
 from app.knowledge.wiki_contracts import KnowledgeGraphEdge
 from app.knowledge.wiki_repository import WikiRepository
 
@@ -79,10 +80,27 @@ class KnowledgeGraphService:
         """Return only persisted graph entities so the UI never invents graph nodes."""
         limit = max(1, min(int(limit), 500))
         offset = max(0, int(offset))
-        edges = self.list_edges(project_id, edge_type=edge_type, limit=limit, offset=offset)
-        total = self.repository.count_graph_edges(project_id, edge_type=edge_type)
+        all_sources = self.repository.list_sources(project_id)
+        sources = [source for source in all_sources if is_active_evidence_source(source)]
+        excluded_source_ids = {
+            str(source["id"])
+            for source in all_sources
+            if not is_active_evidence_source(source)
+        }
+        # The interactive graph is bounded at 500 edges, while the repository
+        # read below has a wider fixed ceiling solely to filter audit-retained
+        # endpoints before pagination is applied.
+        all_edges = self.list_edges(project_id, edge_type=edge_type, limit=1000, offset=0)
+        visible_edges = [
+            edge
+            for edge in all_edges
+            if str(edge.get("from_id") or "") not in excluded_source_ids
+            and str(edge.get("to_id") or "") not in excluded_source_ids
+        ]
+        total = len(visible_edges)
+        edges = visible_edges[offset:offset + limit]
         nodes: dict[str, dict] = {}
-        for source in self.repository.list_sources(project_id):
+        for source in sources:
             nodes[source["id"]] = {
                 "id": source["id"], "node_type": "source", "label": source.get("origin") or source["id"],
                 "status": source.get("status", ""), "created_at": source.get("captured_at", ""),

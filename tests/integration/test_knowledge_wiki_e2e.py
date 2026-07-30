@@ -37,10 +37,13 @@ def test_filesystem_wiki_lifecycle_is_source_backed_and_atomic(tmp_path, monkeyp
     project_id = "project-a"
     root = tmp_path / "vault"
     root.mkdir()
-    (root / "research.md").write_text("# Research\nHuman approval is mandatory.", encoding="utf-8")
     repository = WikiRepository(db_path=str(tmp_path / "knowledge.db"))
     project_root = root / "clients" / "acme"
     project_root.mkdir(parents=True)
+    (project_root / "01_Sources" / "research.md").parent.mkdir(parents=True)
+    (project_root / "01_Sources" / "research.md").write_text(
+        "# Research\nHuman approval is mandatory.", encoding="utf-8"
+    )
     user_rules = build_default_agents_rules(project_id) + "\n# Acme review note\nHuman approval is mandatory.\n"
     (project_root / "AGENTS.md").write_text(user_rules, encoding="utf-8")
     monkeypatch.setattr("app.knowledge.wiki_bootstrap.settings.OBSIDIAN_VAULT_ROOT", str(root))

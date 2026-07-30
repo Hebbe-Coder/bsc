@@ -138,7 +138,8 @@ def test_source_sync_task_imports_only_non_managed_obsidian_notes(tmp_path, monk
         raw_content="Captured Horizon evidence",
         trust_level="reviewed",
     ))
-    (vault_root / "research.md").write_text("# Research\nGrounded observation.", encoding="utf-8")
+    (vault_root / "projects" / "project-a" / "01_Sources").mkdir(parents=True)
+    (vault_root / "projects" / "project-a" / "01_Sources" / "research.md").write_text("# Research\nGrounded observation.", encoding="utf-8")
     (vault_root / "projects" / "project-a" / "wiki").mkdir(parents=True)
     (vault_root / "projects" / "project-a" / "wiki" / "overview.md").write_text("managed output", encoding="utf-8")
     monkeypatch.setattr("app.tasks.knowledge_tasks.WikiRepository", lambda: repo)
@@ -152,7 +153,7 @@ def test_source_sync_task_imports_only_non_managed_obsidian_notes(tmp_path, monk
         assert result["sync"]["wiki_pages"] == 1
         assert result["sync"]["wiki_index"]["indexed"] == 1
         assert repo.get_run("project-a", run.id)["status"] == "completed"
-        assert any(source["origin"] == "research.md" for source in repo.list_sources("project-a"))
+        assert any(source["origin"] == "projects/project-a/01_Sources/research.md" for source in repo.list_sources("project-a"))
         assert (vault_root / "projects" / "project-a" / "01_Sources" / "bsc-evidence" / "horizon-test-1.md").is_file()
     finally:
         repo.close()

@@ -40,6 +40,38 @@ def test_health_counts_explicit_cross_source_contradictions(tmp_path):
         repo.close()
 
 
+def test_health_ignores_scope_excluded_source_history(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "health-scope-exclusion.db"))
+    capture = SourceCaptureService(repo)
+    visible = capture.capture(
+        CapturedSourceInput(project_id="project-a", source_type="manual_upload", origin="visible.md", raw_content="Visible evidence")
+    ).source
+    excluded = capture.capture(
+        CapturedSourceInput(project_id="project-a", source_type="manual_upload", origin="legacy.md", raw_content="Audit-only evidence")
+    ).source
+    repo.update_source_metadata(
+        "project-a",
+        excluded["id"],
+        {"scope_exclusion": {"reason": "outside_mapped_project_root", "project_root": "projects/project-a"}},
+    )
+    try:
+        repo.record_publication(
+            project_id="project-a",
+            contents={"wiki/overview.md": f"# Overview\n[source:{visible['id']}]\n[source:{excluded['id']}]\n"},
+            source_ids=[],
+        )
+
+        health = KnowledgeHealthService(repo).snapshot(project_id="project-a")
+        trend = KnowledgeHealthService(repo).trend(project_id="project-a")
+
+        assert health["sources"] == 1
+        assert health["citations"] == 1
+        assert health["dangling_citation_count"] == 0
+        assert sum(item["count"] for item in trend["source_throughput"]) == 1
+    finally:
+        repo.close()
+
+
 def test_health_marks_citations_stale_when_their_source_is_superseded(tmp_path):
     repo = WikiRepository(db_path=str(tmp_path / "health-stale-citations.db"))
     capture = SourceCaptureService(repo)

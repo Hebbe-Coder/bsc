@@ -578,16 +578,24 @@ class WikiCommandService:
         self, run: KnowledgeRun, task_id: object, *, task_name: str = "knowledge.execute"
     ) -> None:
         """Persist the broker handoff so a queued run remains auditable after reconnect."""
+        payload = {
+            "execution": "celery",
+            "task_name": task_name,
+            "task_id": str(task_id),
+        }
         self.repository.append_run_event(
             project_id=run.project_id,
             run_id=run.id,
             event_type="knowledge.run.execution_assigned",
-            payload={
-                "execution": "celery",
-                "task_name": task_name,
-                "task_id": str(task_id),
-            },
+            payload=payload,
         )
+        if run.run_type in {"growth_daily", "growth_weekly_distillation"}:
+            self.repository.append_run_event(
+                project_id=run.project_id,
+                run_id=run.id,
+                event_type="knowledge.growth.dispatched",
+                payload={**payload, "trigger": run.trigger},
+            )
 
     def _record_broker_unavailable(self, run: KnowledgeRun) -> dict:
         if not self.repository.get_run(run.project_id, run.id):

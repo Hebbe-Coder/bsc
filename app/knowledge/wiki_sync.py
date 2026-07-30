@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_source_capture import CapturedSourceInput, SourceCaptureService
-from app.knowledge.wiki_contracts import MediaAsset
+from app.knowledge.wiki_contracts import MediaAsset, SourceStatus
 from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
 from app.knowledge.obsidian_metadata import is_managed_index_path
 from app.knowledge.obsidian_source_projection import is_managed_evidence_path
@@ -149,7 +149,13 @@ class ObsidianSyncService:
         for source in self.repository.list_sources(project_id):
             metadata = source.get("metadata") or {}
             origin = str(source.get("origin") or "")
-            if metadata.get("sync") != "obsidian" or not origin or origin in seen_paths or metadata.get("source_present") is False:
+            if metadata.get("sync") != "obsidian" or not origin:
+                continue
+            if project_root and not self._is_within_project_root(origin, project_root):
+                if self._quarantine_out_of_scope_source(source, project_root):
+                    report["rejected"] += 1
+                continue
+            if origin in seen_paths or metadata.get("source_present") is False:
                 continue
             self.repository.update_source_metadata(
                 project_id,
@@ -170,6 +176,41 @@ class ObsidianSyncService:
         restored = {**metadata, "source_present": True}
         restored.pop("deleted_at", None)
         self.repository.update_source_metadata(source["project_id"], source["id"], restored)
+
+    def _quarantine_out_of_scope_source(self, source: dict, project_root: tuple[str, ...]) -> bool:
+        """Retain pre-boundary records for audit without treating them as evidence.
+
+        Earlier releases scanned the entire Vault after a project mapping was
+        configured. A path outside the mapped project can be a plugin cache or
+        transient conversation, so it must not remain usable just because an
+        older sync captured it. The source body and audit record are retained;
+        only its lifecycle eligibility and active-presence signal are revoked.
+        """
+        metadata = dict(source.get("metadata") or {})
+        exclusion = metadata.get("scope_exclusion") if isinstance(metadata.get("scope_exclusion"), dict) else {}
+        project_path = "/".join(project_root)
+        already_quarantined = (
+            source.get("status") == SourceStatus.REJECTED.value
+            and metadata.get("source_present") is False
+            and exclusion.get("reason") == "outside_mapped_project_root"
+            and exclusion.get("project_root") == project_path
+        )
+        if already_quarantined:
+            return False
+        updated_metadata = {
+            **metadata,
+            "source_present": False,
+            "scope_exclusion": {
+                "reason": "outside_mapped_project_root",
+                "project_root": project_path,
+                "excluded_at": datetime.now(timezone.utc).isoformat(),
+            },
+        }
+        self.repository.update_source_metadata(str(source["project_id"]), str(source["id"]), updated_metadata)
+        if source.get("status") != SourceStatus.REJECTED.value:
+            self.repository.update_source_status(str(source["project_id"]), str(source["id"]), SourceStatus.REJECTED)
+            self.repository.mark_source_citations_stale(str(source["project_id"]), str(source["id"]))
+        return True
 
     def _register_media_asset(self, source: dict, path: Path, relative: Path) -> None:
         """Register an immutable Vault file descriptor without copying its bytes."""
@@ -317,7 +358,14 @@ class ObsidianSyncService:
             if is_managed_evidence_path(project_relative):
                 return True
             return not ObsidianPluginManifest.is_syncable_knowledge_path(project_relative)
+        if project_root:
+            return True
         return any(parts[:len(root)] == root for root in managed_roots or {("projects",)})
+
+    @staticmethod
+    def _is_within_project_root(origin: str, project_root: tuple[str, ...]) -> bool:
+        parts = PurePosixPath(origin.replace("\\", "/").strip("/")).parts
+        return tuple(parts[:len(project_root)]) == project_root
 
     @staticmethod
     def _is_bsc_bridge_healthcheck(plugin_id: str, project_relative: tuple[str, ...]) -> bool:

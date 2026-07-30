@@ -81,7 +81,14 @@ class ObsidianOutputSyncService:
                         content = path.read_bytes()
                         output = self._asset(project_id, run_id, plugin.plugin_id, plugin.name, relative, content)
                         output_id = registry.deterministic_id(output)
-                        existed = self.repository.get_output(project_id, output_id) is not None
+                        existing = self.repository.get_output(project_id, output_id)
+                        existed = existing is not None
+                        if existing:
+                            # The original external file has one immutable
+                            # registration. Later source-sync runs may observe
+                            # it again, but must not claim they produced it or
+                            # turn a harmless retry into a conflict.
+                            output = output.model_copy(update={"run_id": str(existing.get("run_id") or "")})
                         registry.register_content(output, content, original_path=relative)
                         report["duplicates" if existed else "registered"] += 1
                     except (OSError, ValueError):

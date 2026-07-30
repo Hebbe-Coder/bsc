@@ -5,6 +5,7 @@ import json
 import pytest
 
 from app.knowledge import multimodal_extraction
+from app.knowledge.evidence_read import EvidenceReadService
 from app.knowledge.multimodal_extraction import CURRENT_EXTRACTOR_REVISION, LocalMultimodalExtractor
 from app.knowledge.wiki_contracts import (
     ExtractionArtifact,
@@ -13,6 +14,7 @@ from app.knowledge.wiki_contracts import (
     MediaAsset,
     ReferenceLink,
     SourceRecord,
+    TableArtifact,
 )
 from app.knowledge.wiki_repository import WikiRepository
 from app.tasks.knowledge_tasks import execute_knowledge_run
@@ -79,6 +81,103 @@ def test_media_and_extraction_records_are_project_scoped_idempotent_and_redacted
                     relation="supports",
                 )
             )
+    finally:
+        repo.close()
+
+
+def test_evidence_atlas_hides_scope_excluded_sources_and_all_of_their_derivatives(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "scope-exclusion.db"))
+    visible = repo.create_source(_source("project-a", "source-visible"))
+    excluded = repo.create_source(_source("project-a", "source-excluded").model_copy(update={
+        "metadata": {
+            "sync": "obsidian",
+            "source_present": False,
+            "scope_exclusion": {"reason": "outside_mapped_project_root", "project_root": "projects/project-a"},
+        },
+    }))
+    try:
+        visible_asset = repo.register_media_asset(
+            MediaAsset(
+                id="asset-visible", project_id="project-a", source_id=visible["id"], mime_type="text/csv",
+                byte_hash="a" * 64, byte_size=10, storage_ref="projects/project-a/01_Sources/visible.csv",
+            )
+        )
+        excluded_asset = repo.register_media_asset(
+            MediaAsset(
+                id="asset-excluded", project_id="project-a", source_id=excluded["id"], mime_type="text/csv",
+                byte_hash="b" * 64, byte_size=10, storage_ref="copilot/private.csv",
+            )
+        )
+        visible_extraction = repo.create_extraction_artifact(
+            ExtractionArtifact(
+                id="extract-visible", project_id="project-a", source_id=visible["id"], asset_id=visible_asset["id"],
+                extractor="csv-table", extractor_revision="local-v1", input_hash="a" * 64,
+                content_hash="c" * 64, content="name\tvalue\nvisible\t1", status=ExtractionStatus.COMPLETE,
+            )
+        )
+        excluded_extraction = repo.create_extraction_artifact(
+            ExtractionArtifact(
+                id="extract-excluded", project_id="project-a", source_id=excluded["id"], asset_id=excluded_asset["id"],
+                extractor="csv-table", extractor_revision="local-v1", input_hash="b" * 64,
+                content_hash="d" * 64, content="name\tvalue\nprivate\t2", status=ExtractionStatus.COMPLETE,
+            )
+        )
+        visible_table = repo.create_table_artifact(TableArtifact(
+            id="table-visible", project_id="project-a", source_id=visible["id"], extraction_id=visible_extraction["id"],
+            schema=["name", "value"], row_count=1, content_hash="c" * 64,
+        ))
+        excluded_table = repo.create_table_artifact(TableArtifact(
+            id="table-excluded", project_id="project-a", source_id=excluded["id"], extraction_id=excluded_extraction["id"],
+            schema=["name", "value"], row_count=1, content_hash="d" * 64,
+        ))
+        repo.create_reference_link(
+            ReferenceLink(
+                id="reference-visible", project_id="project-a", source_id=visible["id"], target_type="table",
+                target_id=visible_table["id"], anchor_type="table_column", anchor="value", relation="supports",
+            )
+        )
+        repo.create_reference_link(
+            ReferenceLink(
+                id="reference-excluded", project_id="project-a", source_id=excluded["id"], target_type="table",
+                target_id=excluded_table["id"], anchor_type="table_column", anchor="value", relation="supports",
+            )
+        )
+        repo.record_publication(
+            project_id="project-a",
+            contents={"wiki/excluded.md": f"# Quarantined\n[source:{excluded['id']}]\n"},
+            source_ids=[],
+        )
+        excluded_citation = repo.list_citations("project-a")[0]
+
+        service = EvidenceReadService(repo)
+        overview = service.overview("project-a", limit=100)
+
+        assert overview["summary"] == {
+            "sources": 1,
+            "assets": 1,
+            "extractions": {"complete": 1},
+            "tables": 1,
+            "references": 1,
+            "source_statuses": {"captured": 1},
+            "denominator": 5,
+        }
+        projected_ids = {
+            item["id"]
+            for collection in ("sources", "assets", "extractions", "tables", "references", "timeline")
+            for item in overview[collection]
+        }
+        assert not {
+            excluded["id"], excluded_asset["id"], excluded_extraction["id"], excluded_table["id"],
+            "reference-excluded", f"citation:{excluded_citation['id']}",
+        } & projected_ids
+        assert excluded["id"] not in {node["id"] for node in overview["graph"]["nodes"]}
+        assert service.record("project-a", "source", excluded["id"]) is None
+        assert service.record("project-a", "asset", excluded_asset["id"]) is None
+        assert service.record("project-a", "extraction", excluded_extraction["id"]) is None
+        assert service.record("project-a", "table", excluded_table["id"]) is None
+        assert service.record("project-a", "reference", "reference-excluded") is None
+        assert service.record("project-a", "reference", f"citation:{excluded_citation['id']}") is None
+        assert service.table_preview("project-a", excluded_table["id"]) is None
     finally:
         repo.close()
 

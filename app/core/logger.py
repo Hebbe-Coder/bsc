@@ -93,6 +93,16 @@ class StructuredLogger:
     def error(self, message: str, **kwargs):
         """错误级别日志"""
         self._log(logging.ERROR, message, **kwargs)
+
+    def exception(self, message: str, *args, **kwargs):
+        """Log an active exception with the stdlib-compatible call shape."""
+        if args:
+            try:
+                message = message % args
+            except (TypeError, ValueError):
+                message = f"{message} {' '.join(str(item) for item in args)}"
+        extra = {"extra": kwargs}
+        self._logger.exception(message, extra=extra)
     
     def critical(self, message: str, **kwargs):
         """严重错误级别日志"""

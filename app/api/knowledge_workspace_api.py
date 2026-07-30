@@ -18,6 +18,7 @@ from app.api.knowledge_api import _enforce_project_access
 from app.api.response import ApiResponse
 from app.core.config import settings
 from app.knowledge.wiki_commands import WikiCommandError, WikiCommandService
+from app.knowledge.evidence_scope import is_active_evidence_source
 from app.knowledge.knowledge_graph import KnowledgeGraphService
 from app.knowledge.knowledge_health import KnowledgeHealthService
 from app.knowledge.feishu_import import FeishuImportError, FeishuImportService
@@ -374,7 +375,7 @@ def workspace_status(request: Request, project_id: str, repo: WikiRepository = D
             ).project_root
         except Exception:
             project_root = None
-    sources = repo.list_sources(project_id)
+    sources = [source for source in repo.list_sources(project_id) if is_active_evidence_source(source)]
     horizon_sources = [source for source in sources if source.get("source_type") == "horizon_signal"]
     outputs = repo.list_outputs(project_id) if isinstance(repo, GrowthRepository) else []
     plugins = ObsidianPluginManifest.load(project_root).public_status(
@@ -535,9 +536,21 @@ def set_workspace_plugin_trust(
 
 
 @router.get("/sources")
-def list_workspace_sources(request: Request, project_id: str, status: str = "", repo: WikiRepository = Depends(get_wiki_repository)):
+def list_workspace_sources(
+    request: Request,
+    project_id: str,
+    status: str = "",
+    include_scope_excluded: bool = False,
+    repo: WikiRepository = Depends(get_wiki_repository),
+):
     project_id = _enforce_project_access(request, project_id)
     records = repo.list_sources(project_id, status=status or None)
+    if include_scope_excluded:
+        role = str(getattr(request.state, "knowledge_role", ""))
+        if role not in {"admin", "project_admin"}:
+            raise HTTPException(status_code=403, detail="scope-excluded evidence audit requires project administration")
+    else:
+        records = [record for record in records if is_active_evidence_source(record)]
     return ApiResponse.ok({"sources": [_source_view(record) for record in records], "count": len(records)})
 
 

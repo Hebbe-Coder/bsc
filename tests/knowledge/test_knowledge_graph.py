@@ -58,6 +58,37 @@ def test_graph_visualization_returns_only_persisted_entity_nodes(tmp_path):
         repo.close()
 
 
+def test_graph_visualization_excludes_edges_and_nodes_for_audit_retained_sources(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "visualization-scope-exclusion.db"))
+    capture = SourceCaptureService(repo)
+    visible = capture.capture(
+        CapturedSourceInput(project_id="project-a", source_type="manual_upload", origin="visible.md", raw_content="Visible evidence")
+    ).source
+    excluded = capture.capture(
+        CapturedSourceInput(project_id="project-a", source_type="manual_upload", origin="legacy.md", raw_content="Audit-only evidence")
+    ).source
+    repo.update_source_metadata(
+        "project-a",
+        excluded["id"],
+        {"scope_exclusion": {"reason": "outside_mapped_project_root", "project_root": "projects/project-a"}},
+    )
+    try:
+        repo.record_publication(
+            project_id="project-a",
+            contents={"wiki/overview.md": f"# Overview\n[source:{visible['id']}]\n[source:{excluded['id']}]\n"},
+            source_ids=[],
+        )
+
+        payload = KnowledgeGraphService(repo).visualization(project_id="project-a")
+
+        assert {edge["edge_type"] for edge in payload["edges"]} == {"wiki_cites_source"}
+        assert {edge["to_id"] for edge in payload["edges"]} == {visible["id"]}
+        assert excluded["id"] not in {node["id"] for node in payload["nodes"]}
+        assert payload["total"] == 1
+    finally:
+        repo.close()
+
+
 def test_publication_graph_evidence_edges_keep_citation_and_source_revision_lineage(tmp_path):
     repo = WikiRepository(db_path=str(tmp_path / "citation-lineage.db"))
     source = SourceCaptureService(repo).capture(

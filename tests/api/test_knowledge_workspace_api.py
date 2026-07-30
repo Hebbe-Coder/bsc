@@ -44,6 +44,47 @@ def test_workspace_api_requires_scope_and_redacts_raw_evidence(tmp_path):
         repo.close()
 
 
+def test_workspace_active_views_exclude_audit_retained_out_of_scope_evidence(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "workspace-scope-exclusion.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    capture = SourceCaptureService(repo)
+    visible = capture.capture(
+        CapturedSourceInput(project_id="project-a", source_type="manual_upload", origin="visible.md", raw_content="Visible evidence")
+    ).source
+    excluded = capture.capture(
+        CapturedSourceInput(project_id="project-a", source_type="manual_upload", origin="legacy.md", raw_content="Audit-only evidence")
+    ).source
+    repo.update_source_metadata(
+        "project-a",
+        excluded["id"],
+        {"scope_exclusion": {"reason": "outside_mapped_project_root", "project_root": "projects/project-a"}},
+    )
+    previous_key = settings.API_KEY
+    settings.API_KEY = "workspace-admin"
+    app.dependency_overrides[get_wiki_repository] = lambda: repo
+    client = TestClient(app)
+    headers = {"Authorization": "Bearer workspace-admin"}
+    try:
+        status = client.get("/knowledge/workspaces/project-a", headers=headers)
+        active_sources = client.get("/knowledge/sources?project_id=project-a", headers=headers)
+        audit_sources = client.get(
+            "/knowledge/sources?project_id=project-a&include_scope_excluded=true",
+            headers=headers,
+        )
+
+        assert status.status_code == 200
+        assert status.json()["data"]["sources"] == 1
+        assert active_sources.status_code == 200
+        assert active_sources.json()["data"]["count"] == 1
+        assert [item["id"] for item in active_sources.json()["data"]["sources"]] == [visible["id"]]
+        assert audit_sources.status_code == 200
+        assert {item["id"] for item in audit_sources.json()["data"]["sources"]} == {visible["id"], excluded["id"]}
+    finally:
+        settings.API_KEY = previous_key
+        app.dependency_overrides.clear()
+        repo.close()
+
+
 def test_workspace_project_picker_is_tenant_scoped(tmp_path):
     repo = WikiRepository(db_path=str(tmp_path / "workspace-project-picker.db"))
     now = repo._now()

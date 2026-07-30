@@ -147,8 +147,10 @@ def test_command_service_revises_an_overview_link_without_appending_a_duplicate(
 
 def test_command_service_runs_manual_source_sync_without_a_celery_scheduler(tmp_path, monkeypatch):
     root = tmp_path / "vault"
-    root.mkdir()
-    (root / "note.md").write_text("# User Note\nA source fact.", encoding="utf-8")
+    project_root = root / "projects" / "project-a"
+    project_root.mkdir(parents=True)
+    (project_root / "01_Sources" / "note.md").parent.mkdir(parents=True)
+    (project_root / "01_Sources" / "note.md").write_text("# User Note\nA source fact.", encoding="utf-8")
     repo = WikiRepository(db_path=str(tmp_path / "command-sync.db"))
     repo.configure_vault("project-a", "projects/project-a")
     monkeypatch.setattr("app.knowledge.wiki_commands.settings.OBSIDIAN_VAULT_ROOT", str(root))
@@ -159,7 +161,7 @@ def test_command_service_runs_manual_source_sync_without_a_celery_scheduler(tmp_
 
         assert result["status"] == "completed"
         assert result["execution"] == "synchronous"
-        assert repo.list_sources("project-a")[0]["origin"] == "note.md"
+        assert repo.list_sources("project-a")[0]["origin"] == "projects/project-a/01_Sources/note.md"
     finally:
         repo.close()
 

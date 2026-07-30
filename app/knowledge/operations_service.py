@@ -19,6 +19,7 @@ from app.artifacts import (
     TaskVerificationArtifact,
 )
 from app.knowledge.growth_contracts import is_verified_output_status
+from app.knowledge.evidence_scope import is_active_evidence_source
 from app.knowledge.operations_contracts import (
     OperationalAction,
     OperationsCoverage,
@@ -148,7 +149,10 @@ class KnowledgeOperationsService:
         return [tenant_projects[project_id] for project_id in sorted(permitted)]
 
     def _project_snapshot(self, project_id: str, tenant_id: str, scope: OperationsScope) -> dict[str, Any]:
-        sources = self._within_interval(self.repository.list_sources(project_id), scope)
+        sources = self._within_interval(
+            [source for source in self.repository.list_sources(project_id) if is_active_evidence_source(source)],
+            scope,
+        )
         pages = self._within_interval(self.repository.list_pages(project_id), scope)
         methods = self._within_interval(self.repository.list_methods(project_id, limit=500), scope)
         outputs = self._within_interval(self.repository.list_outputs(project_id, limit=500), scope)

@@ -61,6 +61,30 @@ dependency, rollback action, and next owner. It must not contain secret values,
 raw source text, provider payloads, Vault paths, prompt bodies, or personal
 account identifiers.
 
+## 2026-07-30 Post-Isolation Regression Gate
+
+- **Changed boundary:** an Obsidian source sync for a configured project now
+  reads only that project's mapped Vault directory. Historical source records
+  outside that directory are retained for audit but quarantined as rejected
+  and excluded from active evidence projections. The corrected tests place
+  manual and end-to-end source fixtures under the mapped `01_Sources` lane;
+  they no longer encode the old whole-Vault behavior.
+- **Verification:** `python -m pytest tests/knowledge tests/api tests/mcp
+  tests/integration -q` exited `0` with `815 passed, 9 skipped`; `npm run
+  test:frontend` exited `0` with `169 passed`; `npm run check` and `npm run
+  build` exited `0`; `npm run lint` exited `0` with `211` existing warnings
+  and no errors. The Compose `celery + n8n` profile reported healthy BSC API,
+  Worker, Beat, PostgreSQL, Redis, and n8n services. No workflow, source
+  registry, receipt, provider request, credential, raw feed body, or Vault
+  content was changed during this gate.
+- **Release interpretation:** this is regression evidence for the governed
+  runtime and source-isolation contract. It does not enable unavailable
+  connector classes or claim a new knowledge asset from duplicate discovery.
+  The existing `release_ready` conclusion remains subject to the external
+  connector boundaries listed below. Rollback is to revert the source-scope
+  enforcement and the aligned fixtures together; source audit records remain
+  non-destructive.
+
 ## Current External Dependencies
 
 - The scoped BSC signal-ingress capability and signing secret exist only in the

@@ -140,6 +140,58 @@ describe('EvidenceWorkspace graph projection', () => {
     expect(graph.nodes[1].position.x).toBeLessThan(graph.nodes[2].position.x);
   });
 
+  it('uses a bounded readable mobile focus without presenting omitted records as absent', () => {
+    const graph = buildEvidenceGraph({
+      nodes: [
+        { id: 'source-a', type: 'source', status: 'captured' },
+        { id: 'asset-a', type: 'asset', status: 'available' },
+        { id: 'extract-a', type: 'extraction', status: 'complete' },
+      ],
+      edges: [
+        { id: 'source-asset', source: 'source-a', target: 'asset-a', relation: 'has_asset' },
+        { id: 'asset-extract', source: 'asset-a', target: 'extract-a', relation: 'extracted_by' },
+      ],
+      node_total: 3,
+      edge_total: 2,
+      omitted_edge_count: 0,
+      truncated: false,
+    }, { focusLimit: 2, compact: true });
+
+    expect(graph.focusApplied).toBe(true);
+    expect(graph.connectedNodeCount).toBe(3);
+    expect(graph.hiddenFocusedNodeCount).toBe(1);
+    expect(graph.nodes.map((node) => node.id)).toEqual(['source-a', 'asset-a']);
+    expect(graph.edges.map((edge) => edge.id)).toEqual(['source-asset']);
+    expect(graph.nodes[0].position).toEqual({ x: 18, y: 24 });
+  });
+
+  it('collapses asset-only hops into a traceable focus path without hiding persisted relations', () => {
+    const graph = buildEvidenceGraph({
+      nodes: [
+        { id: 'source-a', type: 'source', status: 'captured', label: 'Source: research.example/brief' },
+        { id: 'asset-a', type: 'asset', status: 'available', label: 'Asset: Binary file' },
+        { id: 'extract-a', type: 'extraction', status: 'complete', label: 'Extraction: OCR (complete)' },
+        { id: 'target:wiki_page:overview-a', type: 'target', status: 'resolved', target_type: 'wiki_page', target_id: 'overview-a', label: 'Wiki page: overview-a' },
+      ],
+      edges: [
+        { id: 'source-asset', source: 'source-a', target: 'asset-a', relation: 'has_asset' },
+        { id: 'asset-extract', source: 'asset-a', target: 'extract-a', relation: 'extracted_by' },
+        { id: 'source-wiki', source: 'source-a', target: 'target:wiki_page:overview-a', relation: 'cites' },
+      ],
+      node_total: 4,
+      edge_total: 3,
+      omitted_edge_count: 0,
+      truncated: false,
+    }, { focusLimit: 3, collapseAssetBridges: true });
+
+    expect(graph.nodes.map((node) => node.id)).toEqual(['source-a', 'extract-a', 'target:wiki_page:overview-a']);
+    expect(graph.edges).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: 'source-a', target: 'extract-a', label: 'via 1 recorded asset' }),
+    ]));
+    expect(graph.collapsedAssetNodeCount).toBe(1);
+    expect(graph.persistedEdges.map((edge) => edge.id)).toEqual(['source-asset', 'asset-extract', 'source-wiki']);
+  });
+
   it('reloads persisted evidence when the parent workspace refreshes the same project', async () => {
     vi.mocked(fetchKnowledgeEvidence).mockResolvedValueOnce(evidenceSnapshot('https://example.test/first'));
     vi.mocked(fetchKnowledgeEvidence).mockResolvedValueOnce(evidenceSnapshot('https://example.test/refreshed'));

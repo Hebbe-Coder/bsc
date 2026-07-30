@@ -28,6 +28,7 @@ type Props = { onClose: () => void; runtimeAccessKey?: string };
 type GraphNodeData = { record: KnowledgeGraphNode; label: string };
 type KnowledgeGraphFocus = { nodes: KnowledgeGraphNode[]; edges: KnowledgeGraphEdge[] };
 const MOBILE_GRAPH_FOCUS_LIMIT = 8;
+const DESKTOP_GRAPH_FOCUS_LIMIT = 24;
 
 export const KNOWLEDGE_JOB_OPTIONS = [
   { id: 'source_sync', label: 'Sync declared exports', defaultCron: '0 8 * * 1' },
@@ -48,6 +49,8 @@ export const OBSIDIAN_PLUGIN_PRESETS = [
   { id: 'feishu-cli', name: 'Feishu CLI export', adapter: 'filesystem_drop', input_paths: ['01_Sources/feishu'] },
   { id: 'docxer', name: 'Docxer export', adapter: 'filesystem_drop', input_paths: ['01_Sources/docxer'] },
   { id: 'obsidian-importer', name: 'Obsidian Importer export', adapter: 'filesystem_drop', input_paths: ['01_Sources/importer'] },
+  { id: 'codex-agent', name: 'Codex governed output', adapter: 'filesystem_output', input_paths: ['04_Outputs/codex'] },
+  { id: 'copilot-agent', name: 'Obsidian Copilot reviewed output', adapter: 'filesystem_output', input_paths: ['04_Outputs/copilot'] },
   { id: 'realclaudian', name: 'Claudian agent output', adapter: 'filesystem_output', input_paths: ['04_Outputs/claudian'] },
   { id: 'hyperframes', name: 'HyperFrames output feedback', adapter: 'filesystem_output', input_paths: ['04_Outputs/hyperframes'] },
   { id: 'markdown-output', name: 'Markdown formatter output feedback', adapter: 'filesystem_output', input_paths: ['04_Outputs/articles'] },
@@ -118,7 +121,7 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
   const [pluginAdapter, setPluginAdapter] = useState<KnowledgePluginBridge['adapter']>('filesystem_drop');
   const [pluginPaths, setPluginPaths] = useState('00_Inbox/custom');
   const [includeDistillationHistory, setIncludeDistillationHistory] = useState(false);
-  const [showFullCompactGraph, setShowFullCompactGraph] = useState(false);
+  const [showFullGraph, setShowFullGraph] = useState(false);
   const [selectedSourceTriage, setSelectedSourceTriage] = useState<KnowledgeSourceTriage | null>(null);
   const [evidenceRefreshVersion, setEvidenceRefreshVersion] = useState(0);
   const [projectDraft, setProjectDraft] = useState(projectId);
@@ -225,7 +228,7 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
     return () => query.removeEventListener('change', sync);
   }, []);
   useEffect(() => {
-    if (!isCompactViewport) setShowFullCompactGraph(false);
+    setShowFullGraph(false);
   }, [isCompactViewport]);
 
   useEffect(() => {
@@ -329,7 +332,7 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
       ? selectedSourceTriage
       : (await fetchKnowledgeSourceTriage(projectId, source.id)).triage;
     const needsTriageApproval = source.source_type === 'horizon_signal' || source.metadata.admission_gate === 'project_triage';
-    if (needsTriageApproval && (!triage || triage.disposition !== 'knowledge_candidate' || !Boolean(triage.reliability_pass))) {
+    if (needsTriageApproval && (!triage || triage.disposition !== 'knowledge_candidate' || !triage.reliability_pass)) {
       throw new Error('Run semantic review and select a reliable knowledge candidate before approving this evidence.');
     }
     await transitionKnowledgeSource(projectId, source.id, 'eligible', needsTriageApproval ? triage?.id ?? '' : '');
@@ -501,9 +504,10 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
   const filteredGraphEdges = graph.edges.filter((edge) => (
     filteredGraphNodeIds.has(edge.from_id) && filteredGraphNodeIds.has(edge.to_id)
   ));
-  const compactGraphFocus = selectKnowledgeGraphFocus(filteredGraphNodes, filteredGraphEdges);
-  const useCompactGraphFocus = isCompactViewport && !showFullCompactGraph && filteredGraphNodes.length > MOBILE_GRAPH_FOCUS_LIMIT;
-  const renderedRecords = (useCompactGraphFocus ? compactGraphFocus.nodes : filteredGraphNodes).slice(0, maxNodes);
+  const graphFocusLimit = isCompactViewport ? MOBILE_GRAPH_FOCUS_LIMIT : DESKTOP_GRAPH_FOCUS_LIMIT;
+  const graphFocus = selectKnowledgeGraphFocus(filteredGraphNodes, filteredGraphEdges, graphFocusLimit);
+  const useGraphFocus = !showFullGraph && filteredGraphNodes.length > graphFocusLimit;
+  const renderedRecords = (useGraphFocus ? graphFocus.nodes : filteredGraphNodes).slice(0, maxNodes);
   const visibleNodeIds = new Set(renderedRecords.map((record) => record.id));
   const graphColumnCount = isCompactViewport ? 2 : 4;
   const flowNodes: Node<GraphNodeData>[] = renderedRecords.map((record, index) => ({
@@ -514,7 +518,7 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
       x: (isCompactViewport ? 18 : 40) + (index % graphColumnCount) * (isCompactViewport ? 178 : 220),
       y: (isCompactViewport ? 24 : 36) + Math.floor(index / graphColumnCount) * (isCompactViewport ? 118 : 118),
     },
-    className: `knowledge-flow-node knowledge-flow-node--${record.node_type}${useCompactGraphFocus ? ' knowledge-flow-node--compact' : ''}`,
+    className: `knowledge-flow-node knowledge-flow-node--${record.node_type}${isCompactViewport && useGraphFocus ? ' knowledge-flow-node--compact' : ''}`,
   }));
   const flowEdges: Edge[] = filteredGraphEdges
     .filter((edge) => visibleNodeIds.has(edge.from_id) && visibleNodeIds.has(edge.to_id))
@@ -522,7 +526,7 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
       id: edge.id,
       source: edge.from_id,
       target: edge.to_id,
-      label: useCompactGraphFocus ? undefined : edge.edge_type,
+      label: useGraphFocus ? undefined : edge.edge_type,
       type: 'smoothstep',
       animated: false,
     }));
@@ -605,7 +609,7 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
           <strong>{pluginCount} configured</strong>
           <small>{connectedPluginCount ? `${connectedPluginCount} bridge${connectedPluginCount === 1 ? '' : 's'} active` : pluginRoutesVerified ? `${readyPluginRouteCount}/${pluginCount} routes verified; no external export yet` : readyPluginRouteCount ? `${readyPluginRouteCount}/${pluginCount} folders ready; remaining routes need setup` : 'Declare an export bridge'}</small>
         </summary>
-        <div><span className="eyebrow">OBSIDIAN PLUGIN EXPORTS</span><h3>Connect exported notes and output feedback.</h3><p>Evidence bridges read only declared <code>00_Inbox/</code>, <code>01_Sources/</code>, <code>raw/</code>, or <code>inbox/</code> folders. Output bridges copy only declared <code>04_Outputs/</code> or <code>outputs/</code> files into pending D-layer review. BSC does not inspect or execute <code>.obsidian</code> plugin code.</p><small>Horizon uses the native radar channel below, not a plugin-folder bridge. Claudian is an Obsidian-to-Codex companion. Markdown formatter and HyperFrames use an output bridge; their files never become reusable context until evaluation and feedback accept them.</small></div>
+        <div><span className="eyebrow">OBSIDIAN PLUGIN EXPORTS</span><h3>Connect exported notes and output feedback.</h3><p>Evidence bridges read only declared <code>00_Inbox/</code>, <code>01_Sources/</code>, <code>raw/</code>, or <code>inbox/</code> folders. Output bridges copy only declared <code>04_Outputs/</code> or <code>outputs/</code> files into pending D-layer review. BSC does not inspect or execute <code>.obsidian</code> plugin code.</p><small>Codex and Copilot outputs require an explicit, reviewed Markdown save to their own routes; chats and silent note edits are not captured. Claudian remains available only where its separate Claude Code CLI is installed. Horizon uses the native radar channel below, not a plugin-folder bridge.</small></div>
         <div className="knowledge-plugin-setup__actions">
           <label>Preset<select value={pluginPreset} onChange={(event) => selectPluginPreset(event.target.value)} aria-label="Plugin export preset" disabled={actionBusy}>{OBSIDIAN_PLUGIN_PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}</select></label>
           <label>Plugin ID<input value={pluginId} onChange={(event) => setPluginId(event.target.value)} placeholder="readwise" aria-label="Plugin ID" disabled={actionBusy} /></label>
@@ -661,12 +665,12 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
           {centerView === 'proposal' && <ProposalReview proposal={selectedProposal} baselines={proposalBaselines} busy={actionBusy} canWrite={canWrite} onLint={lintProposal} onPublish={publishProposal} onReject={rejectProposal} onSaveEvaluationCase={saveProposalEvaluationCase} />}
           {centerView === 'run' && <RunTimeline runs={runs} selectedRun={selectedRun} events={runEvents} busy={actionBusy} onSelect={inspectRun} onRetry={retryRun} />}
           {centerView === 'graph' && <section className="knowledge-graph-view">
-            <header className="knowledge-content-header"><div><span className="eyebrow">RELATIONSHIP GRAPH</span><h3>Traceable knowledge relations</h3></div><div className="knowledge-graph-filters"><label className="knowledge-select-label">Edge filter<select value={graphEdgeType} onChange={(event) => setGraphEdgeType(event.target.value)}><option value="">All edges</option>{graphTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label><label className="knowledge-select-label">Node type<select value={graphNodeType} onChange={(event) => setGraphNodeType(event.target.value)}><option value="">All types</option>{graphNodeTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label><label className="knowledge-select-label">Node status<select value={graphNodeStatus} onChange={(event) => setGraphNodeStatus(event.target.value)}><option value="">All states</option>{graphNodeStatuses.map((status) => <option key={status} value={status}>{status}</option>)}</select></label>{isCompactViewport && filteredGraphNodes.length > MOBILE_GRAPH_FOCUS_LIMIT && <button type="button" className="knowledge-graph-scope" aria-pressed={showFullCompactGraph} onClick={() => setShowFullCompactGraph((current) => !current)}>{showFullCompactGraph ? 'Focus graph' : 'All records'}</button>}</div></header>
+            <header className="knowledge-content-header"><div><span className="eyebrow">RELATIONSHIP GRAPH</span><h3>Traceable knowledge relations</h3></div><div className="knowledge-graph-filters"><label className="knowledge-select-label">Edge filter<select value={graphEdgeType} onChange={(event) => setGraphEdgeType(event.target.value)}><option value="">All edges</option>{graphTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label><label className="knowledge-select-label">Node type<select value={graphNodeType} onChange={(event) => setGraphNodeType(event.target.value)}><option value="">All types</option>{graphNodeTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label><label className="knowledge-select-label">Node status<select value={graphNodeStatus} onChange={(event) => setGraphNodeStatus(event.target.value)}><option value="">All states</option>{graphNodeStatuses.map((status) => <option key={status} value={status}>{status}</option>)}</select></label>{filteredGraphNodes.length > graphFocusLimit && <button type="button" className="knowledge-graph-scope" aria-pressed={showFullGraph} onClick={() => setShowFullGraph((current) => !current)}>{showFullGraph ? 'Focus graph' : 'All records'}</button>}</div></header>
             <div className="knowledge-graph-canvas">{flowNodes.length ? <ReactFlow
               nodes={flowNodes}
               edges={flowEdges}
               fitView
-              fitViewOptions={{ padding: useCompactGraphFocus ? 0.2 : 0.12 }}
+              fitViewOptions={{ padding: useGraphFocus ? 0.2 : 0.12 }}
               nodesDraggable={false}
               nodesConnectable={false}
               onNodeClick={(_, node) => {
@@ -683,8 +687,8 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
                 if (target.node_type === 'proposal') { const proposal = proposals.find((item) => item.id === target.id); if (proposal) inspectProposal(proposal); }
               }}
             ><Background gap={22} size={1} /><Controls showInteractive={false} /></ReactFlow> : <Empty text="No persisted relationships match the selected graph filters." />}</div>
-            {useCompactGraphFocus && <p className="knowledge-limit-note">Mobile focus: {flowNodes.length} highest-connected records and {flowEdges.length} direct relations from {filteredGraphNodes.length} filtered records.</p>}
-            {!useCompactGraphFocus && (graph.truncated || filteredGraphNodes.length > maxNodes) && <p className="knowledge-limit-note">Showing a bounded relationship slice ({flowNodes.length} nodes / {filteredGraphEdges.length} filtered edges). Narrow the filters to inspect another slice.</p>}
+            {useGraphFocus && <p className="knowledge-limit-note">{isCompactViewport ? 'Mobile focus' : 'Focused view'}: {flowNodes.length} highest-connected records and {flowEdges.length} direct relations from {filteredGraphNodes.length} filtered records.</p>}
+            {!useGraphFocus && (graph.truncated || filteredGraphNodes.length > maxNodes) && <p className="knowledge-limit-note">Showing a bounded relationship slice ({flowNodes.length} nodes / {filteredGraphEdges.length} filtered edges). Narrow the filters to inspect another slice.</p>}
           </section>}
           {centerView === 'intelligence' && <InformationOperationsPanel projectId={projectId} canWrite={canWrite} refreshToken={evidenceRefreshVersion} />}
           {centerView === 'distillation' && <DistillationReader records={distillations} selected={selectedDistillation} onSelect={inspectDistillation} includeHistory={includeDistillationHistory} onIncludeHistoryChange={setDistillationHistory} />}

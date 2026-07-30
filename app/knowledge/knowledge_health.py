@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from app.knowledge.evidence_scope import is_active_evidence_source
 from app.knowledge.wiki_repository import WikiRepository
 
 
@@ -19,8 +20,13 @@ class KnowledgeHealthService:
     def snapshot(self, *, project_id: str, now: datetime | None = None) -> dict[str, Any]:
         current = now or datetime.now(timezone.utc)
         pages = self.repository.list_pages(project_id)
-        sources = self.repository.list_sources(project_id)
-        all_citations = self.repository.list_citations(project_id, include_stale=True)
+        sources = [source for source in self.repository.list_sources(project_id) if is_active_evidence_source(source)]
+        source_ids = {source["id"] for source in sources}
+        all_citations = [
+            citation
+            for citation in self.repository.list_citations(project_id, include_stale=True)
+            if citation["source_id"] in source_ids
+        ]
         citations = [citation for citation in all_citations if citation["status"] == "active"]
         proposals = self.repository.list_proposals(project_id)
         edges = self.repository.list_graph_edges(project_id, edge_type="wiki_links_to")
@@ -30,7 +36,6 @@ class KnowledgeHealthService:
             for page in pages
             if str(page.get("path") or "") not in self._NON_SUBSTANTIVE_PATHS
         }
-        source_ids = {source["id"] for source in sources}
         substantive_citations = [citation for citation in citations if citation["wiki_page_id"] in substantive_page_ids]
         substantive_all_citations = [
             citation for citation in all_citations if citation["wiki_page_id"] in substantive_page_ids
@@ -89,6 +94,8 @@ class KnowledgeHealthService:
         """Expose persisted observations for charts without backfilling synthetic history."""
         source_counts: dict[str, int] = {}
         for source in self.repository.list_sources(project_id):
+            if not is_active_evidence_source(source):
+                continue
             day = str(source.get("captured_at") or "")[:10]
             if day:
                 source_counts[day] = source_counts.get(day, 0) + 1

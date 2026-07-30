@@ -812,3 +812,284 @@ Live Horizon endpoint/API credentials and a real Wiki-maintenance LLM provider r
   deliverable and a later evaluation/feedback action, so the governed loop
   remains `implemented_with_operational_proof_pending` rather than claiming
   release readiness prematurely.
+
+## 2026-07-30 Published-State Repair: Live Closure
+
+- The earlier note that the Docker image predated published-status
+  reconciliation is superseded. The deployed publication gate projects
+  durable BSC state into each managed Wiki page's top-level
+  `status: published` field before the Vault snapshot and database revision
+  are committed. Project lint reports a durable published page that says
+  otherwise as `invalid_publication_status`.
+- A real primary capture of the official Obsidian API README
+  (`d868c7bd34af`) was used to compile and publish
+  `wiki/concepts/obsidian-plugin-extension.md`. The first publication
+  exposed stale `draft` frontmatter. Rather than editing the file, the
+  repair created proposal `4a18d3a7e85f`, passed lint with zero findings,
+  passed the persisted evaluation at score `1.0`, and published through run
+  `ee3c56125438`. It corrected five existing published pages plus their
+  navigation and audit entry without changing evidence claims.
+- Post-publication runtime readback against Docker PostgreSQL and the managed
+  Vault found no remaining draft or non-published Wiki frontmatter, project
+  lint valid with zero findings, and the Obsidian page at version `2` with
+  content hash
+  `eb769555c96456a076186ecc81468f5b350ce0bd489589696cdfff4d93274a53`.
+  Its active citation remains `d868c7bd34af`; the persisted graph contains
+  the matching citation edge. Knowledge health reported 10 pages, 153
+  sources, 37 active citations, citation coverage `1.0`, no orphan or
+  uncited pages, no dangling or stale citations, no pending proposals, and a
+  latest persisted evaluation status of `passed`.
+- Regression evidence: the combined Wiki/API/task/recovery/PBOS suite passed
+  `150 passed`; TypeScript `npm run check` and the production frontend
+  build passed. The build keeps the pre-existing ECharts bundle-size warning;
+  it is recorded as a performance follow-up and is not claimed fixed here.
+
+## 2026-07-30 PBOS Published-Context Runtime Closure
+
+### Defect And Repair
+
+- A live no-write PBOS proof found that retrieval located the published
+  Obsidian plugin page and its source, but a long evidence excerpt could use
+  the bounded context budget and remove the page from rendered sections.
+  `PBOSGovernedContextProvider` then used only rendered page sections, so the
+  compiled plan fell back to working-note references despite the successful
+  governed retrieval.
+- The provider now retains retrieval-selected paths only when the corresponding
+  BSC Wiki page is durably `published`. Those immutable page revisions are
+  combined with their processed citation lineage; arbitrary Vault files still
+  cannot enter this path. This is a reference-layer repair, not an expansion
+  of the prompt body or a bypass of the publication gate.
+- Added a regression that makes a source reservation displace a large selected
+  page from the rendered context and proves the PBOS result still exposes the
+  published page plus its source hash. `tests/pbos/test_pbos_contextual_compiler.py
+  -q` passed with `10 passed`.
+
+### Deployed Verification
+
+- Rebuilt and restarted the Docker API, Celery Worker, and Beat images from the
+  repaired workspace. `http://127.0.0.1:8002/ready` returned `200`; container
+  validation imported `mcp.server.fastmcp.FastMCP` from the intentionally
+  pinned `mcp==1.28.1`; and Celery `inspect ping` returned `pong` from the
+  running worker.
+- A temporary Artifact Graph was created inside the API container for a
+  default-project Mission about the Obsidian plugin extension, then discarded.
+  It wrote no Mission or plan to the user's durable graph. The compiled plan
+  included the published-page reference
+  `wiki:6d695376a04e63d49958c84c@eb769555c96456a076186ecc81468f5b350ce0bd489589696cdfff4d93274a53`
+  and its processed evidence reference
+  `source:d868c7bd34af@5c71bef8236b9dcaeb55216e523afc503fb12f0d15f6f0738b7bc9dde0c69b0c`.
+- Post-restart project verification remained clean: published-Wiki lint had
+  zero findings, health reported 10 pages, 153 sources, 37 citations,
+  citation coverage `1.0`, zero dangling or stale citations, no pending
+  proposals, and 78 persisted graph edges. The existing ECharts bundle-size
+  warning remains a recorded performance follow-up, not a resolved claim.
+
+## 2026-07-30 Custom SOP Model Path Verification
+
+- The default project's PBOS context now has a verified real-model route in
+  addition to its governed deterministic fallback. `PBOS_LLM_TIMEOUT_SECONDS`
+  gives structured PBOS compilation a `120s` independent provider budget;
+  API and Worker receive the setting through Compose while Beat does not.
+- A temporary Docker-resident Artifact Graph used the configured DeepSeek
+  provider to compile a project-specific knowledge-growth Mission. A bounded
+  second structured attempt succeeded after the first produced no final
+  content. The resulting discarded plan was `llm_contextual`, carried
+  published Wiki/source lineage, and had three distinct phases rather than a
+  template-only fallback. This test did not create a user-visible SOP,
+  revision, source, output, or Vault file.
+- Regression evidence: PBOS/API/MCP/integration/configuration/Compose suite
+  `57 passed`; `npm run check`, Compose validation, Worker ping, and deployed
+  runtime timeout readback passed. Existing external plugin routes remain
+  truthfully `awaiting_export` or `awaiting_output` until their installed
+  Obsidian plugins produce real files; BSC did not synthesize such exports.
+
+## PBOS Contextual Plan Projection (2026-07-30)
+
+- A real, provider-backed PBOS compilation now closes the knowledge-to-work
+  loop for the default project. Durable plan `art_329d1014ff28` used five
+  published Wiki references, fourteen processed source references, and three
+  bounded Vault references before its three-phase contextual plan was written
+  to `pbos/plans/art_329d1014ff28.md`.
+- The projection is a D-layer working artifact with explicit compiler metadata,
+  not new source evidence. It did not alter immutable A-layer captures,
+  published B-layer citations, or plugin capture state. Provider failures
+  remain safe, visible metadata and no longer trigger a futile structured
+  repair request for payment or credential errors.
+- Follow-up verification passed `82` PBOS/API/MCP/integration/configuration
+  and LLM-client tests, five Cockpit component tests, TypeScript checking,
+  the production frontend build, and the full Compose configuration contract.
+
+## 2026-07-30 Growth Dispatch And Semantic Daily Closure
+
+### Implemented
+
+- Corrected growth recovery dispatch evidence. A queued growth run with either
+  `knowledge.run.execution_assigned` or `knowledge.growth.dispatched` is now
+  treated as already handed to Celery and will not be enqueued again by Beat
+  recovery. New growth submissions from both the Wiki command service and the
+  idempotent growth API now record the growth-specific dispatch event with the
+  task ID and trigger while retaining the generic Celery assignment event.
+- Added a regression for the production failure shape: a queued manual daily
+  growth run with only the legacy assignment event must remain queued with zero
+  recovery dispatches. The scheduler's generic duplicate branch recognizes the
+  same assignment proof.
+- Reworked daily semantic distillation from one-shot fallback into a bounded
+  quality loop. Invalid model output is classified without retaining model
+  body (`invalid_shape`, `missing_citation`, `missing_sections`,
+  `invalid_reference`, or `unsupported_project_state`), then a configured
+  provider may make exactly one citation-ledger constrained repair. The
+  citation, project-state, ownership, hash, and atomic-Vault checks are not
+  relaxed. Distillation contract revision is now `27` so same-day content is
+  an auditable managed revision rather than an overwrite.
+
+### Verified
+
+- Focused command/API/Celery recovery tests passed `46`; the expanded
+  growth/Obsidian/API/Celery suite passed `124 passed, 1 skipped`.
+  `compileall`, `git diff --check`, and `docker compose --profile full config
+  --quiet` passed.
+- Rebuilt API, Celery Worker, and Beat. The deployed API returned `/ready`
+  `200`, and deployed Worker inspection returned `pong`.
+- The first post-recharge real daily run `c3cb8bf570a7` completed with 576
+  governed inputs and a valid managed output, but its model response failed
+  the daily output gate and was truthfully recorded as deterministic fallback.
+  No unvalidated model text was persisted.
+- After the repair, real default-project run `d809320a6084` completed through
+  DeepSeek `deepseek-v4-pro` in `llm` mode. Its persisted distillation
+  `d27404968c2aa5f8e2e56ec8` created the managed daily artifact at
+  `distillations/每周蒸馏/2026-W31/每日增量/2026-07-30.md`. One correlated
+  model execution was retained as metadata only; the final artifact passed
+  managed ownership and hash validation. Its event sequence contains one
+  assignment, one growth dispatch, one model completion, and no
+  `knowledge.growth.duplicate_delivery` event.
+
+### Remaining Boundary
+
+- The actual daily knowledge loop is now operating with governed model output,
+  but third-party Obsidian plugin routes remain correctly in
+  `awaiting_export` or `awaiting_output` until those plugins create real files
+  in their declared project directories. No synthetic plugin export or output
+  acceptance was created for this verification.
+
+## 2026-07-30 Semantic Weekly Runtime Closure
+
+- Real default-project weekly run `f4cf667a653d` completed through
+  `deepseek/deepseek-v4-pro` after two bounded provider invocations. The
+  quality gate requested one constrained repair and accepted all five required
+  weekly documents; the persisted record `c349e7026bc148be242aa2c7` is
+  `mode=llm`, has `llm_document_count=5`, `fallback_document_count=0`, and
+  `quality_retry_count=1`.
+- The five managed paths in `distillations/每周蒸馏/2026-W31/` passed the
+  persisted manifest, ownership-marker, and file-hash validation. The prior
+  complete bundle was only eligible for replacement because the new bundle was
+  complete; the guard would have retained it for a partial or invalid model
+  response.
+- The persisted event stream contains one assignment, one growth dispatch, one
+  correlated model-completion record, and one completion; it contains no
+  `knowledge.growth.duplicate_delivery` event. This verifies the repaired
+  dispatch contract against both real daily and real weekly model workloads.
+
+## 2026-07-30 Horizon Primary Evidence And Profile-Bound Proposal
+
+### Live Intake
+
+- The production Horizon run `run-20260729T160830Z-4e18a3cc` was imported into
+  project `proj_b8a285642094` through the read-only native run store. The
+  filtered stage contained nine scored signals; all nine were persisted as
+  `horizon_signal` discovery records with `primary_capture_required=true`.
+  Concurrent capture requests contended only on the durable import claim and
+  produced exactly nine signal records, not duplicate evidence.
+- All nine signal URLs were then captured as bounded public HTTPS primary
+  evidence. Each capture passed private-network, redirect, content-type,
+  response-size, extraction, hash, and signal-to-primary linkage checks. None
+  of the radar summaries was promoted as primary evidence.
+- Before final review, the project's knowledge profile was updated from its
+  empty revision `0` to revision `1`: four project research domains, six
+  intended output types, Chinese operating language, evidence threshold `75`,
+  explicit-review publication policy, and outcome-backed method promotion.
+  The earlier revision-0 reviews remain auditable but are intentionally stale.
+
+### Model Review And Proposal
+
+- A real-model semantic triage ran once per captured primary source under
+  profile revision `1`. All nine evaluations completed reliably using
+  `semantic-source-triage-v3`: four `knowledge_candidate`, two `reference`,
+  and three `ignore`. The reference and ignore material remains validated but
+  is not authoring evidence.
+- Delegated operator approval made only the four reliable, profile-bound
+  primary candidates `eligible`. Each approval records its triage ID, profile
+  revision, evaluator revision, and exact supporting Horizon signal. This did
+  not publish a page or alter immutable source bodies.
+- Wiki maintenance run `91b6d67ddb7d` compiled those four eligible sources
+  into draft proposal `786db8f24191`. The proposal contains four cited
+  operations, including the candidate concept page
+  `wiki/concepts/agent-policy-adherence-failures.md`, and reports
+  `publication=review_required`. It remains `draft`; no Obsidian Wiki file was
+  published by this run.
+
+### Verification And Remaining Boundary
+
+- Proposal lint passed with zero findings. The live health snapshot reports
+  30 project sources, four eligible authoring sources, zero dangling or stale
+  citations, one pending proposal, and no persisted quality-evaluation trend
+  because the proposal has not been published.
+- The next deliberately unexecuted boundary is explicit review and publication
+  of proposal `786db8f24191`. Until that action occurs, its cited sources are
+  correctly reported as uncited eligible evidence and the generated page is not
+  treated as usable PBOS or weekly-distillation knowledge.
+
+## 2026-07-30 Personal Knowledge Intelligence Live Closure
+
+### Published Knowledge
+
+- The delegated manual review was completed through the governed publication
+  endpoint. Proposal `786db8f24191` is now `published` with a recorded
+  evaluation score of `1.0`; the published concept page is
+  `wiki/concepts/agent-policy-adherence-failures.md`.
+- The four reviewed primary evidence records (`6d535597e335`, `25f7a2c18f19`,
+  `00f21204a550`, and `95ffcbe545ee`) transitioned to `processed`. Readback
+  confirmed their presence in persisted `wiki_cites_source` graph edges.
+- Post-publication health was clean: 5 pages, 30 sources, 5 citations, 100%
+  citation coverage, no dangling or stale citations, no uncited eligible
+  sources, no pending proposals, no contradictions, and a passing evaluation
+  baseline. The published Vault page has `status: published` front matter.
+
+### Profile-Bound Weekly Distillation
+
+- A direct synchronous attempt was interrupted when the Docker API container
+  was externally recreated. It made no new persisted weekly output. The retry
+  used durable Celery run `ae448b20d062` with the fixed idempotency key
+  `manual-post-publish-weekly-2026W31-r1` and completed once without retries or
+  duplicate delivery.
+- The new weekly distillation `6f5b8ec41253b4f384e44955` generated five
+  managed documents for `2026-W31` in `llm` mode using
+  `deepseek/deepseek-v4-pro`. It used profile revision `1`, contained no
+  fallback documents, and was bound to input hash
+  `cd4bfe76b52d83010c4bc06a785488dd23462b5107b998c962f3d0a77c223969`.
+- API readback checked every generated document without retaining its body:
+  all five have the managed ownership marker, the exact input-hash marker, at
+  least two Markdown sections, one or more persisted source/page citations,
+  and an explicit uncertainty marker. The managed next-context handoff is the
+  fourth document of the current `2026-W31` weekly bundle under the project's
+  `distillations/` tree.
+
+### Context And Automation
+
+- A live PBOS governed-context read returned `available` with 8 bounded
+  documents and 12 traceable references. It includes published Wiki context,
+  a managed evidence mirror, and the new weekly handoff; no raw Vault corpus
+  was passed through the plan boundary.
+- Persistent automation is enabled and scheduler-backed: daily growth at
+  `17:00` and weekly distillation at Friday `17:30`, both in
+  `Asia/Shanghai`. The last run status for both schedules is `completed`.
+- This project has no PBOS Mission, personal profile, execution record, or
+  outcome in its Artifact Graph. No synthetic personalized plan, output, or
+  outcome was created. Personalization can begin only after a real Mission and
+  user-provided working context exist.
+
+### Remaining External Boundary
+
+- Obsidian third-party plugins still have no real export or output files in
+  their declared project paths. Their integration state remains
+  `awaiting_export`/`awaiting_output`; the filesystem source, output, and
+  context channels are the only verified ingestion paths at this point.

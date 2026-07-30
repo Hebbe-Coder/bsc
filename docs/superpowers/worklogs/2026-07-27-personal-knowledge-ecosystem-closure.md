@@ -406,3 +406,171 @@ criteria.
   TypeScript, production build, and Compose parsing passed. The current Docker
   image predates this reconciliation code; a live repair is deliberately not
   claimed until the rebuilt API and Worker are healthy.
+
+## 2026-07-30 Bridge Runtime And Cross-Service Acceptance
+
+- Re-read the BSC-owned plugin manifest and trust ledger without inspecting
+  third-party plugin code, note bodies, credentials, or private settings.
+  All seven declared routes are trusted and their configured project paths
+  exist. The public runtime status is intentionally mixed: Obsidian Clipper
+  has one captured export with a matching destination; Excalidraw has three
+  captured project-map exports; Xiaohongshu, Docxer, Obsidian Importer, Zotero
+  and Claudian have empty but ready paths. Docxer and Importer explicitly
+  report `interactive_destination`; Claudian reports
+  `agent_workspace / agent_writes_declared_output_path`. Empty folders were
+  not promoted to sources, outputs, or business value.
+- Executed a fresh protected `source_sync` through the Studio API. Durable run
+  `c28c5e22107b` progressed `queued -> execution_assigned -> running ->
+  completed` through Celery. Its persisted receipt reports `11` files scanned,
+  `13` source duplicates, `0` created, `0` rejected, `0` blocked, `15`
+  existing multimodal derivatives retained, `88` eligible evidence-mirror
+  records unchanged, `10` Wiki pages indexed, and output feedback
+  `scanned=0/registered=0`. This is real idempotent processing of the current
+  Vault and an honest empty D-layer result.
+- Regression: `pytest tests/knowledge/test_obsidian_output_sync.py
+  tests/knowledge/test_wiki_sync.py tests/knowledge/test_knowledge_tasks.py
+  tests/api/test_knowledge_workspace_api.py -q` passed with `76 passed, 1
+  skipped`. It covers declared output registration, empty-output behavior,
+  plugin route/trust state, task execution, and workspace authorization.
+- Cross-service acceptance: `docker compose --profile full config --quiet`
+  passed. Compose reported healthy/running API, Worker, Beat, PostgreSQL,
+  Redis and n8n; `docker compose exec -T celery-worker celery -A
+  app.core.celery_app inspect ping` returned `pong`. `/ready` returned `200`,
+  while an unauthenticated direct request to
+  `/knowledge/workspaces/default` returned `401`.
+- MCP acceptance used the configured local proxy, which keeps the credential
+  server-side. The compatibility profile reports JSON-RPC `2.0`,
+  `stdio/streamable_http/sse` support and API-key/bearer authorization.
+  `tools/list` returned `55` tools, including the knowledge/growth/operations
+  set, and a bounded `wiki_evidence` call for `default` succeeded with a
+  redacted structured response. `pytest tests/test_mcp_http.py
+  tests/integration/test_knowledge_mcp_e2e.py
+  tests/api/test_knowledge_operations_api.py -q` passed with `7 passed`,
+  including tenant and project-key escape rejection.
+- Release status remains `implemented_with_operational_proof_pending`.
+  The only remaining bridge proof is an actual Claudian-written Markdown file
+  in `04_Outputs/claudian`, followed by BSC registration and reviewed feedback
+  that demonstrably changes a later PBOS plan or decision. No file was
+  generated to imitate that user-origin action.
+
+## 2026-07-30 Full Regression And Studio Final Check
+
+- Full current backend regression, run against the dirty integrated worktree,
+  passed with `1517 passed, 14 skipped` in `3m55s`. The skipped cases are
+  declared external/PostgreSQL-environment boundaries; no test failed. This
+  extends the focused knowledge, growth, PBOS, MCP and isolation checks above
+  to the complete backend.
+- `npm run lint` exposed one real error in the knowledge workspace's triage
+  approval guard: `!Boolean(triage.reliability_pass)` violated
+  `no-extra-boolean-cast`. Replaced it with the equivalent
+  `!triage.reliability_pass`, preserving the `boolean | number` gate semantics.
+  No warning-only unrelated legacy cleanup was mixed into this fix.
+- Verification after the repair: focused `KnowledgeWorkspace` tests passed
+  (`13 passed`); `npm run check`, `npm run lint`, `npm run build`, and
+  `git diff --check` all passed. Lint retains the existing `214` warnings but
+  reports zero errors; build retains only the existing ECharts chunk-size
+  advisory. `git diff --check` emitted only existing LF-to-CRLF advisories.
+- Fresh post-build Studio browser acceptance loaded the protected Knowledge
+  workspace, reachable Vault, Horizon state and Evidence Atlas without a new
+  console error. This validates the actual Vite path after the lint repair,
+  rather than relying solely on the production bundle.
+
+## 2026-07-30 Real Weekly Distillation Citation-Repair Closure
+
+- A real `growth_weekly_distillation` run reached its model calls but preserved
+  the prior weekly bundle because three documents failed the strict citation
+  ledger gate. The existing no-overwrite behavior was correct, but the retry
+  policy stopped after one batch repair when more than one document remained.
+- Added one final bounded strict batch repair for production providers only.
+  Its correction prompt includes the exact source/page labels retained in the
+  context, requires output only for the still-rejected document slots, and
+  prohibits non-citation square-bracket text. Citation validation, project
+  scope, and incomplete-bundle preservation are unchanged. Bumped the
+  distillation contract to revision `26` so the corrected behavior receives a
+  new auditable input hash.
+- Regression: `pytest tests/knowledge/test_growth_distillation.py -q` passed
+  `54` tests. The added scenario proves that multiple invalid references after
+  the first batch repair use the last bounded repair and publish only after all
+  five documents meet the existing gate.
+- Runtime proof: rebuilt the Compose `bsc-backend` and `celery-worker` images;
+  API became healthy and Worker returned `pong`. Protected HTTP run
+  `d18df90b398c` completed through Celery with three successful DeepSeek
+  provider calls, `generation_mode=llm`, `quality_retry_count=2`, no fallback
+  documents, and five generated paths under
+  `distillations/每周蒸馏/2026-W31/`. A separate non-content inspection verified
+  all five Markdown files plus `manifest.json` exist and pass the same
+  citation/length/section/uncertainty/state-claim validator.
+- The Claudian D-layer bridge remains honestly pending: its declared directory
+  still has no user-origin Markdown. This successful weekly model run proves
+  the governed A/B/C growth and real-provider path; it does not substitute for
+  an external Claudian output, its evaluation, or feedback-driven PBOS change.
+- Latest runtime recheck: scheduled `source_sync` run `3df46df2ad21` completed
+  with `output_feedback.scanned=0`, `registered=0`, `rejected=0`, and
+  `blocked=0`; the mounted `04_Outputs/claudian/` directory likewise contains
+  zero Markdown files. This is an externally pending user-agent action, not a
+  BSC failure or a result that may be synthesized by the platform.
+
+## 2026-07-30 Copilot Replacement Bridge And Idempotent Output Sync
+
+- Claudian was disabled in the user-facing Obsidian plugin list because its
+  required Claude Code CLI is not installed. Obsidian Copilot was configured
+  by the user with a local model-provider key and returned a real chat response
+  in the sidebar. This verifies the interactive Copilot entry point only; it
+  does not claim that Copilot has authored a governed output.
+- Added the dedicated `copilot-agent` `filesystem_output` declaration at
+  `04_Outputs/copilot/`, created that directory, and added its bounded durable
+  output rule to the project `AGENTS.md`. A protected workspace API call wrote
+  a separate trusted configuration record for that exact route. Copilot,
+  Codex, and Claudian remain distinct provenance identities; chat transcripts,
+  silent note edits, and unreviewed suggestions are excluded from D-layer
+  capture.
+- A live `source_sync` initially exposed a real idempotency defect: a later
+  scan of the same external file used its new scan run ID and was rejected as
+  an immutable-output conflict. The output sync service now retains the
+  original registered run ID on a repeat observation, so it neither rejects a
+  harmless retry nor creates false `output_produced_by_run` lineage for each
+  later scan. The regression suite now covers two distinct scan runs.
+- Verification: `pytest tests/knowledge/test_obsidian_output_sync.py
+  tests/knowledge/test_knowledge_tasks.py -q` passed with `30 passed`.
+  Rebuilt and restarted Compose API, Worker, and Beat. Live protected run
+  `7b5166d31ba5` completed with
+  `output_feedback.scanned=1/registered=0/duplicates=1/rejected=0/blocked=0`;
+  Worker inspection returned `pong`. The one scanned file was the existing
+  Codex operational receipt. The Copilot route was empty and did not create a
+  fictional output.
+- Current status: `implemented_with_operational_proof_pending`. The remaining
+  external proof is a user-reviewed Copilot Markdown deliverable intentionally
+  saved under `04_Outputs/copilot/`, followed by capture, evaluation, and typed
+  feedback. No system-generated file may substitute for this Copilot-authored
+  action.
+
+## 2026-07-30 Evidence Atlas Scope-Exclusion Projection Closure
+
+- A protected source sync had already quarantined 19 historical records that
+  were captured before the mapped-Vault boundary was enforced. Their durable
+  audit state is intentionally retained as `rejected`, `source_present=false`,
+  with `scope_exclusion.reason=outside_mapped_project_root`; no Vault file,
+  source body, or audit record was deleted.
+- The read model was then corrected so those records cannot still inflate the
+  Evidence Atlas. Overview totals, source lists, media assets, extraction
+  artifacts, tables, explicit references, Wiki-citation projections, timeline,
+  and graph now share one active-source eligibility filter. Direct Evidence
+  Atlas record, table-preview, and image-thumbnail paths return unavailable for
+  derivatives of an excluded source, preventing an ID-based inspector bypass.
+- Regression: `pytest tests/knowledge/test_wiki_sync.py
+  tests/knowledge/test_knowledge_tasks.py tests/knowledge/test_obsidian_output_sync.py
+  tests/knowledge/test_multimodal_evidence.py tests/api/test_knowledge_evidence_api.py -q`
+  passed with `69 passed, 1 skipped`; `npm run test:frontend -- --run
+  src/components/knowledge/EvidenceWorkspace.test.tsx` passed with `10 passed`;
+  `npm run check` passed. The new multimodal evidence regression proves that a
+  quarantined source and every listed derivative/reference/citation are absent
+  from active projections while a mapped source remains visible.
+- Deployment and runtime proof: rebuilt and restarted the Compose API image;
+  its health check passed. A protected request to the live Evidence Atlas
+  returned `151` active sources, `9` assets, `15` extraction records, `1`
+  table, `39` references, and `denominator=215`. The response contained zero
+  active Copilot records. The three remaining active-projection `rejected`
+  sources are separate in-scope quality decisions, not scope-excluded records.
+- Status remains `implemented_with_operational_proof_pending`: this removes a
+  visualization/data-boundary defect, but does not substitute for a genuine
+  reviewed Copilot output and feedback loop.

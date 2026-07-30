@@ -28,7 +28,9 @@ def test_declared_plugin_output_is_copied_to_pending_d_layer_without_mutating_th
     try:
         service = ObsidianOutputSyncService(repo, vault)
         first = service.sync(project_id="project-a", run_id=run.id)
-        second = service.sync(project_id="project-a", run_id=run.id)
+        retry_run = KnowledgeRun(id="sync-2", project_id="project-a", run_type="source_sync", trigger="manual")
+        repo.create_run(retry_run)
+        second = service.sync(project_id="project-a", run_id=retry_run.id)
         outputs = repo.list_outputs("project-a")
 
         assert first == {"scanned": 1, "registered": 1, "duplicates": 0, "rejected": 0, "skipped": 0, "blocked": 0}
@@ -37,12 +39,17 @@ def test_declared_plugin_output_is_copied_to_pending_d_layer_without_mutating_th
         assert len(outputs) == 1
         output = outputs[0]
         assert output["status"] == "registered"
+        assert output["run_id"] == run.id
         assert output["metadata"]["obsidian_plugin"] == "hyperframes"
         assert output["metadata"]["obsidian_adapter"] == "filesystem_output"
         materialized = project_root / Path(output["vault_path"])
         assert materialized.read_text(encoding="utf-8") == original.read_text(encoding="utf-8")
         assert any(
             edge["edge_type"] == "output_produced_by_run" and edge["from_id"] == run.id and edge["to_id"] == output["id"]
+            for edge in repo.list_lineage("project-a")
+        )
+        assert not any(
+            edge["edge_type"] == "output_produced_by_run" and edge["from_id"] == retry_run.id and edge["to_id"] == output["id"]
             for edge in repo.list_lineage("project-a")
         )
     finally:

@@ -697,3 +697,29 @@
 - **Rollback:** reverting this Cockpit/API state change restores the prior
   single-field display only. It does not alter Vault references, evidence
   records, outcomes, capabilities, strategies, or connector authorization.
+
+## 2026-07-30 Execution Receipt Visibility And Full Regression Gate
+
+- **Implemented contract:** the PBOS Cockpit API now returns a bounded summary
+  of recent executions: artifact identifier, captured and verified receipt
+  counts, reflection presence, and outcome state. It excludes reflection text,
+  workspace file content, receipt bodies, and credentials. The Cockpit renders
+  these as reviewable records and keeps `Awaiting explicit outcome` distinct
+  from `Learning eligible`.
+- **Evidence projection:** the Evidence Atlas collapses source-to-asset-to-
+  extraction transport-only hops in the canvas while preserving each persisted
+  relationship in the accessible relation list. Scope-excluded sources and
+  their derivatives are omitted from active counts, graph nodes, inspectors,
+  and timeline projections; they remain retained in the underlying audit
+  ledger.
+- **Verification:** the complete backend gate `python -m pytest
+  tests/knowledge tests/api tests/mcp tests/integration -q` exited `0` with
+  `815 passed, 9 skipped`; frontend tests exited `0` with `169 passed`;
+  TypeScript check and production build passed; lint exited `0` with no errors
+  and `211` pre-existing warnings. The active Compose API, Worker, Beat,
+  PostgreSQL, Redis, and n8n services were healthy. No personal outcome,
+  Capability, Strategy Genome, raw Vault content, or external connector state
+  was created or promoted by this verification.
+- **Rollback:** revert the PBOS execution-summary and Atlas projection changes
+  independently from the audit data. Existing executions, historical rejected
+  sources, outcomes, and governed references remain retained and unmodified.
