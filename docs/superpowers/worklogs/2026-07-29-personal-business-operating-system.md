@@ -648,3 +648,23 @@
   the PBOS compiler/context correction, its tests, and the aligned PRD,
   worklog, and consolidation documents. Existing worktree changes remain
   intentionally unstaged and outside this commit.
+
+## 2026-07-30 Local Studio End-To-End Access Verification
+
+- Verified the already configured loopback-only Vite Studio proxy on
+  `http://127.0.0.1:5174`. It retains the runtime credential in the local Vite
+  process and sends only a non-secret local-proxy marker from the browser;
+  neither the browser DOM nor PBOS records expose the API key.
+- A browser call to the proxied default-project Cockpit returned `200` without
+  a manually entered browser key. Opening PBOS rendered the live ledger rather
+  than an authorization gate: 22 governed references, the current contextual
+  plan, Obsidian/Artifact lineage, feedback, receipt status, strategy gate,
+  and the three-minute reflection controls were all present.
+- Desktop and `390x844` browser acceptance both showed the real daily action
+  `基于BSC证据定义内容曝光与互动关键指标`. The mobile document width was
+  `384/384` with no horizontal overflow, and the browser console contained no
+  error entries.
+- No reflection, acceptance checkbox, quality score, external authorization,
+  or outcome was submitted during this verification. PBOS therefore continues
+  to show its honest zero-capability/zero-strategy state until the project
+  owner records real delivery evidence.

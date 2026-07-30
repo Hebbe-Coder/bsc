@@ -316,3 +316,18 @@ npm run build
   and desktop/390px authorization-gate rendering were verified. `ruff` was
   not installed in the configured Python environment, so no ruff invocation
   was represented as a passing check.
+
+## Local Studio Access Proof
+
+- The configured `127.0.0.1:5174` Vite proxy was verified as the secure local
+  Studio entrypoint: it injects its opted-in credential server-side and the
+  browser shows only `local proxy` authentication. A direct proxied Cockpit
+  request returned 200 with no browser-entered key.
+- Browser acceptance opened the PBOS Cockpit against the default project and
+  rendered 22 governed references, the current Chinese contextual action,
+  evidence lineage, receipts, feedback, reflection fields, and unchanged
+  personal-learning gates. At `390x844`, the document measured `384/384`
+  client/scroll width and the browser recorded no console errors.
+- This is a verified usage path, not an automatic acceptance of a personal
+  delivery. No evidence, reflection, score, or connector authorization was
+  fabricated during browser testing.
