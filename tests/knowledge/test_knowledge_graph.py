@@ -1,4 +1,5 @@
 from app.knowledge.knowledge_graph import KnowledgeGraphService
+from app.knowledge.wiki_contracts import KnowledgeGraphEdge
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_source_capture import CapturedSourceInput, SourceCaptureService
 
@@ -85,6 +86,51 @@ def test_graph_visualization_excludes_edges_and_nodes_for_audit_retained_sources
         assert {edge["to_id"] for edge in payload["edges"]} == {visible["id"]}
         assert excluded["id"] not in {node["id"] for node in payload["nodes"]}
         assert payload["total"] == 1
+    finally:
+        repo.close()
+
+
+def test_graph_visualization_paginates_before_filtering_scope_excluded_edges(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "visualization-scope-page.db"))
+    capture = SourceCaptureService(repo)
+    excluded = capture.capture(
+        CapturedSourceInput(project_id="project-a", source_type="manual_upload", origin="legacy.md", raw_content="Audit-only evidence")
+    ).source
+    visible = capture.capture(
+        CapturedSourceInput(project_id="project-a", source_type="manual_upload", origin="visible.md", raw_content="Visible evidence")
+    ).source
+    repo.update_source_metadata(
+        "project-a",
+        excluded["id"],
+        {"scope_exclusion": {"reason": "outside_mapped_project_root", "project_root": "projects/project-a"}},
+    )
+    try:
+        edges = [
+            KnowledgeGraphEdge(
+                id=f"edge-{index:04d}",
+                project_id="project-a",
+                from_id=excluded["id"],
+                to_id="page-a",
+                edge_type="wiki_cites_source",
+            )
+            for index in range(1_000)
+        ]
+        edges.append(
+            KnowledgeGraphEdge(
+                id="edge-9999",
+                project_id="project-a",
+                from_id="page-a",
+                to_id=visible["id"],
+                edge_type="wiki_cites_source",
+            )
+        )
+        repo.replace_graph_edges("project-a", edges)
+
+        payload = KnowledgeGraphService(repo).visualization(project_id="project-a", limit=10)
+
+        assert payload["total"] == 1
+        assert payload["truncated"] is False
+        assert [(edge["from_id"], edge["to_id"]) for edge in payload["edges"]] == [("page-a", visible["id"])]
     finally:
         repo.close()
 

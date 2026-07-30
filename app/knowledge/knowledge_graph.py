@@ -87,16 +87,25 @@ class KnowledgeGraphService:
             for source in all_sources
             if not is_active_evidence_source(source)
         }
-        # The interactive graph is bounded at 500 edges, while the repository
-        # read below has a wider fixed ceiling solely to filter audit-retained
-        # endpoints before pagination is applied.
-        all_edges = self.list_edges(project_id, edge_type=edge_type, limit=1000, offset=0)
-        visible_edges = [
-            edge
-            for edge in all_edges
-            if str(edge.get("from_id") or "") not in excluded_source_ids
-            and str(edge.get("to_id") or "") not in excluded_source_ids
-        ]
+        # Filter before applying the interactive page. A single repository
+        # page is capped at 1,000 rows, so read every persisted page here;
+        # otherwise a large prefix of audit-retained edges could hide later
+        # active relations and make the reported total incorrect.
+        visible_edges: list[dict] = []
+        stored_edge_count = self.repository.count_graph_edges(project_id, edge_type=edge_type)
+        for repository_offset in range(0, stored_edge_count, 1_000):
+            stored_edges = self.list_edges(
+                project_id,
+                edge_type=edge_type,
+                limit=1_000,
+                offset=repository_offset,
+            )
+            visible_edges.extend(
+                edge
+                for edge in stored_edges
+                if str(edge.get("from_id") or "") not in excluded_source_ids
+                and str(edge.get("to_id") or "") not in excluded_source_ids
+            )
         total = len(visible_edges)
         edges = visible_edges[offset:offset + limit]
         nodes: dict[str, dict] = {}
