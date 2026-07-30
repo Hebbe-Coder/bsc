@@ -23,10 +23,18 @@ export interface PbosProfile {
 }
 
 export interface PbosExecutionPayload {
+    plan_id: string;
+    actions: string[];
+    tool_receipts?: Array<Record<string, unknown>>;
+    reflection: Record<string, string>;
+}
+
+export interface PbosWorkspaceCapturePayload {
   plan_id: string;
+  paths: string[];
   actions: string[];
-  tool_receipts?: Array<Record<string, unknown>>;
   reflection: Record<string, string>;
+  observed_at?: string;
 }
 
 export function fetchPbosCockpit(projectId: string): Promise<PbosCockpit> {
@@ -45,6 +53,12 @@ export function savePbosProfile(projectId: string, profile: PbosProfile): Promis
 
 export function recordPbosExecution(projectId: string, missionId: string, payload: PbosExecutionPayload): Promise<{ execution: Record<string, unknown> }> {
   return fetchWrapper.fetch<{ execution: Record<string, unknown> }>(`/api/pbos/projects/${encodeURIComponent(projectId)}/missions/${encodeURIComponent(missionId)}/executions`, {
+    method: 'POST', body: JSON.stringify(payload),
+  });
+}
+
+export function capturePbosWorkspaceExecution(projectId: string, missionId: string, payload: PbosWorkspaceCapturePayload): Promise<{ execution: Record<string, unknown> }> {
+  return fetchWrapper.fetch<{ execution: Record<string, unknown> }>(`/api/pbos/projects/${encodeURIComponent(projectId)}/missions/${encodeURIComponent(missionId)}/capture-bsc-workspace`, {
     method: 'POST', body: JSON.stringify(payload),
   });
 }

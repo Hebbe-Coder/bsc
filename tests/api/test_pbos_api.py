@@ -57,3 +57,52 @@ def test_pbos_plan_api_uses_project_vault_context(monkeypatch, tmp_path):
     assert action.json()["state"] == "recommended"
     assert action.json()["plan_id"] == payload["artifact_id"]
     assert action.json()["knowledge_context_refs"] == ["vault:03_Projects/active/context.md"]
+
+
+def test_pbos_workspace_capture_records_one_execution_with_safe_receipt_and_reflection(monkeypatch, tmp_path):
+    monkeypatch.setattr(dbos_api, "DBOS_DATA_ROOT", tmp_path / "dbos")
+    store = dbos_api.dbos_service_for("personal").store
+    store.add(
+        MissionArtifact(
+            artifact_id="mission-capture",
+            mission_id="mission-capture",
+            project_id="personal",
+            label="Capture evidence",
+            title="Capture evidence",
+        )
+    )
+    client = TestClient(app)
+
+    captured = client.post(
+        "/api/pbos/projects/personal/missions/mission-capture/capture-bsc-workspace",
+        json={
+            "paths": ["tests/api/test_pbos_api.py"],
+            "actions": ["Ran the project-scoped capture path."],
+            "reflection": {"completed": "The receipt is attached to this execution."},
+        },
+    )
+    unsafe = client.post(
+        "/api/pbos/projects/personal/missions/mission-capture/capture-bsc-workspace",
+        json={"paths": [".env"]},
+    )
+
+    assert captured.status_code == 200
+    execution = captured.json()["execution"]
+    assert execution["reflection"]["completed"] == "The receipt is attached to this execution."
+    assert any(
+        receipt["kind"] == "local_file" and receipt["path"] == "tests/api/test_pbos_api.py"
+        for receipt in execution["tool_receipts"]
+    )
+    assert unsafe.status_code == 422
+
+    manual = client.post(
+        "/api/pbos/projects/personal/missions/mission-capture/executions",
+        json={
+            "actions": ["A client-submitted note."],
+            "tool_receipts": [{"kind": "client_claim", "verified": True}],
+            "reflection": {"completed": "No server capture occurred."},
+        },
+    )
+
+    assert manual.status_code == 200
+    assert manual.json()["execution"]["tool_receipts"][0]["verified"] is False

@@ -3,6 +3,7 @@ import ReactFlow, { Background, Controls, type Edge, type Node } from 'reactflow
 import 'reactflow/dist/style.css';
 import { AlertTriangle, BrainCircuit, CircleCheckBig, KeyRound, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import {
+  capturePbosWorkspaceExecution,
   fetchPbosCockpit,
   fetchPbosProfile,
   recordPbosExecution,
@@ -47,6 +48,32 @@ function planObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+function planGenerationStatus(plan: Record<string, unknown> | null | undefined): {
+  label: string;
+  detail: string;
+  tone: 'is-ready' | 'is-pending';
+} {
+  const metadata = planObject(plan?.compiler_metadata);
+  const mode = String(metadata.mode || '');
+  const failure = String(metadata.llm_failure || '').replace(/_/g, ' ').trim();
+  if (mode === 'llm_contextual') {
+    const provider = String(metadata.provider || '').trim();
+    const model = String(metadata.model || '').trim();
+    return {
+      label: 'LLM contextual',
+      detail: [provider, model].filter(Boolean).join(' / ') || 'configured model',
+      tone: 'is-ready',
+    };
+  }
+  if (failure) {
+    return { label: 'LLM fallback', detail: failure, tone: 'is-pending' };
+  }
+  if (String(plan?.compilation_state || '') === 'capture_required') {
+    return { label: 'Capture required', detail: 'evidence gap', tone: 'is-pending' };
+  }
+  return { label: 'Contextual deterministic', detail: 'no model result recorded', tone: 'is-pending' };
+}
+
 export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '', onConfigureAccess }: Props) {
   const [data, setData] = useState<PbosCockpit | null>(null);
   const [profile, setProfile] = useState<PbosProfile | null>(null);
@@ -60,6 +87,9 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
   const [reflection, setReflection] = useState('');
   const [blocker, setBlocker] = useState('');
   const [feedbackDraft, setFeedbackDraft] = useState('');
+  const [evidencePaths, setEvidencePaths] = useState('');
+  const [acceptanceConfirmed, setAcceptanceConfirmed] = useState(false);
+  const [qualityScore, setQualityScore] = useState('');
   const load = async () => {
     if (!runtimeAccessKey.trim()) {
       setData(null); setProfile(null); setError(''); setAccessState('required');
@@ -91,6 +121,7 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
   const failurePatterns = data?.failure_patterns ?? [];
   const projectHealth = data?.project_health ?? {};
   const todayAction = planObject(data?.today_action);
+  const generation = planGenerationStatus(data?.today);
   const acceptedOutcomes = outcomes.filter((item) => item.acceptance_status === 'accepted').length;
   const qualitySeries = outcomes.slice().reverse();
   const contextReferences = stringRefs(data?.today?.knowledge_context_refs);
@@ -129,18 +160,37 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
     const missionId = String(today?.mission_id || '');
     const planId = String(today?.artifact_id || '');
     if (!missionId || !planId || !reflection.trim()) return;
+    const paths = splitList(evidencePaths);
+    const parsedQuality = Number(qualityScore);
+    if (acceptanceConfirmed && !paths.length) {
+      setError('Attach at least one BSC workspace evidence file before accepting an outcome.');
+      return;
+    }
+    if (acceptanceConfirmed && (!qualityScore.trim() || !Number.isFinite(parsedQuality) || parsedQuality < 0 || parsedQuality > 100)) {
+      setError('An accepted outcome needs a quality score from 0 to 100.');
+      return;
+    }
+    if (!acceptanceConfirmed && qualityScore.trim()) {
+      setError('Confirm acceptance before recording a quality score.');
+      return;
+    }
     setSaving(true);
     try {
-      const execution = await recordPbosExecution(projectId, missionId, {
+      const executionPayload = {
         plan_id: planId,
         actions: [reflection.trim()],
         reflection: { completed: reflection.trim(), blocker: blocker.trim() },
-      });
+      };
+      const execution = paths.length
+        ? await capturePbosWorkspaceExecution(projectId, missionId, { ...executionPayload, paths })
+        : await recordPbosExecution(projectId, missionId, executionPayload);
       const outcome = await recordPbosOutcome(projectId, String(execution.execution.artifact_id || ''), {
-        acceptance_status: 'unverified', metrics: { reflection_recorded: true },
+        acceptance_status: acceptanceConfirmed ? 'accepted' : 'unverified',
+        ...(acceptanceConfirmed ? { quality_score: parsedQuality } : {}),
+        metrics: { reflection_recorded: true, evidence_capture: paths.length ? 'bsc_workspace' : 'none' },
       });
       if (feedbackDraft.trim()) await recordPbosFeedback(projectId, String(outcome.outcome.artifact_id || ''), feedbackDraft.trim());
-      setReflection(''); setBlocker(''); setFeedbackDraft(''); await load();
+      setReflection(''); setBlocker(''); setFeedbackDraft(''); setEvidencePaths(''); setAcceptanceConfirmed(false); setQualityScore(''); await load();
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to record reflection'); }
     finally { setSaving(false); }
   };
@@ -192,9 +242,9 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
       {Object.keys(currentPhase).length > 0 && <section className="pbos-execution-path"><div className="pbos-panel-heading"><p className="pbos-label">TODAY'S EXECUTION PATH</p><span>phase 1 of {phases.length}</span></div><h3>{String(currentPhase.title || 'Clarify the next evidence-backed slice')}</h3>{currentPhase.why_now && <p>{String(currentPhase.why_now)}</p>}<div className="pbos-execution-path__io"><div><strong>Inputs</strong>{phaseInputs.slice(0, 3).map((item) => <span key={item}>{item}</span>)}</div><div><strong>Reviewable output</strong>{phaseOutputs.slice(0, 2).map((item) => <span key={item}>{item}</span>)}</div></div>{phaseActions.length > 0 && <ol>{phaseActions.slice(0, 3).map((item) => <li key={item}>{item}</li>)}</ol>}{decisionPoint.question && <div className="pbos-decision-point"><strong>Decision: {String(decisionPoint.question)}</strong><span>Proceed: {String(decisionPoint.proceed_when || 'when the phase output is reviewable')}</span><span>Adapt: {String(decisionPoint.adapt_when || 'when the evidence boundary is not met')}</span></div>}{executionContract.reflection_entry && <small>{String(executionContract.reflection_entry)}</small>}</section>}
       <section className="pbos-connectors"><div className="pbos-panel-heading"><p className="pbos-label">CONNECTORS</p><span>{Object.keys(data.connectors).length} configured</span></div><div>{Object.entries(data.connectors).map(([name, state]) => <p key={name}><strong>{name}</strong><span data-state={state}>{connectorLabel(state)}</span></p>)}</div><small>External sources stay outside personal evidence until their scoped authorization and receipts are available.</small></section>
       <section className="pbos-health"><div className="pbos-panel-heading"><p className="pbos-label">PROJECT HEALTH</p><span>ledger projection</span></div><dl><div><dt>Accepted</dt><dd>{String(projectHealth.accepted_outcomes ?? 0)}</dd></div><div><dt>Learning-eligible</dt><dd>{String(projectHealth.eligible_personal_outcomes ?? 0)}</dd></div><div><dt>Unverified</dt><dd>{String(projectHealth.unverified_outcomes ?? 0)}</dd></div><div><dt>Active strategies</dt><dd>{String(projectHealth.active_strategies ?? 0)}</dd></div><div><dt>Evidence-ready</dt><dd>{projectHealth.evidence_ready ? 'yes' : 'no'}</dd></div></dl></section>
-      {data.today && <section className="pbos-grounding"><div className="pbos-panel-heading"><p className="pbos-label">PLAN GROUNDING</p><span>{contextReferences.length} governed reference{contextReferences.length === 1 ? '' : 's'}</span></div><dl><div><dt>Weekly handoff</dt><dd>{weeklyHandoffs.length} weekly handoff{weeklyHandoffs.length === 1 ? '' : 's'}</dd></div><div><dt>Feedback input</dt><dd>{feedbackReferences.length} feedback input{feedbackReferences.length === 1 ? '' : 's'}</dd></div></dl>{contextReferences.length ? <ul>{contextReferences.slice(0, 4).map((item) => <li key={item}><code>{visibleVaultRef(item)}</code></li>)}</ul> : <p className="pbos-grounding-empty">No governed context was selected for this plan.</p>}<p>These are planning inputs. They do not establish a personal capability without verified execution evidence.</p></section>}
+      {data.today && <section className="pbos-grounding"><div className="pbos-panel-heading"><p className="pbos-label">PLAN GROUNDING</p><span>{contextReferences.length} governed reference{contextReferences.length === 1 ? '' : 's'}</span></div><dl><div><dt>Plan engine</dt><dd><span className={`pbos-plan-generation ${generation.tone}`}>{generation.label}</span><small>{generation.detail}</small></dd></div><div><dt>Weekly handoff</dt><dd>{weeklyHandoffs.length} weekly handoff{weeklyHandoffs.length === 1 ? '' : 's'}</dd></div><div><dt>Feedback input</dt><dd>{feedbackReferences.length} feedback input{feedbackReferences.length === 1 ? '' : 's'}</dd></div></dl>{contextReferences.length ? <ul>{contextReferences.slice(0, 4).map((item) => <li key={item}><code>{visibleVaultRef(item)}</code></li>)}</ul> : <p className="pbos-grounding-empty">No governed context was selected for this plan.</p>}<p>These are planning inputs. They do not establish a personal capability without verified execution evidence.</p></section>}
       <section className="pbos-profile"><p className="pbos-label">PERSONAL CONTEXT</p><form onSubmit={saveProfile}><label>Focus<input value={focus} onChange={(event) => setFocus(event.target.value)} placeholder="AI systems, knowledge engineering" /></label><label>Goals<input value={goals} onChange={(event) => setGoals(event.target.value)} placeholder="Ship a verified personal operating system" /></label><label>Resources<input value={resources} onChange={(event) => setResources(event.target.value)} placeholder="Obsidian, BSC" /></label><label>Constraints<input value={constraints} onChange={(event) => setConstraints(event.target.value)} placeholder="Solo delivery, limited time" /></label><button type="submit" disabled={saving} title="Save personal context">Save personal context</button></form><p>{profile ? 'This is declared context. Capability claims still require execution evidence.' : 'Add your real operating context before PBOS personalizes a plan.'}</p></section>
-      {data.today && <section className="pbos-reflection"><p className="pbos-label">THREE-MINUTE REFLECTION</p><form onSubmit={submitReflection}><label>What changed?<textarea value={reflection} onChange={(event) => setReflection(event.target.value)} required placeholder="Completed, observed result, or decision made" /></label><label>What blocked you?<input value={blocker} onChange={(event) => setBlocker(event.target.value)} placeholder="Optional blocker" /></label><label>What should change next time?<input value={feedbackDraft} onChange={(event) => setFeedbackDraft(event.target.value)} placeholder="Optional feedback for the next plan" /></label><button type="submit" disabled={saving || !reflection.trim()} title="Record an unverified reflection">Record reflection</button></form><p>A reflection is recorded as unverified until a result and receipt corroborate it.</p></section>}
+      {data.today && <section className="pbos-reflection"><p className="pbos-label">THREE-MINUTE REFLECTION</p><form onSubmit={submitReflection}><label>What changed?<textarea value={reflection} onChange={(event) => setReflection(event.target.value)} required placeholder="Completed, observed result, or decision made" /></label><label>What blocked you?<input value={blocker} onChange={(event) => setBlocker(event.target.value)} placeholder="Optional blocker" /></label><label>Evidence files in this BSC workspace<input value={evidencePaths} onChange={(event) => setEvidencePaths(event.target.value)} placeholder="app/pbos/service.py, app/knowledge/wiki_sync.py" /></label><small>Only approved project paths are hashed. File contents and credentials are never sent to the PBOS ledger.</small><label className="pbos-reflection__acceptance"><input type="checkbox" checked={acceptanceConfirmed} onChange={(event) => setAcceptanceConfirmed(event.target.checked)} />I accept this result based on the attached evidence</label><label>Quality score (0-100)<input type="number" min="0" max="100" step="1" value={qualityScore} onChange={(event) => setQualityScore(event.target.value)} disabled={!acceptanceConfirmed} placeholder="82" /></label><label>What should change next time?<input value={feedbackDraft} onChange={(event) => setFeedbackDraft(event.target.value)} placeholder="Optional feedback for the next plan" /></label><button type="submit" disabled={saving || !reflection.trim()} title="Record evidence-backed reflection">Record reflection</button></form><p>Without an attached receipt and explicit acceptance, PBOS keeps the result unverified and does not learn a personal method from it.</p></section>}
       <section className="pbos-chart"><div className="pbos-panel-heading"><p className="pbos-label">OUTCOME QUALITY</p><span>{qualitySeries.length ? `${qualitySeries.length} scored result${qualitySeries.length === 1 ? '' : 's'}` : 'awaiting score'}</span></div>{qualitySeries.length ? <RegisteredECharts option={qualityChart} style={{ height: 210 }} notMerge /> : <p className="pbos-empty-panel">No scored outcome has been recorded.</p>}</section>
       <section className="pbos-lineage"><p className="pbos-label">PERSONAL WORKFLOW LINEAGE</p><ReactFlow nodes={nodes} edges={edges} fitView fitViewOptions={{ padding: 0.12 }} minZoom={0.25} nodesDraggable={false} nodesConnectable={false}><Background /><Controls /></ReactFlow></section>
       <section><p className="pbos-label">STRATEGY ASSETS</p><div className="pbos-outcomes">{strategies.length ? strategies.map((item) => { const genome = item.genome as Record<string, unknown> | undefined; return <p key={String(item.artifact_id)}><CircleCheckBig size={15} /><span><strong>{String(item.strategy_name || 'Strategy')} v{String(item.version || 1)}</strong><small>{String(item.status || 'draft')} / {String(genome?.comparison_context || 'unclassified context')} / median {String(genome?.median_quality ?? 'unverified')}</small></span></p>; }) : <p>No Strategy Genome has passed the evidence gate yet.</p>}</div></section>

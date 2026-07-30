@@ -48,10 +48,14 @@ class ObsidianSyncService:
             relative = path.relative_to(self.vault_root)
             if self._excluded(relative, project_root, managed_roots):
                 continue
-            seen_paths.add(relative.as_posix())
             project_relative = "/".join(relative.parts[len(project_root):]) if project_root else ""
             declared_plugin = manifest.declared_plugin_for(project_relative) if project_relative else None
             plugin = manifest.plugin_for(project_relative) if project_relative else None
+            if plugin and self._is_bsc_bridge_healthcheck(plugin.plugin_id, relative.parts[len(project_root):]):
+                # The local Clipper probe proves destination alignment only.
+                # It is never evidence and must not make a bridge look used.
+                continue
+            seen_paths.add(relative.as_posix())
             if declared_plugin and not plugin:
                 # A declared path remains visible in workspace status, but is
                 # not read until its exact adapter/root configuration is trusted.
@@ -314,3 +318,11 @@ class ObsidianSyncService:
                 return True
             return not ObsidianPluginManifest.is_syncable_knowledge_path(project_relative)
         return any(parts[:len(root)] == root for root in managed_roots or {("projects",)})
+
+    @staticmethod
+    def _is_bsc_bridge_healthcheck(plugin_id: str, project_relative: tuple[str, ...]) -> bool:
+        return (
+            plugin_id == "obsidian-clipper"
+            and len(project_relative) >= 3
+            and project_relative[-1].lower() == "bsc.local.md"
+        )

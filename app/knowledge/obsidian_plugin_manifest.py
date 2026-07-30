@@ -16,6 +16,7 @@ MANIFEST_FILENAME = "bsc-plugins.json"
 TRUST_FILENAME = "bsc-plugin-trust.json"
 _MAX_MANIFEST_BYTES = 64 * 1024
 _MAX_OBSERVED_EXPORT_FILES = 512
+_BSC_BRIDGE_HEALTHCHECK_NAME = "bsc.local.md"
 _SOURCE_ADAPTER = "filesystem_drop"
 _OUTPUT_ADAPTER = "filesystem_output"
 _CONTEXT_ADAPTER = "filesystem_context"
@@ -421,7 +422,11 @@ class ObsidianPluginManifest:
         for source in sources:
             metadata = source.get("metadata") if isinstance(source, dict) else None
             plugin_id = str(metadata.get("obsidian_plugin") or "") if isinstance(metadata, dict) else ""
-            if plugin_id in captured_sources and str(metadata.get("obsidian_adapter") or _SOURCE_ADAPTER) in _CAPTURE_ADAPTERS:
+            if (
+                plugin_id in captured_sources
+                and metadata.get("source_present") is not False
+                and str(metadata.get("obsidian_adapter") or _SOURCE_ADAPTER) in _CAPTURE_ADAPTERS
+            ):
                 captured_sources[plugin_id].append(source)
         for output in outputs:
             metadata = output.get("metadata") if isinstance(output, dict) else None
@@ -518,7 +523,10 @@ class ObsidianPluginManifest:
                     if candidate.is_symlink() or not candidate.is_file():
                         continue
                     relative = candidate.relative_to(export_root)
-                    if ObsidianPluginManifest._is_transient_export_file(relative):
+                    if (
+                        ObsidianPluginManifest._is_transient_export_file(relative)
+                        or ObsidianPluginManifest._is_bsc_bridge_healthcheck(plugin, relative)
+                    ):
                         continue
                     count += 1
                     modified_at = datetime.fromtimestamp(candidate.stat().st_mtime, tz=timezone.utc).isoformat()
@@ -544,6 +552,17 @@ class ObsidianPluginManifest:
             return True
         name = relative.name.lower()
         return name.startswith("~") or name.endswith((".tmp", ".temp", ".swp", ".lock"))
+
+    @staticmethod
+    def _is_bsc_bridge_healthcheck(plugin: ObsidianPlugin, relative: Path) -> bool:
+        """Keep BSC's local Clipper connectivity probe out of source status.
+
+        The probe deliberately looks like an exported Markdown file so a user
+        can open it in Obsidian, but it explicitly declares that it is not
+        research material. Counting it as a captured source makes an empty
+        personal knowledge library look populated.
+        """
+        return plugin.plugin_id == "obsidian-clipper" and relative.name.lower() == _BSC_BRIDGE_HEALTHCHECK_NAME
 
     @staticmethod
     def _runtime_configuration(

@@ -209,3 +209,50 @@ npm run build
   receipts, scores, and three-minute reflections before any Strategy Genome,
   Experience, or Capability is promoted. GitHub and Feishu remain
   `awaiting_authorization` and are not treated as data sources.
+
+## Post-Consolidation Integrity Fix: Clipper Health-Check Exclusion
+
+- A BSC-created Clipper destination health-check file had been presented as a
+  captured source when a historical rejected record still referenced that
+  path. The Vault was empty; the Studio projection was wrong. The source sync
+  now excludes this marker before path-observation reconciliation, preserving
+  the rejected record as audit history while setting `source_present=false`.
+- The focused regression suite passed (`23 passed, 1 skipped`). After an API
+  and worker rebuild, a real default-project Vault sync recorded one legacy
+  record as no longer present and created no evidence. Authenticated API
+  readback returned a configured Vault and Clipper `awaiting_export` with zero
+  captured sources and an empty export observation.
+- This changes no PBOS learning evidence. The live Cockpit still has a
+  real today-action projection but zero promoted Capabilities and zero Strategy
+  Genomes until the documented three-delivery, accepted-outcome gate is met.
+
+## Post-Consolidation Product Closure: Evidence-Backed Reflections
+
+- **Deviation resolved:** the original Cockpit could collect a three-minute
+  reflection but could not attach a receipt or explicitly record an accepted,
+  scored outcome in the same execution. The UI therefore could not produce an
+  evolution-eligible result through normal use. It now offers a BSC-workspace
+  evidence field, explicit acceptance, and quality score in one guarded flow.
+- **Implemented contract:** `POST /api/pbos/projects/{project_id}/missions/{mission_id}/capture-bsc-workspace`
+  captures only allowlisted project-relative paths. It stores server-observed
+  hashes and optional Git identity, rejects unavailable or unsafe paths with
+  `422`, and does not expose source bytes. The general execution endpoint
+  treats caller-provided receipts as unverified even when a caller supplies a
+  `verified=true` field.
+- **Artifact Graph mapping:** the server-captured `WorkExecutionRecord` owns
+  the verified receipt and reflection; `WorkOutcome` owns the user acceptance
+  and score; `WorkFeedback` remains optional. `Experience`, `Capability`, and
+  immutable `SOPVersion` still require three comparable accepted outcomes with
+  the original quality or hard-failure gates. This preserves the PRD's
+  no-fabricated-growth invariant.
+- **Runtime evidence:** after rebuilding the production API, a container-local
+  capture of `app/pbos/service.py` produced a real `local_file` hash receipt.
+  A manual receipt claim was downgraded to `verified=false` and could not
+  satisfy evolution; `.env` capture was rejected with `422`; `/ready` and the
+  authenticated Cockpit returned `200`.
+- **Verification:** PBOS REST/MCP/integration tests `45 passed`; shared
+  Artifact/DBOS/knowledge tests `99 passed, 1 skipped`; frontend tests
+  `167 passed`; `npm run check`, `npm run build`, and `docker compose config
+  --quiet` passed. Rollback removes only the capture endpoint and Cockpit
+  controls; persisted evidence stays audit-visible and no record is promoted
+  by rollback.

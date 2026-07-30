@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+from pathlib import Path, PurePosixPath
 from statistics import median
 from typing import Any
 
@@ -17,6 +18,16 @@ from .compiler import PBOSPlanCompiler
 
 
 class PBOSService:
+    _BSC_WORKSPACE_PREFIXES = ("app/", "src/", "tests/", "docs/", "scripts/")
+    _BSC_WORKSPACE_FILES = {
+        "Dockerfile",
+        "docker-compose.yml",
+        "package-lock.json",
+        "package.json",
+        "requirements-production.txt",
+        "requirements.txt",
+    }
+
     def __init__(
         self,
         store: ArtifactGraphStore,
@@ -58,8 +69,73 @@ class PBOSService:
         self.store.add(artifact)
         return artifact
 
+    def record_manual_execution(self, mission_id: str, plan_id: str, payload: dict[str, Any]) -> WorkExecutionRecordArtifact:
+        """Persist user-supplied notes without letting them self-certify receipts."""
+        values = dict(payload)
+        receipts = values.get("tool_receipts") or []
+        values["tool_receipts"] = [
+            {**dict(receipt), "verified": False}
+            for receipt in receipts
+            if isinstance(receipt, dict)
+        ]
+        return self.record_execution(mission_id, plan_id, values)
+
     def capture_local_execution(self, mission_id: str, plan_id: str, root: str, paths: list[str]) -> WorkExecutionRecordArtifact:
         return self.record_execution(mission_id, plan_id, {"actions": ["Captured local evidence"], "tool_receipts": local_receipts(root, paths)})
+
+    def capture_bsc_workspace_execution(
+        self,
+        mission_id: str,
+        plan_id: str,
+        *,
+        paths: list[str],
+        actions: list[str] | None = None,
+        reflection: dict[str, str] | None = None,
+        observed_at: str = "",
+        workspace_root: Path | str | None = None,
+    ) -> WorkExecutionRecordArtifact:
+        """Attach only declared, non-secret BSC workspace receipts to one execution."""
+        root = Path(workspace_root).resolve() if workspace_root else Path(__file__).resolve().parents[2]
+        selected_paths = self._safe_bsc_workspace_paths(paths)
+        receipts = local_receipts(str(root), selected_paths)
+        captured_paths = {
+            str(receipt.get("path") or "")
+            for receipt in receipts
+            if str(receipt.get("kind") or "") == "local_file"
+        }
+        missing_paths = [path for path in selected_paths if path not in captured_paths]
+        if missing_paths:
+            raise ValueError("Selected BSC workspace evidence files are unavailable in the deployed workspace")
+        if not receipts:
+            raise ValueError("No safe BSC workspace evidence receipt was captured")
+        return self.record_execution(
+            mission_id,
+            plan_id,
+            {
+                "actions": actions or ["Captured BSC workspace evidence"],
+                "tool_receipts": receipts,
+                "reflection": reflection or {},
+                "observed_at": observed_at,
+            },
+        )
+
+    @classmethod
+    def _safe_bsc_workspace_paths(cls, paths: list[str]) -> list[str]:
+        selected: list[str] = []
+        for raw_path in paths:
+            normalized = str(raw_path).strip().replace("\\", "/")
+            candidate = PurePosixPath(normalized)
+            if not normalized or candidate.is_absolute() or ".." in candidate.parts:
+                raise ValueError("BSC workspace evidence paths must be relative and stay inside an approved directory")
+            value = candidate.as_posix()
+            allowed = value in cls._BSC_WORKSPACE_FILES or value.startswith(cls._BSC_WORKSPACE_PREFIXES)
+            if not allowed:
+                raise ValueError("BSC workspace evidence paths must be in an approved project directory")
+            if value not in selected:
+                selected.append(value)
+        if not selected:
+            raise ValueError("Select at least one BSC workspace evidence file")
+        return selected
 
     def record_outcome(self, execution_id: str, payload: dict[str, Any]) -> WorkOutcomeArtifact:
         execution = self.store.get(execution_id)
@@ -342,6 +418,8 @@ class PBOSService:
                 missing.append("actions")
             if not execution.tool_receipts:
                 missing.append("tool_receipts")
+            elif not self._has_verified_receipt(execution):
+                missing.append("verified_tool_receipt")
             if not any(str(value).strip() for value in execution.reflection.values()):
                 missing.append("reflection")
         return {
@@ -414,7 +492,14 @@ class PBOSService:
         if not isinstance(execution, WorkExecutionRecordArtifact):
             return False
         has_reflection = any(str(value).strip() for value in execution.reflection.values())
-        return bool(execution.actions and execution.tool_receipts and has_reflection)
+        return bool(execution.actions and self._has_verified_receipt(execution) and has_reflection)
+
+    @staticmethod
+    def _has_verified_receipt(execution: WorkExecutionRecordArtifact) -> bool:
+        return any(
+            isinstance(receipt, dict) and receipt.get("verified") is True
+            for receipt in execution.tool_receipts
+        )
 
     @staticmethod
     def _baseline_quality(active: SOPVersionArtifact | None, outcomes: list[WorkOutcomeArtifact]) -> float | None:

@@ -47,6 +47,14 @@ class LocalCaptureRequest(PBOSRequest):
     paths: list[str] = Field(default_factory=list)
 
 
+class BscWorkspaceCaptureRequest(PBOSRequest):
+    plan_id: str = ""
+    paths: list[str] = Field(min_length=1, max_length=12)
+    actions: list[str] = Field(default_factory=list, max_length=24)
+    reflection: dict[str, str] = Field(default_factory=dict)
+    observed_at: str = ""
+
+
 class OutcomeRequest(PBOSRequest):
     quality_score: float | None = Field(default=None, ge=0, le=100)
     severe_failure: bool = False
@@ -119,7 +127,7 @@ def compile_plan(project_id: str, mission_id: str, request: Request, diagnosis_i
 @router.post("/projects/{project_id}/missions/{mission_id}/executions")
 def record_execution(project_id: str, mission_id: str, payload: ExecutionRequest, request: Request):
     try:
-        record = _pbos(request, project_id, write=True).record_execution(mission_id, payload.plan_id, payload.model_dump(exclude={"plan_id"}))
+        record = _pbos(request, project_id, write=True).record_manual_execution(mission_id, payload.plan_id, payload.model_dump(exclude={"plan_id"}))
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"execution": record.model_dump(mode="json"), "vault": _sync(project_id, record)}
@@ -131,6 +139,23 @@ def capture_local(project_id: str, mission_id: str, payload: LocalCaptureRequest
         record = _pbos(request, project_id, write=True).capture_local_execution(mission_id, payload.plan_id, payload.root, payload.paths)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"execution": record.model_dump(mode="json"), "vault": _sync(project_id, record)}
+
+
+@router.post("/projects/{project_id}/missions/{mission_id}/capture-bsc-workspace")
+def capture_bsc_workspace(project_id: str, mission_id: str, payload: BscWorkspaceCaptureRequest, request: Request):
+    try:
+        record = _pbos(request, project_id, write=True).capture_bsc_workspace_execution(
+            mission_id,
+            payload.plan_id,
+            paths=payload.paths,
+            actions=payload.actions,
+            reflection=payload.reflection,
+            observed_at=payload.observed_at,
+        )
+    except ValueError as exc:
+        status = 422 if "BSC workspace evidence" in str(exc) or "approved" in str(exc) or "Select at least" in str(exc) or "unavailable" in str(exc) else 404
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
     return {"execution": record.model_dump(mode="json"), "vault": _sync(project_id, record)}
 
 

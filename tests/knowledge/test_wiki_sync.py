@@ -5,6 +5,7 @@ import pytest
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_sync import ObsidianSyncService
 from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
+from app.knowledge.wiki_contracts import SourceRecord, SourceStatus
 
 
 def test_obsidian_sync_imports_user_markdown_without_reading_managed_or_hidden_files(tmp_path):
@@ -356,6 +357,56 @@ def test_plugin_status_distinguishes_an_empty_route_from_an_unprocessed_export(t
     assert detected["export_observation"]["state"] == "files_detected"
     assert detected["export_observation"]["file_count"] == 1
     assert detected["export_observation"]["latest_modified_at"]
+
+
+def test_bsc_local_clipper_probe_never_counts_as_an_export_or_source(tmp_path):
+    root = tmp_path / "vault"
+    project_root = root / "projects" / "project-a"
+    export_root = project_root / "00_Inbox" / "web-clipper"
+    export_root.mkdir(parents=True)
+    (project_root / "bsc-plugins.json").write_text(
+        '{"plugins":[{"id":"obsidian-clipper","name":"Obsidian Clipper","adapter":"filesystem_drop","input_paths":["00_Inbox/web-clipper"]}]}',
+        encoding="utf-8",
+    )
+    manifest = ObsidianPluginManifest.load(project_root)
+    manifest.set_trust(project_root, plugin_ids=["obsidian-clipper"], trusted=True, actor_id="test", reason="fixture")
+    (export_root / "bsc.local.md").write_text(
+        "# BSC Obsidian bridge health check\nThis operational test evidence must not be used for research.",
+        encoding="utf-8",
+    )
+    repo = WikiRepository(db_path=str(tmp_path / "bridge-healthcheck.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    try:
+        legacy = repo.create_source(
+            SourceRecord(
+                project_id="project-a",
+                source_type="obsidian_plugin:obsidian-clipper",
+                origin="projects/project-a/00_Inbox/web-clipper/bsc.local.md",
+                vault_path="projects/project-a/00_Inbox/web-clipper/bsc.local.md",
+                content_hash="0" * 64,
+                raw_content="Legacy bridge health-check audit record",
+                status=SourceStatus.REJECTED,
+                metadata={
+                    "sync": "obsidian",
+                    "obsidian_plugin": "obsidian-clipper",
+                    "obsidian_adapter": "filesystem_drop",
+                },
+            )
+        )
+        report = ObsidianSyncService(repo, root).sync(project_id="project-a")
+        status = ObsidianPluginManifest.load(project_root).public_status(
+            repo.list_sources("project-a"), project_root=project_root, vault_root=root
+        )["plugins"][0]
+
+        assert report["scanned"] == 0
+        assert report["deleted"] == 1
+        assert repo.get_source("project-a", legacy["id"])["metadata"]["source_present"] is False
+        assert status["status"] == "awaiting_export"
+        assert status["capture_state"] == "ready_for_first_export"
+        assert status["captured_sources"] == 0
+        assert status["export_observation"] == {"state": "empty", "file_count": 0, "latest_modified_at": ""}
+    finally:
+        repo.close()
 
 
 def test_obsidian_sync_accepts_the_documented_obsidian_inbox_and_source_layout(tmp_path):

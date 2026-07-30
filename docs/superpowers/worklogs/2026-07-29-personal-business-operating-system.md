@@ -507,3 +507,85 @@
   delta normalizer together, then retain existing deterministic plans and all
   persisted evidence. Do not downgrade a provider billing failure into a model
   success or delete any plan/projection created during the verified runs.
+
+## 2026-07-30 PBOS Live Compile And Obsidian Projection Closure
+
+- Kept PBOS structured compilation isolated at `120s`, `2600` output tokens,
+  and at most two structured attempts. API and Worker were rebuilt from this
+  configuration; `/ready` returned `200` and `celery inspect ping` returned
+  `pong`.
+- Added a non-retryable provider-failure stop. `payment_required`, credential,
+  model, provider, and request-contract failures now produce one safe attempt
+  record and immediately return to the governed deterministic path. JSON-format
+  and transient failure handling remain bounded retry paths.
+- After the external provider account was restored, the real default-project
+  Mission `art_de3a69d67b6e` compiled a durable plan `art_329d1014ff28` with
+  `mode=llm_contextual`, exactly three distinct phases, five published Wiki
+  references, fourteen processed-source references, and three bounded Vault
+  references. `PBOSProjectionService` then wrote and verified
+  `pbos/plans/art_329d1014ff28.md` in the mapped Obsidian project.
+- Verification: focused SOP/PBOS/configuration/Compose regression suite passed
+  `54` tests. The runtime receipt intentionally contains only safe counts,
+  IDs, compiler mode, and projection existence; no prompt, model response,
+  Vault body, or credential was retained in this worklog.
+- Final regression after the live projection: PBOS/API/MCP/integration/configuration
+  and SOP-client suite passed `82` tests; Cockpit component coverage passed
+  `5` tests; `npm run check`, `npm run build`, `docker compose --profile full
+  config --quiet`, and `git diff --check` passed. The production build retains
+  only the existing ECharts bundle-size advisory.
+
+## 2026-07-30 Obsidian Bridge State Correction
+
+- Corrected a legacy-state defect in `ObsidianSyncService`: the BSC-created
+  `bsc.local.md` Clipper route health check is now excluded before it can be
+  marked as an observed source path. Historical rejected source records remain
+  in the audit ledger but are updated to `source_present=false` on the next
+  real Vault sync.
+- Added a regression fixture for the exact production condition: a legacy
+  rejected Clipper record plus only the health-check file must yield zero
+  captured sources and `awaiting_export`, rather than an empty Vault appearing
+  synchronized. `pytest tests/knowledge/test_wiki_sync.py -q` passed with
+  `23 passed, 1 skipped`.
+- Rebuilt the production API and worker and ran a real local default-project
+  source sync. Its result was `scanned=10`, `duplicates=12`, `deleted=1`, and
+  no new evidence. Authenticated runtime readback returned API `200`, a
+  configured Vault, and Clipper `awaiting_export`,
+  `ready_for_first_export`, zero captured sources, and an empty observation.
+- This closes an integrity issue in presentation only. It does not claim a
+  successful Clipper import, manufacture knowledge, or change the PBOS
+  promotion gate. Rollback is to restore the previous path-observation order;
+  retained source audit history remains reversible through the repository
+  metadata rather than deletion.
+
+## 2026-07-30 Evidence-Backed Reflection Closure
+
+- Found and corrected a functional gap in the Personal Growth Cockpit: its
+  original three-minute reflection could only create an unverified execution
+  and outcome, so ordinary Studio use could never supply a learning-eligible
+  record. The Cockpit now lets the project owner attach one or more BSC
+  workspace evidence files, explicitly accept an outcome, and enter a quality
+  score in the same execution lineage.
+- Added the project-scoped `capture-bsc-workspace` API. It permits only a
+  small source/document/configuration allowlist, resolves paths on the BSC
+  server, stores hashes and Git identifiers rather than file contents, and
+  rejects absent, traversal, secret, or unapproved paths. The API never stores
+  credentials in an Artifact or Vault projection.
+- Client-submitted tool receipts are now normalized to `verified=false`.
+  Strategy evolution requires a server-verified receipt, an execution action,
+  a reflection, accepted outcome, and score. This closes the former path where
+  a client could submit `verified=true` in JSON and inflate a Capability.
+- Runtime proof used the rebuilt production container to hash
+  `app/pbos/service.py` as a real local-file receipt. A synthetic client claim
+  with `verified=true` was persisted as `false` and its accepted outcome was
+  ineligible with the explicit `verified_tool_receipt` gap. An attempted
+  `.env` capture returned HTTP `422`; the authenticated Cockpit remained
+  available with HTTP `200`.
+- Verification: PBOS/API/MCP/integration suite passed `45`; Artifact Graph,
+  Agent Runtime, Wiki sync, and growth-distillation regression suite passed
+  `99` with one pre-existing skip; frontend suite passed `167`; TypeScript
+  check, production build, and `docker compose config --quiet` passed. The
+  production build retains only the non-blocking ECharts chunk-size advisory.
+- Remaining evidence is intentionally user-owned: the default project still
+  has zero learning-eligible outcomes, Capabilities, and Strategy Genomes.
+  PBOS can now collect qualifying evidence through the Studio, but it must not
+  invent the three comparable accepted deliveries required for promotion.

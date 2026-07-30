@@ -41,7 +41,7 @@ def _accepted_outcome(
         "",
         {
             "actions": ["Delivered one reviewable slice."],
-            "tool_receipts": [{"kind": "test", "passed": True, "command": "pytest focused"}],
+            "tool_receipts": [{"kind": "test", "passed": True, "command": "pytest focused", "verified": True}],
             "reflection": {"completed": "Observed the result and recorded the next adjustment."},
         },
     )
@@ -164,6 +164,67 @@ def test_local_capture_is_read_only_and_hashes_declared_file(tmp_path):
     assert record.tool_receipts[0]["path"] == "test-report.txt"
 
 
+def test_bsc_workspace_capture_attaches_safe_receipts_and_the_same_reflection(tmp_path):
+    workspace = tmp_path / "workspace"
+    evidence = workspace / "tests" / "delivery-proof.txt"
+    evidence.parent.mkdir(parents=True)
+    evidence.write_text("focused test passed", encoding="utf-8")
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(store)
+    service = PBOSService(store, "personal")
+
+    record = service.capture_bsc_workspace_execution(
+        "mission",
+        "",
+        paths=["tests/delivery-proof.txt"],
+        actions=["Validated the personal delivery loop."],
+        reflection={"completed": "The evidence receipt and result are reviewable."},
+        workspace_root=workspace,
+    )
+
+    assert record.actions == ["Validated the personal delivery loop."]
+    assert record.reflection["completed"].startswith("The evidence receipt")
+    assert record.tool_receipts[0]["kind"] == "local_file"
+    assert record.tool_receipts[0]["path"] == "tests/delivery-proof.txt"
+
+
+def test_bsc_workspace_capture_rejects_paths_outside_the_safe_project_allowlist(tmp_path):
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(store)
+    service = PBOSService(store, "personal")
+
+    with pytest.raises(ValueError, match="approved project directory"):
+        service.capture_bsc_workspace_execution("mission", "", paths=[".env"], workspace_root=tmp_path)
+
+    with pytest.raises(ValueError, match="unavailable"):
+        service.capture_bsc_workspace_execution("mission", "", paths=["app/missing.py"], workspace_root=tmp_path)
+
+
+def test_manual_client_receipts_cannot_complete_or_promote_personal_learning(tmp_path):
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(store)
+    service = PBOSService(store, "personal")
+    record = service.record_manual_execution(
+        "mission",
+        "",
+        {
+            "actions": ["Reported a delivery."],
+            "tool_receipts": [{"kind": "client_claim", "verified": True}],
+            "reflection": {"completed": "This is a user-entered note."},
+        },
+    )
+    outcome = service.record_outcome(
+        record.artifact_id,
+        {"acceptance_status": "accepted", "quality_score": 90, "baseline_quality": 70},
+    )
+
+    observation = service._outcome_observation(outcome)
+
+    assert record.tool_receipts[0]["verified"] is False
+    assert observation["eligible_for_evolution"] is False
+    assert "verified_tool_receipt" in observation["missing_requirements"]
+
+
 def test_obsidian_projection_preserves_user_edits_as_conflict(tmp_path):
     artifact = PersonalProfileArtifact(project_id="personal", label="Personal profile")
     projection = PBOSProjectionService(tmp_path, "personal")
@@ -180,6 +241,18 @@ def test_weekly_report_writes_only_observed_pbos_state(tmp_path):
     assert report["path"] == "distillations/每周蒸馏/2026-W31/pbos/personal-growth.md"
     content = (tmp_path / report["path"]).read_text(encoding="utf-8")
     assert "No verified outcome" in content
+
+def test_weekly_report_uses_the_canonical_path_without_replacing_legacy_mojibake_output(tmp_path):
+    legacy = tmp_path / "distillations" / "\u59e3\u5fd3\u61c6\u9482\u6401\ue6f4" / "2026-W31" / "pbos" / "personal-growth.md"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text("legacy projection retained", encoding="utf-8")
+    service = PBOSService(ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal"), "personal")
+
+    report = PBOSReportService(service, tmp_path).weekly("2026-W31")
+
+    assert report["path"] == "distillations/每周蒸馏/2026-W31/pbos/personal-growth.md"
+    assert (tmp_path / report["path"]).is_file()
+    assert legacy.read_text(encoding="utf-8") == "legacy projection retained"
 
 
 def test_today_action_and_daily_report_use_the_first_pending_grounded_plan_step(tmp_path):
