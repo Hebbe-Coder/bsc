@@ -37,6 +37,41 @@ handoffs pass. C1 starts only after N1-N5 each deliver a current handoff packet.
 | N5 | 2026-07-27-n8n-intelligence-n5-operations-delivery.md | Operations read model, workspace, daily brief, managed delivery/projections | N3, N4 |
 | C1 | 2026-07-27-n8n-information-intelligence-consolidation.md | Integration, real-cycle evidence, release decision | N1-N5 |
 
+## Acceptance Gates And Parallel Boundaries
+
+A leaf plan is accepted only when its owned failing test has first been made
+green, every command in its own `Acceptance` section exits `0`, its file
+boundary remains intact, and its handoff packet records the exact output,
+rollback point, feature-flag state, and fixture-versus-real classification.
+An imported workflow, rendered screen, or started container alone cannot pass
+this gate.
+
+- **N1 gate:** optional Compose rendering, local-only exposure, required
+  encryption-key behavior, health check, disabled-by-default profile, and a
+  no-data-loss disable/restart rollback are proven. It does not start a
+  scheduler or import credentials.
+- **N2/N3 parallel gate:** N2 proves project-scoped registry policy, RSS and
+  YouTube Channel RSS canonicalization/deduplication, and explicit
+  `unavailable` connector states. N3 proves the frozen v1 SignalBatch,
+  project authorization, exact-body signature validation, idempotent
+  receipt-ledger behavior, and rejected/`lead_only` paths. Their contracts
+  must be reconciled in the index before N4 begins.
+- **N4 gate:** the sanitized workflow remains inactive when imported, contains
+  no secrets or direct authority writes, labels model output as a derivative,
+  and demonstrates BSC receipt readback with fixtures or a classified real
+  run. A configured daily trigger is `08:00 Asia/Shanghai`; it is a runtime
+  opt-in, never an import default.
+- **N5 gate:** authorized REST/MCP/UI reads render BSC-backed source, receipt,
+  run, confirmation, and daily-brief states with accessible no-sample,
+  partial, and unavailable states. Any Feishu delivery is redacted and occurs
+  only after a completed BSC receipt.
+- **C1 gate:** all N1-N5 packets are current and their exact contracts remain
+  compatible. C1 alone may emit `release_ready`,
+  `implemented_with_operational_proof_pending`, or `not_release_ready`; a
+  `release_ready` decision requires the bounded end-to-end RSS proof and the
+  complete C1 regression commands, while unavailable optional credentials
+  remain explicitly listed rather than simulated.
+
 ## Frozen Cross-Plan Contracts
 
 - **Authority:** BSC owns source lifecycle, project authorization, receipts,
