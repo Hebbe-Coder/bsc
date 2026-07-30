@@ -401,7 +401,10 @@ class SOPLLMClient:
                         "result": "valid_json",
                     })
                     return parsed
-                self.last_structured_failure = "response_payload_invalid"
+                finish_reason = str(self.last_response_shape.get("finish_reason") or "")
+                self.last_structured_failure = (
+                    "response_truncated" if finish_reason == "length" else "response_payload_invalid"
+                )
                 self.last_structured_attempts.append({
                     "attempt": attempt_number,
                     "json_mode": use_json_mode,
@@ -455,6 +458,20 @@ class SOPLLMClient:
                             "result": self.last_structured_failure,
                         })
                         logger.warning("SOP LLM plain JSON fallback failed: %s", fallback_error)
+                    break
+                # A repair prompt cannot fix an account, credential, model,
+                # or request-contract rejection. Preserve the first safe
+                # diagnostic and return control to the governed fallback.
+                if e.category in {
+                    "credential_rejected",
+                    "payment_required",
+                    "provider_not_configured",
+                    "provider_unsupported",
+                    "model_unavailable",
+                    "unsupported_request_parameter",
+                    "request_rejected",
+                }:
+                    logger.warning("SOP LLM returned a non-retryable structured failure: %s", e.category)
                     break
                 logger.warning("SOP LLM 解析失败(retry): %s", e)
         logger.warning("SOP LLM 结构化解析最终失败,返回 None")

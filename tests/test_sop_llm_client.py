@@ -213,6 +213,21 @@ def test_structured_chat_classifies_an_empty_length_limited_completion_without_u
     assert client.last_response_shape["private_reasoning_present"] is True
 
 
+def test_structured_chat_classifies_partial_length_limited_json_as_truncated():
+    client = SOPLLMClient(
+        provider="deepseek",
+        api_key="sk",
+        http_client=_FakeClient(
+            lambda _n, _url, _headers, _body: _FakeResp(
+                {"choices": [{"finish_reason": "length", "message": {"content": '{\"answer\":'}}]}
+            )
+        ),
+    )
+
+    assert client.chat_structured("return JSON", "data", max_structured_attempts=1) is None
+    assert client.last_structured_failure == "response_truncated"
+
+
 def test_structured_chat_repairs_with_a_larger_output_budget_after_invalid_json():
     budgets = []
 
@@ -286,6 +301,25 @@ def test_rate_limited_provider_failure_has_a_retryable_category():
         client.chat("return JSON", "data")
 
     assert exc_info.value.category == "rate_limited"
+
+
+def test_structured_chat_does_not_repair_a_payment_required_response():
+    client = SOPLLMClient(
+        provider="deepseek",
+        api_key="sk",
+        http_client=_FakeClient(
+            lambda _n, _url, _headers, _body: _FakeResp(
+                {"error": {"message": "insufficient balance"}}, status=402
+            )
+        ),
+    )
+
+    assert client.chat_structured("return JSON", "data", max_structured_attempts=2) is None
+    assert client._http.calls == 1
+    assert client.last_structured_failure == "payment_required"
+    assert client.last_structured_attempts == [
+        {"attempt": 1, "json_mode": True, "max_tokens": 1200, "result": "payment_required"}
+    ]
 
 
 def test_missing_provider_configuration_is_not_reported_as_transient_failure(monkeypatch):

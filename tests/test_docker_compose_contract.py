@@ -51,12 +51,19 @@ def test_growth_distillation_timeout_reaches_only_the_api_and_worker():
 
 def test_pbos_compilation_timeout_reaches_only_the_api_and_worker():
     compose = yaml.safe_load(Path("docker-compose.yml").read_text(encoding="utf-8"))
-    expected = "PBOS_LLM_TIMEOUT_SECONDS=${PBOS_LLM_TIMEOUT_SECONDS:-120}"
+    expected = {
+        "PBOS_LLM_TIMEOUT_SECONDS=${PBOS_LLM_TIMEOUT_SECONDS:-120}",
+        "PBOS_LLM_MODEL=${PBOS_LLM_MODEL:-}",
+        "PBOS_LLM_MAX_OUTPUT_TOKENS=${PBOS_LLM_MAX_OUTPUT_TOKENS:-2600}",
+        "PBOS_LLM_MAX_STRUCTURED_ATTEMPTS=${PBOS_LLM_MAX_STRUCTURED_ATTEMPTS:-2}",
+        "PBOS_LLM_MAX_CONTEXT_DOCUMENTS=${PBOS_LLM_MAX_CONTEXT_DOCUMENTS:-4}",
+        "PBOS_LLM_CONTEXT_DOCUMENT_MAX_TOKENS=${PBOS_LLM_CONTEXT_DOCUMENT_MAX_TOKENS:-180}",
+    }
 
     for service_name in ("bsc-backend", "celery-worker"):
-        assert expected in set(compose["services"][service_name]["environment"])
+        assert expected <= set(compose["services"][service_name]["environment"])
 
-    assert expected not in set(compose["services"]["celery-beat"]["environment"])
+    assert not (expected & set(compose["services"]["celery-beat"]["environment"]))
 
 
 def test_growth_task_lifecycle_limits_reach_only_the_api_and_worker():

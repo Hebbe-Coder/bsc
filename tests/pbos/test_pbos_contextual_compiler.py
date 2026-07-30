@@ -1,3 +1,5 @@
+import json
+
 from app.artifacts import ArtifactGraphStore, DiagnosisArtifact, MissionArtifact
 from app.core.config import settings
 from app.knowledge.context_pack import WikiContextProvider
@@ -272,7 +274,11 @@ def test_structured_model_output_is_traceable_to_the_same_context(tmp_path):
             return {
                 "title": "Evidence-bound delivery system",
                 "rationale": ["Use the active delivery boundary before expanding scope."],
-                "phases": [{"title": "Contract gate", "why_now": "A prior scope failure needs an early boundary.", "inputs": ["Active Vault boundary"], "actions": ["Freeze the API contract"], "outputs": ["Accepted contract"], "checks": ["Run the focused tests"], "decision_point": {"question": "Is the contract bounded?", "proceed_when": "The owner accepts it.", "adapt_when": "Capture the missing constraint."}}],
+                "phases": [
+                    {"title": "Contract gate", "why_now": "A prior scope failure needs an early boundary.", "actions": ["Freeze the API contract"], "decision_point": {"question": "Is the contract bounded?", "proceed_when": "The owner accepts it.", "adapt_when": "Capture the missing constraint."}},
+                    {"title": "Evidence loop", "why_now": "The bounded contract needs a verifiable result.", "actions": ["Run the focused tests"]},
+                    {"title": "Review outcome", "why_now": "The result must inform the next decision.", "actions": ["Record the review receipt"]},
+                ],
                 "risks": ["Scope expansion before a verified receipt"],
                 "success_criteria": ["One reviewable loop is complete"],
                 "evidence_gap_plan": [],
@@ -315,19 +321,23 @@ def test_compiler_replaces_verbatim_vault_echoes_with_traceable_references(tmp_p
             return {
                 "title": "Evidence-bound delivery system",
                 "rationale": [raw_source_line],
-                "phases": [{
-                    "title": "Boundary gate",
-                    "why_now": raw_source_line,
-                    "inputs": [raw_source_line],
-                    "actions": [f"Follow this source exactly: {raw_source_line}"],
-                    "outputs": [raw_source_line],
-                    "checks": [raw_source_line],
-                    "decision_point": {
-                        "question": raw_source_line,
-                        "proceed_when": raw_source_line,
-                        "adapt_when": raw_source_line,
+                "phases": [
+                    {
+                        "title": "Boundary gate",
+                        "why_now": raw_source_line,
+                        "inputs": [raw_source_line],
+                        "actions": [f"Follow this source exactly: {raw_source_line}"],
+                        "outputs": [raw_source_line],
+                        "checks": [raw_source_line],
+                        "decision_point": {
+                            "question": raw_source_line,
+                            "proceed_when": raw_source_line,
+                            "adapt_when": raw_source_line,
+                        },
                     },
-                }],
+                    {"title": "Verify boundary", "why_now": "A bounded result needs a receipt.", "actions": ["Run the focused proof"]},
+                    {"title": "Record learning", "why_now": "The next action needs observed feedback.", "actions": ["Record the reflection"]},
+                ],
                 "risks": [raw_source_line],
                 "success_criteria": [raw_source_line],
                 "evidence_gap_plan": [raw_source_line],
@@ -355,6 +365,69 @@ def test_compiler_replaces_verbatim_vault_echoes_with_traceable_references(tmp_p
     assert plan.phases[0]["decision_point"]["question"] == "Is the cited evidence sufficient for the next bounded decision?"
 
 
+def test_compiler_bounds_llm_context_and_preserves_execution_contracts(tmp_path):
+    class CapturingClient:
+        provider = "test"
+        model = "fast-structured-test"
+        last_structured_failure = ""
+        last_response_shape = {"finish_reason": "stop", "private_reasoning_present": False}
+        last_structured_attempts = [
+            {"attempt": 1, "json_mode": True, "max_tokens": 1000, "result": "valid_json"}
+        ]
+
+        def chat_structured(self, **kwargs):
+            self.kwargs = kwargs
+            return {
+                "title": "Receipt-first research intake",
+                "phases": [
+                    {"title": "Source gate", "actions": ["Approve one source"]},
+                    {"title": "Receipt loop", "actions": ["Run one signed batch"]},
+                    {"title": "Review decision", "actions": ["Inspect the receipt"]},
+                ],
+            }
+
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(store, "mission", "Research intake", "Deliver one governed information loop")
+    documents = [
+        {
+            "ref": f"wiki:policy-{index}",
+            "title": f"Policy {index}",
+            "path": f"wiki/policy-{index}.md",
+            "excerpt": "Source policy evidence. " * 100,
+        }
+        for index in range(6)
+    ]
+    client = CapturingClient()
+    service = PBOSService(
+        store,
+        "personal",
+        context_provider=lambda: {"availability": "available", "documents": documents, "refs": []},
+        plan_compiler=PBOSPlanCompiler(client=client),
+    )
+    service.save_profile({"focus": ["knowledge operations"], "constraints": ["no automatic publication"]})
+
+    plan = service.compile_plan("mission")
+    payload = json.loads(client.kwargs["user_prompt"])
+    usage = plan.compiler_metadata["llm_prompt_context"]
+
+    assert client.kwargs["max_tokens"] == settings.PBOS_LLM_MAX_OUTPUT_TOKENS
+    assert client.kwargs["max_structured_attempts"] == settings.PBOS_LLM_MAX_STRUCTURED_ATTEMPTS
+    assert len(payload["vault_context"]) == settings.PBOS_LLM_MAX_CONTEXT_DOCUMENTS
+    assert usage["documents_available"] == 6
+    assert usage["documents_included"] == 4
+    assert usage["documents_omitted"] == 2
+    assert usage["estimated_input_tokens"] > 0
+    assert plan.compiler_metadata["mode"] == "llm_contextual"
+    assert plan.compiler_metadata["llm_attempts"] == client.last_structured_attempts
+    assert plan.compiler_metadata["llm_response_shape"]["finish_reason"] == "stop"
+    assert plan.phases[0]["title"] == "Source gate"
+    assert plan.phases[0]["why_now"]
+    assert plan.phases[0]["inputs"]
+    assert plan.phases[0]["outputs"]
+    assert plan.phases[0]["checks"]
+    assert "side_effect_boundary" in plan.execution_contract
+
+
 def test_structured_model_fallback_records_safe_shape_and_attempts(tmp_path):
     class InvalidClient:
         provider = "test"
@@ -366,8 +439,7 @@ def test_structured_model_fallback_records_safe_shape_and_attempts(tmp_path):
             "private_reasoning_present": True,
         }
         last_structured_attempts = [
-            {"attempt": 1, "json_mode": True, "max_tokens": 2600, "result": "response_truncated"},
-            {"attempt": 2, "json_mode": True, "max_tokens": 5200, "result": "response_truncated"},
+            {"attempt": 1, "json_mode": True, "max_tokens": 1000, "result": "response_truncated"},
         ]
 
         def chat_structured(self, **_kwargs):
@@ -390,7 +462,9 @@ def test_structured_model_fallback_records_safe_shape_and_attempts(tmp_path):
         "finish_reason": "length",
         "private_reasoning_present": True,
     }
-    assert plan.compiler_metadata["llm_attempts"][1]["max_tokens"] == 5200
+    assert plan.compiler_metadata["llm_attempts"] == [
+        {"attempt": 1, "json_mode": True, "max_tokens": 1000, "result": "response_truncated"}
+    ]
 
 
 def test_diagnosis_defines_the_personal_comparison_context(tmp_path):

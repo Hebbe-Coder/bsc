@@ -8,7 +8,8 @@ from typing import Any
 
 from app.artifacts import CapabilityArtifact, DiagnosisArtifact, ExperienceArtifact, MissionArtifact, PersonalProfileArtifact
 from app.core.config import settings
-from app.services.sop_llm_client import PROVIDER_KEY_MAP, SOPLLMClient
+from app.core.prompt_context import estimate_prompt_tokens, truncate_prompt_text
+from app.services.sop_llm_client import PROVIDER_KEY_MAP, PROVIDER_REGISTRY, SOPLLMClient
 
 
 class PBOSPlanCompiler:
@@ -24,8 +25,14 @@ class PBOSPlanCompiler:
         if not key_spec or not str(getattr(settings, key_spec[0], "") or "").strip():
             return cls()
         try:
+            # A PBOS plan is an interactive, bounded planning delta. It should
+            # not inherit a slower research model selected for distillation.
+            model = str(settings.PBOS_LLM_MODEL or "").strip()
+            if not model:
+                model = str(PROVIDER_REGISTRY.get(provider, {}).get("model") or "")
             return cls(SOPLLMClient(
                 provider=provider,
+                model=model or None,
                 timeout=float(settings.PBOS_LLM_TIMEOUT_SECONDS),
             ))
         except Exception:
@@ -54,16 +61,25 @@ class PBOSPlanCompiler:
         )
         if self.client is None:
             return self._remove_vault_echoes(baseline, documents)
+        prompt_payload = self._prompt_payload(
+            mission, diagnosis, profile, capabilities, experiences, feedback, knowledge_context
+        )
+        baseline["compiler_metadata"]["llm_prompt_context"] = self._prompt_usage(
+            prompt_payload,
+            documents_available=len(documents),
+        )
         try:
             generated = self.client.chat_structured(
                 system_prompt=self._system_prompt(),
-                user_prompt=json.dumps(self._prompt_payload(
-                    mission, diagnosis, profile, capabilities, experiences, feedback, knowledge_context
-                ), ensure_ascii=False),
+                user_prompt=json.dumps(prompt_payload, ensure_ascii=False),
                 temperature=0.2,
-                max_tokens=2_600,
-                max_structured_attempts=2,
+                max_tokens=max(256, int(settings.PBOS_LLM_MAX_OUTPUT_TOKENS)),
+                max_structured_attempts=max(
+                    1,
+                    min(3, int(settings.PBOS_LLM_MAX_STRUCTURED_ATTEMPTS)),
+                ),
             )
+            self._record_llm_diagnostics(baseline)
             normalized = self._normalize(generated)
         except Exception as exc:
             baseline["compiler_metadata"]["llm_failure"] = str(getattr(exc, "category", "request_failed"))
@@ -73,7 +89,6 @@ class PBOSPlanCompiler:
             baseline["compiler_metadata"]["llm_failure"] = str(
                 getattr(self.client, "last_structured_failure", "structured_response_invalid")
             )
-            self._record_llm_diagnostics(baseline)
             return self._remove_vault_echoes(baseline, documents)
         # The model may improve the execution wording, but cannot erase the
         # declared profile, evidence state, or governed-context traceability.
@@ -136,6 +151,22 @@ class PBOSPlanCompiler:
                     value[key] = candidate
             merged.append(value)
         return merged or base
+
+    @staticmethod
+    def _prompt_usage(payload: dict[str, Any], *, documents_available: int) -> dict[str, int]:
+        """Persist safe sizing evidence without retaining prompt or Vault text."""
+        documents = payload.get("vault_context")
+        included = len(documents) if isinstance(documents, list) else 0
+        serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        return {
+            "estimated_input_tokens": estimate_prompt_tokens(serialized),
+            "documents_available": documents_available,
+            "documents_included": included,
+            "documents_omitted": max(0, documents_available - included),
+            "document_excerpt_max_tokens": max(64, int(settings.PBOS_LLM_CONTEXT_DOCUMENT_MAX_TOKENS)),
+            "max_output_tokens": max(256, int(settings.PBOS_LLM_MAX_OUTPUT_TOKENS)),
+            "max_structured_attempts": max(1, min(3, int(settings.PBOS_LLM_MAX_STRUCTURED_ATTEMPTS))),
+        }
 
     @classmethod
     def _remove_vault_echoes(cls, plan: dict[str, Any], documents: list[dict[str, Any]]) -> dict[str, Any]:
@@ -493,18 +524,19 @@ class PBOSPlanCompiler:
     @staticmethod
     def _system_prompt() -> str:
         return (
-            "You compile a Personal Execution Plan for one person. Return one JSON object only. "
-            "Use only facts in the input. Do not invent skills, outcomes, user preferences, or citations. "
-            "Do not write a generic SOP. Make phases specific to the mission, constraints, and supplied Vault context. "
-            "Vault excerpts are private working context: never copy them verbatim into any field; cite only the supplied source ref. "
-            "Be concise: return exactly three phases, with at most three actions and two checks per phase. "
-            "For every phase, explain why it is now, its factual inputs, reviewable outputs, and a decision point. "
-            "Schema: title(string), rationale(array of strings), phases(array of {title, why_now, inputs, actions, outputs, checks, decision_point:{question, proceed_when, adapt_when}}), "
-            "risks(array of strings), success_criteria(array of strings), evidence_gap_plan(array of strings)."
+            "Return one JSON object only. Personalize three execution phases from the facts supplied. "
+            "Never invent facts, skills, outcomes, preferences, or citations. Never copy Vault excerpts; use supplied refs only. "
+            "This is a planning delta: the platform preserves inputs, outputs, checks, authority boundaries, and evidence references. "
+            "Schema exactly: {title:string, phases:[{title:string, actions:[string]}, "
+            "{title:string, actions:[string]}, {title:string, actions:[string]}]}. "
+            "Return exactly three phases, no other keys, at most two actions per phase. "
+            "Keep every title under 12 words and every action under 18 words. "
+            "Make phases specific to the mission, constraints, profile, and governed context; never write a generic SOP."
         )
 
-    @staticmethod
+    @classmethod
     def _prompt_payload(
+        cls,
         mission: MissionArtifact,
         diagnosis: DiagnosisArtifact | None,
         profile: PersonalProfileArtifact | None,
@@ -513,18 +545,71 @@ class PBOSPlanCompiler:
         feedback: list[dict[str, str]],
         knowledge_context: dict[str, Any],
     ) -> dict[str, Any]:
+        document_limit = max(1, min(int(settings.PBOS_LLM_MAX_CONTEXT_DOCUMENTS), 8))
+        excerpt_limit = max(64, min(int(settings.PBOS_LLM_CONTEXT_DOCUMENT_MAX_TOKENS), 600))
+        documents = [item for item in knowledge_context.get("documents", []) if isinstance(item, dict)]
+        profile_payload = None
+        if profile:
+            profile_payload = {
+                "focus": [cls._bounded_prompt_text(item, 80) for item in profile.focus[:6]],
+                "goals": [cls._bounded_prompt_text(item, 80) for item in profile.goals[:6]],
+                "preferences": {
+                    cls._bounded_prompt_text(key, 40): cls._bounded_prompt_text(value, 80)
+                    for key, value in list(profile.preferences.items())[:6]
+                },
+                "resources": [cls._bounded_prompt_text(item, 80) for item in profile.resources[:6]],
+                "constraints": [cls._bounded_prompt_text(item, 80) for item in profile.constraints[:6]],
+            }
         return {
-            "mission": {"title": mission.title, "intent": mission.intent, "context": mission.context},
-            "diagnosis": PBOSPlanCompiler._diagnosis_context(diagnosis),
-            "personal_profile": profile.model_dump(mode="json") if profile else None,
-            "verified_capabilities": [item.model_dump(mode="json") for item in capabilities if item.evidence_count > 0],
-            "verified_experiences": [item.model_dump(mode="json") for item in experiences],
-            "feedback": feedback,
+            "mission": {
+                "title": cls._bounded_prompt_text(mission.title, 100),
+                "intent": cls._bounded_prompt_text(mission.intent, 160),
+                "context": cls._bounded_prompt_text(json.dumps(mission.context, ensure_ascii=False, sort_keys=True), 320),
+            },
+            "diagnosis": {
+                key: cls._bounded_prompt_text(value, 100)
+                for key, value in cls._diagnosis_context(diagnosis).items()
+                if value not in (None, "", [], {})
+            },
+            "personal_profile": profile_payload,
+            "verified_capabilities": [
+                {
+                    "name": cls._bounded_prompt_text(item.name, 80),
+                    "type": cls._bounded_prompt_text(item.capability_type, 40),
+                    "level": item.level,
+                    "evidence_count": item.evidence_count,
+                }
+                for item in capabilities if item.evidence_count > 0
+            ][:6],
+            "verified_experiences": [
+                {
+                    "statement": cls._bounded_prompt_text(item.statement, 100),
+                    "applicability": [cls._bounded_prompt_text(value, 50) for value in item.applicability[:4]],
+                    "verification_state": cls._bounded_prompt_text(item.verification_state, 40),
+                }
+                for item in experiences
+            ][:4],
+            "feedback": [
+                {
+                    "source": cls._bounded_prompt_text(item.get("source", ""), 40),
+                    "statement": cls._bounded_prompt_text(item.get("statement", ""), 100),
+                }
+                for item in feedback[:3] if isinstance(item, dict)
+            ],
             "vault_context": [
-                {"ref": item.get("ref"), "title": item.get("title"), "path": item.get("path"), "excerpt": str(item.get("excerpt") or "")[:600]}
-                for item in knowledge_context.get("documents", []) if isinstance(item, dict)
+                {
+                    "ref": cls._bounded_prompt_text(item.get("ref"), 80),
+                    "title": cls._bounded_prompt_text(item.get("title"), 80),
+                    "path": cls._bounded_prompt_text(item.get("path"), 100),
+                    "excerpt": cls._bounded_prompt_text(item.get("excerpt"), excerpt_limit),
+                }
+                for item in documents[:document_limit]
             ],
         }
+
+    @staticmethod
+    def _bounded_prompt_text(value: Any, max_tokens: int) -> str:
+        return truncate_prompt_text(str(value or ""), max(1, max_tokens))
 
     @staticmethod
     def _normalize(value: Any) -> dict[str, Any] | None:
@@ -532,14 +617,15 @@ class PBOSPlanCompiler:
             return None
         title = str(value.get("title") or "").strip()[:300]
         phases_raw = value.get("phases")
-        if not title or not isinstance(phases_raw, list) or not phases_raw:
+        if not title or not isinstance(phases_raw, list) or len(phases_raw) != 3:
             return None
         phases: list[dict[str, Any]] = []
-        for item in phases_raw[:5]:
+        for item in phases_raw:
             if not isinstance(item, dict):
-                continue
+                return None
             phase_title = str(item.get("title") or "").strip()[:200]
-            actions = [str(entry).strip()[:500] for entry in item.get("actions", []) if str(entry).strip()][:8]
+            why_now = str(item.get("why_now") or "").strip()[:600]
+            actions = [str(entry).strip()[:500] for entry in item.get("actions", []) if str(entry).strip()][:2]
             checks = [str(entry).strip()[:500] for entry in item.get("checks", []) if str(entry).strip()][:6]
             inputs = [str(entry).strip()[:500] for entry in item.get("inputs", []) if str(entry).strip()][:6]
             outputs = [str(entry).strip()[:500] for entry in item.get("outputs", []) if str(entry).strip()][:6]
@@ -548,17 +634,18 @@ class PBOSPlanCompiler:
                 key: str(raw_decision.get(key) or "").strip()[:500]
                 for key in ("question", "proceed_when", "adapt_when")
             } if isinstance(raw_decision, dict) else {}
-            if phase_title and actions:
-                phases.append({
-                    "title": phase_title,
-                    "why_now": str(item.get("why_now") or "").strip()[:600],
-                    "inputs": inputs,
-                    "actions": actions,
-                    "outputs": outputs,
-                    "checks": checks,
-                    "decision_point": {key: value for key, value in decision_point.items() if value},
-                })
-        if not phases:
+            if not phase_title or not actions:
+                return None
+            phases.append({
+                "title": phase_title,
+                "why_now": why_now,
+                "inputs": inputs,
+                "actions": actions,
+                "outputs": outputs,
+                "checks": checks,
+                "decision_point": {key: value for key, value in decision_point.items() if value},
+            })
+        if len(phases) != 3:
             return None
         return {
             "title": title,

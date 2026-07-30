@@ -332,6 +332,54 @@
   citation coverage `1.0`, no dangling/stale citations or pending proposals,
   and 78 persisted graph edges.
 
+## 2026-07-30 PBOS Real-Model Reliability Closure
+
+- A fresh no-write quality proof found that PBOS had successfully selected
+  governed Wiki and source references but used a deterministic fallback because
+  the high-reasoning provider exceeded the compiler's hard-coded `45s`
+  request budget twice. The provider TCP endpoint was reachable, so this was
+  an application timeout mismatch rather than a Docker or Vault failure.
+- Added `PBOS_LLM_TIMEOUT_SECONDS` with a bounded `120s` default. The PBOS
+  compiler now uses this isolated setting, and Compose supplies it only to the
+  API and Celery Worker. Beat has no model credential or PBOS compile path and
+  deliberately does not receive the setting.
+- The pre-change configuration, compiler, and Compose tests failed as expected;
+  the repaired PBOS/API/MCP/integration/configuration suite then passed `57`
+  tests. `npm run check`, `docker compose --profile full config --quiet`, and
+  `git diff --check` passed. The rebuilt worker returned `pong`, and the live
+  compiler read back `pbos_timeout=120.0`.
+- A temporary Artifact Graph inside the running API container then compiled a
+  current default-project knowledge-operation Mission using the configured
+  DeepSeek provider. The first structure attempt ended before emitting content;
+  the bounded repair attempt succeeded. The discarded plan reports
+  `mode=llm_contextual`, three distinct execution phases, three immutable
+  published-Wiki references, thirteen processed-source references, and five
+  bounded working-context references. No plan, output, source, or Vault note
+  was persisted by this proof.
+- Browser screenshots were not rerun in this session because the available
+  browser policy blocked access to local `127.0.0.1` URLs. This is a tooling
+  boundary, not evidence of a Studio regression; prior browser results remain
+  historical, and a browser environment allowed to reach the local Studio is
+  still required for a fresh visual acceptance pass.
+
+## 2026-07-30 Plan-Engine Transparency In Studio
+
+- The PBOS cockpit previously showed evidence grounding but did not expose
+  whether the current plan came from a successful structured model run or a
+  deterministic fallback. This made a provider timeout visually
+  indistinguishable from a template-like plan.
+- `PLAN GROUNDING` now renders the persisted compiler state: `LLM contextual`
+  with provider/model metadata after a successful structured compile,
+  `LLM fallback` with only the safe failure category, `Capture required` for
+  missing evidence, or `Contextual deterministic` when no model result was
+  requested. It reads the existing plan artifact and adds no separate UI
+  authority or synthetic quality score.
+- Frontend component coverage passed `5` tests for both model-success and
+  fallback states; `npm run check` passed. The Docker Studio image was rebuilt
+  and restarted, `/ready` returned `200`, and its production static assets
+  contain the `LLM contextual` state label. Fresh browser screenshots remain
+  blocked by the local-URL browser policy described above.
+
 ## 2026-07-30 Daily Action And Personal-Evidence Closure
 
 - Corrected a product-level gap in the daily loop. The report previously
@@ -374,3 +422,88 @@
   evidence. Three comparable real AI-project deliveries with reviewable
   receipts, quality, and reflection are still required before the evolution
   gate can promote a personal method.
+
+## 2026-07-30 Studio Data Recovery And Visualization Regression
+
+- The Docker API rebuild exposed an ephemeral Studio failure: an already
+  running Vite process retained an older `KnowledgeWorkspace` transform that
+  referenced `useCompactGraphFocus`, while the checked-in component defines
+  the replacement `useGraphFocus`. Opening Knowledge after that stale module
+  had been served could fail the mounted workspace on compact viewports.
+- Confirmed the configured loopback proxy before restart without exposing its
+  credential: `.env` points `BSC_VITE_API_PROXY_TARGET` at
+  `http://127.0.0.1:8002` and has an opted-in server-side local proxy key.
+  `curl.exe -sS -D - http://127.0.0.1:5174/knowledge/evidence/projects/default -o NUL`
+  returned `200`, `application/json`, and `108247` bytes. This proves the
+  refreshed Studio proxy receives protected Evidence API data rather than an
+  empty Vite fallback response.
+- Restarted only the Vite listener on `127.0.0.1:5174`; no database, Vault,
+  API key, or user-note content was changed. The new Vite process loaded the
+  current module, after which no new browser console error was observed.
+- Production verification: `npm run build` passed (`2478` modules
+  transformed). The sole output advisory remains Rollup's existing ECharts
+  chunk-size warning; it is not a build or runtime failure.
+- Fresh browser acceptance on the rebuilt Studio verified the authenticated
+  default project has a reachable Vault, `153` evidence sources, `23`
+  proposals, `78` persisted relationships, `100%` citation coverage, `10`
+  published Wiki pages, and a completed Horizon import of `79` evidence
+  records. Evidence Atlas subsequently loaded `181` persisted metadata
+  records without console errors.
+- Fresh mobile acceptance at `390x844` verified the Project Vault section,
+  evidence loading, and the bounded relationship projection. It reports
+  `8` high-connectivity lineage records and `10` direct relations from `76`
+  connected records, exposes the honest `All records` switch, and explicitly
+  states that unconnected records remain available through Reference browser.
+  Full/focus scope switching was exercised before restoring the default focus
+  view; no relation was deleted or fabricated.
+- This is a runtime recovery and visualization acceptance, not final feedback
+  closure. `projects/default/04_Outputs/claudian` still has no real Claudian
+  plugin-written output. Until the plugin writes a real Markdown artifact,
+  `source_sync` registers it, and a reviewed feedback record changes a later
+  PBOS context/plan, the overall A/B/C/D result remains
+  `implemented_with_operational_proof_pending`.
+- Follow-up verification: `npm run test:frontend` passed (`23` files, `166`
+  tests) and `git diff --check` passed. The latter emitted only the existing
+  Git LF-to-CRLF advisory for already modified worktree files; it reported no
+  whitespace defect.
+- Filesystem-only confirmation found
+  `D:\bsc\bsc\projects\default\04_Outputs\claudian` exists but contains no
+  files. This confirms the pictured Claudian chat/Excalidraw session has not
+  yet produced a BSC-declared D-layer output. No substitute file was created.
+
+## 2026-07-30 PBOS Contextual Plan Runtime Evidence
+
+- Reworked PBOS model compilation into a compact planning delta instead of
+  asking the model to reproduce the platform's deterministic execution
+  contracts. The model now selects the plan title and three task-specific
+  phase/action sets; BSC retains evidence-grounded `why_now`, inputs, outputs,
+  checks, authority boundaries, decision points, and source references.
+- Added a provider-specific PBOS model selection, bounded project-context
+  serialization, per-document excerpt limits, and safe prompt-use metadata.
+  The plan records only counts, token estimates, and provider response shape;
+  it does not persist prompts, raw Vault excerpts, private reasoning, or model
+  body text. A length-limited partial JSON response is now correctly classified
+  as `response_truncated`, not a generic malformed response.
+- Real provider probes used no project material: the configured fast model
+  completed a minimal JSON request and the compact three-phase schema. An
+  authorized default-project REST compilation then completed with
+  `mode=llm_contextual`, three complete phase contracts, four selected from
+  eight governed documents, eleven context references, an estimated 1502 input
+  tokens, a managed Vault projection, and no raw Vault fields in the API
+  response. The successful request took 57.16 seconds; it is recorded as a
+  real runtime result, not a fixture.
+- A later authorized compile received the provider's truthful
+  `payment_required` category. The provider model-discovery endpoint still
+  returned `200`, so this is an external billing/runtime state rather than a
+  BSC success. No automatic retry, fabricated contextual plan, or credential
+  output was performed. The currently running override exposes a 120-second,
+  2600-token, two-attempt policy; operators may tune the explicit PBOS settings
+  only after provider cost and latency are acceptable.
+- Verification: `pytest tests/pbos tests/api/test_pbos_api.py
+  tests/integration/test_pbos_e2e.py -q` passed (`39 passed`); focused Cockpit
+  tests passed (`5 passed`); TypeScript checking, default/n8n Compose parsing,
+  Docker API health, Worker, Beat, PostgreSQL, Redis, and n8n checks passed.
+- Rollback: remove the PBOS-specific prompt budget/model selection and compact
+  delta normalizer together, then retain existing deterministic plans and all
+  persisted evidence. Do not downgrade a provider billing failure into a model
+  success or delete any plan/projection created during the verified runs.

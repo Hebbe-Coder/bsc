@@ -22,8 +22,14 @@ def test_growth_distillation_has_an_isolated_long_request_budget():
     assert type(settings).model_fields["KNOWLEDGE_GROWTH_LLM_TIMEOUT_SECONDS"].default == 150.0
 
 
-def test_pbos_compilation_has_an_isolated_long_request_budget():
-    assert type(settings).model_fields["PBOS_LLM_TIMEOUT_SECONDS"].default == 120.0
+def test_pbos_compilation_has_an_isolated_bounded_request_budget():
+    fields = type(settings).model_fields
+    assert fields["PBOS_LLM_TIMEOUT_SECONDS"].default == 120.0
+    assert fields["PBOS_LLM_MODEL"].default == ""
+    assert fields["PBOS_LLM_MAX_OUTPUT_TOKENS"].default == 2_600
+    assert fields["PBOS_LLM_MAX_STRUCTURED_ATTEMPTS"].default == 2
+    assert fields["PBOS_LLM_MAX_CONTEXT_DOCUMENTS"].default == 4
+    assert fields["PBOS_LLM_CONTEXT_DOCUMENT_MAX_TOKENS"].default == 180
 
 
 def test_growth_distillation_has_a_bounded_task_lifecycle():
