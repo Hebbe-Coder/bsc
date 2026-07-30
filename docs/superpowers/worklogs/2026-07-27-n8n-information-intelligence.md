@@ -6,7 +6,7 @@
 ## Status
 
 `release_ready` for the governed public-RSS information-intelligence scope as
-of 2026-07-29. The conclusion is based on real n8n scheduled production-path
+of 2026-07-30. The conclusion is based on real n8n scheduled production-path
 proof, BSC receipt/evidence/projection persistence, and the complete repository
 regression gate. It does not imply that intentionally unconfigured third-party
 connectors are available.
@@ -51,6 +51,7 @@ does not treat scoped proof as a substitute for the repository release gate.
 | 2026-07-30 | Source-sync restart recovery | Complete with container proof | Added a source-sync-specific abandoned-run recovery timeout of `900` seconds while preserving the existing longer timeout for Wiki maintenance and other knowledge runs. The setting is passed only to the API and Worker; the scheduler applies it deterministically by run type. Targeted scheduler/config/Compose tests passed `49 passed`; recovery and Celery integration tests passed `21 passed`. The running API and Worker both loaded `{'source_sync': 900}`, and their source module hashes matched the reviewed workspace. This verifies bounded recovery behavior without creating, altering, or publishing user knowledge. |
 | 2026-07-30 | Receipt versus asset-growth correction | Complete with real RSS proof | A successful isolated n8n CLI run collected the already authorized RSS source while the persisted runtime stayed unchanged. The BSC receipt ledger changed from `37` to `42` completed/captured records. The five additional discoveries were audited as `duplicate_source`, not new evidence assets. The overview and Studio contract now expose both all evidence receipts and asset-growth metrics: current safe aggregate counts are `42` receipts, `9` new sources, and `33` repeat discoveries. The direct CLI path initially collided with the live Task Broker and wrote no receipt; a one-off process with task runners disabled completed without changing persisted n8n configuration. Targeted backend/API/MCP/Compose tests (`15 passed`), frontend tests (`10 passed`), TypeScript check, lint, and production build passed. Controlled browser validation could not reach the host-local Studio endpoint and is recorded as an external presentation boundary, not as a successful UI proof. No credentials, raw RSS body, source headers, or Vault content were read, retained, or recorded. |
 | 2026-07-30 | Current runtime recovery and n8n profile isolation | Complete with real RSS proof | The n8n service was initially stopped; after start, a controlled manual run failed before collection because the API container had an invalid Docker-network IP and n8n could not resolve `bsc-backend`. The stale Compose network was recreated without removing named volumes. A recovery attempt showed that the optional Ollama service was incorrectly included in the `celery` profile and tried to pull from unavailable Docker Hub. Removed that profile membership and added a Compose-contract test, so `docker compose --profile celery --profile n8n up -d` now starts only PostgreSQL, Redis, API, Worker, Beat, and n8n. All six services are healthy, n8n resolves BSC and receives `200` from `/ready`, and one active daily workflow remains present. An isolated, non-persistent manual execution then completed: receipts moved from `42` to `47`; all five additional receipts were repeat discoveries, leaving `9` new sources, `38` repeats, and `9` BSC-managed Obsidian projections. Focused backend/API/MCP/Compose tests passed `16`; Intel-panel frontend tests passed `2`; TypeScript checking and profile Compose validation passed. No raw feed body, Vault content, credential, or provider payload was read or recorded. |
+| 2026-07-30 | Current C1 runtime and Studio revalidation | `release_ready` with real RSS and browser proof | The six-service `celery + n8n` profile remained healthy. A direct n8n CLI execution was correctly rejected by the live Task Broker before collection and created no BSC record; an isolated child process with runners disabled then completed the existing governed workflow without changing persistent n8n configuration. BSC receipt, batch, and ingress-run totals moved from `47` to `52`; all five new receipts were `duplicate_source`, leaving `9` evidence assets and `43` repeat discoveries. The authenticated Studio `Intel` panel for the RSS-owning project displayed the same receipt-backed counts, one enabled feed, and zero lead-only/rejected items; another project remained zero rather than inheriting those records. Desktop and `390x844` validation found no document-level horizontal overflow and no local Studio console error. Full regression commands passed: `python -m pytest tests/knowledge tests/api tests/mcp tests/integration -q` (`809 passed, 9 skipped`), `npm run test:frontend` (`166 passed`), `npm run check`, and default/n8n/celery+n8n Compose rendering. This revalidation did not read or record credentials, raw source bodies, Vault content, or model/provider payloads. |
 
 ## Required Handoff Record
 
@@ -71,10 +72,10 @@ account identifiers.
   profile startup therefore remains unavailable until image access is restored;
   the governed `celery + n8n` path no longer pulls Ollama. The running n8n
   image is the pinned official GHCR image, not an unverified registry mirror.
-- A new local Studio page at the running BSC container endpoint rendered its
-  authenticated boundary correctly. A fresh authenticated browser presentation
-  of the configured project still requires the user-owned Studio access key;
-  backend, MCP, and persisted-record proof does not rely on bypassing it.
+- The local Studio proxy may authenticate an authorized local session without
+  exposing the underlying access key. The RSS-owning project was revalidated
+  through that boundary on 2026-07-30; a separate environment still needs its
+  own authorized Studio access before it can read project-scoped records.
 
 ## Next Handoff
 
