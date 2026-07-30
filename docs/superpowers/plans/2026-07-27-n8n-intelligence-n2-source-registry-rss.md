@@ -6,11 +6,11 @@ Implement the project-local source policy and first-release RSS/YouTube Channel
 RSS normalization without enabling paid, restricted, or credential-dependent
 connectors.
 
-**Depends on:** N1 contract accepted.
+**Dependencies:** N1 contract accepted.
 **May run in parallel with:** N3 after N1.
 **Blocks:** N4.
 
-## Owned Surfaces
+## File Boundary
 
 **Create:** source registry domain types, additive persistence/migration,
 project-authorized source-policy service, RSS normalization service, adapter

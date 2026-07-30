@@ -184,6 +184,10 @@ the only retained source body for a claim.
   credentials automatically.
 - The BSC project profile declares source policy, schedule/timezone, batch
   ceiling, retry policy, retention rules, and enabled adapter state.
+- When the first-release RSS workflow is explicitly activated, its default
+  collection cadence is daily at `08:00 Asia/Shanghai`. A project owner may
+  pause it or set a project-local cadence through the governed schedule
+  configuration; neither configuration change may start an unavailable adapter.
 
 ### FR-2 Source Registry And RSS Acquisition
 

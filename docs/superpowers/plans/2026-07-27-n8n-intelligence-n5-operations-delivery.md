@@ -6,10 +6,10 @@ Expose BSC-owned source, run, receipt, confirmation, and daily-brief state in
 the Knowledge Workspace and managed projections without manufacturing value or
 turning Feishu/Obsidian into writable lifecycle authorities.
 
-**Depends on:** N3 and N4 accepted handoffs.
+**Dependencies:** N3 and N4 accepted handoffs.
 **Blocks:** C1.
 
-## Owned Surfaces
+## File Boundary
 
 **Create:** authorized information-operations read service/API, typed frontend
 client, Knowledge Workspace panels, daily-brief projection, receipt drill-down,

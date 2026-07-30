@@ -6,11 +6,11 @@ Implement the versioned, project-scoped SignalBatch ingress that converts a
 bounded n8n discovery batch into auditable receipt decisions and existing BSC
 source-triage inputs.
 
-**Depends on:** N1 contract accepted.
+**Dependencies:** N1 contract accepted.
 **May run in parallel with:** N2 after N1.
 **Blocks:** N4 and N5.
 
-## Owned Surfaces
+## File Boundary
 
 **Create:** SignalBatch request/receipt types, additive receipt/run persistence,
 project-bound ingress authorization, canonicalization/idempotency service, REST

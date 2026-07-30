@@ -5,11 +5,11 @@
 Integrate N1-N5 into one release candidate and make the only authoritative
 decision about operational readiness for governed n8n information intelligence.
 
-**Depends on:** N1, N2, N3, N4, and N5 accepted handoffs.
+**Dependencies:** N1, N2, N3, N4, and N5 accepted handoffs.
 **Exclusive authority:** cross-plan compatibility, real-cycle evidence,
 release conclusion, and final worklog reconciliation.
 
-## Owned Surfaces
+## File Boundary
 
 **Create:** integration matrix, real-cycle evidence packet, release checklist,
 cross-plan regression harness, and final n8n information-intelligence status.
@@ -31,7 +31,7 @@ content, raw evidence body, or existing Artifact Graph/Horizon semantics.
   imported workflow files, fixtures, generated cards, and container starts do
   not satisfy a real-cycle requirement.
 
-## Integration Tasks
+## Test-First Integration Tasks
 
 1. Add a focused failing integration test for one cross-plan defect before
    changing any compatibility seam. The test must exercise actual configuration,

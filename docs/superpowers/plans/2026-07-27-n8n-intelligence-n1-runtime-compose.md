@@ -6,10 +6,10 @@ Introduce a disabled-by-default n8n Compose profile that can be started,
 observed, stopped, and rolled back without changing existing BSC, Celery,
 Horizon, Obsidian, or A/B/C/D runtime behavior.
 
-**Depends on:** none.
+**Dependencies:** none.
 **Blocks:** N2 and N3.
 
-## Owned Surfaces
+## File Boundary
 
 **Modify:** docker-compose.yml, Docker runtime configuration, ignored runtime
 secret templates, and focused Compose/configuration tests.

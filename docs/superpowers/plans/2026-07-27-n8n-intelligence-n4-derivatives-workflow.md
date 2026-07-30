@@ -6,10 +6,10 @@ Transform the supplied information-aggregator workflow into a sanitized,
 BSC-governed n8n workflow for first-release RSS/Channel RSS collection,
 normalization, optional LLM derivatives, and receipt-aware completion.
 
-**Depends on:** N2 and N3 accepted handoffs.
+**Dependencies:** N2 and N3 accepted handoffs.
 **Blocks:** N5 and C1.
 
-## Owned Surfaces
+## File Boundary
 
 **Create:** sanitized n8n workflow export, workflow README/import procedure,
 source-to-SignalBatch mapping, derivative provenance mapping, test fixtures, and
