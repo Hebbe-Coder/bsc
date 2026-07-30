@@ -15,6 +15,7 @@ from app.knowledge.wiki_llm_provider import WikiLLMProviderError
 from app.knowledge.scheduler import KnowledgeScheduler
 from app.tasks.knowledge_tasks import classify_knowledge_failure, execute_knowledge_run
 from app.tasks.knowledge_tasks import reconcile_knowledge_schedules
+from app.core.config import settings
 
 
 def test_compiler_schema_failure_is_not_misclassified_as_missing_configuration():
@@ -471,6 +472,29 @@ def test_scheduled_horizon_capture_discovers_latest_run_and_skips_it_after_impor
         assert len(repo.list_sources("project-a")) == 1
         events = repo.list_run_events(project_id="project-a", run_id=second.id)
         assert any(event["event_type"] == "knowledge.horizon.capture.skipped" for event in events)
+    finally:
+        repo.close()
+
+
+def test_schedule_reconciler_passes_the_source_sync_recovery_window(tmp_path, monkeypatch):
+    repo = WikiRepository(db_path=str(tmp_path / "source-sync-recovery-window.db"))
+    captured: dict = {}
+
+    def capture_recovery(self, **kwargs):
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr("app.tasks.knowledge_tasks.WikiRepository", lambda: repo)
+    monkeypatch.setattr(KnowledgeScheduler, "recover_abandoned_runs", capture_recovery)
+    monkeypatch.setattr(settings, "CELERY_TASK_TIMEOUT", 3600)
+    monkeypatch.setattr(settings, "KNOWLEDGE_SOURCE_SYNC_RECOVERY_TIMEOUT_SECONDS", 900)
+    monkeypatch.setattr(settings, "CELERY_ENABLED", False)
+    try:
+        result = reconcile_knowledge_schedules(datetime(2026, 7, 22, 10, 0, tzinfo=timezone.utc))
+
+        assert result == {"queued": 0, "duplicates": 0, "failures": 0, "recovered": 0}
+        assert captured["timeout_seconds"] == 3600
+        assert captured["timeout_seconds_by_run_type"] == {"source_sync": 900}
     finally:
         repo.close()
 

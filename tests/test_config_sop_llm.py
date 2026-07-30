@@ -25,3 +25,7 @@ def test_growth_distillation_has_an_isolated_long_request_budget():
 def test_growth_distillation_has_a_bounded_task_lifecycle():
     assert type(settings).model_fields["KNOWLEDGE_GROWTH_TASK_SOFT_TIMEOUT_SECONDS"].default == 390
     assert type(settings).model_fields["KNOWLEDGE_GROWTH_TASK_TIMEOUT_SECONDS"].default == 420
+
+
+def test_source_sync_has_a_short_independent_recovery_window():
+    assert type(settings).model_fields["KNOWLEDGE_SOURCE_SYNC_RECOVERY_TIMEOUT_SECONDS"].default == 900

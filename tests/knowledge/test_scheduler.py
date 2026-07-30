@@ -123,3 +123,28 @@ def test_scheduler_marks_only_abandoned_running_jobs_failed(tmp_path):
         assert repo.get_run("project-a", recent.id)["status"] == "running"
     finally:
         repo.close()
+
+
+def test_scheduler_uses_short_source_sync_recovery_without_shortening_other_jobs(tmp_path):
+    from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus
+
+    repo = WikiRepository(db_path=str(tmp_path / "scheduler-source-sync-recovery.db"))
+    source_sync = KnowledgeRun(project_id="project-a", run_type="source_sync", trigger="schedule", status=RunStatus.RUNNING)
+    maintenance = KnowledgeRun(project_id="project-a", run_type="wiki_maintenance", trigger="schedule", status=RunStatus.RUNNING)
+    repo.create_run(source_sync)
+    repo.create_run(maintenance)
+    stalled_at = "2026-07-22T09:49:00+00:00"
+    repo._execute("UPDATE knowledge_runs SET updated_at=? WHERE id IN (?, ?)", (stalled_at, source_sync.id, maintenance.id))
+    repo._commit()
+    try:
+        recovered = KnowledgeScheduler(repo, scheduler_available=True).recover_abandoned_runs(
+            now=datetime(2026, 7, 22, 10, 0, tzinfo=timezone.utc),
+            timeout_seconds=3600,
+            timeout_seconds_by_run_type={"source_sync": 600},
+        )
+
+        assert recovered == [source_sync.id]
+        assert repo.get_run("project-a", source_sync.id)["status"] == "failed"
+        assert repo.get_run("project-a", maintenance.id)["status"] == "running"
+    finally:
+        repo.close()

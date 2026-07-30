@@ -188,6 +188,10 @@ class Settings(BaseSettings):
     # bounded so provider recovery cannot leave a durable run active forever.
     KNOWLEDGE_GROWTH_TASK_SOFT_TIMEOUT_SECONDS: int = 390
     KNOWLEDGE_GROWTH_TASK_TIMEOUT_SECONDS: int = 420
+    # Source sync is scheduled every five minutes. Recover a worker-restart
+    # orphan promptly instead of leaving its durable run in `running` until
+    # the much longer global task timeout has elapsed.
+    KNOWLEDGE_SOURCE_SYNC_RECOVERY_TIMEOUT_SECONDS: int = 900
     # DBOS stores its auditable Artifact Graph as JSON files. Docker points
     # this root at the durable /data volume; local development keeps a
     # project-relative default for backwards compatibility.

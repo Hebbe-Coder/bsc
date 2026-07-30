@@ -63,6 +63,16 @@ def test_growth_task_lifecycle_limits_reach_only_the_api_and_worker():
     assert not any(item.startswith("KNOWLEDGE_GROWTH_TASK_") for item in beat_environment)
 
 
+def test_source_sync_recovery_timeout_reaches_only_the_api_and_worker():
+    compose = yaml.safe_load(Path("docker-compose.yml").read_text(encoding="utf-8"))
+    expected = "KNOWLEDGE_SOURCE_SYNC_RECOVERY_TIMEOUT_SECONDS=${KNOWLEDGE_SOURCE_SYNC_RECOVERY_TIMEOUT_SECONDS:-900}"
+
+    for service_name in ("bsc-backend", "celery-worker"):
+        assert expected in set(compose["services"][service_name]["environment"])
+
+    assert expected not in set(compose["services"]["celery-beat"]["environment"])
+
+
 def test_horizon_run_store_configuration_reaches_api_and_worker_only():
     compose = yaml.safe_load(Path("docker-compose.yml").read_text(encoding="utf-8"))
     required = {

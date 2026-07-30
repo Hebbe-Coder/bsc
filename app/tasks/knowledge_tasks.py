@@ -1011,6 +1011,12 @@ def _iso_week() -> str:
     return f"{value.year}-W{value.week:02d}"
 
 
+def _run_recovery_timeouts() -> dict[str, int]:
+    global_timeout = max(60, int(settings.CELERY_TASK_TIMEOUT))
+    source_sync_timeout = max(60, int(settings.KNOWLEDGE_SOURCE_SYNC_RECOVERY_TIMEOUT_SECONDS))
+    return {"source_sync": min(global_timeout, source_sync_timeout)}
+
+
 def reconcile_knowledge_schedules(now: datetime | None = None) -> dict:
     """Claim due persistent schedules and enqueue runs exactly once per due instant."""
     if not settings.KNOWLEDGE_SCHEDULES_ENABLED:
@@ -1040,7 +1046,11 @@ def reconcile_knowledge_schedules(now: datetime | None = None) -> dict:
             timeout_seconds=min(max(60, settings.CELERY_TASK_TIMEOUT), 120),
         )
         failures += publication_recovery["failed"]
-        recovered = scheduler.recover_abandoned_runs(now=current, timeout_seconds=max(60, settings.CELERY_TASK_TIMEOUT))
+        recovered = scheduler.recover_abandoned_runs(
+            now=current,
+            timeout_seconds=max(60, settings.CELERY_TASK_TIMEOUT),
+            timeout_seconds_by_run_type=_run_recovery_timeouts(),
+        )
         growth_scheduler = GrowthScheduleCoordinator(repo, scheduler_available=True)
         from app.pbos.scheduler import PBOSScheduleCoordinator
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import re
 from calendar import monthrange
 from datetime import datetime, timedelta, timezone
@@ -166,12 +167,23 @@ class KnowledgeScheduler:
         *,
         now: datetime | None = None,
         timeout_seconds: int = 3600,
+        timeout_seconds_by_run_type: Mapping[str, int] | None = None,
     ) -> list[str]:
         if timeout_seconds < 60:
+            raise ScheduleValidationError("abandoned run timeout must be at least 60 seconds")
+        try:
+            per_type_timeouts = {
+                str(run_type).strip(): int(run_timeout)
+                for run_type, run_timeout in (timeout_seconds_by_run_type or {}).items()
+            }
+        except (TypeError, ValueError) as exc:
+            raise ScheduleValidationError("abandoned run timeout must be an integer") from exc
+        if any(not run_type or run_timeout < 60 for run_type, run_timeout in per_type_timeouts.items()):
             raise ScheduleValidationError("abandoned run timeout must be at least 60 seconds")
         current = now or datetime.now(timezone.utc)
         recovered: list[str] = []
         for run in self.repository.list_running_runs():
+            run_timeout = per_type_timeouts.get(str(run.get("run_type") or ""), timeout_seconds)
             value = str(run.get("updated_at") or run.get("started_at") or run.get("created_at") or "")
             try:
                 updated = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -179,7 +191,7 @@ class KnowledgeScheduler:
                     updated = updated.replace(tzinfo=timezone.utc)
             except ValueError:
                 continue
-            if updated > current - timedelta(seconds=timeout_seconds):
+            if updated > current - timedelta(seconds=run_timeout):
                 continue
             self.repository.update_run_status(
                 run["project_id"],
