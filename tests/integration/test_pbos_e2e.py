@@ -61,9 +61,16 @@ def test_personal_ai_delivery_loop_retains_evidence_gates(monkeypatch, tmp_path)
 
     outcome = client.post(
         f"/api/pbos/projects/{project_id}/executions/{execution.json()['execution']['artifact_id']}/outcomes",
-        json={"acceptance_status": "unverified", "quality_score": 88, "metrics": {"tests_passed": True}},
+        json={"acceptance_status": "unverified", "metrics": {"tests_passed": True}},
     )
     assert outcome.status_code == 200
+
+    review = client.post(
+        f"/api/pbos/projects/{project_id}/outcomes/{outcome.json()['outcome']['artifact_id']}/review",
+        json={"decision": "accepted", "quality_score": 88, "review_note": "Verified against the execution receipt."},
+    )
+    assert review.status_code == 200
+    assert review.json()["outcome"]["acceptance_status"] == "accepted"
 
     feedback = client.post(
         f"/api/pbos/projects/{project_id}/outcomes/{outcome.json()['outcome']['artifact_id']}/feedback",

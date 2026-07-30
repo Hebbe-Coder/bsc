@@ -741,6 +741,9 @@ class WorkOutcomeArtifact(BaseArtifact):
     baseline_quality: float | None = Field(default=None, ge=0, le=100)
     hard_failure_resolved: bool = False
     metrics: dict[str, Any] = Field(default_factory=dict)
+    reviewed_at: str = ""
+    review_note: str = ""
+    review_history: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class WorkFeedbackArtifact(BaseArtifact):

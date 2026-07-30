@@ -9,6 +9,7 @@ import {
   recordPbosExecution,
   recordPbosFeedback,
   recordPbosOutcome,
+  reviewPbosOutcome,
   savePbosProfile,
   type PbosCockpit,
   type PbosProfile,
@@ -46,6 +47,15 @@ function planStrings(value: unknown): string[] {
 
 function planObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+type OutcomeReviewDraft = {
+  qualityScore: string;
+  reviewNote: string;
+};
+
+function readableRequirement(value: string): string {
+  return value.replace(/_/g, ' ');
 }
 
 function planGenerationStatus(plan: Record<string, unknown> | null | undefined): {
@@ -90,6 +100,8 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
   const [evidencePaths, setEvidencePaths] = useState('');
   const [acceptanceConfirmed, setAcceptanceConfirmed] = useState(false);
   const [qualityScore, setQualityScore] = useState('');
+  const [reviewDrafts, setReviewDrafts] = useState<Record<string, OutcomeReviewDraft>>({});
+  const [reviewingOutcomeId, setReviewingOutcomeId] = useState('');
   const load = useCallback(async () => {
     if (!runtimeAccessKey.trim()) {
       setData(null); setProfile(null); setError(''); setAccessState('required');
@@ -117,6 +129,7 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
   const capabilities = data?.capabilities ?? [];
   const executions = data?.executions ?? [];
   const outcomes = data?.outcomes ?? [];
+  const outcomeObservations = data?.outcome_observations ?? [];
   const feedback = data?.feedback ?? [];
   const strategies = data?.strategies ?? [];
   const failurePatterns = data?.failure_patterns ?? [];
@@ -124,7 +137,8 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
   const todayAction = planObject(data?.today_action);
   const generation = planGenerationStatus(data?.today);
   const acceptedOutcomes = outcomes.filter((item) => item.acceptance_status === 'accepted').length;
-  const qualitySeries = outcomes.slice().reverse();
+  const qualitySeries = outcomes.filter((item) => item.acceptance_status === 'accepted' && typeof item.quality_score === 'number').slice().reverse();
+  const pendingReviewOutcomes = outcomes.filter((item) => String(item.acceptance_status || '') === 'unverified');
   const contextReferences = stringRefs(data?.today?.knowledge_context_refs);
   const strategyReferences = stringRefs(data?.today?.strategy_refs);
   const appliedStrategies = strategies.filter((item) => strategyReferences.includes(String(item.artifact_id || '')));
@@ -200,6 +214,36 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to record reflection'); }
     finally { setSaving(false); }
   };
+  const reviewPendingOutcome = async (outcomeId: string, decision: 'accepted' | 'rejected') => {
+    const observation = outcomeObservations.find((item) => item.artifact_id === outcomeId);
+    const missingRequirements = observation?.missing_requirements ?? [];
+    const unresolvedEvidence = missingRequirements.filter((item) => item !== 'accepted_outcome' && item !== 'quality_score');
+    const draft = reviewDrafts[outcomeId] ?? { qualityScore: '', reviewNote: '' };
+    const parsedQuality = Number(draft.qualityScore);
+    if (decision === 'accepted' && unresolvedEvidence.length) {
+      setError(`Capture the missing evidence before accepting this result: ${unresolvedEvidence.map(readableRequirement).join(', ')}.`);
+      return;
+    }
+    if (decision === 'accepted' && (!draft.qualityScore.trim() || !Number.isFinite(parsedQuality) || parsedQuality < 0 || parsedQuality > 100)) {
+      setError('An accepted outcome needs a quality score from 0 to 100.');
+      return;
+    }
+    setReviewingOutcomeId(outcomeId);
+    try {
+      await reviewPbosOutcome(projectId, outcomeId, {
+        decision,
+        ...(decision === 'accepted' ? { quality_score: parsedQuality } : {}),
+        review_note: draft.reviewNote.trim(),
+      });
+      setReviewDrafts((current) => {
+        const next = { ...current };
+        delete next[outcomeId];
+        return next;
+      });
+      await load();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to review outcome'); }
+    finally { setReviewingOutcomeId(''); }
+  };
   const nodes: Node[] = [
     { id: 'weekly-handoff', position: compactGraph ? { x: 0, y: 6 } : { x: 0, y: 24 }, data: { label: weeklyHandoffs.length ? `${weeklyHandoffs.length} weekly handoff` : 'No weekly handoff' }, type: 'default', className: 'pbos-lineage__input' },
     { id: 'vault-context', position: compactGraph ? { x: 0, y: 76 } : { x: 0, y: 136 }, data: { label: `${contextReferences.length} Vault ref${contextReferences.length === 1 ? '' : 's'}` }, type: 'default', className: 'pbos-lineage__input' },
@@ -251,6 +295,7 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
       {data.today && <section className="pbos-grounding"><div className="pbos-panel-heading"><p className="pbos-label">PLAN GROUNDING</p><span>{contextReferences.length} governed reference{contextReferences.length === 1 ? '' : 's'}</span></div><dl><div><dt>Plan engine</dt><dd><span className={`pbos-plan-generation ${generation.tone}`}>{generation.label}</span><small>{generation.detail}</small></dd></div><div><dt>Weekly handoff</dt><dd>{weeklyHandoffs.length} weekly handoff{weeklyHandoffs.length === 1 ? '' : 's'}</dd></div><div><dt>Feedback input</dt><dd>{feedbackReferences.length} feedback input{feedbackReferences.length === 1 ? '' : 's'}</dd></div><div><dt>Personal strategy</dt><dd>{appliedStrategies.length ? `${appliedStrategies.length} verified strategy applied` : 'not yet earned'}</dd></div></dl>{contextReferences.length ? <ul>{contextReferences.slice(0, 4).map((item) => <li key={item}><code>{visibleVaultRef(item)}</code></li>)}</ul> : <p className="pbos-grounding-empty">No governed context was selected for this plan.</p>}{appliedStrategies.length > 0 && <ul className="pbos-strategy-inputs">{appliedStrategies.map((item) => <li key={String(item.artifact_id)}><BrainCircuit size={13} /><span>{String(item.strategy_name || 'Personal strategy')} v{String(item.version || 1)}</span></li>)}</ul>}<p>These are planning inputs. They do not establish a personal capability without verified execution evidence.</p></section>}
       <section className="pbos-profile"><p className="pbos-label">PERSONAL CONTEXT</p><form onSubmit={saveProfile}><label>Focus<input value={focus} onChange={(event) => setFocus(event.target.value)} placeholder="AI systems, knowledge engineering" /></label><label>Goals<input value={goals} onChange={(event) => setGoals(event.target.value)} placeholder="Ship a verified personal operating system" /></label><label>Resources<input value={resources} onChange={(event) => setResources(event.target.value)} placeholder="Obsidian, BSC" /></label><label>Constraints<input value={constraints} onChange={(event) => setConstraints(event.target.value)} placeholder="Solo delivery, limited time" /></label><button type="submit" disabled={saving} title="Save personal context">Save personal context</button></form><p>{profile ? 'This is declared context. Capability claims still require execution evidence.' : 'Add your real operating context before PBOS personalizes a plan.'}</p></section>
       {data.today && <section className="pbos-reflection"><p className="pbos-label">THREE-MINUTE REFLECTION</p><form onSubmit={submitReflection}><label>What changed?<textarea value={reflection} onChange={(event) => setReflection(event.target.value)} required placeholder="Completed, observed result, or decision made" /></label><label>What blocked you?<input value={blocker} onChange={(event) => setBlocker(event.target.value)} placeholder="Optional blocker" /></label><label>Evidence files in this BSC workspace<input value={evidencePaths} onChange={(event) => setEvidencePaths(event.target.value)} placeholder="app/pbos/service.py, app/knowledge/wiki_sync.py" /></label><small>Only approved project paths are hashed. File contents and credentials are never sent to the PBOS ledger.</small><label className="pbos-reflection__acceptance"><input type="checkbox" checked={acceptanceConfirmed} onChange={(event) => setAcceptanceConfirmed(event.target.checked)} />I accept this result based on the attached evidence</label><label>Quality score (0-100)<input type="number" min="0" max="100" step="1" value={qualityScore} onChange={(event) => setQualityScore(event.target.value)} disabled={!acceptanceConfirmed} placeholder="82" /></label><label>What should change next time?<input value={feedbackDraft} onChange={(event) => setFeedbackDraft(event.target.value)} placeholder="Optional feedback for the next plan" /></label><button type="submit" disabled={saving || !reflection.trim()} title="Record evidence-backed reflection">Record reflection</button></form><p>Without an attached receipt and explicit acceptance, PBOS keeps the result unverified and does not learn a personal method from it.</p></section>}
+      {pendingReviewOutcomes.length > 0 && <section className="pbos-review-queue"><div className="pbos-panel-heading"><p className="pbos-label">REVIEW PENDING OUTCOMES</p><span>{pendingReviewOutcomes.length} explicit review{pendingReviewOutcomes.length === 1 ? '' : 's'}</span></div><div className="pbos-review-list">{pendingReviewOutcomes.map((outcome) => { const outcomeId = String(outcome.artifact_id || ''); const observation = outcomeObservations.find((item) => item.artifact_id === outcomeId); const missingRequirements = observation?.missing_requirements ?? ['accepted_outcome', 'quality_score']; const unresolvedEvidence = missingRequirements.filter((item) => item !== 'accepted_outcome' && item !== 'quality_score'); const canAccept = unresolvedEvidence.length === 0; const executionId = String(outcome.execution_record_id || ''); const execution = executions.find((item) => item.artifact_id === executionId); const draft = reviewDrafts[outcomeId] ?? { qualityScore: '', reviewNote: '' }; const parsedQuality = Number(draft.qualityScore); const validQuality = draft.qualityScore.trim() !== '' && Number.isFinite(parsedQuality) && parsedQuality >= 0 && parsedQuality <= 100; const updating = reviewingOutcomeId === outcomeId; return <article key={outcomeId} className="pbos-review-card"><div><strong>{outcomeId}</strong><small>{executionId || 'Execution record unavailable'}{execution ? ` / ${execution.verified_receipt_count} verified receipt${execution.verified_receipt_count === 1 ? '' : 's'}` : ''}</small>{unresolvedEvidence.length > 0 && <em>Evidence gap: {unresolvedEvidence.map(readableRequirement).join(', ')}</em>}</div><label>Quality score for {outcomeId}<input type="number" min="0" max="100" step="1" value={draft.qualityScore} onChange={(event) => setReviewDrafts((current) => ({ ...current, [outcomeId]: { ...draft, qualityScore: event.target.value } }))} disabled={updating || !canAccept} placeholder="82" /></label><label>Review note for {outcomeId}<input value={draft.reviewNote} onChange={(event) => setReviewDrafts((current) => ({ ...current, [outcomeId]: { ...draft, reviewNote: event.target.value } }))} disabled={updating} placeholder="Optional audit note" /></label><div className="pbos-review-actions"><button type="button" className="pbos-primary-action" disabled={updating || !canAccept || !validQuality} onClick={() => void reviewPendingOutcome(outcomeId, 'accepted')}>Accept result</button><button type="button" disabled={updating} onClick={() => void reviewPendingOutcome(outcomeId, 'rejected')}>Reject result</button></div></article>; })}</div></section>}
       <section className="pbos-executions"><div className="pbos-panel-heading"><p className="pbos-label">RECENT EXECUTION RECEIPTS</p><span>{executions.length} reviewable record{executions.length === 1 ? '' : 's'}</span></div><div className="pbos-outcomes">{executions.length ? executions.map((execution) => <p key={execution.artifact_id}><FileCheck2 size={15} /><span><strong>{execution.artifact_id.slice(0, 16)}</strong><small>{execution.verified_receipt_count} verified receipt{execution.verified_receipt_count === 1 ? '' : 's'} / {execution.receipt_count} captured / {execution.reflection_recorded ? 'reflection recorded' : 'reflection missing'}</small></span><em>{execution.outcome_state === 'awaiting_outcome' ? 'Awaiting explicit outcome' : execution.outcome_state === 'learning_eligible' ? 'Learning eligible' : execution.outcome_state.replace(/_/g, ' ')}</em></p>) : <p>No execution receipt has been recorded yet.</p>}</div><p>Receipt metadata proves a reviewable execution. A quality-scored, explicitly accepted outcome is still required before PBOS learns a personal method.</p></section>
       <section className="pbos-chart"><div className="pbos-panel-heading"><p className="pbos-label">OUTCOME QUALITY</p><span>{qualitySeries.length ? `${qualitySeries.length} scored result${qualitySeries.length === 1 ? '' : 's'}` : 'awaiting score'}</span></div>{qualitySeries.length ? <RegisteredECharts option={qualityChart} style={{ height: 210 }} notMerge /> : <p className="pbos-empty-panel">No scored outcome has been recorded.</p>}</section>
       <section className="pbos-lineage"><p className="pbos-label">PERSONAL WORKFLOW LINEAGE</p><ReactFlow nodes={nodes} edges={edges} fitView fitViewOptions={{ padding: 0.12 }} minZoom={0.25} nodesDraggable={false} nodesConnectable={false}><Background /><Controls /></ReactFlow></section>

@@ -14,10 +14,10 @@ export interface PbosCockpit {
     receipt_count: number;
     verified_receipt_count: number;
     reflection_recorded: boolean;
-    outcome_state: 'awaiting_outcome' | 'unverified_outcome' | 'accepted_incomplete' | 'learning_eligible' | string;
+    outcome_state: 'awaiting_outcome' | 'unverified_outcome' | 'rejected_outcome' | 'accepted_incomplete' | 'learning_eligible' | string;
     created_at: string;
   }>;
-  outcome_observations?: Array<Record<string, unknown>>;
+  outcome_observations?: PbosOutcomeObservation[];
   feedback: Array<Record<string, unknown>>;
   strategies: Array<Record<string, unknown>>;
   failure_patterns: Array<Record<string, unknown>>;
@@ -29,6 +29,7 @@ export interface PbosProjectHealth {
   accepted_outcomes?: number;
   eligible_personal_outcomes?: number;
   unverified_outcomes?: number;
+  rejected_outcomes?: number;
   reviewable_executions?: number;
   verified_capabilities?: number;
   active_strategies?: number;
@@ -37,6 +38,20 @@ export interface PbosProjectHealth {
   personal_learning_ready?: boolean;
   /** @deprecated Use personal_learning_ready. */
   evidence_ready?: boolean;
+}
+
+export interface PbosOutcomeObservation {
+  artifact_id: string;
+  acceptance_status: string;
+  quality_score: number | null;
+  eligible_for_evolution: boolean;
+  missing_requirements: string[];
+}
+
+export interface PbosOutcomeReviewPayload {
+  decision: 'accepted' | 'rejected';
+  quality_score?: number;
+  review_note?: string;
 }
 
 export interface PbosProfile {
@@ -90,6 +105,12 @@ export function capturePbosWorkspaceExecution(projectId: string, missionId: stri
 
 export function recordPbosOutcome(projectId: string, executionId: string, payload: Record<string, unknown>): Promise<{ outcome: Record<string, unknown> }> {
   return fetchWrapper.fetch<{ outcome: Record<string, unknown> }>(`/api/pbos/projects/${encodeURIComponent(projectId)}/executions/${encodeURIComponent(executionId)}/outcomes`, {
+    method: 'POST', body: JSON.stringify(payload),
+  });
+}
+
+export function reviewPbosOutcome(projectId: string, outcomeId: string, payload: PbosOutcomeReviewPayload): Promise<{ outcome: Record<string, unknown> }> {
+  return fetchWrapper.fetch<{ outcome: Record<string, unknown> }>(`/api/pbos/projects/${encodeURIComponent(projectId)}/outcomes/${encodeURIComponent(outcomeId)}/review`, {
     method: 'POST', body: JSON.stringify(payload),
   });
 }

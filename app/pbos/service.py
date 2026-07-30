@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import time
 from pathlib import Path, PurePosixPath
 from statistics import median
 from typing import Any
@@ -149,6 +150,13 @@ class PBOSService:
         if not isinstance(execution, WorkExecutionRecordArtifact):
             raise ValueError("PBOS outcome requires an existing execution record")
         values = dict(payload)
+        acceptance_status = str(values.get("acceptance_status") or "unverified")
+        if acceptance_status not in {"unverified", "accepted"}:
+            raise ValueError("PBOS outcomes must start as unverified or be explicitly accepted with a score")
+        if acceptance_status == "accepted":
+            self._require_quality_score(values.get("quality_score"))
+        elif values.get("quality_score") is not None:
+            raise ValueError("PBOS quality scores are recorded only with explicit acceptance")
         metrics = dict(values.get("metrics") or {})
         plan = self.store.get(execution.plan_id) if execution.plan_id else None
         if isinstance(plan, PersonalExecutionPlanArtifact):
@@ -166,6 +174,52 @@ class PBOSService:
         artifact = WorkOutcomeArtifact(project_id=self.project_id, mission_id=mission_id, execution_record_id=execution_id, parent_ids=[execution_id], **values)
         self.store.add(artifact)
         return artifact
+
+    def review_outcome(self, outcome_id: str, payload: dict[str, Any]) -> WorkOutcomeArtifact:
+        """Record one explicit human review without replacing the evidence record.
+
+        An outcome is an audit record, not a mutable score card. A review can
+        resolve its initial ``unverified`` state exactly once and stores the
+        previous values in the artifact before it is written back to the graph.
+        """
+        outcome = self.store.get(outcome_id)
+        if not isinstance(outcome, WorkOutcomeArtifact):
+            raise ValueError("outcome record not found")
+        if outcome.acceptance_status != "unverified":
+            raise ValueError("PBOS outcomes can only be reviewed while unverified")
+        decision = str(payload.get("decision") or "").strip()
+        if decision not in {"accepted", "rejected"}:
+            raise ValueError("PBOS outcome review decision must be accepted or rejected")
+        quality_score = payload.get("quality_score")
+        if decision == "accepted":
+            self._require_quality_score(quality_score)
+        review_note = str(payload.get("review_note") or "").strip()
+        reviewed_at = time.strftime("%Y-%m-%dT%H:%M:%S")
+        outcome.review_history.append({
+            "decision": decision,
+            "previous_acceptance_status": outcome.acceptance_status,
+            "previous_quality_score": outcome.quality_score,
+            "review_note": review_note,
+            "reviewed_at": reviewed_at,
+            "source": "explicit_manual_review",
+        })
+        outcome.acceptance_status = decision
+        outcome.quality_score = float(quality_score) if decision == "accepted" else None
+        outcome.review_note = review_note
+        outcome.reviewed_at = reviewed_at
+        self.store.update(outcome)
+        return outcome
+
+    @staticmethod
+    def _require_quality_score(value: Any) -> None:
+        if isinstance(value, bool):
+            raise ValueError("An accepted PBOS outcome requires a quality score from 0 to 100")
+        try:
+            score = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("An accepted PBOS outcome requires a quality score from 0 to 100") from exc
+        if not 0 <= score <= 100:
+            raise ValueError("An accepted PBOS outcome requires a quality score from 0 to 100")
 
     def record_feedback(self, outcome_id: str, payload: dict[str, Any]) -> WorkFeedbackArtifact:
         outcome = self.store.get(outcome_id)
@@ -266,7 +320,7 @@ class PBOSService:
         evaluated = set(active.genome.get("evidence") or []) if active else set()
         cycle = [item for item in group if item.artifact_id not in evaluated]
         complete = [item for item in cycle if self._is_complete_record(item)]
-        severe = [item for item in cycle if item.severe_failure]
+        severe = [item for item in cycle if item.severe_failure and self._is_complete_record(item)]
         summary = {
             "comparison_key": key,
             "comparison_context": context,
@@ -415,7 +469,8 @@ class PBOSService:
             "project_health": {
                 "accepted_outcomes": len(accepted),
                 "eligible_personal_outcomes": len(eligible_outcomes),
-                "unverified_outcomes": len([item for item in outcomes if item.acceptance_status != "accepted"]),
+                "unverified_outcomes": len([item for item in outcomes if item.acceptance_status == "unverified"]),
+                "rejected_outcomes": len([item for item in outcomes if item.acceptance_status == "rejected"]),
                 "reviewable_executions": len([item for item in executions if self._is_reviewable_execution(item)]),
                 "verified_capabilities": len(capabilities),
                 "active_strategies": len([item for item in strategies if item.status == ArtifactStatus.ACTIVE]),
@@ -445,6 +500,8 @@ class PBOSService:
             outcome_state = "learning_eligible"
         elif outcome_observation["acceptance_status"] == "accepted":
             outcome_state = "accepted_incomplete"
+        elif outcome_observation["acceptance_status"] == "rejected":
+            outcome_state = "rejected_outcome"
         else:
             outcome_state = "unverified_outcome"
         return {
@@ -730,7 +787,7 @@ class PBOSService:
 
     def _failure_patterns(self, outcomes: list[WorkOutcomeArtifact], feedback: list[WorkFeedbackArtifact]) -> list[dict[str, Any]]:
         patterns: list[dict[str, Any]] = []
-        severe = [item for item in outcomes if item.severe_failure]
+        severe = [item for item in outcomes if item.severe_failure and self._is_complete_record(item)]
         if severe:
             patterns.append({"kind": "severe_failure", "count": len(severe), "evidence_refs": [item.artifact_id for item in severe]})
         negative = [item for item in feedback if item.sentiment == "negative"]

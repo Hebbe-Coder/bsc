@@ -25,12 +25,14 @@ class PBOSProjectionService:
         content = self._render(artifact)
         if target.exists():
             existing = target.read_text(encoding="utf-8")
-            if existing != content:
-                conflict = self._safe_target(f"{self.ROOT}/conflicts/{artifact.artifact_id}.md")
-                self._write(conflict, content)
-                return {"state": "conflict", "path": conflict.relative_to(self.project_root).as_posix()}
             if existing == content:
                 return {"state": "unchanged", "path": relative}
+            if self._is_intact_managed_projection(existing):
+                self._write(target, content)
+                return {"state": "updated", "path": relative}
+            conflict = self._safe_target(f"{self.ROOT}/conflicts/{artifact.artifact_id}.md")
+            self._write(conflict, content)
+            return {"state": "conflict", "path": conflict.relative_to(self.project_root).as_posix()}
         self._write(target, content)
         return {"state": "synced", "path": relative}
 
@@ -67,6 +69,24 @@ class PBOSProjectionService:
         if start < 0:
             return ""
         return content[start + len(marker):].split("-->", 1)[0].strip()
+
+    @classmethod
+    def _is_intact_managed_projection(cls, content: str) -> bool:
+        marker = "<!-- pbos-managed-sha256:"
+        start = content.rfind(marker)
+        expected = cls._managed_hash(content)
+        if start < 0 or not expected:
+            return False
+        marker_end = content.find("-->", start)
+        if marker_end < 0 or content[marker_end + 3:].strip():
+            return False
+        # _render adds one separator newline immediately before the marker;
+        # remove only that separator before verifying the managed body.
+        managed_body = content[:start]
+        if managed_body.endswith("\n"):
+            managed_body = managed_body[:-1]
+        actual = hashlib.sha256(managed_body.encode("utf-8")).hexdigest()
+        return actual == expected
 
     def _safe_target(self, relative: str) -> Path:
         target = (self.project_root / relative).resolve()

@@ -114,3 +114,48 @@ def test_pbos_workspace_capture_records_one_execution_with_safe_receipt_and_refl
 
     assert manual.status_code == 200
     assert manual.json()["execution"]["tool_receipts"][0]["verified"] is False
+
+
+def test_pbos_outcome_review_updates_the_existing_pending_outcome(monkeypatch, tmp_path):
+    monkeypatch.setattr(dbos_api, "DBOS_DATA_ROOT", tmp_path / "dbos")
+    store = dbos_api.dbos_service_for("personal").store
+    store.add(
+        MissionArtifact(
+            artifact_id="mission-review",
+            mission_id="mission-review",
+            project_id="personal",
+            label="Review evidence",
+            title="Review evidence",
+        )
+    )
+    from app.pbos import PBOSService
+
+    service = PBOSService(store, "personal")
+    record = service.record_execution(
+        "mission-review",
+        "",
+        {
+            "actions": ["Captured a reviewable result."],
+            "tool_receipts": [{"kind": "test", "verified": True}],
+            "reflection": {"completed": "Ready for explicit review."},
+        },
+    )
+    outcome = service.record_outcome(record.artifact_id, {"acceptance_status": "unverified"})
+    client = TestClient(app)
+
+    missing_score = client.post(
+        f"/api/pbos/projects/personal/outcomes/{outcome.artifact_id}/review",
+        json={"decision": "accepted"},
+    )
+    response = client.post(
+        f"/api/pbos/projects/personal/outcomes/{outcome.artifact_id}/review",
+        json={"decision": "accepted", "quality_score": 88, "review_note": "Verified during release review."},
+    )
+
+    assert missing_score.status_code == 422
+    assert response.status_code == 200
+    reviewed = response.json()["outcome"]
+    assert reviewed["artifact_id"] == outcome.artifact_id
+    assert reviewed["acceptance_status"] == "accepted"
+    assert reviewed["quality_score"] == 88
+    assert reviewed["review_history"][0]["previous_acceptance_status"] == "unverified"

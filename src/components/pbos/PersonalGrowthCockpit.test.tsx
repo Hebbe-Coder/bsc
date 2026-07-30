@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { capturePbosWorkspaceExecution, fetchPbosCockpit, fetchPbosProfile, recordPbosExecution, recordPbosOutcome } from '../../api/pbosApi';
+import { capturePbosWorkspaceExecution, fetchPbosCockpit, fetchPbosProfile, recordPbosExecution, recordPbosOutcome, reviewPbosOutcome } from '../../api/pbosApi';
 import { PersonalGrowthCockpit } from './PersonalGrowthCockpit';
 
 vi.mock('../../api/pbosApi', () => ({
@@ -14,6 +14,7 @@ vi.mock('../../api/pbosApi', () => ({
   recordPbosExecution: vi.fn(),
   recordPbosFeedback: vi.fn(),
   recordPbosOutcome: vi.fn(),
+  reviewPbosOutcome: vi.fn(),
   savePbosProfile: vi.fn(),
 }));
 
@@ -218,6 +219,57 @@ describe('PersonalGrowthCockpit', () => {
     expect(screen.getByText(/2 verified receipts/i)).toBeVisible();
     expect(screen.getByText(/Awaiting explicit outcome/i)).toBeVisible();
     expect(screen.queryByText(/Verified capability/i)).not.toBeInTheDocument();
+  });
+
+  it('reviews an existing pending outcome without creating another execution or outcome', async () => {
+    vi.mocked(fetchPbosCockpit).mockResolvedValue({
+      profile: null,
+      today: null,
+      today_action: { state: 'no_plan' },
+      capabilities: [],
+      outcomes: [{ artifact_id: 'outcome-pending-1', execution_record_id: 'execution-safe-1', acceptance_status: 'unverified', quality_score: null }],
+      outcome_observations: [{ artifact_id: 'outcome-pending-1', acceptance_status: 'unverified', quality_score: null, eligible_for_evolution: false, missing_requirements: ['accepted_outcome', 'quality_score'] }],
+      executions: [{
+        artifact_id: 'execution-safe-1', mission_id: 'mission-1', plan_id: 'plan-1',
+        actions_count: 1, receipt_count: 2, verified_receipt_count: 2,
+        reflection_recorded: true, outcome_state: 'unverified_outcome', created_at: '2026-07-30T15:00:00Z',
+      }],
+      feedback: [], strategies: [], failure_patterns: [], project_health: { unverified_outcomes: 1 }, connectors: {},
+    });
+    vi.mocked(fetchPbosProfile).mockResolvedValue({ profile: null });
+    vi.mocked(reviewPbosOutcome).mockResolvedValue({ outcome: { artifact_id: 'outcome-pending-1', acceptance_status: 'accepted' } });
+
+    render(<PersonalGrowthCockpit projectId="default" onClose={vi.fn()} runtimeAccessKey="session-key" />);
+
+    await screen.findByText('REVIEW PENDING OUTCOMES');
+    fireEvent.change(screen.getByLabelText('Quality score for outcome-pending-1'), { target: { value: '88' } });
+    fireEvent.change(screen.getByLabelText('Review note for outcome-pending-1'), { target: { value: 'Validated against the attached evidence.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Accept result' }));
+
+    await waitFor(() => expect(reviewPbosOutcome).toHaveBeenCalledWith('default', 'outcome-pending-1', {
+      decision: 'accepted', quality_score: 88, review_note: 'Validated against the attached evidence.',
+    }));
+    expect(recordPbosExecution).not.toHaveBeenCalled();
+    expect(recordPbosOutcome).not.toHaveBeenCalled();
+  });
+
+  it('does not allow a pending outcome with missing evidence to be accepted', async () => {
+    vi.mocked(fetchPbosCockpit).mockResolvedValue({
+      profile: null,
+      today: null,
+      today_action: { state: 'no_plan' },
+      capabilities: [],
+      outcomes: [{ artifact_id: 'outcome-incomplete-1', execution_record_id: 'execution-incomplete-1', acceptance_status: 'unverified', quality_score: null }],
+      outcome_observations: [{ artifact_id: 'outcome-incomplete-1', acceptance_status: 'unverified', quality_score: null, eligible_for_evolution: false, missing_requirements: ['accepted_outcome', 'quality_score', 'verified_tool_receipt'] }],
+      executions: [], feedback: [], strategies: [], failure_patterns: [], project_health: { unverified_outcomes: 1 }, connectors: {},
+    });
+    vi.mocked(fetchPbosProfile).mockResolvedValue({ profile: null });
+
+    render(<PersonalGrowthCockpit projectId="default" onClose={vi.fn()} runtimeAccessKey="session-key" />);
+
+    await screen.findByText('REVIEW PENDING OUTCOMES');
+    expect(screen.getByText(/Evidence gap: verified tool receipt/i)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Accept result' })).toBeDisabled();
   });
 
   it('shows a safe model fallback category instead of presenting it as an LLM plan', async () => {

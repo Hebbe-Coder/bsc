@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
@@ -65,6 +65,12 @@ class OutcomeRequest(PBOSRequest):
     baseline_quality: float | None = Field(default=None, ge=0, le=100)
     hard_failure_resolved: bool = False
     metrics: dict[str, Any] = Field(default_factory=dict)
+
+
+class OutcomeReviewRequest(PBOSRequest):
+    decision: Literal["accepted", "rejected"]
+    quality_score: float | None = Field(default=None, ge=0, le=100)
+    review_note: str = Field(default="", max_length=2000)
 
 
 class FeedbackRequest(PBOSRequest):
@@ -164,7 +170,18 @@ def record_outcome(project_id: str, execution_id: str, payload: OutcomeRequest, 
     try:
         outcome = _pbos(request, project_id, write=True).record_outcome(execution_id, payload.model_dump())
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        status = 404 if "execution record" in str(exc) else 422
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
+    return {"outcome": outcome.model_dump(mode="json"), "vault": _sync(project_id, outcome)}
+
+
+@router.post("/projects/{project_id}/outcomes/{outcome_id}/review")
+def review_outcome(project_id: str, outcome_id: str, payload: OutcomeReviewRequest, request: Request):
+    try:
+        outcome = _pbos(request, project_id, write=True).review_outcome(outcome_id, payload.model_dump())
+    except ValueError as exc:
+        status = 404 if "outcome record not found" in str(exc) else 422
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
     return {"outcome": outcome.model_dump(mode="json"), "vault": _sync(project_id, outcome)}
 
 

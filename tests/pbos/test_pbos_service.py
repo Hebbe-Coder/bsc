@@ -315,12 +315,103 @@ def test_manual_client_receipts_cannot_complete_or_promote_personal_learning(tmp
     assert "verified_tool_receipt" in observation["missing_requirements"]
 
 
+def test_outcome_review_accepts_a_pending_result_with_a_score_and_audit_history(tmp_path):
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(store)
+    service = PBOSService(store, "personal")
+    record = service.record_execution(
+        "mission",
+        "",
+        {
+            "actions": ["Validated the governed delivery slice."],
+            "tool_receipts": [{"kind": "test", "verified": True}],
+            "reflection": {"completed": "The result is ready for an explicit review."},
+        },
+    )
+    outcome = service.record_outcome(record.artifact_id, {"acceptance_status": "unverified"})
+
+    reviewed = service.review_outcome(
+        outcome.artifact_id,
+        {"decision": "accepted", "quality_score": 87, "review_note": "Reviewed against the attached evidence."},
+    )
+
+    assert reviewed.artifact_id == outcome.artifact_id
+    assert reviewed.acceptance_status == "accepted"
+    assert reviewed.quality_score == 87
+    assert reviewed.reviewed_at
+    assert reviewed.review_note == "Reviewed against the attached evidence."
+    assert reviewed.review_history == [{
+        "decision": "accepted",
+        "previous_acceptance_status": "unverified",
+        "previous_quality_score": None,
+        "review_note": "Reviewed against the attached evidence.",
+        "reviewed_at": reviewed.reviewed_at,
+        "source": "explicit_manual_review",
+    }]
+    assert service._outcome_observation(reviewed)["eligible_for_evolution"] is True
+
+
+def test_outcome_review_rejects_once_and_never_invents_a_quality_score(tmp_path):
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(store)
+    service = PBOSService(store, "personal")
+    record = service.record_execution("mission", "", {"actions": ["Captured an incomplete result."]})
+    outcome = service.record_outcome(record.artifact_id, {"acceptance_status": "unverified"})
+
+    rejected = service.review_outcome(outcome.artifact_id, {"decision": "rejected"})
+
+    assert rejected.acceptance_status == "rejected"
+    assert rejected.quality_score is None
+    assert rejected.review_history[0]["previous_acceptance_status"] == "unverified"
+    with pytest.raises(ValueError, match="only be reviewed while unverified"):
+        service.review_outcome(outcome.artifact_id, {"decision": "accepted", "quality_score": 90})
+
+
+def test_outcome_review_requires_a_score_for_acceptance(tmp_path):
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(store)
+    service = PBOSService(store, "personal")
+    record = service.record_execution("mission", "", {"actions": ["Captured a result."]})
+    outcome = service.record_outcome(record.artifact_id, {"acceptance_status": "unverified"})
+
+    with pytest.raises(ValueError, match="quality score"):
+        service.review_outcome(outcome.artifact_id, {"decision": "accepted"})
+
+
+def test_pending_outcomes_cannot_carry_scores_or_trigger_a_failure_pattern(tmp_path):
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(store)
+    service = PBOSService(store, "personal")
+    record = service.record_execution("mission", "", {"actions": ["Captured an unreviewed failure claim."]})
+
+    with pytest.raises(ValueError, match="only with explicit acceptance"):
+        service.record_outcome(record.artifact_id, {"acceptance_status": "unverified", "quality_score": 10})
+
+    pending = service.record_outcome(record.artifact_id, {"acceptance_status": "unverified", "severe_failure": True})
+    assert service._failure_patterns([pending], []) == []
+
+
 def test_obsidian_projection_preserves_user_edits_as_conflict(tmp_path):
     artifact = PersonalProfileArtifact(project_id="personal", label="Personal profile")
     projection = PBOSProjectionService(tmp_path, "personal")
     assert projection.sync(artifact)["state"] == "synced"
     path = tmp_path / "pbos" / "profile" / f"{artifact.artifact_id}.md"
     path.write_text("user edited", encoding="utf-8")
+    assert projection.sync(artifact)["state"] == "conflict"
+
+
+def test_obsidian_projection_updates_an_intact_managed_artifact_but_preserves_user_edits(tmp_path):
+    artifact = PersonalProfileArtifact(project_id="personal", label="Personal profile", focus=["AI delivery"])
+    projection = PBOSProjectionService(tmp_path, "personal")
+    assert projection.sync(artifact)["state"] == "synced"
+    path = tmp_path / "pbos" / "profile" / f"{artifact.artifact_id}.md"
+
+    artifact.focus = ["AI delivery", "knowledge engineering"]
+    assert projection.sync(artifact)["state"] == "updated"
+    assert "knowledge engineering" in path.read_text(encoding="utf-8")
+
+    path.write_text(path.read_text(encoding="utf-8") + "\nUser note: do not overwrite.\n", encoding="utf-8")
+    artifact.focus.append("personal loop engineering")
     assert projection.sync(artifact)["state"] == "conflict"
 
 

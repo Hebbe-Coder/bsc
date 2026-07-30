@@ -812,3 +812,41 @@
   mount and configured root; revert `cf193b4` to remove Git receipt capture.
   Existing execution/outcome artifacts and Obsidian projections remain
   auditable historical facts and are not deleted.
+
+## 2026-07-31 Explicit Outcome Review And Managed Projection Update
+
+- **Resolved lifecycle gap:** a receipt-backed PBOS result could remain
+  `unverified`, but the prior client did not offer a review transition for the
+  same durable outcome. The API now records one explicit `accepted` or
+  `rejected` decision on an existing unverified outcome. Acceptance requires a
+  0-100 quality score; rejection stores no invented score. The prior state,
+  score, decision note, timestamp, and manual-review source are retained in
+  `review_history`, and a reviewed result cannot be reviewed a second time.
+- **Projection safety:** a PBOS-managed Markdown projection now updates only
+  when its prior managed SHA-256 footer still matches its body. A user edit,
+  missing footer, invalid footer, or trailing content creates the existing
+  conflict artifact rather than overwriting the Vault file.
+- **Runtime proof:** rebuilt the Compose API, Worker, and Beat while retaining
+  PostgreSQL, Redis, n8n, Vault data, and existing user outcomes. API `/ready`
+  returned `200`; the deployed OpenAPI exposed the review route. A protected
+  missing-record review returned `404` after authorization with no mutation.
+  An in-container temporary ledger completed the full unverified-to-accepted
+  transition with score and audit history, then was deleted. No user outcome
+  was accepted, rejected, rescored, or promoted during verification.
+- **Browser proof:** the deployed Studio opened the PBOS Cockpit at desktop
+  and `390x844`. Without placing a key in browser storage it truthfully showed
+  the Studio-access gate rather than loading personal data. Desktop measured
+  `1274/1274` and mobile `384/384` client/scroll widths, with no console
+  errors. Evidence screenshots are retained only in the local temporary
+  workspace; no runtime access key or user record was exported.
+- **Regression:** targeted PBOS/API/integration coverage passed `36`; complete
+  Python coverage passed `1553 passed, 14 skipped`; frontend coverage passed
+  `172`; TypeScript, production build, default/n8n/celery+n8n Compose parsing,
+  and `git diff --check` passed. Lint has `0` errors and `211` pre-existing
+  warnings. The full suite first exposed the obsolete unverified-plus-score
+  integration request; it was migrated to the explicit review endpoint before
+  the final passing run.
+- **Rollback:** revert the PBOS API, artifact fields, service, projection,
+  client, Cockpit, styles, focused tests, integration lifecycle update, and
+  this worklog section together. Historical outcomes and conflict artifacts
+  remain auditable; rollback does not delete user Vault files or result data.
