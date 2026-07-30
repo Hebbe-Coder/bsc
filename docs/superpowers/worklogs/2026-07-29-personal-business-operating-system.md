@@ -644,3 +644,7 @@
   compiler behavior change. The existing evidence mirror, plans, source
   records, and Obsidian projections are retained and no PBOS Capability or
   Strategy Genome is altered.
+- Commit: `a551ed6 fix(pbos): ground plans in operational state` contains only
+  the PBOS compiler/context correction, its tests, and the aligned PRD,
+  worklog, and consolidation documents. Existing worktree changes remain
+  intentionally unstaged and outside this commit.
