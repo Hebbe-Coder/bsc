@@ -1,6 +1,7 @@
 import pytest
 
 from app.artifacts import ArtifactGraphStore, ArtifactStatus, ArtifactType, MissionArtifact, PersonalExecutionPlanArtifact, PersonalProfileArtifact, SOPVersionArtifact
+from app.core.config import settings
 from app.pbos import PBOSService
 from app.pbos import PBOSProjectionService
 from app.pbos import PBOSReportService
@@ -186,6 +187,29 @@ def test_bsc_workspace_capture_attaches_safe_receipts_and_the_same_reflection(tm
     assert record.reflection["completed"].startswith("The evidence receipt")
     assert record.tool_receipts[0]["kind"] == "local_file"
     assert record.tool_receipts[0]["path"] == "tests/delivery-proof.txt"
+
+
+def test_bsc_workspace_capture_uses_the_configured_read_only_workspace_root(monkeypatch, tmp_path):
+    workspace = tmp_path / "mounted-workspace"
+    evidence = workspace / "tests" / "delivery-proof.txt"
+    evidence.parent.mkdir(parents=True)
+    evidence.write_text("focused test passed", encoding="utf-8")
+    monkeypatch.setattr(settings, "PBOS_WORKSPACE_ROOT", str(workspace))
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(store)
+
+    record = PBOSService(store, "personal").capture_bsc_workspace_execution(
+        "mission",
+        "",
+        paths=["tests/delivery-proof.txt"],
+        actions=["Captured a mounted workspace receipt."],
+        reflection={"completed": "The mounted workspace receipt is reviewable."},
+    )
+
+    assert any(
+        receipt["kind"] == "local_file" and receipt["path"] == "tests/delivery-proof.txt"
+        for receipt in record.tool_receipts
+    )
 
 
 def test_cockpit_exposes_reviewable_execution_receipts_without_promoting_personal_learning(tmp_path):

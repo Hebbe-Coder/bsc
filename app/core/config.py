@@ -188,6 +188,9 @@ class Settings(BaseSettings):
     PBOS_LLM_MAX_STRUCTURED_ATTEMPTS: int = 2
     PBOS_LLM_MAX_CONTEXT_DOCUMENTS: int = 4
     PBOS_LLM_CONTEXT_DOCUMENT_MAX_TOKENS: int = 180
+    # Compose can expose a local AI-project workspace as a read-only mount.
+    # PBOS hashes only a narrow safe allowlist from it for execution receipts.
+    PBOS_WORKSPACE_ROOT: str = ""
     KNOWLEDGE_GROWTH_LLM_MODEL: str = ""
     # Weekly distillation can legitimately need a longer provider read budget
     # than interactive chat while keeping the general LLM timeout unchanged.

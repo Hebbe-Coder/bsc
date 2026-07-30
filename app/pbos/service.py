@@ -13,6 +13,7 @@ from app.artifacts import (
     MissionArtifact, SOPPromotionArtifact, SOPVersionArtifact, WorkExecutionRecordArtifact,
     WorkFeedbackArtifact, WorkOutcomeArtifact,
 )
+from app.core.config import settings
 from .capture import local_receipts
 from .compiler import PBOSPlanCompiler
 
@@ -95,7 +96,7 @@ class PBOSService:
         workspace_root: Path | str | None = None,
     ) -> WorkExecutionRecordArtifact:
         """Attach only declared, non-secret BSC workspace receipts to one execution."""
-        root = Path(workspace_root).resolve() if workspace_root else Path(__file__).resolve().parents[2]
+        root = Path(workspace_root).resolve() if workspace_root else self._bsc_workspace_root()
         selected_paths = self._safe_bsc_workspace_paths(paths)
         receipts = local_receipts(str(root), selected_paths)
         captured_paths = {
@@ -118,6 +119,12 @@ class PBOSService:
                 "observed_at": observed_at,
             },
         )
+
+    @staticmethod
+    def _bsc_workspace_root() -> Path:
+        """Prefer the explicit read-only local workspace mount when configured."""
+        configured = str(settings.PBOS_WORKSPACE_ROOT or "").strip()
+        return Path(configured).expanduser().resolve() if configured else Path(__file__).resolve().parents[2]
 
     @classmethod
     def _safe_bsc_workspace_paths(cls, paths: list[str]) -> list[str]:
