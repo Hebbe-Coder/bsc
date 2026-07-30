@@ -84,10 +84,10 @@ describe('KnowledgeWorkspace focused components', () => {
       expect.objectContaining({ id: 'obsidian-importer', input_paths: ['01_Sources/importer'] }),
       expect.objectContaining({ id: 'codex-agent', adapter: 'filesystem_output', input_paths: ['04_Outputs/codex'] }),
       expect.objectContaining({ id: 'copilot-agent', adapter: 'filesystem_output', input_paths: ['04_Outputs/copilot'] }),
-      expect.objectContaining({ id: 'realclaudian', adapter: 'filesystem_output', input_paths: ['04_Outputs/claudian'] }),
     ]));
     expect(OBSIDIAN_PLUGIN_PRESETS).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'horizon' }),
+      expect.objectContaining({ id: 'realclaudian' }),
     ]));
   });
 
