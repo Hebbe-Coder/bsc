@@ -26,6 +26,16 @@ def test_n8n_is_opt_in_loopback_only_and_uses_a_durable_volume():
     assert "n8n-data" in compose["volumes"]
 
 
+def test_celery_and_n8n_profiles_do_not_pull_the_optional_ollama_runtime():
+    compose = yaml.safe_load(Path("docker-compose.yml").read_text(encoding="utf-8"))
+
+    # RSS intake needs the BSC API and worker, not a local model runtime. Keep
+    # Ollama explicitly opt-in so an unavailable Docker Hub image cannot block
+    # the governed information-intelligence profile.
+    assert "celery" not in compose["services"]["ollama"]["profiles"]
+    assert compose["services"]["ollama"]["profiles"] == ["ollama", "full"]
+
+
 def test_governed_rss_workflow_is_disabled_and_has_no_imported_credentials_or_direct_feishu_delivery():
     workflow_text = Path("n8n/workflows/bsc-governed-rss-intelligence.json").read_text(encoding="utf-8")
     workflow = json.loads(workflow_text)
