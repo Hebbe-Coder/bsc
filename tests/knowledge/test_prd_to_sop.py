@@ -124,6 +124,13 @@ def test_project_sop_generation_registers_pending_output_with_exact_lineage_and_
         assert run["input_refs"]["prd_source_id"] == prd["id"]
         assert run["input_refs"]["context_revision"] == output["context_revision"]
         assert output["metadata"]["generation_provenance"]["provenance_resolution"] == "verified"
+        assert output["metadata"]["generation_provenance"]["assumptions"] == [
+            "The project operator will review the registered draft."
+        ]
+        assert output["metadata"]["generation_provenance"]["research_gaps"] == [
+            "Which execution owner accepts the final SOP?"
+        ]
+        assert output["metadata"]["generation_risks"] == ["Missing business constraints remain unresolved."]
 
         materialized = OutputRegistry(repo, root).read_content("project-a", output["id"])
         assert "bsc_output_contract: project-prd-to-sop-v1" in materialized["content"]
@@ -205,6 +212,29 @@ def test_provider_failure_leaves_a_durable_failed_run_and_no_output(tmp_path):
         run = repo.list_runs("project-a")[0]
         assert run["status"] == "failed"
         assert run["output_refs"] == {"failure_category": "payment_required"}
+        assert repo.list_outputs("project-a") == []
+    finally:
+        repo.close()
+
+
+@pytest.mark.parametrize("field", ["assumptions", "risks", "open_questions"])
+def test_missing_declared_uncertainty_fails_the_output_contract(field, tmp_path):
+    repo, root, prd, page = _setup(tmp_path)
+    invalid = _draft(prd["id"], page["id"])
+    invalid[field] = []
+    promptops = RecordingPromptOps(invalid)
+    service = ProjectSopGenerationService(repo, str(root), promptops=promptops)
+    request = ProjectSopGenerationRequest(
+        prd_source_id=prd["id"],
+        goal="Deliver a governed SOP for the current project request.",
+        audience="project operators",
+        idempotency_key=f"missing-{field}",
+    )
+    try:
+        with pytest.raises(ProjectSopGenerationError) as error:
+            service.generate(project_id="project-a", request=request)
+        assert error.value.category == "output_contract_invalid"
+        assert repo.list_runs("project-a")[0]["status"] == "failed"
         assert repo.list_outputs("project-a") == []
     finally:
         repo.close()

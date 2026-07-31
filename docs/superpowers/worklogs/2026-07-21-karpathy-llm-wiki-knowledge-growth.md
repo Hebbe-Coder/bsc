@@ -1093,3 +1093,24 @@ Live Horizon endpoint/API credentials and a real Wiki-maintenance LLM provider r
   their declared project paths. Their integration state remains
   `awaiting_export`/`awaiting_output`; the filesystem source, output, and
   context channels are the only verified ingestion paths at this point.
+
+## 2026-07-31 Governed PRD-to-SOP Response Budgeting
+
+- **Gap closed:** Chinese project PRDs with a broad evidence context could
+  consume the provider response before the required structured SOP was
+  complete. The generator now uses a bounded 16,000-character context pack,
+  a compact 4-to-6 phase response contract, and one 10,000-token structured
+  attempt. This preserves project-specific evidence references while reserving
+  completion capacity for valid JSON.
+- **Safety retained:** the prompt still permits only supplied source/page
+  identifiers, keeps assumptions and research gaps explicit, and rejects
+  generic templates. A response is not a published method, accepted output,
+  or proof of an executed SOP.
+- **Verification:** `pytest tests/knowledge/test_prd_to_sop.py
+  tests/api/test_growth_api.py tests/integration/test_knowledge_sop_e2e.py
+  tests/integration/test_abcd_growth_e2e.py -q` passed `35`; `npm run check`,
+  `npm run build`, `docker compose config --quiet`, and `git diff --check`
+  passed.
+- **Rollback:** revert the PRD-to-SOP request settings and prompt limits
+  together. Existing runs, context packs, and SOP artifacts remain immutable
+  ledger history.

@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import hashlib
 import json
-import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -31,9 +30,6 @@ from app.promptops import PromptOps, PromptOpsError, PromptRequest, PromptTask
 
 PRD_TO_SOP_RUN_TYPE = "prd_to_sop"
 PRD_TO_SOP_REVISION = "project-prd-to-sop-v1"
-_SAFE_FILENAME = re.compile(r"[^a-z0-9]+")
-
-
 class ProjectSopGenerationError(ValueError):
     """A stable, non-secret failure category for the growth API and run ledger."""
 
@@ -92,9 +88,9 @@ class ProjectSopDraft(BaseModel):
     title: str = Field(min_length=2, max_length=500)
     purpose: str = Field(min_length=8, max_length=4_000)
     phases: list[SopPhase] = Field(min_length=1, max_length=20)
-    assumptions: list[str] = Field(default_factory=list, max_length=40)
-    risks: list[str] = Field(default_factory=list, max_length=40)
-    open_questions: list[str] = Field(default_factory=list, max_length=40)
+    assumptions: list[str] = Field(min_length=1, max_length=40)
+    risks: list[str] = Field(min_length=1, max_length=40)
+    open_questions: list[str] = Field(min_length=1, max_length=40)
     source_refs: list[str] = Field(min_length=1, max_length=200)
     page_refs: list[str] = Field(default_factory=list, max_length=200)
     evidence_claims: list[SopEvidenceClaim] = Field(default_factory=list, max_length=100)
@@ -119,7 +115,11 @@ class ProjectSopGenerationService:
         self.context_service = context_service or GrowthContextService(
             repository,
             vault_root,
-            builder=GrowthContextBuilder(max_characters=32_000),
+            # Chinese PRDs use materially more tokens per character than the
+            # generic builder estimate. Keep enough of the active evidence
+            # set for a grounded SOP while reserving the model's completion
+            # budget instead of repeatedly truncating before JSON begins.
+            builder=GrowthContextBuilder(max_characters=16_000),
         )
 
     def generate(
@@ -274,6 +274,7 @@ class ProjectSopGenerationService:
                     "prompt_attempt_count": int(prompt_run.attempt_count),
                     "prompt_retry_count": int(prompt_run.retry_count),
                     "output_contract": PRD_TO_SOP_REVISION,
+                    "generation_risks": draft.risks,
                     "generation_provenance": manifest.to_generation_metadata(),
                 },
             )
@@ -378,7 +379,13 @@ class ProjectSopGenerationService:
                 "Each evidence_claim must contain claim_id, text, status (fact, assumption, or research_gap), "
                 "source_refs, and page_refs. Do not invent facts, citations, owners, tools, external actions, or approvals. "
                 "A fact claim must cite one or more supplied source_refs or page_refs. Assumptions and open questions must remain explicit. "
-                "Citations may only use the exact IDs in the allowed lists. Produce a concrete project-specific SOP, not a generic template."
+                "Citations may only use the exact IDs in the allowed lists. Treat the request goal as binding. "
+                "Do not restate the general A/B/C/D lifecycle as an overview or produce a generic template: make each phase a concrete handoff "
+                "between the project PRD, BSC knowledge records, the mapped Obsidian Vault, and the D-layer review boundary. "
+                "The first phase must begin with the supplied PRD and the final phase must end at a registered output with a human evaluation/feedback handoff. "
+                "Assumptions, risks, and open_questions must each contain at least one concrete item; do not write 'none'. "
+                "Use 4 to 6 phases, at most 6 concise steps per phase, and at most 6 items in each list. "
+                "Keep every field to one concise sentence or phrase so the complete JSON is emitted before the response limit."
             ),
             user_prompt=json.dumps({
                 "request": {
@@ -397,10 +404,13 @@ class ProjectSopGenerationService:
                 + [f"context:{context.revision}"]
             ),
             temperature=0.15,
-            max_tokens=6_000,
+            max_tokens=10_000,
             timeout_seconds=120,
-            max_attempts=2,
-            max_structured_attempts=2,
+            # A length stop is deterministic for one prompt shape; reissuing
+            # the same request only doubles spend and leaves no valid output.
+            # The compact contract above reserves one larger, complete try.
+            max_attempts=1,
+            max_structured_attempts=1,
         )
 
     def _source_reference(self, project_id: str, source_id: str) -> dict[str, str]:
@@ -460,6 +470,18 @@ class ProjectSopGenerationService:
         run_id: str,
     ) -> Any:
         claims: list[GenerationClaim] = []
+        for index, assumption in enumerate(draft.assumptions, start=1):
+            claims.append(GenerationClaim(
+                claim_id=f"declared-assumption-{index}",
+                text=assumption,
+                status=ClaimStatus.ASSUMPTION,
+            ))
+        for index, question in enumerate(draft.open_questions, start=1):
+            claims.append(GenerationClaim(
+                claim_id=f"declared-open-question-{index}",
+                text=question,
+                status=ClaimStatus.RESEARCH_GAP,
+            ))
         for claim in draft.evidence_claims:
             refs = tuple(
                 [GenerationReference(
