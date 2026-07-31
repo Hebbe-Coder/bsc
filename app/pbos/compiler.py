@@ -1224,7 +1224,7 @@ class PBOSPlanCompiler:
                 "constraints": [cls._bounded_prompt_text(item, 80) for item in profile.constraints[:6]],
             }
         return {
-            "response_language": "Chinese" if cls._uses_chinese(mission.title, mission.intent) else "Match the Mission's primary language",
+            "response_language": cls._response_language(mission, profile),
             "mission": {
                 "title": cls._bounded_prompt_text(mission.title, 100),
                 "intent": cls._bounded_prompt_text(mission.intent, 160),

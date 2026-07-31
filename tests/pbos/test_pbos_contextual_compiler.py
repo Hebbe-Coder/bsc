@@ -883,7 +883,11 @@ def test_knowledge_delivery_localizes_the_fallback_from_a_chinese_profile(tmp_pa
         provider = "test"
         model = "english-output"
 
-        def chat_structured(self, **_kwargs):
+        def __init__(self):
+            self.prompt: dict = {}
+
+        def chat_structured(self, **kwargs):
+            self.prompt = json.loads(kwargs["user_prompt"])
             return {
                 "title": "Knowledge delivery system",
                 "phases": [
@@ -900,17 +904,19 @@ def test_knowledge_delivery_localizes_the_fallback_from_a_chinese_profile(tmp_pa
         "Governed LLM Wiki delivery",
         "Turn Horizon evidence and Obsidian Wiki context into a custom PRD-to-SOP delivery loop.",
     )
+    client = EnglishClient()
     service = PBOSService(
         store,
         "personal",
         context_provider=lambda: {"availability": "available", "documents": [], "refs": []},
-        plan_compiler=PBOSPlanCompiler(client=EnglishClient()),
+        plan_compiler=PBOSPlanCompiler(client=client),
     )
     service.save_profile({"preferences": {"language": "zh-CN"}})
 
     plan = service.compile_plan("knowledge-delivery-zh")
 
     assert plan.compiler_metadata["response_language"] == "Chinese"
+    assert client.prompt["response_language"] == "Chinese"
     assert "PRD" in plan.phases[1]["actions"][0]
     assert all(
         any("\u4e00" <= character <= "\u9fff" for character in action)
