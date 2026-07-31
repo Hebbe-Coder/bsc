@@ -197,7 +197,13 @@ class InformationIntelligenceService:
         window = self._brief_window(day)
         batches = [
             batch for batch in self.repository.list_signal_batches(project_id, limit=1_000)
-            if self._timestamp_in_window(batch.get("created_at", ""), window["start_at"], window["end_at"])
+            # Producer collection time is the information-day authority. Older
+            # rows without it retain the legacy persisted-time fallback.
+            if self._timestamp_in_window(
+                str(batch.get("collected_at") or batch.get("created_at") or ""),
+                window["start_at"],
+                window["end_at"],
+            )
         ]
         runs = {
             run["id"]: run

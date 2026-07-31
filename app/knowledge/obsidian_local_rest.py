@@ -74,7 +74,15 @@ class ObsidianLocalRestConfiguration:
             return cls(enabled=True, timeout_seconds=timeout_seconds, configuration_source="plugin_config", configuration_error="plugin_vault_unavailable")
         try:
             root = Path(root_value).expanduser().resolve()
-            candidate = (root / _PLUGIN_SETTINGS_RELATIVE_PATH).resolve()
+            configured_path = root / _PLUGIN_SETTINGS_RELATIVE_PATH
+            if cls._has_symlink_component(root, configured_path):
+                return cls(
+                    enabled=True,
+                    timeout_seconds=timeout_seconds,
+                    configuration_source="plugin_config",
+                    configuration_error="plugin_settings_unsafe_path",
+                )
+            candidate = configured_path.resolve()
             candidate.relative_to(root)
             if not candidate.is_file():
                 return cls(enabled=True, timeout_seconds=timeout_seconds, configuration_source="plugin_config", configuration_error="plugin_settings_missing")
@@ -102,6 +110,17 @@ class ObsidianLocalRestConfiguration:
             allow_insecure_tls=True,
             configuration_source="plugin_config",
         )
+
+    @staticmethod
+    def _has_symlink_component(root: Path, candidate: Path) -> bool:
+        """Do not allow a plugin-settings path to resolve into Vault content."""
+        relative = candidate.relative_to(root)
+        current = root
+        for part in relative.parts:
+            current = current / part
+            if current.is_symlink():
+                return True
+        return False
 
 
 class ObsidianLocalRestProbe:

@@ -592,9 +592,12 @@ class ObsidianPluginManifest:
             project = project_root.resolve()
             project_relative = project.relative_to(root).as_posix()
             settings_relative, key = probe
-            settings_path = (root / settings_relative).resolve()
+            configured_path = root / settings_relative
+            if ObsidianPluginManifest._has_symlink_component(root, configured_path):
+                return {"state": "unavailable", "detail_code": "plugin_settings_unsafe_path"}
+            settings_path = configured_path.resolve()
             settings_path.relative_to(root)
-            if settings_path.is_symlink() or not settings_path.is_file():
+            if not settings_path.is_file():
                 return {"state": "unavailable", "detail_code": "plugin_settings_not_found"}
             payload = settings_path.read_bytes()
             if len(payload) > _MAX_MANIFEST_BYTES:
@@ -612,6 +615,17 @@ class ObsidianPluginManifest:
             return {"state": "mismatch", "detail_code": "plugin_destination_differs_from_bridge"}
         except (OSError, UnicodeDecodeError, ValueError, TypeError, json.JSONDecodeError):
             return {"state": "unavailable", "detail_code": "plugin_settings_unreadable"}
+
+    @staticmethod
+    def _has_symlink_component(root: Path, candidate: Path) -> bool:
+        """Keep a settings probe from following a link into a source note."""
+        relative = candidate.relative_to(root)
+        current = root
+        for part in relative.parts:
+            current = current / part
+            if current.is_symlink():
+                return True
+        return False
 
     @staticmethod
     def _path_status(plugin: ObsidianPlugin, project_root: Path | None) -> str:

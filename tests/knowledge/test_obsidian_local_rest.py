@@ -1,4 +1,6 @@
 import json
+import socket
+from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
@@ -151,3 +153,62 @@ def test_enabled_plugin_fallback_rejects_an_insecure_or_incomplete_plugin_config
     assert result["state"] == "configuration_invalid"
     assert result["detail_code"] == "plugin_secure_server_disabled"
     assert result["configuration_source"] == "plugin_config"
+
+
+def test_plugin_configuration_fallback_rejects_symlinked_source_without_reading_writing_or_network(tmp_path, monkeypatch):
+    """The settings reader may inspect its own JSON, never a linked Vault note."""
+    source = tmp_path / "01_Sources" / "private.md"
+    source.parent.mkdir(parents=True)
+    source.write_text("PRIVATE SOURCE BODY", encoding="utf-8")
+    settings_path = tmp_path / ".obsidian" / "plugins" / "obsidian-local-rest-api" / "data.json"
+    settings_path.parent.mkdir(parents=True)
+
+    original_read_text = Path.read_text
+    original_write_text = Path.write_text
+    original_resolve = Path.resolve
+    original_is_symlink = Path.is_symlink
+    resolved_source = original_resolve(source)
+
+    def redirected_resolve(path, *args, **kwargs):
+        if path == settings_path:
+            return resolved_source
+        return original_resolve(path, *args, **kwargs)
+
+    def simulated_symlink(path):
+        return path == settings_path or original_is_symlink(path)
+
+    def guarded_read_text(path, *args, **kwargs):
+        if original_resolve(path) == resolved_source:
+            raise AssertionError("Local REST configuration must not read a source body")
+        return original_read_text(path, *args, **kwargs)
+
+    def guarded_write_text(path, *args, **kwargs):
+        if original_resolve(path) == resolved_source:
+            raise AssertionError("Local REST configuration must not write a source file")
+        return original_write_text(path, *args, **kwargs)
+
+    class ForbiddenClient:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("Local REST configuration must stay offline")
+
+    monkeypatch.setattr(Path, "read_text", guarded_read_text)
+    monkeypatch.setattr(Path, "write_text", guarded_write_text)
+    monkeypatch.setattr(Path, "resolve", redirected_resolve)
+    monkeypatch.setattr(Path, "is_symlink", simulated_symlink)
+    monkeypatch.setattr(httpx, "Client", ForbiddenClient)
+    monkeypatch.setattr(socket, "create_connection", lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("Local REST configuration must stay offline")
+    ))
+    settings = SimpleNamespace(
+        OBSIDIAN_LOCAL_REST_ENABLED=True,
+        OBSIDIAN_LOCAL_REST_URL="",
+        OBSIDIAN_LOCAL_REST_API_KEY="",
+        OBSIDIAN_LOCAL_REST_TIMEOUT_SECONDS=3,
+        OBSIDIAN_LOCAL_REST_ALLOW_INSECURE_TLS=False,
+        OBSIDIAN_VAULT_ROOT=str(tmp_path),
+    )
+
+    configuration = ObsidianLocalRestConfiguration.from_settings(settings)
+
+    assert configuration.configuration_source == "plugin_config"
+    assert configuration.configuration_error == "plugin_settings_unsafe_path"

@@ -314,6 +314,32 @@ def test_daily_brief_interprets_legacy_naive_batch_timestamps_in_shanghai_time()
     ) is False
 
 
+def test_daily_brief_uses_collected_at_before_legacy_naive_persistence_time(tmp_path):
+    repository = WikiRepository(db_path=str(tmp_path / "intelligence-brief-collected-at.db"))
+    service = InformationIntelligenceService(repository)
+    try:
+        registry = service.register_source(_entry())
+        result = service.ingest(_batch(registry["id"], batch_id="collected-at-authority"))
+        repository._execute(
+            "UPDATE knowledge_signal_batches SET created_at=?, collected_at=? WHERE project_id=? AND batch_id=?",
+            (
+                "2026-07-31T20:18:58",
+                "2026-07-31T20:18:23.607Z",
+                "project-a",
+                result["batch_id"],
+            ),
+        )
+        repository._commit()
+
+        brief = service.daily_brief("project-a", day="2026-08-01")
+
+        assert brief["state"] == "available"
+        assert brief["summary"]["captured"] == 1
+        assert brief["lineage"]["batch_ids"] == [result["batch_id"]]
+    finally:
+        repository.close()
+
+
 def test_horizon_review_queue_is_metadata_only_and_excludes_already_cited_signals(tmp_path, monkeypatch):
     repository = WikiRepository(db_path=str(tmp_path / "intelligence-horizon-queue.db"))
     service = InformationIntelligenceService(repository)

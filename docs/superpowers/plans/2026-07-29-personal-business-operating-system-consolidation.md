@@ -1123,3 +1123,18 @@ real `o3_real_plugin_exports` record with three durable identifiers; its other
 eight E1 categories remain missing. Project index 1 has no recorded evidence.
 The only valid status remains `implemented_with_operational_proof_pending`
 until those independently observed, durable categories are satisfied.
+
+### Post-Delivery Provider Audit
+
+On 2026-08-01 an authorized, source-scoped Wiki maintenance run was exercised
+against the trusted PBOS closure PRD. It returned `payment_required`, generated
+no proposal, and made no Wiki publication. The subsequent runtime audit found
+that Compose had omitted `KNOWLEDGE_GROWTH_LLM_MODEL` from API and Worker
+environments. The contract was repaired and `deepseek-v4-flash` was observed
+inside both live containers; a second run still returned `payment_required`.
+
+The remaining blocker is therefore provider billing/credential availability,
+not a claimed completed compilation. GitHub and Feishu remain
+`awaiting_authorization`; Copilot is a trusted, destination-aligned output
+bridge but remains `awaiting_output` until a real reviewed conversation is
+saved and ingested.

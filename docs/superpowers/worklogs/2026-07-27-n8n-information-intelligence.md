@@ -97,6 +97,36 @@ account identifiers.
   enforcement and the aligned fixtures together; source audit records remain
   non-destructive.
 
+## 2026-08-01 RSS Collection And Daily-Brief Time Authority
+
+- **Observed runtime:** the canonical n8n workflow remains the only active
+  workflow at `08:00 Asia/Shanghai`. Its authenticated manual collection
+  completed through BSC: captured receipts moved from `67` to `73`, evidence
+  assets from `10` to `11`, and repeat discoveries from `57` to `62`. The
+  matching BSC run completed with `6` verified batches and `6` verified
+  receipts. These are receipt and asset counts, not a claim that discovery
+  automatically published knowledge.
+- **Correction:** daily brief selection formerly used the legacy, naive BSC
+  persistence timestamp. A collection near the Shanghai day boundary could
+  therefore be reported in the wrong daily briefing window. The projection now
+  uses the producer's timezone-aware `SignalBatch.collected_at` when present,
+  retaining `created_at` only for historical rows without collection time.
+  The repaired live brief reports `available` and `complete` with `6` batches,
+  `6` receipts, `6` source-lineage records, `1` new discovery, and `5` repeat
+  discoveries.
+- **Verification:** a new precedence regression covers a timezone-aware
+  collection timestamp against a legacy naive persistence time. Targeted
+  information-intelligence, Obsidian route, and local REST tests passed
+  `47 passed, 1 skipped`; the complete backend suite collected `1656` tests
+  and exited `0`; frontend test, production build, and lint also exited `0`.
+  Lint retained `214` pre-existing warnings and no errors. Compose reports
+  healthy API, Worker, Beat, PostgreSQL, Redis, and n8n services.
+- **Boundary and rollback:** no raw feed body, source URL, provider payload,
+  credential, or Vault content was read or stored in this record. Rolling back
+  is limited to the daily-brief timestamp precedence and its test; it does not
+  alter persisted batches, receipts, sources, projections, schedules, or the
+  enabled-workflow state.
+
 ## Current External Dependencies
 
 - The scoped BSC signal-ingress capability and signing secret exist only in the

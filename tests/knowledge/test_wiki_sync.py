@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import pytest
 
@@ -188,6 +189,60 @@ def test_plugin_status_verifies_declared_destination_from_readonly_settings(tmp_
     settings_path.write_text('{"advancedStorageFolder":"unmanaged/inbox"}', encoding="utf-8")
     mismatch = manifest.public_status(project_root=project_root, vault_root=root)["plugins"][0]
     assert mismatch["runtime_configuration"]["state"] == "mismatch"
+
+
+def test_plugin_status_rejects_symlinked_runtime_settings_without_reading_or_writing_source(tmp_path, monkeypatch):
+    """Route readiness is metadata-only, even when a settings path is malicious."""
+    root = tmp_path / "vault"
+    project_root = root / "projects" / "project-a"
+    export_root = project_root / "00_Inbox" / "web-clipper"
+    export_root.mkdir(parents=True)
+    (project_root / "bsc-plugins.json").write_text(
+        '{"plugins":[{"id":"obsidian-clipper","name":"Obsidian Clipper","adapter":"filesystem_drop","input_paths":["00_Inbox/web-clipper"]}]}',
+        encoding="utf-8",
+    )
+    source = project_root / "01_Sources" / "private.md"
+    source.parent.mkdir(parents=True)
+    source.write_text("PRIVATE SOURCE BODY", encoding="utf-8")
+    settings_path = root / ".obsidian" / "plugins" / "obsidian-clipper" / "data.json"
+    settings_path.parent.mkdir(parents=True)
+
+    manifest = ObsidianPluginManifest.load(project_root)
+    original_read_bytes = Path.read_bytes
+    original_write_text = Path.write_text
+    original_resolve = Path.resolve
+    original_is_symlink = Path.is_symlink
+    resolved_source = original_resolve(source)
+
+    def redirected_resolve(path, *args, **kwargs):
+        if path == settings_path:
+            return resolved_source
+        return original_resolve(path, *args, **kwargs)
+
+    def simulated_symlink(path):
+        return path == settings_path or original_is_symlink(path)
+
+    def guarded_read_bytes(path, *args, **kwargs):
+        if original_resolve(path) == resolved_source:
+            raise AssertionError("plugin status must not read a source body")
+        return original_read_bytes(path, *args, **kwargs)
+
+    def guarded_write_text(path, *args, **kwargs):
+        if original_resolve(path) == resolved_source:
+            raise AssertionError("plugin status must not write a source file")
+        return original_write_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_bytes", guarded_read_bytes)
+    monkeypatch.setattr(Path, "write_text", guarded_write_text)
+    monkeypatch.setattr(Path, "resolve", redirected_resolve)
+    monkeypatch.setattr(Path, "is_symlink", simulated_symlink)
+
+    route = manifest.public_status(project_root=project_root, vault_root=root)["plugins"][0]
+
+    assert route["runtime_configuration"] == {
+        "state": "unavailable",
+        "detail_code": "plugin_settings_unsafe_path",
+    }
 
 
 def test_plugin_status_verifies_copilot_reviewed_output_destination_from_readonly_settings(tmp_path):

@@ -454,3 +454,26 @@
   `npm run build` passed; lint completed with `0` errors and `214` existing
   warnings. The existing ECharts bundle-size advisory remains a follow-up, not
   a false success or release decision.
+
+## 2026-08-01 Knowledge Compiler Runtime Wiring And Provider Boundary
+
+- An authorized, source-scoped Wiki maintenance run against trusted PBOS PRD
+  source `650666057e01` failed honestly with `payment_required`. It created no
+  proposal and did not publish or modify any Wiki page.
+- Root cause analysis found that `.env` declared
+  `KNOWLEDGE_GROWTH_LLM_MODEL`, but Compose did not inject that value into the
+  API or Celery Worker. Both silently fell back to `DEEPSEEK_MODEL`.
+- Added the missing Compose contract to exactly those two execution services
+  and a regression that ensures Celery Beat remains free of model credentials.
+  The new Compose contract suite passed `13`; `docker compose config --quiet`
+  passed.
+- Recreated only `bsc-backend` and `celery-worker`. Live container inspection
+  proved both now receive `KNOWLEDGE_GROWTH_LLM_MODEL=deepseek-v4-flash` while
+  retaining the configured base model. A second source-scoped maintenance run
+  (`52fd3be1ef76`) still returned `payment_required`.
+- This establishes a provider-account boundary, not a product-code failure.
+  A DeepSeek account with available API billing/credit, or a replacement
+  server-side provider credential, is required before real Wiki compilation,
+  candidate extraction, and model-authored distillation can complete. The
+  configured key was never written to Vault files, artifacts, logs, or this
+  record.

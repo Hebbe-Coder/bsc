@@ -78,6 +78,34 @@ describe('ReleaseEvidenceLedger', () => {
     expect(screen.queryByText(/release ready/i)).toBeNull();
   });
 
+  it('explains the required real-world action for a missing release proof without exposing content', async () => {
+    render(<ReleaseEvidenceLedger
+      projectId="project-a"
+      role="project_reader"
+      canWrite={false}
+      onChanged={vi.fn()}
+      matrix={[
+        { evidence_id: 'o4_extraction_reference', state: 'missing', proof_class: 'none', durable_id_count: 0, detail_code: 'missing_evidence' },
+      ]}
+    />);
+
+    const row = await screen.findByRole('listitem', { name: /multimodal extraction and references/i });
+    expect(row).toHaveTextContent('Required proof');
+    expect(row).toHaveTextContent('Next action');
+    expect(row).toHaveTextContent('approved Source Sync');
+    expect(row).toHaveTextContent('PDF, image, table, or canvas');
+    expect(document.body.textContent).not.toContain('raw_content');
+    expect(document.body.textContent).not.toContain('source_url');
+  });
+
+  it('uses business labels with stable IDs in observation and review selectors', async () => {
+    render(<ReleaseEvidenceLedger projectId="project-a" role="admin" canWrite onChanged={vi.fn()} />);
+
+    await screen.findByText('Secure Obsidian boundary');
+    expect(screen.getByRole('option', { name: 'Multimodal extraction and references (o4_extraction_reference)' })).toBeVisible();
+    expect(screen.getAllByRole('option', { name: 'Secure Obsidian boundary (o1_secure_boundary_restart)' })).toHaveLength(2);
+  });
+
   it('keeps the workspace visible when an older server omits the evidence array', async () => {
     api.fetchKnowledgeReleaseEvidence.mockResolvedValueOnce({ count: 0 });
 

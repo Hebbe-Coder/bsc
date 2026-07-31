@@ -31,6 +31,67 @@ const EVIDENCE_CATEGORIES = [
   'browser_desktop_mobile',
 ] as const;
 
+type EvidenceCategory = typeof EVIDENCE_CATEGORIES[number];
+
+type EvidenceGuidance = {
+  label: string;
+  requiredProof: string;
+  nextAction: string;
+};
+
+const EVIDENCE_GUIDANCE: Record<EvidenceCategory, EvidenceGuidance> = {
+  o1_secure_boundary_restart: {
+    label: 'Secure Obsidian boundary',
+    requiredProof: 'A restarted Local REST listener is protected over TLS and the plaintext listener is closed.',
+    nextAction: 'Restart Obsidian and record the protected-route result for this project.',
+  },
+  o2_metadata_views: {
+    label: 'Metadata workspace views',
+    requiredProof: 'A project-scoped review confirms governed metadata fields and read-only derived indexes.',
+    nextAction: 'Open the configured project in Obsidian and review its metadata workspace before submitting a run ID.',
+  },
+  o3_real_plugin_exports: {
+    label: 'Real plugin export',
+    requiredProof: 'A trusted plugin export is captured as an immutable project source with producer provenance.',
+    nextAction: 'Export a real item through a configured plugin route, then run the approved Source Sync.',
+  },
+  o4_extraction_reference: {
+    label: 'Multimodal extraction and references',
+    requiredProof: 'A real extraction produces a durable anchor and a reference linked to its project source.',
+    nextAction: 'After an approved Source Sync, inspect a real PDF, image, table, or canvas and record its extraction and reference IDs.',
+  },
+  o5_visualization_inspection: {
+    label: 'Evidence visualization inspection',
+    requiredProof: 'An authorized Evidence Atlas and relationship-graph inspection uses persisted project records.',
+    nextAction: 'Inspect the project Evidence Atlas and graph after records exist, then record the inspected run or browser check ID.',
+  },
+  o6_feedback_cycle: {
+    label: 'Feedback changes a later action',
+    requiredProof: 'A reviewed output receives typed feedback that changes a later method, context pack, claim, or action.',
+    nextAction: 'Save a real reviewed output, submit feedback, then execute and record the resulting follow-up action.',
+  },
+  compose_recovery: {
+    label: 'Compose service recovery',
+    requiredProof: 'API, worker, beat, PostgreSQL, and Redis recover with their project-scoped work intact.',
+    nextAction: 'Run the controlled recovery check and record its durable run IDs after the services are healthy.',
+  },
+  authorization_isolation: {
+    label: 'Authorization isolation',
+    requiredProof: 'Tenant and project authorization deny cross-project access while allowing the selected project.',
+    nextAction: 'Run the protected project and tenant isolation check, then submit only its bounded result IDs.',
+  },
+  browser_desktop_mobile: {
+    label: 'Desktop and mobile workspace',
+    requiredProof: 'The authorized workspace shows real data, charts, and graph controls without blank states or overflow.',
+    nextAction: 'Inspect the selected project at desktop width and 390x844, then record the bounded browser-check IDs.',
+  },
+};
+
+function evidenceLabel(evidenceId: string): string {
+  const guidance = EVIDENCE_GUIDANCE[evidenceId as EvidenceCategory];
+  return guidance ? `${guidance.label} (${evidenceId})` : evidenceId;
+}
+
 const OBSERVATION_STATES: Array<KnowledgeReleaseEvidence['state']> = ['pending', 'unavailable', 'failed'];
 
 function durableIds(value: string): string[] {
@@ -197,8 +258,10 @@ export function ReleaseEvidenceLedger({ projectId, role, canWrite, enabled = tru
     <div className="knowledge-release-ledger__rows" role="list">
       {loading && <p className="knowledge-empty">Loading release evidence...</p>}
       {!loading && evidence.length === 0 && <p className="knowledge-empty">No release evidence has been recorded. Missing requirements remain visible below.</p>}
-      {!loading && rows.map((item) => <article key={item.evidence_id} role="listitem">
-        <header><strong>{item.evidence_id}</strong><span className={`source-status source-status--${item.state}`}>{item.state}</span></header>
+      {!loading && rows.map((item) => {
+        const guidance = EVIDENCE_GUIDANCE[item.evidence_id as EvidenceCategory];
+        return <article key={item.evidence_id} role="listitem" aria-label={guidance?.label || item.evidence_id}>
+        <header><div><strong>{guidance?.label || item.evidence_id}</strong><code>{item.evidence_id}</code></div><span className={`source-status source-status--${item.state}`}>{item.state}</span></header>
         <dl>
           <div><dt>Proof</dt><dd>{item.proof_class}</dd></div>
           <div><dt>Revision</dt><dd>{item.revision || 'not recorded'}</dd></div>
@@ -207,18 +270,23 @@ export function ReleaseEvidenceLedger({ projectId, role, canWrite, enabled = tru
           <div><dt>Durable IDs</dt><dd>{item.durable_ids.length ? item.durable_ids.join(', ') : 'none'}</dd></div>
           <div><dt>Detail</dt><dd>{item.detail_code || 'none'}</dd></div>
         </dl>
-      </article>)}
+        {guidance && <div className="knowledge-release-ledger__guidance">
+          <p><span>Required proof</span>{guidance.requiredProof}</p>
+          {item.state !== 'verified' && <p><span>Next action</span>{guidance.nextAction}</p>}
+        </div>}
+      </article>;
+      })}
     </div>
     {canWrite && <form className="knowledge-release-ledger__form" onSubmit={recordObservation}>
       <h4><AlertTriangle size={14} /> Record observation</h4>
-      <label>Evidence category<select aria-label="Evidence category" value={evidenceId} onChange={(event) => setEvidenceId(event.target.value)} disabled={saving}>{EVIDENCE_CATEGORIES.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
+      <label>Evidence category<select aria-label="Evidence category" value={evidenceId} onChange={(event) => setEvidenceId(event.target.value)} disabled={saving}>{EVIDENCE_CATEGORIES.map((item) => <option value={item} key={item}>{evidenceLabel(item)}</option>)}</select></label>
       <label>Observation status<select aria-label="Observation status" value={observationState} onChange={(event) => setObservationState(event.target.value as KnowledgeReleaseEvidence['state'])} disabled={saving}>{OBSERVATION_STATES.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
       <label>Detail code<input aria-label="Detail code" value={detailCode} maxLength={128} onChange={(event) => setDetailCode(event.target.value)} disabled={saving} /></label>
       <button type="submit" disabled={saving || !detailCode.trim()}><AlertTriangle size={14} /> Record observation</button>
     </form>}
     {role === 'admin' && canWrite && <form className="knowledge-release-ledger__form knowledge-release-ledger__form--review" onSubmit={verifyProof}>
       <h4><ShieldCheck size={14} /> Administrator review</h4>
-      <label>Evidence category<select aria-label="Review evidence category" value={reviewEvidenceId} onChange={(event) => setReviewEvidenceId(event.target.value)} disabled={saving || evidence.length === 0}><option value="" disabled>Select submitted evidence</option>{evidence.map((item) => <option value={item.evidence_id} key={item.evidence_id}>{item.evidence_id}</option>)}</select></label>
+      <label>Evidence category<select aria-label="Review evidence category" value={reviewEvidenceId} onChange={(event) => setReviewEvidenceId(event.target.value)} disabled={saving || evidence.length === 0}><option value="" disabled>Select submitted evidence</option>{evidence.map((item) => <option value={item.evidence_id} key={item.evidence_id}>{evidenceLabel(item.evidence_id)}</option>)}</select></label>
       <label>Observed at<input aria-label="Observed at" value={observedAt} placeholder="2026-08-01T00:00:00+00:00" maxLength={64} onChange={(event) => setObservedAt(event.target.value)} disabled={saving} /></label>
       <label>Durable evidence IDs<input aria-label="Durable evidence IDs" value={reviewDurableIds} placeholder="run:example-1, browser:check-1" maxLength={256} onChange={(event) => setReviewDurableIds(event.target.value)} disabled={saving} /></label>
       <label>Review detail code<input aria-label="Review detail code" value={reviewDetailCode} maxLength={128} onChange={(event) => setReviewDetailCode(event.target.value)} disabled={saving} /></label>

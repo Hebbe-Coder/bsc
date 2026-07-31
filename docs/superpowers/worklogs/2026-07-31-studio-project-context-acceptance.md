@@ -884,3 +884,141 @@ external service, or writing to a Vault/original file.
   with `14` designed skips, and the production build passed. This is an
   inspectable operational-proof surface, not a claim that the remaining
   evidence or business value has been established.
+
+## Copilot Automatic Capture Recheck (2026-08-01)
+
+- The persistent `growth_daily` schedule is enabled for `17:00`
+  `Asia/Shanghai`. Its worker synchronizes declared Obsidian exports and
+  D-layer outputs before daily distillation, so a reviewed Copilot file does
+  not depend on a manual API call for eventual capture.
+- Scheduled daily run `fe209111de91` recorded `trigger=schedule`, completed
+  successfully, and persisted a completed sync with Copilot output counts
+  `scanned=0`, `registered=0`, `duplicates=0`, `rejected=0`, and `blocked=0`.
+  This proves the scheduled path executes and remains honest while no reviewed
+  Copilot file exists.
+
+## Obsidian Configuration Read Boundary Regression (2026-08-01)
+
+### Boundary
+
+- No Vault source, Wiki, output, or original user file was read, changed, or
+  written during this increment. All fixtures use isolated temporary paths.
+- No HTTP client, local listener, external network, browser, plugin code, or
+  credential was accessed. The tests explicitly reject HTTP construction and
+  socket connection while the Local REST configuration fallback is evaluated.
+- The only permitted future read remains the bounded JSON settings file for an
+  explicitly installed plugin. A settings path that contains a symlink is not
+  a permitted configuration input.
+
+### Test-First Evidence And Correction
+
+- Added two deterministic regression tests that simulate a plugin `data.json`
+  path resolving to a source note. The first red run failed because both the
+  Local REST fallback and the plugin destination-status probe resolved the
+  path before checking it, then attempted to read the protected source body.
+- Both code paths now check every component from the configured Vault root to
+  the declared plugin settings file before resolving it. Any symlink produces
+  the bounded `plugin_settings_unsafe_path` state and performs no source-body
+  read, source write, or network operation.
+- The simulation does not require Windows symlink privileges, so the security
+  assertions execute in CI and on this host instead of becoming skipped tests.
+
+### Verification
+
+- `./.venv/Scripts/python.exe -m pytest tests/knowledge/test_obsidian_local_rest.py
+  tests/knowledge/test_wiki_sync.py -q` passed: `34 passed, 1 skipped`.
+- `./.venv/Scripts/python.exe -m pytest
+  tests/api/test_knowledge_workspace_api.py -q` passed: `30 passed`.
+- The one skipped test is the pre-existing real-symlink capability check for
+  the current Windows principal; the new safety assertions are not skipped.
+
+### Status
+
+- This is a local configuration-boundary hardening step. It does not assert a
+  new export, source capture, content outcome, or feedback-loop result.
+
+## Integrated Regression After Configuration Boundary Hardening (2026-08-01)
+
+### Scope
+
+- Revalidated the integrated application after rejecting symlinked plugin
+  settings before resolution. This run used only tests, local build tooling
+  and Compose configuration parsing; it did not call a third-party service,
+  browser session, Obsidian REST endpoint, Vault sync, or knowledge schedule.
+- No user Vault source, Wiki text, output body, plugin source code, original
+  file, credential, or provider payload was read, written, logged, or used as
+  a fixture.
+
+### Verification
+
+- `./.venv/Scripts/python.exe -m pytest -q` passed: `1641 passed, 14
+  skipped, 3 warnings` in `288.67s`. Skips remain environment/real-service
+  conditions and are not counted as operational proof. Warnings are the
+  existing Starlette TestClient deprecation and two Pydantic `.dict()`
+  deprecations.
+- `npm run test:frontend` passed: `24` files and `213` tests.
+- `npm run check` passed.
+- `npm run lint` completed with `0` errors and `214` existing warnings.
+- `npm run build` passed. The existing `vendor-echarts` bundle advisory
+  remains `598.72 kB` minified and is retained as a performance follow-up.
+- `docker compose --profile full config --quiet` and `git diff --check`
+  passed. Git emitted only the repository's existing CRLF normalization
+  notices.
+
+### Release Truth
+
+- The integrated code and its local regression gate are green. E1 remains
+  `implemented_with_operational_proof_pending`: three real project cycles,
+  actual enabled-plugin exports, a real evaluated output with feedback, and
+  their non-fabricated release evidence still require user-origin work. None
+  of those items has been elevated from fixture, folder, schedule, or UI state.
+
+## Release Ledger Action Guidance (2026-08-01)
+
+### Product Correction
+
+- The Studio evidence ledger formerly surfaced only E1's machine-oriented
+  category IDs. A missing gate was visible but did not explain the required
+  business proof or the next operator action, forcing the user to consult the
+  implementation plan.
+- Each of the nine fixed gates now has an accessible business label, required
+  proof statement, and next-action instruction. Missing or pending rows retain
+  their exact technical ID and status while explaining the path to a legitimate
+  proof record.
+- Guidance explicitly distinguishes real plugin export, multimodal
+  extraction/reference, visualization inspection, feedback effect, service
+  recovery, authorization, and desktop/mobile evidence. It does not offer a
+  shortcut to mark a requirement verified.
+
+### Boundary
+
+- The ledger still renders and stores only bounded metadata. The new guidance
+  contains no source body, URL, prompt, credential, Vault path, or provider
+  response. It does not invoke Source Sync, Local REST, browser automation,
+  external services, or any write to an original file.
+- Administrator review still requires observed time, durable IDs and an
+  explicit real-proof decision. Project readers remain read-only.
+
+### Verification
+
+- The new regression first failed because the missing O4 row exposed only
+  `o4_extraction_reference`. After implementation it passed with `7` ledger
+  tests, including metadata redaction and disabled unauthorized loading.
+- `npm run check` passed.
+- `npm run test:frontend` passed: `24` files and `214` tests.
+- `npm run build` passed. The existing ECharts vendor advisory remains
+  `598.72 kB` minified; it is recorded as a performance follow-up, not hidden.
+
+### Form Usability Follow-Up
+
+- The read-only rows became actionable, but both evidence selectors still
+  rendered only internal category IDs. The observation and administrator-review
+  selectors now render `Business label (stable_id)` while retaining the same
+  stable `option.value` sent to the API.
+- A regression first failed because `o4_extraction_reference` and
+  `o1_secure_boundary_restart` remained the accessible option names. It now
+  proves that both selectors expose the business labels and preserve the
+  stable ID for submission.
+- Focused ledger regression passed: `8` tests. `npm run check`, the complete
+  frontend suite (`24` files, `215` tests), and `npm run build` passed. The
+  existing ECharts vendor advisory remains unchanged.
