@@ -15,6 +15,7 @@ from app.knowledge.primary_web_capture import PrimaryWebCaptureResult
 from app.knowledge.wiki_sync import ObsidianSyncService
 from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.wiki_rules import build_default_agents_rules
+from app.knowledge import obsidian_local_rest
 
 
 def test_workspace_api_requires_scope_and_redacts_raw_evidence(tmp_path):
@@ -538,6 +539,36 @@ def test_workspace_status_exposes_a_redacted_local_rest_plugin_probe(tmp_path, m
         assert "api_key" not in str(response.json()).lower()
     finally:
         settings.API_KEY = previous_key
+        app.dependency_overrides.clear()
+        repo.close()
+
+
+def test_workspace_status_keeps_local_rest_idle_until_authorized_and_explicitly_enabled(tmp_path, monkeypatch):
+    repo = WikiRepository(db_path=str(tmp_path / "workspace-local-rest-idle.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    requested: list[object] = []
+
+    class ForbiddenClient:
+        def __init__(self, *_args, **_kwargs):
+            requested.append("client_constructed")
+            raise AssertionError("disabled Local REST must not construct an HTTP client")
+
+    monkeypatch.setattr(settings, "API_KEY", "workspace-admin")
+    monkeypatch.setattr(settings, "OBSIDIAN_LOCAL_REST_ENABLED", False)
+    monkeypatch.setattr(settings, "OBSIDIAN_LOCAL_REST_URL", "")
+    monkeypatch.setattr(settings, "OBSIDIAN_LOCAL_REST_API_KEY", "")
+    monkeypatch.setattr(obsidian_local_rest.httpx, "Client", ForbiddenClient)
+    app.dependency_overrides[get_wiki_repository] = lambda: repo
+    client = TestClient(app)
+    try:
+        unauthorized = client.get("/knowledge/workspaces/project-a")
+        authorized = client.get("/knowledge/workspaces/project-a", headers={"Authorization": "Bearer workspace-admin"})
+
+        assert unauthorized.status_code == 401
+        assert authorized.status_code == 200
+        assert authorized.json()["data"]["local_rest"]["state"] == "unconfigured"
+        assert requested == []
+    finally:
         app.dependency_overrides.clear()
         repo.close()
 
