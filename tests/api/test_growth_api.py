@@ -150,6 +150,48 @@ def test_canonical_profile_summary_and_legacy_alias(growth_api):
     assert summary.json()["data"]["counts"]["review_records"] == 0
 
 
+def test_project_sop_generation_endpoint_requires_writer_and_returns_durable_result(growth_api, monkeypatch):
+    client, _repo = growth_api
+    calls = []
+
+    class FakeProjectSopService:
+        def __init__(self, repo, vault_root):
+            assert repo is _repo
+            assert Path(vault_root) == Path(settings.OBSIDIAN_VAULT_ROOT)
+
+        def generate(self, *, project_id, request, actor_id, trigger="http"):
+            calls.append((project_id, request, actor_id, trigger))
+            return {
+                "run": {"id": "sop-run", "project_id": project_id, "status": "completed"},
+                "output": {"id": "sop-output", "project_id": project_id, "status": "registered"},
+                "idempotent": False,
+            }
+
+    monkeypatch.setattr(growth_api_module, "ProjectSopGenerationService", FakeProjectSopService)
+    payload = {
+        "prd_source_id": "prd-source",
+        "goal": "Create a governed SOP for the active project delivery.",
+        "audience": "project operators",
+        "idempotency_key": "sop-api-test",
+    }
+    denied = client.post(
+        "/knowledge/projects/project-a/outputs/generate-sop",
+        headers=_headers("growth-reader-key"),
+        json=payload,
+    )
+    created = client.post(
+        "/knowledge/projects/project-a/outputs/generate-sop",
+        headers=_headers(),
+        json=payload,
+    )
+
+    assert denied.status_code == 403
+    assert created.status_code == 201, created.text
+    assert created.json()["data"]["output"]["status"] == "registered"
+    assert calls[0][0] == "project-a"
+    assert calls[0][1].prd_source_id == "prd-source"
+
+
 def test_profile_source_policy_is_validated_revisioned_and_returned_by_the_api(growth_api):
     client, _repo = growth_api
     response = client.patch(

@@ -48,6 +48,7 @@ from app.knowledge.method_gate import MethodGate
 from app.knowledge.method_registry import MethodRegistry
 from app.knowledge.output_evaluator import OutputEvaluator
 from app.knowledge.output_registry import OutputRegistry
+from app.knowledge.prd_to_sop import ProjectSopGenerationRequest, ProjectSopGenerationService
 from app.knowledge.project_profile import ProfileRevisionConflict, ProjectProfileService
 from app.knowledge.source_triage import SourceTriageService
 from app.knowledge.wiki_commands import WikiCommandService
@@ -941,6 +942,34 @@ def list_outputs(
     records = _guard(lambda: repo.list_outputs(project_id, status=status, limit=MAX_PAGE_SIZE))
     page, pagination = _paginate([_public_record(item) for item in records], limit=limit, cursor=cursor)
     return _ok(request, repo, project_id, {"outputs": page, "pagination": pagination})
+
+
+@project_router.post("/outputs/generate-sop", status_code=201)
+def generate_project_sop(
+    project_id: str,
+    payload: ProjectSopGenerationRequest,
+    request: Request,
+    repo: GrowthRepository = Depends(get_growth_repository),
+):
+    """Generate one auditable D-layer SOP from an admitted project PRD source."""
+    project_id = _enforce_growth_access(request, project_id, write=True)
+    result = _guard(
+        lambda: ProjectSopGenerationService(repo, str(_vault_root())).generate(
+            project_id=project_id,
+            request=payload,
+            actor_id=_actor(request),
+        )
+    )
+    return _ok(
+        request,
+        repo,
+        project_id,
+        {
+            "run": _public_record(result["run"]),
+            "output": _public_record(result["output"]),
+            "idempotent": bool(result["idempotent"]),
+        },
+    )
 
 
 @project_router.get("/outputs/{output_id}")
