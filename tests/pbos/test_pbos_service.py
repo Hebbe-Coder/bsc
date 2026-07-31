@@ -2,7 +2,7 @@ import subprocess
 
 import pytest
 
-from app.artifacts import ArtifactGraphStore, ArtifactStatus, ArtifactType, MissionArtifact, PersonalExecutionPlanArtifact, PersonalProfileArtifact, SOPVersionArtifact
+from app.artifacts import ArtifactGraphStore, ArtifactStatus, ArtifactType, MissionArtifact, PersonalExecutionPlanArtifact, PersonalProfileArtifact, SOPVersionArtifact, WorkOutcomeArtifact
 from app.core.config import settings
 from app.pbos import PBOSService
 from app.pbos import PBOSProjectionService
@@ -376,6 +376,30 @@ def test_outcome_review_requires_a_score_for_acceptance(tmp_path):
 
     with pytest.raises(ValueError, match="quality score"):
         service.review_outcome(outcome.artifact_id, {"decision": "accepted"})
+
+
+def test_outcome_review_cannot_accept_a_result_without_reviewable_execution_evidence(tmp_path):
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(store)
+    service = PBOSService(store, "personal")
+    record = service.record_execution(
+        "mission",
+        "",
+        {
+            "actions": ["Captured a result without a verified receipt."],
+            "tool_receipts": [{"kind": "manual", "verified": False}],
+            "reflection": {"completed": "The receipt still needs verification."},
+        },
+    )
+    outcome = service.record_outcome(record.artifact_id, {"acceptance_status": "unverified"})
+
+    with pytest.raises(ValueError, match="verified_tool_receipt"):
+        service.review_outcome(outcome.artifact_id, {"decision": "accepted", "quality_score": 82})
+
+    persisted = store.get(outcome.artifact_id)
+    assert isinstance(persisted, WorkOutcomeArtifact)
+    assert persisted.acceptance_status == "unverified"
+    assert persisted.review_history == []
 
 
 def test_pending_outcomes_cannot_carry_scores_or_trigger_a_failure_pattern(tmp_path):

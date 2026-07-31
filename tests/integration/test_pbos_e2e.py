@@ -49,11 +49,11 @@ def test_personal_ai_delivery_loop_retains_evidence_gates(monkeypatch, tmp_path)
     assert plan_body["knowledge_context_refs"] == ["vault:03_Projects/active/runtime.md"]
 
     execution = client.post(
-        f"/api/pbos/projects/{project_id}/missions/mission-one/executions",
+        f"/api/pbos/projects/{project_id}/missions/mission-one/capture-bsc-workspace",
         json={
             "plan_id": plan_body["artifact_id"],
+            "paths": ["tests/integration/test_pbos_e2e.py"],
             "actions": ["Ran the focused PBOS regression suite."],
-            "tool_receipts": [{"kind": "test", "command": "pytest tests/pbos", "passed": True}],
             "reflection": {"completed": "The contract was validated.", "blocker": "Need an accepted delivery review."},
         },
     )

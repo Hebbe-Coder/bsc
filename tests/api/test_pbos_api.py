@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.api import dbos_api
-from app.artifacts import MissionArtifact
+from app.artifacts import MissionArtifact, WorkOutcomeArtifact
 from app.core.config import settings
 from app.main import app
 
@@ -159,3 +159,41 @@ def test_pbos_outcome_review_updates_the_existing_pending_outcome(monkeypatch, t
     assert reviewed["acceptance_status"] == "accepted"
     assert reviewed["quality_score"] == 88
     assert reviewed["review_history"][0]["previous_acceptance_status"] == "unverified"
+
+
+def test_pbos_outcome_review_api_rejects_acceptance_without_verified_execution_receipt(monkeypatch, tmp_path):
+    monkeypatch.setattr(dbos_api, "DBOS_DATA_ROOT", tmp_path / "dbos")
+    store = dbos_api.dbos_service_for("personal").store
+    store.add(
+        MissionArtifact(
+            artifact_id="mission-incomplete-review",
+            mission_id="mission-incomplete-review",
+            project_id="personal",
+            label="Incomplete review evidence",
+            title="Incomplete review evidence",
+        )
+    )
+    from app.pbos import PBOSService
+
+    service = PBOSService(store, "personal")
+    record = service.record_execution(
+        "mission-incomplete-review",
+        "",
+        {
+            "actions": ["Captured an unverified manual receipt."],
+            "tool_receipts": [{"kind": "manual", "verified": False}],
+            "reflection": {"completed": "Receipt verification is still missing."},
+        },
+    )
+    outcome = service.record_outcome(record.artifact_id, {"acceptance_status": "unverified"})
+
+    response = TestClient(app).post(
+        f"/api/pbos/projects/personal/outcomes/{outcome.artifact_id}/review",
+        json={"decision": "accepted", "quality_score": 91},
+    )
+
+    assert response.status_code == 422
+    assert "verified_tool_receipt" in response.json()["message"]
+    persisted = store.get(outcome.artifact_id)
+    assert isinstance(persisted, WorkOutcomeArtifact)
+    assert persisted.acceptance_status == "unverified"

@@ -193,6 +193,16 @@ class PBOSService:
         quality_score = payload.get("quality_score")
         if decision == "accepted":
             self._require_quality_score(quality_score)
+            missing_evidence = [
+                item
+                for item in self._outcome_observation(outcome)["missing_requirements"]
+                if item not in {"accepted_outcome", "quality_score"}
+            ]
+            if missing_evidence:
+                raise ValueError(
+                    "PBOS outcomes require reviewable execution evidence before acceptance: "
+                    + ", ".join(missing_evidence)
+                )
         review_note = str(payload.get("review_note") or "").strip()
         reviewed_at = time.strftime("%Y-%m-%dT%H:%M:%S")
         outcome.review_history.append({
