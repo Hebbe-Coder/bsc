@@ -505,6 +505,43 @@ def test_workspace_status_distinguishes_horizon_channel_failure_from_empty_resul
         repo.close()
 
 
+def test_workspace_status_exposes_a_redacted_local_rest_plugin_probe(tmp_path, monkeypatch):
+    repo = WikiRepository(db_path=str(tmp_path / "workspace-local-rest.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    previous_key = settings.API_KEY
+    settings.API_KEY = "workspace-admin"
+    app.dependency_overrides[get_wiki_repository] = lambda: repo
+
+    class Probe:
+        def probe(self):
+            return {
+                "state": "connected",
+                "detail_code": "authenticated_manifest_verified",
+                "transport": "loopback_tls",
+                "plugin_id": "obsidian-local-rest-api",
+                "plugin_version": "5.0.2",
+            }
+
+    monkeypatch.setattr(knowledge_workspace_api.ObsidianLocalRestProbe, "from_settings", lambda _settings: Probe())
+    client = TestClient(app)
+    try:
+        response = client.get("/knowledge/workspaces/project-a", headers={"Authorization": "Bearer workspace-admin"})
+
+        assert response.status_code == 200
+        assert response.json()["data"]["local_rest"] == {
+            "state": "connected",
+            "detail_code": "authenticated_manifest_verified",
+            "transport": "loopback_tls",
+            "plugin_id": "obsidian-local-rest-api",
+            "plugin_version": "5.0.2",
+        }
+        assert "api_key" not in str(response.json()).lower()
+    finally:
+        settings.API_KEY = previous_key
+        app.dependency_overrides.clear()
+        repo.close()
+
+
 def test_workspace_status_exposes_horizon_producer_failure_without_claiming_empty_result(tmp_path):
     repo = WikiRepository(db_path=str(tmp_path / "workspace-horizon-producer-failure.db"))
     run = KnowledgeRun(id="horizon-producer-failure", project_id="project-a", run_type="horizon_capture", trigger="schedule")

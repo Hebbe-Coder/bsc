@@ -62,6 +62,14 @@ export const OBSIDIAN_PLUGIN_PRESETS = [
   { id: 'project-inbox', name: 'Legacy inbox/ export', adapter: 'filesystem_drop', input_paths: ['inbox/custom'] },
 ] as const;
 
+export function describeLocalRestConnection(localRest: KnowledgeWorkspaceData['local_rest'] | undefined): string {
+  if (!localRest || localRest.state === 'unconfigured') return 'Optional Local REST connector is not configured';
+  if (localRest.state === 'connected') return `Authenticated ${localRest.plugin_id} ${localRest.plugin_version || 'service'} via ${localRest.transport}`;
+  if (localRest.state === 'authentication_failed') return 'Local REST service rejected the configured runtime token';
+  if (localRest.state === 'configuration_invalid') return 'Local REST configuration must use an explicit local HTTPS endpoint';
+  return 'Local REST service is unavailable; filesystem Vault sync remains active';
+}
+
 const VAULT_CONNECTION_LABELS: Record<NonNullable<KnowledgeWorkspaceData['vault']['connection']>['state'], string> = {
   unconfigured: 'No project Vault mapped',
   unavailable: 'Vault unavailable to this runtime',
@@ -581,6 +589,8 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '', activeProje
   const growth = workspace?.growth;
   const growthSync = growth?.sync;
   const horizon = workspace?.horizon;
+  const localRest = workspace?.local_rest;
+  const localRestDetail = describeLocalRestConnection(localRest);
   const horizonDetail = !horizon?.enabled
     ? 'Horizon producer is not configured for this runtime'
     : !horizon.last_run
@@ -644,6 +654,7 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '', activeProje
       <section className="knowledge-connection-path" aria-label="Knowledge connection path">
         <ConnectionStep label="Studio access" detail={accessStatus.detail} ready={accessStatus.verified} />
         <ConnectionStep label="Vault boundary" detail={vaultConnectionLabel} ready={vaultConnectionState === 'ready'} />
+        <ConnectionStep label="Obsidian Local REST" detail={localRestDetail} ready={localRest?.state === 'connected'} />
         <ConnectionStep label="Horizon radar" detail={horizonDetail} ready={Boolean(horizon?.last_run && horizon.last_run.status === 'completed')} />
         <ConnectionStep label="Plugin bridges" detail={pluginCount ? (connectedPluginCount ? `${capturedPluginSources} evidence source${capturedPluginSources === 1 ? '' : 's'}, ${registeredPluginOutputs} pending output${registeredPluginOutputs === 1 ? '' : 's'}` : pluginRoutesVerified ? `${readyPluginRouteCount}/${pluginCount} routes verified; no external plugin export captured yet` : readyPluginRouteCount ? `${readyPluginRouteCount}/${pluginCount} export folders ready; remaining routes need setup` : 'Export folder setup is incomplete') : 'No plugin bridge registered'} ready={pluginRoutesVerified} />
         <ConnectionStep label="Growth cycle" detail={growthCycleDetail} ready={growth?.status === 'completed'} />

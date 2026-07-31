@@ -9,6 +9,7 @@ import {
   EvidenceRecord,
   KNOWLEDGE_JOB_OPTIONS,
   OBSIDIAN_PLUGIN_PRESETS,
+  describeLocalRestConnection,
   projectOptions,
   ProposalReview,
   selectKnowledgeGraphFocus,
@@ -148,6 +149,16 @@ describe('KnowledgeWorkspace focused components', () => {
     expect(screen.getByRole('button', { name: /approve for synthesis/i })).toBeDisabled();
     expect(screen.getByText(source.content_hash)).toBeVisible();
     expect(screen.getByText('Readwise Export')).toBeVisible();
+  });
+
+  it('explains the optional Local REST connector without treating it as a source bridge', () => {
+    expect(describeLocalRestConnection(undefined)).toMatch(/not configured/i);
+    expect(describeLocalRestConnection({
+      state: 'connected', detail_code: 'authenticated_manifest_verified', transport: 'loopback_tls', plugin_id: 'obsidian-local-rest-api', plugin_version: '5.0.2',
+    })).toBe('Authenticated obsidian-local-rest-api 5.0.2 via loopback_tls');
+    expect(describeLocalRestConnection({
+      state: 'authentication_failed', detail_code: 'authorization_rejected', transport: 'loopback_tls', plugin_id: 'obsidian-local-rest-api', plugin_version: '',
+    })).toMatch(/rejected/i);
   });
 
   it('keeps a compact graph focused on the most connected reviewable records', () => {

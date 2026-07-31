@@ -152,7 +152,7 @@ describe('InformationOperationsPanel', () => {
   it('runs the configured source check only through the governed BSC and n8n receipt path', async () => {
     vi.mocked(fetchKnowledgeInformationOverview).mockResolvedValue(overviewWithBrief);
     vi.mocked(runKnowledgeInformationManualIngress).mockResolvedValue({
-      project_id: 'project-a', trigger: 'n8n_signed_manual_webhook', request_id: 'request-1', requested_at: '2026-07-31T00:00:00Z',
+      project_id: 'project-a', trigger: 'n8n_signed_manual_webhook', run_id: 'run-1', request_id: 'request-1', requested_at: '2026-07-31T00:00:00Z',
       state: 'completed', batch_count: 2, receipt_count: 3, batches: [],
       verification: { state: 'verified', claimed_batch_count: 2, verified_batch_count: 2, pending_batch_ids: [] },
     });
@@ -168,7 +168,7 @@ describe('InformationOperationsPanel', () => {
   it('does not present an unpersisted n8n batch claim as a completed source check', async () => {
     vi.mocked(fetchKnowledgeInformationOverview).mockResolvedValue(overviewWithBrief);
     vi.mocked(runKnowledgeInformationManualIngress).mockResolvedValue({
-      project_id: 'project-a', trigger: 'n8n_signed_manual_webhook', request_id: 'request-2', requested_at: '2026-07-31T00:00:00Z',
+      project_id: 'project-a', trigger: 'n8n_signed_manual_webhook', run_id: 'run-2', request_id: 'request-2', requested_at: '2026-07-31T00:00:00Z',
       state: 'receipt_verification_pending', batch_count: 0, receipt_count: 0, batches: [],
       verification: { state: 'pending', claimed_batch_count: 1, verified_batch_count: 0, pending_batch_ids: ['unverified-batch'] },
     } as never);

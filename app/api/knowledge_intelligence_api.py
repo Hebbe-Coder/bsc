@@ -19,6 +19,7 @@ from app.core.config import settings
 from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.information_intelligence import InformationIntelligenceError, InformationIntelligenceService
 from app.knowledge.information_intelligence_contracts import SignalBatch, SourceRegistryEntry
+from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus
 from app.knowledge.wiki_repository import WikiRepository
 
 
@@ -38,6 +39,9 @@ router = APIRouter(
     tags=["Knowledge Intelligence"],
     dependencies=[Depends(require_information_intelligence_enabled)],
 )
+
+MANUAL_DISPATCH_RUN_TYPE = "information_manual_dispatch"
+MANUAL_DISPATCH_TRIGGER = "n8n_signed_manual_webhook"
 
 
 def get_intelligence_repository() -> WikiRepository:
@@ -208,14 +212,63 @@ def _verify_persisted_manual_receipts(
     }
 
 
+def _manual_dispatch_output_refs(result: dict[str, Any]) -> dict[str, Any]:
+    """Retain only BSC-verifiable dispatch metadata in the audit ledger."""
+    verification = result.get("verification") if isinstance(result.get("verification"), dict) else {}
+    batches = result.get("batches") if isinstance(result.get("batches"), list) else []
+    verified_batch_ids = [
+        str(batch.get("batch_id") or "")[:200]
+        for batch in batches
+        if isinstance(batch, dict) and str(batch.get("batch_id") or "").strip()
+    ][:100]
+    pending_batch_ids = [
+        str(batch_id)[:200]
+        for batch_id in verification.get("pending_batch_ids", [])
+        if str(batch_id).strip()
+    ][:100]
+    return {
+        "trigger_kind": MANUAL_DISPATCH_TRIGGER,
+        "verification_state": str(result.get("state") or "unknown")[:80],
+        "claimed_batch_count": max(0, int(verification.get("claimed_batch_count") or 0)),
+        "verified_batch_count": max(0, int(verification.get("verified_batch_count") or 0)),
+        "verified_receipt_count": max(0, int(result.get("receipt_count") or 0)),
+        "verified_batch_ids": verified_batch_ids,
+        "pending_batch_ids": pending_batch_ids,
+    }
+
+
 async def _dispatch_n8n_manual_run(project_id: str, repository: WikiRepository) -> dict[str, Any]:
-    _require_manual_trigger_configuration(project_id)
     request_payload = {
         "schema_version": "bsc-n8n-manual-run-v1",
         "project_id": project_id,
         "requested_at": datetime.now(timezone.utc).isoformat(),
         "request_id": secrets.token_hex(12),
     }
+    run = KnowledgeRun(
+        project_id=project_id,
+        run_type=MANUAL_DISPATCH_RUN_TYPE,
+        trigger="manual",
+        status=RunStatus.QUEUED,
+        input_refs={
+            "schema_version": request_payload["schema_version"],
+            "request_id": request_payload["request_id"],
+            "trigger_kind": MANUAL_DISPATCH_TRIGGER,
+        },
+    )
+    repository.create_run(run)
+    if not repository.claim_run_execution(project_id=project_id, run_id=run.id):
+        repository.update_run_status(
+            project_id,
+            run.id,
+            RunStatus.FAILED,
+            error="manual dispatch run could not be claimed",
+            output_refs={"trigger_kind": MANUAL_DISPATCH_TRIGGER, "verification_state": "failed"},
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "information_manual_trigger_unavailable", "message": "The governed n8n manual trigger is unavailable."},
+        )
+
     serialized_payload = json.dumps(request_payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
     signature = hmac.new(
         settings.KNOWLEDGE_INTELLIGENCE_INGRESS_SIGNING_SECRET.encode("utf-8"),
@@ -223,6 +276,7 @@ async def _dispatch_n8n_manual_run(project_id: str, repository: WikiRepository) 
         hashlib.sha256,
     ).hexdigest()
     try:
+        _require_manual_trigger_configuration(project_id)
         timeout = httpx.Timeout(max(1.0, float(settings.KNOWLEDGE_INTELLIGENCE_N8N_MANUAL_TRIGGER_TIMEOUT_SECONDS)))
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(
@@ -236,18 +290,43 @@ async def _dispatch_n8n_manual_run(project_id: str, repository: WikiRepository) 
             )
             response.raise_for_status()
             response_payload = response.json() if response.content else []
+    except HTTPException as exc:
+        error_code = str((exc.detail or {}).get("code") if isinstance(exc.detail, dict) else "information_manual_trigger_unavailable")[:120]
+        repository.update_run_status(
+            project_id,
+            run.id,
+            RunStatus.FAILED,
+            error=error_code,
+            output_refs={"trigger_kind": MANUAL_DISPATCH_TRIGGER, "verification_state": "configuration_failed"},
+        )
+        raise
     except (httpx.HTTPError, ValueError) as exc:
+        repository.update_run_status(
+            project_id,
+            run.id,
+            RunStatus.FAILED,
+            error="n8n manual webhook request failed",
+            output_refs={"trigger_kind": MANUAL_DISPATCH_TRIGGER, "verification_state": "failed"},
+        )
         raise HTTPException(
             status_code=502,
             detail={"code": "information_manual_trigger_failed", "message": "The governed n8n run did not return a valid receipt summary."},
         ) from exc
-    return {
+    result = {
         "project_id": project_id,
-        "trigger": "n8n_signed_manual_webhook",
+        "trigger": MANUAL_DISPATCH_TRIGGER,
+        "run_id": run.id,
         "request_id": request_payload["request_id"],
         "requested_at": request_payload["requested_at"],
         **_verify_persisted_manual_receipts(repository, project_id, _project_manual_run_response(response_payload)),
     }
+    repository.update_run_status(
+        project_id,
+        run.id,
+        RunStatus.COMPLETED,
+        output_refs=_manual_dispatch_output_refs(result),
+    )
+    return result
 
 
 @router.post("/signal-batches")

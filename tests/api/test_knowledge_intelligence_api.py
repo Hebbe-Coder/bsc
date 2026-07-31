@@ -361,6 +361,7 @@ def test_manual_n8n_dispatch_persists_bounded_audit_runs_for_all_outcomes(tmp_pa
     outcomes: list[object] = [
         [{"batch_id": "verified-batch", "receipt_count": 1, "status": "completed"}],
         [{"batch_id": "pending-batch", "receipt_count": 2, "status": "completed"}],
+        [],
         httpx.HTTPError("n8n is unavailable"),
     ]
 
@@ -423,6 +424,7 @@ def test_manual_n8n_dispatch_persists_bounded_audit_runs_for_all_outcomes(tmp_pa
     try:
         completed = asyncio.run(knowledge_intelligence_api._dispatch_n8n_manual_run("project-a", repository))
         pending = asyncio.run(knowledge_intelligence_api._dispatch_n8n_manual_run("project-a", repository))
+        no_fresh_items = asyncio.run(knowledge_intelligence_api._dispatch_n8n_manual_run("project-a", repository))
         try:
             asyncio.run(knowledge_intelligence_api._dispatch_n8n_manual_run("project-a", repository))
             raise AssertionError("dispatch failure should raise an HTTP error")
@@ -433,10 +435,11 @@ def test_manual_n8n_dispatch_persists_bounded_audit_runs_for_all_outcomes(tmp_pa
             run for run in repository.list_runs("project-a")
             if run["run_type"] == "information_manual_dispatch"
         ]
-        assert len(audit_runs) == 3
+        assert len(audit_runs) == 4
         by_id = {run["id"]: run for run in audit_runs}
         completed_run = by_id[completed["run_id"]]
         pending_run = by_id[pending["run_id"]]
+        no_fresh_items_run = by_id[no_fresh_items["run_id"]]
         failed_run = next(run for run in audit_runs if run["status"] == "failed")
 
         assert completed_run["status"] == "completed"
@@ -445,6 +448,9 @@ def test_manual_n8n_dispatch_persists_bounded_audit_runs_for_all_outcomes(tmp_pa
         assert pending_run["status"] == "completed"
         assert pending_run["output_refs"]["verification_state"] == "receipt_verification_pending"
         assert pending_run["output_refs"]["pending_batch_ids"] == ["pending-batch"]
+        assert no_fresh_items_run["status"] == "completed"
+        assert no_fresh_items_run["output_refs"]["verification_state"] == "completed_no_fresh_items"
+        assert no_fresh_items_run["output_refs"]["verified_receipt_count"] == 0
         assert failed_run["output_refs"]["verification_state"] == "failed"
         assert failed_run["error"] == "n8n manual webhook request failed"
 
@@ -455,5 +461,37 @@ def test_manual_n8n_dispatch_persists_bounded_audit_runs_for_all_outcomes(tmp_pa
             assert "raw_content" not in serialized
             assert run["input_refs"]["trigger_kind"] == "n8n_signed_manual_webhook"
             assert run["input_refs"]["request_id"]
+    finally:
+        repository.close()
+
+
+def test_manual_n8n_dispatch_audits_configuration_rejection_without_calling_webhook(tmp_path, monkeypatch):
+    repository = WikiRepository(db_path=str(tmp_path / "manual-run-config-audit.db"))
+
+    class ForbiddenClient:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("a rejected configuration must not construct an HTTP client")
+
+    monkeypatch.setattr(settings, "KNOWLEDGE_INTELLIGENCE_N8N_MANUAL_TRIGGER_ENABLED", True, raising=False)
+    monkeypatch.setattr(settings, "KNOWLEDGE_INTELLIGENCE_N8N_MANUAL_TRIGGER_PROJECT_ID", "project-a", raising=False)
+    monkeypatch.setattr(settings, "KNOWLEDGE_INTELLIGENCE_N8N_MANUAL_TRIGGER_URL", "", raising=False)
+    monkeypatch.setattr(settings, "KNOWLEDGE_INTELLIGENCE_INGRESS_SIGNING_SECRET", "test-signing-secret", raising=False)
+    monkeypatch.setattr(knowledge_intelligence_api.httpx, "AsyncClient", ForbiddenClient)
+    try:
+        try:
+            asyncio.run(knowledge_intelligence_api._dispatch_n8n_manual_run("project-a", repository))
+            raise AssertionError("an incomplete manual trigger configuration should be rejected")
+        except HTTPException as exc:
+            assert exc.status_code == 503
+            assert exc.detail["code"] == "information_manual_trigger_unconfigured"
+
+        audit_run = repository.latest_run_for_type("project-a", "information_manual_dispatch")
+        assert audit_run is not None
+        assert audit_run["status"] == "failed"
+        assert audit_run["error"] == "information_manual_trigger_unconfigured"
+        assert audit_run["output_refs"] == {
+            "trigger_kind": "n8n_signed_manual_webhook",
+            "verification_state": "configuration_failed",
+        }
     finally:
         repository.close()

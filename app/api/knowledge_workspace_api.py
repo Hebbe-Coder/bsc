@@ -37,6 +37,7 @@ from app.knowledge.primary_web_capture import PrimaryWebCapture, PrimaryWebCaptu
 from app.knowledge.wiki_source_capture import InvalidSourceTransition, SourceCaptureService
 from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
+from app.knowledge.obsidian_local_rest import ObsidianLocalRestProbe
 from app.knowledge.horizon_run_store import resolve_horizon_run_store_location
 from app.knowledge.wiki_service import WikiService
 from app.core.celery_app import is_celery_broker_available, is_celery_real
@@ -384,6 +385,7 @@ def workspace_status(request: Request, project_id: str, repo: WikiRepository = D
         project_root=project_root,
         vault_root=Path(settings.OBSIDIAN_VAULT_ROOT) if settings.OBSIDIAN_VAULT_ROOT else None,
     )
+    local_rest = ObsidianLocalRestProbe.from_settings(settings).probe()
     role = str(getattr(request.state, "knowledge_role", ""))
     sync_run = repo.latest_run_for_type(project_id, "source_sync")
     horizon_run = repo.latest_run_for_type(project_id, "horizon_capture")
@@ -403,6 +405,7 @@ def workspace_status(request: Request, project_id: str, repo: WikiRepository = D
                 "connection": _workspace_vault_state(project_id, vault),
             },
             "plugins": plugins,
+            "local_rest": local_rest,
             "sources": len(sources),
             "runs": len(repo.list_runs(project_id)),
             "schedules": len(repo.list_schedules(project_id)),
