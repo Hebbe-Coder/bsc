@@ -196,3 +196,134 @@ metric drill-down increment for a clean-image runtime verification.
   disabled-by-default definition, with only the controlled webhook activated
   for the explicitly configured project. No historical workflow result is
   counted as operational proof.
+
+## Governed Manual Dispatch Audit Trail
+
+Date: 2026-07-31
+Scope: make every authorized manual information-dispatch attempt durable and
+traceable without retaining source content, credentials, or webhook details.
+
+### Boundary
+
+- No Obsidian/Vault, source, Wiki, derivative, or output body was read.
+- No n8n, RSS, Horizon, browser, or external network request was made. The
+  n8n HTTP boundary was replaced by local test doubles.
+- No original user file was written. Only application code, typed client
+  contract, tests, and this worklog changed.
+- Audit input/output references hold only a generated request ID, trigger
+  kind, verification state, bounded batch IDs, and verified counts. They
+  exclude webhook URLs, signatures, secret values, and source payloads.
+
+### Test-First Evidence
+
+- The regression for verified receipts, pending receipt verification, no fresh
+  items, and webhook failure first failed with `0 == 3` audit runs. This
+  proved that the prior dispatcher returned a response without a durable
+  `KnowledgeRun` record.
+- The dispatcher now creates and atomically claims one
+  `information_manual_dispatch` run before configuration checks or webhook
+  work. It records `completed` transport outcomes with an explicit
+  verification state, including `receipt_verification_pending`, and records
+  configuration or webhook errors as failed runs.
+- A separate regression proves that an incomplete configuration creates a
+  failed audit record with `configuration_failed` and does not construct an
+  HTTP client. This prevents a missing configuration from silently becoming an
+  unaudited network attempt.
+- The public manual-run response now includes the generated `run_id`; the
+  frontend contract retains it for traceability without rendering sensitive
+  internals.
+
+### Automated Verification
+
+- `./.venv/Scripts/python.exe -m pytest
+  tests/api/test_knowledge_intelligence_api.py -q`
+  - Passed: 8 tests. Includes project access, signed payloads, ledger-backed
+    receipt proof, all four terminal dispatch outcomes, bounded redaction, and
+    rejected configuration without HTTP construction.
+- Cross-layer operations and information-intelligence regression:
+  - Passed: 104 tests across operations contracts/actions/graph/API/MCP,
+    DBOS, Growth, workspace, information-intelligence API/service/tools, and
+    n8n workflow contracts.
+- `npm run test:frontend -- --run
+  src/components/knowledge/InformationOperationsPanel.test.tsx`
+  - Passed: 8 tests.
+- `npm run check`, `docker compose --profile full config --quiet`, and scoped
+  `git diff --check` passed. Git emitted only CRLF normalization warnings.
+
+### Operational Status
+
+- This establishes code-level auditability. It does not prove a real n8n
+  execution, RSS capture, external receipt, Obsidian export, or user feedback
+  loop. The manual ingress remains implementation complete with external
+  operational proof pending under the active no-network boundary.
+
+## Governed RSS Operational Proof
+
+Date: 2026-07-31
+Scope: execute the committed signed manual-run path against the configured
+project RSS registry, then verify the durable BSC result without displaying
+source bodies, credentials, or Vault data.
+
+### Deployment And Runtime Reconciliation
+
+- Committed implementation: `8e0cfd5 feat(knowledge): verify governed
+  intelligence operations`.
+- Rebuilt and recreated the `bsc-backend`, `celery-worker`, and `celery-beat`
+  containers from that commit. API health, PostgreSQL, Redis, Worker, Beat,
+  and n8n were healthy after deployment.
+- Exported the six pre-existing local n8n workflow records to the encrypted
+  n8n volume before reconciliation. Imported the committed workflow,
+  deactivated every historical record, and activated only its controlled
+  webhook record `z7QYcMmiGAHNFmKg`.
+- The workflow's scheduled trigger remains disabled. Activating the workflow
+  is necessary only to register its signed production webhook; it does not
+  enable unattended daily collection.
+- Runtime checks confirmed that BSC intelligence, manual triggering, ingress
+  signing, the bound project, the n8n project-ingress key, and the source
+  manifest endpoint were configured. An unsigned direct webhook request was
+  rejected; no unauthenticated collection occurred.
+
+### Real End-To-End Result
+
+- BSC invoked `POST /knowledge/intelligence/projects/proj_b8a285642094/manual-runs`
+  with a fresh signed payload. n8n read the BSC project source manifest,
+  collected the registered RSS feed, and submitted five signed `SignalBatch`
+  records.
+- BSC returned `completed`, with `batch_count=5`, `receipt_count=5`, and
+  `verification.state=verified`. Each claimed batch was independently found
+  in BSC's persisted signal-batch and receipt ledger before the response was
+  returned.
+- All five new batches are `completed`. Each represents an existing canonical
+  source and is recorded as `duplicate_source`; no duplicate source record was
+  created. This is the intended immutable-evidence and idempotency behavior.
+- The current-day redacted daily brief is `available` with `complete`
+  coverage. Its ten persisted receipts include one earlier new capture and
+  nine repeat discoveries. This aggregate is not presented as ten new
+  knowledge assets.
+- Feishu delivery remains truthfully `unavailable` because no delivery
+  configuration is present. The BSC daily brief is available for Studio,
+  Obsidian projection, and later governed distillation; no external delivery
+  was faked.
+- Published Wiki page count remains `5`, unchanged by this run. RSS discovery
+  did not publish a Wiki page, proposal, Skill, method, SOP, or content item.
+
+### Release State
+
+- n8n ingestion is now `implemented_with_operational_proof`: a real source
+  registry to signed batch to BSC receipt to daily-brief chain has completed.
+- Scheduled collection, optional Feishu mirroring, additional third-party
+  connector credentials, and human review/publication remain independent,
+  explicitly configured capabilities. They are not implied by this proof.
+
+### Browser Boundary Check
+
+- Opened the local Studio at `http://127.0.0.1:5180/`, opened Knowledge, and
+  verified that an unauthenticated browser session remains unscoped: it shows
+  no authorized project, no historical fallback, and disabled project actions.
+- The browser did not receive or submit the local API key. Supplying a runtime
+  access key through a browser field is a separate sensitive-data action and
+  was deliberately not performed as part of this unattended verification.
+- The rendered Knowledge workspace correctly exposes the `Intel` view and
+  governed connection states, but a fully authorized visual check remains
+  dependent on a user-authenticated Studio session. This does not weaken the
+  API, receipt-ledger, or component-test evidence above.
