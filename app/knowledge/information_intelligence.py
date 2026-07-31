@@ -323,7 +323,12 @@ class InformationIntelligenceService:
         }
 
     def horizon_review_queue(self, project_id: str, *, limit: int = 100) -> dict[str, Any]:
-        """Expose un-cited Horizon metadata without reading immutable bodies."""
+        """Expose unresolved Horizon metadata without reading immutable bodies.
+
+        A linked primary capture is not a published Wiki claim, so the signal
+        remains visible until review. Its next action changes, however, so an
+        operator does not repeatedly fetch the same external page.
+        """
         bounded_limit = max(1, min(int(limit), 100))
         citations = self.repository.list_evidence_citation_metadata(project_id)
         cited_source_ids = {
@@ -331,8 +336,37 @@ class InformationIntelligenceService:
             for item in citations
             if str(item.get("status") or "active") == "active"
         }
+        source_metadata = self.repository.list_evidence_source_metadata(project_id)
+        primary_captures: dict[str, dict[str, str]] = {}
+        for candidate in source_metadata:
+            metadata = candidate.get("metadata") if isinstance(candidate.get("metadata"), dict) else {}
+            if metadata.get("evidence_role") != "primary_capture":
+                continue
+            supported = metadata.get("supports_horizon_signal_ids")
+            supported_ids = (
+                [str(value).strip() for value in supported if str(value).strip()]
+                if isinstance(supported, list)
+                else []
+            )
+            legacy_signal_id = str(metadata.get("discovered_from_source_id") or "").strip()
+            if legacy_signal_id and legacy_signal_id not in supported_ids:
+                supported_ids.append(legacy_signal_id)
+            for signal_id in supported_ids:
+                existing = primary_captures.get(signal_id)
+                candidate_capture = {
+                    "source_id": str(candidate.get("id") or ""),
+                    "status": str(candidate.get("status") or ""),
+                    "origin": str(candidate.get("origin") or "")[:500],
+                    "trust_level": str(candidate.get("trust_level") or ""),
+                    "captured_at": str(candidate.get("captured_at") or candidate.get("updated_at") or ""),
+                }
+                if candidate_capture["source_id"] and (
+                    existing is None or candidate_capture["captured_at"] > existing["captured_at"]
+                ):
+                    primary_captures[signal_id] = candidate_capture
+
         candidates: list[dict[str, Any]] = []
-        for source in self.repository.list_evidence_source_metadata(project_id):
+        for source in source_metadata:
             source_id = str(source.get("id") or "")
             if (
                 str(source.get("source_type") or "") != "horizon_signal"
@@ -351,6 +385,7 @@ class InformationIntelligenceService:
                 ai_score = None
             task_values = metadata.get("task_families") or intelligence.get("task_families") or metadata.get("ai_tags") or []
             task_families = [str(value).strip()[:80] for value in task_values if str(value).strip()][:8] if isinstance(task_values, list) else []
+            primary_capture = primary_captures.get(source_id)
             item = {
                 "source_id": source_id,
                 "title": title,
@@ -359,8 +394,12 @@ class InformationIntelligenceService:
                 "trust_level": str(source.get("trust_level") or ""),
                 "ai_score": ai_score,
                 "task_families": task_families,
-                "next_action": "capture_primary_source",
+                "next_action": "review_primary_capture" if primary_capture else "capture_primary_source",
             }
+            if primary_capture:
+                item["primary_capture"] = {
+                    key: value for key, value in primary_capture.items() if key != "captured_at"
+                }
             candidates.append(item)
         candidates.sort(
             key=lambda item: (

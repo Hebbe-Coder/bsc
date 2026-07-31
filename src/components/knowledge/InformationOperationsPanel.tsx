@@ -1,7 +1,8 @@
 import { type ReactNode, useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Inbox, Radio, RefreshCw, Send, ShieldAlert } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Download, Inbox, Radio, RefreshCw, Send, ShieldAlert } from 'lucide-react';
 
 import {
+  captureKnowledgePrimaryWebSource,
   createKnowledgeInformationSource,
   fetchKnowledgeInformationOverview,
   type InformationBriefItem,
@@ -26,6 +27,7 @@ export function InformationOperationsPanel({ projectId, canWrite, refreshToken, 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [capturingSourceId, setCapturingSourceId] = useState('');
   const [name, setName] = useState('');
   const [connectorType, setConnectorType] = useState<InformationRegistrySource['connector_type']>('rss');
   const [feedReference, setFeedReference] = useState('');
@@ -87,6 +89,24 @@ export function InformationOperationsPanel({ projectId, canWrite, refreshToken, 
     }
   };
 
+  const capturePrimarySource = async (item: HorizonReviewItem) => {
+    if (!item.origin) {
+      setError('This Horizon signal has no source URL to capture.');
+      return;
+    }
+    setCapturingSourceId(item.source_id);
+    setError('');
+    try {
+      const result = await captureKnowledgePrimaryWebSource(projectId, item.origin, item.source_id);
+      onInspectSource?.(result.source.id);
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'The primary source could not be captured.');
+    } finally {
+      setCapturingSourceId('');
+    }
+  };
+
   const isYoutubeChannel = connectorType === 'youtube_channel_rss';
 
   if (loading && !overview) return <section className="information-operations information-operations--loading">Loading governed information operations...</section>;
@@ -107,7 +127,7 @@ export function InformationOperationsPanel({ projectId, canWrite, refreshToken, 
       <Metric icon={<ShieldAlert size={16} />} label="Rejected items" value={overview.counts.rejected} detail="Policy, registry, or payload failure" />
     </div>
     {overview.daily_brief && <DailyBrief brief={overview.daily_brief} onInspectSource={onInspectSource} />}
-    {overview.horizon_review_queue?.count ? <HorizonPrimaryReview queue={overview.horizon_review_queue} onInspectSource={onInspectSource} /> : null}
+    {overview.horizon_review_queue?.count ? <HorizonPrimaryReview queue={overview.horizon_review_queue} canWrite={canWrite} capturingSourceId={capturingSourceId} onCapturePrimary={capturePrimarySource} onInspectSource={onInspectSource} /> : null}
     <div className="information-operations__grid">
       <section className="information-panel">
         <header><div><span>PROJECT SOURCE REGISTRY</span><small>{overview.source_registry.length} declared</small></div></header>
@@ -151,13 +171,25 @@ export function InformationOperationsPanel({ projectId, canWrite, refreshToken, 
   </section>;
 }
 
-function HorizonPrimaryReview({ queue, onInspectSource }: { queue: NonNullable<KnowledgeInformationOverview['horizon_review_queue']>; onInspectSource?: (sourceId: string) => void }) {
+function HorizonPrimaryReview({
+  queue,
+  canWrite,
+  capturingSourceId,
+  onCapturePrimary,
+  onInspectSource,
+}: {
+  queue: NonNullable<KnowledgeInformationOverview['horizon_review_queue']>;
+  canWrite: boolean;
+  capturingSourceId: string;
+  onCapturePrimary: (item: HorizonReviewItem) => Promise<void>;
+  onInspectSource?: (sourceId: string) => void;
+}) {
   return <section className="information-panel information-panel--brief" aria-label="Horizon primary-source review">
     <header><div><span>HORIZON PRIMARY-SOURCE REVIEW</span><small>{queue.count} un-cited signal{queue.count === 1 ? '' : 's'}</small></div></header>
     <p className="information-empty">Discovery leads only. Capture an authoritative primary source before a signal can support project knowledge.</p>
     <ol className="information-brief-list">{queue.items.map((item: HorizonReviewItem) => <li key={item.source_id}>
       <div><strong title={item.title}>{item.title}</strong><small title={item.origin}>{item.origin || 'No origin recorded'}</small><small>{item.trust_level} / score {item.ai_score ?? 'unavailable'}{item.task_families.length ? ` / ${item.task_families.join(', ')}` : ''}</small></div>
-      <div className="information-horizon-actions"><code>{item.next_action}</code>{onInspectSource ? <button type="button" className="icon-button" aria-label={`Inspect source ${item.source_id}`} title="Inspect authorized source" onClick={() => onInspectSource(item.source_id)}><Inbox size={14} /></button> : null}</div>
+      <div className="information-horizon-actions"><code>{item.next_action}</code>{item.primary_capture ? <button type="button" className="information-capture-primary" title="Inspect the captured primary evidence before triage" onClick={() => onInspectSource?.(item.primary_capture?.source_id || '')}><Inbox size={14} />Review primary evidence</button> : <button type="button" className="information-capture-primary" disabled={!canWrite || !item.origin || Boolean(capturingSourceId)} title="Capture the linked public page as reviewable primary evidence" onClick={() => void onCapturePrimary(item)}><Download size={14} />{capturingSourceId === item.source_id ? 'Capturing...' : 'Capture primary source'}</button>}{onInspectSource ? <button type="button" className="icon-button" aria-label={`Inspect source ${item.source_id}`} title="Inspect authorized source" onClick={() => onInspectSource(item.source_id)}><Inbox size={14} /></button> : null}</div>
     </li>)}</ol>
   </section>;
 }

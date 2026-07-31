@@ -3,10 +3,11 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createKnowledgeInformationSource, fetchKnowledgeInformationOverview, type KnowledgeInformationOverview } from '../../api/knowledgeWorkspaceApi';
+import { captureKnowledgePrimaryWebSource, createKnowledgeInformationSource, fetchKnowledgeInformationOverview, type KnowledgeInformationOverview } from '../../api/knowledgeWorkspaceApi';
 import { InformationOperationsPanel } from './InformationOperationsPanel';
 
 vi.mock('../../api/knowledgeWorkspaceApi', () => ({
+  captureKnowledgePrimaryWebSource: vi.fn(),
   createKnowledgeInformationSource: vi.fn(),
   fetchKnowledgeInformationOverview: vi.fn(),
 }));
@@ -104,5 +105,46 @@ describe('InformationOperationsPanel', () => {
     expect(screen.getByText('Needs primary review')).toBeVisible();
     expect(screen.getByText('capture_primary_source')).toBeVisible();
     expect(screen.queryByText(/verified conclusion/i)).toBeNull();
+  });
+
+  it('captures a chosen Horizon origin as reviewable primary evidence without publishing a claim', async () => {
+    const inspect = vi.fn();
+    vi.mocked(fetchKnowledgeInformationOverview).mockResolvedValue(overviewWithBrief);
+    vi.mocked(captureKnowledgePrimaryWebSource).mockResolvedValue({ source: { id: 'primary-evidence' } } as never);
+    render(<InformationOperationsPanel projectId="project-a" canWrite refreshToken={0} onInspectSource={inspect} />);
+
+    await screen.findByText('HORIZON PRIMARY-SOURCE REVIEW');
+    fireEvent.click(screen.getByRole('button', { name: 'Capture primary source' }));
+
+    await waitFor(() => expect(captureKnowledgePrimaryWebSource).toHaveBeenCalledWith(
+      'project-a',
+      'https://example.com/radar',
+      'horizon-pending',
+    ));
+    await waitFor(() => expect(inspect).toHaveBeenCalledWith('primary-evidence'));
+  });
+
+  it('moves a Horizon signal with a linked capture to primary-evidence review instead of recapturing it', async () => {
+    const inspect = vi.fn();
+    vi.mocked(fetchKnowledgeInformationOverview).mockResolvedValue({
+      ...overviewWithBrief,
+      horizon_review_queue: {
+        ...overviewWithBrief.horizon_review_queue!,
+        items: [{
+          ...overviewWithBrief.horizon_review_queue!.items[0],
+          next_action: 'review_primary_capture',
+          primary_capture: {
+            source_id: 'primary-evidence', status: 'eligible', origin: 'https://example.com/radar', trust_level: 'reviewed',
+          },
+        }],
+      },
+    });
+    render(<InformationOperationsPanel projectId="project-a" canWrite refreshToken={0} onInspectSource={inspect} />);
+
+    await screen.findByText('review_primary_capture');
+    expect(screen.getByRole('button', { name: 'Review primary evidence' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Capture primary source' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Review primary evidence' }));
+    expect(inspect).toHaveBeenCalledWith('primary-evidence');
   });
 });

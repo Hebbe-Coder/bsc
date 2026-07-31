@@ -278,7 +278,13 @@ export type HorizonReviewItem = {
   trust_level: string;
   ai_score: number | null;
   task_families: string[];
-  next_action: 'capture_primary_source';
+  next_action: 'capture_primary_source' | 'review_primary_capture';
+  primary_capture?: {
+    source_id: string;
+    status: string;
+    origin: string;
+    trust_level: string;
+  };
 };
 export type HorizonReviewQueue = {
   project_id: string;

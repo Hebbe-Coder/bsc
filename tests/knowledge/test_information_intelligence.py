@@ -402,3 +402,65 @@ def test_horizon_review_queue_is_metadata_only_and_excludes_already_cited_signal
         assert metadata_by_id["horizon-low-priority"]["status"] == SourceStatus.ELIGIBLE.value
     finally:
         repository.close()
+
+
+def test_horizon_review_queue_advances_to_primary_review_after_a_linked_capture(tmp_path, monkeypatch):
+    repository = WikiRepository(db_path=str(tmp_path / "intelligence-horizon-primary-review.db"))
+    service = InformationIntelligenceService(repository)
+    try:
+        repository.create_source(
+            SourceRecord(
+                id="horizon-pending",
+                project_id="project-a",
+                source_type="horizon_signal",
+                origin="https://example.com/release",
+                content_hash="d" * 64,
+                raw_content="PRIVATE HORIZON BODY",
+                trust_level="reviewed",
+                status=SourceStatus.ELIGIBLE,
+                metadata={"title": "Release signal", "ai_score": 8.7},
+            )
+        )
+        repository.create_source(
+            SourceRecord(
+                id="primary-capture",
+                project_id="project-a",
+                source_type="primary_web",
+                origin="https://example.com/release",
+                content_hash="e" * 64,
+                raw_content="PRIVATE PRIMARY BODY",
+                trust_level="reviewed",
+                status=SourceStatus.ELIGIBLE,
+                metadata={
+                    "evidence_role": "primary_capture",
+                    "supports_horizon_signal_ids": ["horizon-pending"],
+                },
+            )
+        )
+
+        def reject_full_source_read(*_args, **_kwargs):
+            raise AssertionError("Horizon review queue must use metadata-only source projections")
+
+        monkeypatch.setattr(repository, "list_sources", reject_full_source_read)
+        monkeypatch.setattr(repository, "get_source", reject_full_source_read)
+        queue = service.horizon_review_queue("project-a")
+
+        assert queue["items"] == [{
+            "source_id": "horizon-pending",
+            "title": "Release signal",
+            "origin": "https://example.com/release",
+            "status": "eligible",
+            "trust_level": "reviewed",
+            "ai_score": 8.7,
+            "task_families": [],
+            "next_action": "review_primary_capture",
+            "primary_capture": {
+                "source_id": "primary-capture",
+                "status": "eligible",
+                "origin": "https://example.com/release",
+                "trust_level": "reviewed",
+            },
+        }]
+        assert "PRIVATE" not in str(queue)
+    finally:
+        repository.close()

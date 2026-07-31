@@ -11,15 +11,14 @@ proof, BSC receipt/evidence/projection persistence, and the complete repository
 regression gate. It does not imply that intentionally unconfigured third-party
 connectors are available.
 
-The 2026-07-31 daily-brief hardening in the current worktree is
-`implemented_with_operational_proof_pending`: its scoped and complete
-repository tests pass, and the already-running API returns the governed brief
-projection. The current source revision cannot yet be image-proven because an
-unrelated in-progress PBOS frontend fixture references a field not yet present
-in its type contract, causing the shared frontend Docker build to fail. This
-does not invalidate the 2026-07-30 release conclusion for the earlier scope;
-it prevents treating the new source revision as deployed until that parallel
-contract is completed and the image rebuild succeeds.
+The 2026-07-31 daily-brief hardening and Horizon primary-source review queue
+are `release_ready` in the current Compose deployment. They have complete
+repository regression coverage, a successful API/Worker/Beat image rebuild,
+authenticated desktop and 390x844 Studio checks, and redacted live API proof.
+This conclusion covers governed discovery review only: a Horizon ranking is
+still not a verified claim and cannot publish Wiki content, a method, a Skill,
+or an SOP until an authoritative primary source is captured and passes the
+existing review gates.
 
 The operational chain has been proven with n8n as a constrained producer and
 BSC as the only evidence, receipt, review, and audit authority. A real public
@@ -63,7 +62,8 @@ does not treat scoped proof as a substitute for the repository release gate.
 | 2026-07-30 | Current runtime recovery and n8n profile isolation | Complete with real RSS proof | The n8n service was initially stopped; after start, a controlled manual run failed before collection because the API container had an invalid Docker-network IP and n8n could not resolve `bsc-backend`. The stale Compose network was recreated without removing named volumes. A recovery attempt showed that the optional Ollama service was incorrectly included in the `celery` profile and tried to pull from unavailable Docker Hub. Removed that profile membership and added a Compose-contract test, so `docker compose --profile celery --profile n8n up -d` now starts only PostgreSQL, Redis, API, Worker, Beat, and n8n. All six services are healthy, n8n resolves BSC and receives `200` from `/ready`, and one active daily workflow remains present. An isolated, non-persistent manual execution then completed: receipts moved from `42` to `47`; all five additional receipts were repeat discoveries, leaving `9` new sources, `38` repeats, and `9` BSC-managed Obsidian projections. Focused backend/API/MCP/Compose tests passed `16`; Intel-panel frontend tests passed `2`; TypeScript checking and profile Compose validation passed. No raw feed body, Vault content, credential, or provider payload was read or recorded. |
 | 2026-07-30 | Current C1 runtime and Studio revalidation | `release_ready` with real RSS and browser proof | The six-service `celery + n8n` profile remained healthy. A direct n8n CLI execution was correctly rejected by the live Task Broker before collection and created no BSC record; an isolated child process with runners disabled then completed the existing governed workflow without changing persistent n8n configuration. BSC receipt, batch, and ingress-run totals moved from `47` to `52`; all five new receipts were `duplicate_source`, leaving `9` evidence assets and `43` repeat discoveries. The authenticated Studio `Intel` panel for the RSS-owning project displayed the same receipt-backed counts, one enabled feed, and zero lead-only/rejected items; another project remained zero rather than inheriting those records. Desktop and `390x844` validation found no document-level horizontal overflow and no local Studio console error. Full regression commands passed: `python -m pytest tests/knowledge tests/api tests/mcp tests/integration -q` (`809 passed, 9 skipped`), `npm run test:frontend` (`166 passed`), `npm run check`, and default/n8n/celery+n8n Compose rendering. This revalidation did not read or record credentials, raw source bodies, Vault content, or model/provider payloads. |
 | 2026-07-30 | Delivery-plan acceptance-gate audit | Complete | Rechecked the requested PRD, execution index, N1-N5, C1, the supplied 87-node reference workflow, and Git history. All nine requested artifacts already existed in committed history and the leaf/C1 plans already contained dependencies, file boundaries, prohibitions, test-first work, acceptance commands, rollback, and handoff requirements. Added the missing explicit index-level acceptance-gate section so that N1, the N2/N3 parallel boundary, N4, N5, and C1 have an unambiguous promotion rule. `git diff --check -- <nine target documents>` exited `0`; no runtime, source policy, workflow, credential, or external service was changed. |
-| 2026-07-31 | N5 daily intelligence brief and review handoff | Implemented; image proof pending | Added a deterministic, read-only daily projection that only consumes completed BSC `SignalBatch` records in an `Asia/Shanghai` day window. It separately reports new evidence, repeat discoveries, `lead_only` confirmations, rejected items, and incomplete batches; it carries batch/run/receipt/source lineage plus a stable revision hash, never source bodies or model output. REST and restricted MCP now expose the projection; the Studio Intel panel shows no-sample truthfully, renders review sections when data exists, and passes a confirmation item into the existing authorized source inspector. Time-window comparison now uses offset-aware datetime values and preserves the legacy Shanghai wall-clock interpretation. Scoped tests passed `15`; full backend regression passed `845 passed, 9 skipped`; frontend passed `186`; TypeScript and production frontend build passed; `git diff --check` passed. Desktop authenticated Studio confirmed the target project, and `390x844` had no document or workspace horizontal overflow and no console errors. The running API independently returned the 2026-07-30 projection as `available/complete` with `15` receipt-backed repeat discoveries, `5` referenced sources, no raw-body key, and Feishu `unavailable`. Rebuilding the shared API image was blocked after those tests by a concurrently edited PBOS fixture whose new field lacks its corresponding type declaration. Existing API, Worker, Beat, PostgreSQL, Redis, and n8n remained healthy; the active daily RSS workflow remained enabled. |
+| 2026-07-31 | N5 daily intelligence brief and review handoff | Complete; deployment caveat superseded | Added a deterministic, read-only daily projection that only consumes completed BSC `SignalBatch` records in an `Asia/Shanghai` day window. It separately reports new evidence, repeat discoveries, `lead_only` confirmations, rejected items, and incomplete batches; it carries batch/run/receipt/source lineage plus a stable revision hash, never source bodies or model output. REST and restricted MCP now expose the projection; the Studio Intel panel shows no-sample truthfully, renders review sections when data exists, and passes a confirmation item into the existing authorized source inspector. Time-window comparison now uses offset-aware datetime values and preserves the legacy Shanghai wall-clock interpretation. Scoped tests passed `15`; full backend regression passed `845 passed, 9 skipped`; frontend passed `186`; TypeScript and production frontend build passed; `git diff --check` passed. Desktop authenticated Studio confirmed the target project, and `390x844` had no document or workspace horizontal overflow and no console errors. The running API independently returned the 2026-07-30 projection as `available/complete` with `15` receipt-backed repeat discoveries, `5` referenced sources, no raw-body key, and Feishu `unavailable`. The earlier image-rebuild caveat was superseded by the successful current Compose rebuild and full regression recorded in the following row. Existing API, Worker, Beat, PostgreSQL, Redis, and n8n remained healthy; the active daily RSS workflow remained enabled. |
+| 2026-07-31 | Horizon primary-source review queue and current release gate | `release_ready` with current container and browser proof | Added a read-only review queue for uncited, eligible `horizon_signal` evidence. It reads only evidence and citation metadata, excludes active citations, returns a bounded title/origin/score/task-family projection, and forces the sole next action `capture_primary_source`. REST and restricted MCP expose the same project-scoped queue; Studio Intel renders it as a separate review surface whose source-inspector drill-down offers capture, not promotion. The rebuilt API returned `available`, `5` items, only `capture_primary_source`, and no `raw_content` field. An authenticated desktop Studio check displayed the five review items and opened an eligible signal in the source inspector, where `Capture primary source` was available but not invoked. A fresh `390x844` Studio session showed the queue and five inspector controls with no document or workspace horizontal overflow and no console error. `docker compose up -d --build bsc-backend celery-worker celery-beat` succeeded; API, Worker, Beat, PostgreSQL, Redis, and n8n were healthy. Current full gates passed: backend `846 passed, 9 skipped`; frontend `188 passed`; TypeScript, production build, default/Celery+n8n/full Compose rendering, and diff check passed. Lint had `0` errors and `214` pre-existing warnings. No primary-source capture, external provider call, credential export, or automatic publication was performed. |
 
 ## Required Handoff Record
 
@@ -104,15 +104,10 @@ account identifiers.
 - X, Reddit, YouTube Data API, TikTok, optional DeepSeek derivatives, and the
   Feishu notification mirror remain explicitly unavailable until their own
   credentials, cost controls, terms review, and connector tests are supplied.
-- Docker Hub remains unreachable in this environment. Explicit `ollama`/`full`
-  profile startup therefore remains unavailable until image access is restored;
-  the governed `celery + n8n` path no longer pulls Ollama. The running n8n
-  image is the pinned official GHCR image, not an unverified registry mirror.
-- The shared Docker image currently cannot rebuild until the concurrently
-  edited PBOS outcome-observation fixture and its TypeScript type contract are
-  brought into agreement. This is not an information-intelligence defect and
-  was not changed by this scope; it is a deployment gate for the current
-  worktree revision.
+- The current API, Worker, and Beat images rebuilt successfully using the
+  configured base images. The `full` Compose profile has been configuration-
+  validated but its optional Ollama runtime was not started; model-image
+  availability remains an independent operational prerequisite.
 - The local Studio proxy may authenticate an authorized local session without
   exposing the underlying access key. The RSS-owning project was revalidated
   through that boundary on 2026-07-30; a separate environment still needs its
@@ -132,6 +127,6 @@ account identifiers.
 5. Treat X, Reddit, YouTube Data, TikTok, DeepSeek derivatives, and Feishu as
    separate opt-in connectors. Their unavailable state is intentional until
    their credential, cost, terms, and contract gates are independently met.
-6. After the PBOS type-contract change is complete, rerun `docker compose up
-   -d --build bsc-backend`, verify `/ready`, and re-read the redacted daily
-   brief before promoting the 2026-07-31 source revision to deployed.
+6. Use the Horizon primary-source review queue only to select a lead for
+   explicit public-source capture. Capturing a primary source requires a
+   separate review and does not automatically publish any knowledge asset.
