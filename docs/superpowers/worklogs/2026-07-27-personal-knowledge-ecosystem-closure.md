@@ -1224,3 +1224,54 @@ criteria.
   tests/mcp/test_knowledge_evidence_tools.py -q`: `20 passed`.
 - `git diff --check`: passed. The remaining warning is the repository's
   existing CRLF normalization notice, not a whitespace error.
+
+## 2026-07-31 Governed Information Brief And Horizon Review Queue
+
+- Added a deterministic daily intelligence brief over completed BSC ingress
+  batches. It returns receipt lineage, capture/duplicate/confirmation/reject
+  counts and bounded failure metadata, never an evidence body or derivative
+  body. Empty windows explicitly return `no_sample`; Feishu delivery remains
+  `unavailable` until a real delivery integration is configured.
+- Corrected legacy, offset-free information-ingress timestamps to use the
+  product's Asia/Shanghai operating timezone. This prevents an early-day
+  completed batch from disappearing from its local daily brief.
+- Added a Horizon review queue to daily and weekly growth distillations. A
+  radar signal remains a review item until primary-source verification and
+  Wiki review; a source already cited by a Wiki page is excluded by both the
+  citation ledger and the persisted `wiki_cites_source` lineage edge. The
+  queue renders only title, URL, score and lifecycle metadata, not its source
+  body.
+- Added the project-scoped REST and MCP read contracts plus the Studio
+  information-operations panel. It distinguishes BSC receipt state from feed
+  configuration and exposes a confirmation queue instead of presenting
+  discovery as knowledge.
+- Runtime readback of `proj_b8a285642094` after API rebuild reported a
+  `ready` Vault boundary and a `no_sample` daily brief with zero source IDs;
+  the response contained no `raw_content` field. This is a truthful absence
+  of a completed signed ingress batch in the current window, not a claim that
+  Horizon, n8n or Feishu delivery has run.
+- Rebuilt only the API and Worker from the verified working tree. Before the
+  Worker replacement its dedicated queue had length zero; after startup it
+  connected to Redis and reported ready. Beat was intentionally not restarted
+  because this project has enabled daily and weekly schedules. No source sync,
+  ingestion, distillation or original-file write was triggered.
+
+### Verification
+
+- Focused backend boundary suites: `141 passed`.
+- Full backend suite: `1587 passed, 14 skipped`.
+- Full frontend suite: `186 passed`; `npm run check` and `npm run build`
+  passed. `npm run lint` returned zero errors and 214 existing warnings.
+- PostgreSQL contract suites: `5 passed`; Evidence Atlas/MCP offline boundary:
+  `6 passed`. The temporary PostgreSQL project-row audit returned zero after
+  cleanup.
+- Compose configuration and `git diff --check` passed. The rebuilt API health
+  endpoint returned `200`; PostgreSQL, Redis, n8n, Worker and Beat remained
+  healthy. At `390x844`, Studio had no document-level horizontal overflow.
+
+### Operational Status
+
+- This increment is `implemented_with_operational_proof_pending`, not
+  `release_ready`: a real signed n8n ingress batch, real primary-source
+  confirmation, real Feishu delivery and user-reviewed D-layer feedback remain
+  external/user-owned evidence gates. They were not fabricated or bypassed.

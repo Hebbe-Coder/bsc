@@ -124,6 +124,23 @@ def information_overview(
     return ApiResponse.ok(_service(repository).overview(_enforce_project_access(request, project_id)))
 
 
+@router.get("/projects/{project_id}/daily-brief")
+def information_daily_brief(
+    project_id: str,
+    request: Request,
+    day: str = "",
+    repository: WikiRepository = Depends(get_intelligence_repository),
+):
+    try:
+        effective_project_id = _enforce_project_access(request, project_id)
+        return ApiResponse.ok(_service(repository).daily_brief(effective_project_id, day=day))
+    except InformationIntelligenceError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "information_brief_day_invalid", "message": str(exc)},
+        ) from exc
+
+
 @router.get("/projects/{project_id}/sources")
 def information_sources(
     project_id: str,

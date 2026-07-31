@@ -659,6 +659,68 @@ def test_weekly_distillation_is_idempotent_and_writes_dual_track_bundle(tmp_path
         repo.close()
 
 
+def test_distillation_surfaces_unpromoted_horizon_metadata_without_source_body(tmp_path, monkeypatch):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "distillation-horizon-queue.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        cited = SourceRecord(
+            id="horizon-cited",
+            project_id="project-a",
+            source_type="horizon_signal",
+            origin="https://example.test/cited",
+            content_hash="a" * 64,
+            raw_content="This Horizon signal is already represented by a published Wiki citation.",
+            trust_level="reviewed",
+            status=SourceStatus.ELIGIBLE,
+            metadata={"title": "Already cited signal", "ai_score": 9.2},
+        )
+        pending = SourceRecord(
+            id="horizon-pending",
+            project_id="project-a",
+            source_type="horizon_signal",
+            origin="https://example.test/pending",
+            content_hash="b" * 64,
+            raw_content="PRIVATE HORIZON BODY MUST NOT BE COPIED INTO THE RADAR QUEUE.",
+            trust_level="reviewed",
+            status=SourceStatus.ELIGIBLE,
+            metadata={"title": "Pending agent signal", "ai_score": 8.7, "task_families": ["context_mapping"]},
+        )
+        repo.create_source(cited)
+        repo.create_source(pending)
+        repo.record_publication(
+            project_id="project-a",
+            contents={
+                "wiki/index.md": "# Index\n",
+                "wiki/log.md": "# Log\n",
+                "wiki/concepts/cited.md": "# Cited\n[source:horizon-cited]\n",
+            },
+            source_ids=["horizon-cited"],
+        )
+        # Citation rows are authoritative even before an optional graph rebuild.
+        monkeypatch.setattr(repo, "list_lineage", lambda _project_id, limit=500: [])
+
+        result = GrowthDistillationService(repo, root).run_weekly(
+            "project-a", "2026-W30", source_cutoff="2100-01-01T00:00:00Z"
+        )
+        weekly_root = root / "projects" / "project-a" / "distillations" / GrowthDistillationService.WEEKLY_DIRECTORY / "2026-W30"
+        summary = (weekly_root / GrowthDistillationService.WEEKLY_DOCUMENTS[0]).read_text(encoding="utf-8")
+        actions = (weekly_root / GrowthDistillationService.WEEKLY_DOCUMENTS[1]).read_text(encoding="utf-8")
+        context = result["manifest"]["context"]
+
+        assert any(item.get("id") == "horizon-pending" for item in result["manifest"]["inputs"])
+        assert context["horizon_signal_queue_ids"] == ["horizon-pending"], context
+        assert "[source:horizon-pending]" in summary
+        assert "Pending agent signal" in actions
+        assert "https://example.test/pending" in actions
+        assert "horizon-cited" not in context["horizon_signal_queue_ids"]
+        assert "PRIVATE HORIZON BODY" not in summary + actions
+        assert context["horizon_signal_queue_ids"] == ["horizon-pending"]
+    finally:
+        repo.close()
+
+
 def test_distillation_uses_validated_narrative_provider_and_records_its_mode(tmp_path):
     root = tmp_path / "vault"
     root.mkdir()

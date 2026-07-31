@@ -245,11 +245,38 @@ export type InformationSignalReceipt = {
   metadata: Record<string, unknown>;
   created_at: string;
 };
+export type InformationBriefItem = {
+  receipt_id: string;
+  batch_id: string;
+  registry_id: string;
+  source_id: string;
+  disposition: 'captured' | 'lead_only' | 'rejected' | string;
+  reason: string;
+  canonical_url: string;
+  title: string;
+  published_at: string;
+  source_created: boolean | null;
+  created_at: string;
+};
+export type KnowledgeInformationDailyBrief = {
+  project_id: string;
+  state: 'available' | 'no_sample' | string;
+  coverage: 'complete' | 'partial' | 'no_sample' | string;
+  window: { date: string; timezone: string; start_at: string; end_at: string };
+  denominator: number;
+  summary: Record<string, number>;
+  sections: Record<string, { count: number; items: Array<InformationBriefItem | Record<string, unknown>> }>;
+  confirmation_queue: Array<InformationBriefItem & { next_action: string }>;
+  lineage: { batch_ids: string[]; run_ids: string[]; receipt_ids: string[]; source_ids: string[]; revision: string };
+  delivery: { provider: string; state: string; reason: string; attempts: Array<Record<string, unknown>> };
+};
 export type KnowledgeInformationOverview = {
   state: 'ready' | 'no_sources';
   source_registry: InformationRegistrySource[];
   receipts: InformationSignalReceipt[];
   runs: KnowledgeRun[];
+  daily_brief?: KnowledgeInformationDailyBrief;
+  confirmation_queue?: InformationSignalReceipt[];
   counts: {
     sources: number;
     available_sources: number;

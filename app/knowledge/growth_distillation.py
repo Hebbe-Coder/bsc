@@ -18,6 +18,7 @@ from app.knowledge.growth_context import GrowthContextBuilder
 from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.source_triage import current_project_triage_decisions, source_admission_reason
 from app.knowledge.vault import FilesystemWikiVault
+from app.knowledge.wiki_contracts import SourceStatus
 
 
 class DistillationNarrativeProvider(Protocol):
@@ -317,7 +318,7 @@ class GrowthDistillationService:
     # schedule timezone. Interpret those legacy timestamps consistently with
     # the persisted Asia/Shanghai growth cadence before comparing a cutoff.
     REPOSITORY_TIMEZONE = ZoneInfo("Asia/Shanghai")
-    DISTILLATION_CONTRACT_REVISION = 30
+    DISTILLATION_CONTRACT_REVISION = 31
     MAX_TARGETED_WEEKLY_QUALITY_REPAIRS_PER_DOCUMENT = 2
     DAILY_CONTEXT_CHARACTER_BUDGET = 4_000
     WEEKLY_CONTEXT_CHARACTER_BUDGET = 10_000
@@ -434,12 +435,16 @@ class GrowthDistillationService:
             context=context,
             knowledge_run_id=knowledge_run_id,
         )
+        body = str(narrative.get("daily") or self._daily_content(project_id, date, cutoff, inputs, changes, context))
+        radar_markdown = self._horizon_signal_queue_markdown(context.get("horizon_signal_queue") or [])
+        if radar_markdown:
+            body = f"{body.rstrip()}\n\n{radar_markdown}"
         content = self._managed_markdown(
             project_id=project_id,
             kind="daily",
             period=date,
             input_hash=input_hash,
-            body=str(narrative.get("daily") or self._daily_content(project_id, date, cutoff, inputs, changes, context)),
+            body=body,
         )
         self._atomic_write(target, content.encode("utf-8"))
         manifest = self._manifest(
@@ -551,6 +556,10 @@ class GrowthDistillationService:
             name: (narrative.get("weekly") or {}).get(name) or fallback_docs[name]
             for name in self.WEEKLY_DOCUMENTS
         }
+        radar_markdown = self._horizon_signal_queue_markdown(context.get("horizon_signal_queue") or [])
+        if radar_markdown:
+            for name in (self.WEEKLY_DOCUMENTS[0], self.WEEKLY_DOCUMENTS[1], self.WEEKLY_DOCUMENTS[3]):
+                docs[name] = f"{docs[name].rstrip()}\n\n{radar_markdown}"
         paths = [
             (root / name).relative_to(vault.project_root).as_posix()
             for name in self.WEEKLY_DOCUMENTS
@@ -869,6 +878,23 @@ class GrowthDistillationService:
             source_cutoff=cutoff,
             index_available=False,
         )
+        horizon_signal_queue = self._horizon_signal_queue(
+            project_id,
+            cutoff_datetime,
+            source_ids={
+                str(item.get("id") or "")
+                for item in inputs
+                if item.get("type") == "source"
+            },
+        )
+        radar_markdown = self._horizon_signal_queue_markdown(horizon_signal_queue)
+        context_hash = self._json_hash({
+            "pack_context_hash": pack.context_hash,
+            "horizon_signal_queue": horizon_signal_queue,
+        })
+        rendered = pack.rendered
+        if radar_markdown:
+            rendered = f"{rendered}\n\n{radar_markdown}"
         # Exact scope text is used only by the in-process quality validator.
         # Persisting it in each D-layer manifest would duplicate immutable
         # A-layer source content instead of retaining a compact audit pointer.
@@ -879,7 +905,7 @@ class GrowthDistillationService:
         }
         return {
             "context_id": pack.revision,
-            "context_hash": pack.context_hash,
+            "context_hash": context_hash,
             "character_budget": pack.character_budget,
             "character_count": pack.character_count,
             "estimated_tokens": pack.estimated_tokens,
@@ -887,6 +913,8 @@ class GrowthDistillationService:
             "rules_revision": pack.rules_revision,
             "source_ids": list(pack.source_ids),
             "page_ids": list(pack.page_ids),
+            "horizon_signal_queue": horizon_signal_queue,
+            "horizon_signal_queue_ids": [item["source_id"] for item in horizon_signal_queue],
             # The citation ledger must be limited to records that survived
             # bounded context selection. Input manifests remain complete for
             # audit, but must not authorize unsupported model citations.
@@ -899,9 +927,86 @@ class GrowthDistillationService:
             "assumptions": list(pack.assumptions),
             "research_gaps": list(pack.research_gaps),
             "omitted_refs": list(pack.omitted_refs),
-            "rendered": pack.rendered,
+            "rendered": rendered,
             "_daily_source_scopes": retained_daily_scopes,
         }
+
+    def _horizon_signal_queue(
+        self,
+        project_id: str,
+        cutoff: datetime | None,
+        *,
+        source_ids: set[str],
+    ) -> list[dict[str, Any]]:
+        """Expose unpromoted Horizon metadata without promoting its claims.
+
+        Horizon is a discovery channel, not a Wiki authority. The queue lets
+        the weekly and daily artifacts show what still needs review while
+        keeping source bodies out of the deterministic handoff section.
+        """
+        cited_source_ids = {
+            str(citation.get("source_id") or "")
+            for citation in self.repository.list_citations(project_id)
+        }
+        cited_source_ids.update({
+            str(edge.get("to_id") or "")
+            for edge in self.repository.list_lineage(project_id, limit=500)
+            if str(edge.get("edge_type") or "") == "wiki_cites_source"
+        })
+        queue: list[dict[str, Any]] = []
+        for source in self.repository.list_sources(project_id):
+            source_id = str(source.get("id") or "")
+            if (
+                source_id not in source_ids
+                or str(source.get("source_type") or "") != "horizon_signal"
+                or source_id in cited_source_ids
+                or not self._at_cutoff(source, cutoff)
+            ):
+                continue
+            metadata = source.get("metadata") if isinstance(source.get("metadata"), dict) else {}
+            title = str(metadata.get("title") or source.get("origin") or source_id)
+            origin = str(source.get("origin") or "")
+            title = re.sub(r"[\r\n]+", " ", title).strip()[:180]
+            origin = re.sub(r"[\r\n]+", "", origin).strip()[:2_048]
+            status = str(source.get("status") or "").strip()
+            queue.append({
+                "source_id": source_id,
+                "title": title,
+                "origin": origin,
+                "status": status,
+                "trust_level": str(source.get("trust_level") or ""),
+                "ai_score": metadata.get("ai_score"),
+                "task_families": [
+                    str(item) for item in metadata.get("task_families", [])
+                    if str(item).strip()
+                ][:8] if isinstance(metadata.get("task_families"), list) else [],
+                "next_action": (
+                    "提交 Wiki 提案前先完成主来源复核"
+                    if status == SourceStatus.ELIGIBLE.value
+                    else "完成项目相关性与主来源复核后再决定是否进入提案"
+                ),
+            })
+        queue.sort(key=lambda item: (item["status"] != SourceStatus.ELIGIBLE.value, item["source_id"]))
+        return queue[:20]
+
+    @staticmethod
+    def _horizon_signal_queue_markdown(queue: list[dict[str, Any]]) -> str:
+        if not queue:
+            return ""
+        lines = [
+            "## Horizon 雷达待审阅队列",
+            "以下条目是已进入本次输入账本、但尚未被 Wiki 引用的发现信号。它们不是已验证结论；下一步只允许做来源复核、主来源捕获或提案审查。",
+        ]
+        for item in queue:
+            score = item.get("ai_score")
+            score_text = f"；雷达评分 {score}" if score is not None else ""
+            title = str(item.get("title") or item["source_id"]).replace("[", "\\[").replace("]", "\\]")
+            origin = str(item.get("origin") or "").replace("`", "")
+            lines.append(
+                f"- [source:{item['source_id']}] {title}；状态 `{item['status']}`{score_text}；"
+                f"原始链接 `{origin}`；下一步：{item['next_action']}。"
+            )
+        return "\n".join(lines)
 
     @classmethod
     def _daily_source_scope(cls, source: dict[str, Any], profile: dict[str, Any]) -> str | None:

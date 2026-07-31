@@ -53,6 +53,7 @@ _TOOL_HANDLERS = {
     "knowledge_operations_graph": server.knowledge_operations_graph,
     "knowledge_information_overview": server.knowledge_information_overview,
     "knowledge_information_receipts": server.knowledge_information_receipts,
+    "knowledge_information_daily_brief": server.knowledge_information_daily_brief,
     "dbos_create_mission": server.dbos_create_mission,
     "dbos_diagnose_mission": server.dbos_diagnose_mission,
     "dbos_confirm_mission": server.dbos_confirm_mission,
@@ -102,6 +103,7 @@ _OPERATIONS_TOOLS = {
 _INFORMATION_INTELLIGENCE_TOOLS = {
     "knowledge_information_overview",
     "knowledge_information_receipts",
+    "knowledge_information_daily_brief",
 }
 _GROWTH_WRITE_ONLY_TOOLS = {
     "knowledge_growth_review",
@@ -421,6 +423,14 @@ _TOOL_SPECS = {
         "properties": {
             "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
             "limit": {"type": "integer", "minimum": 1, "maximum": 500},
+        },
+        "required": ["project_id"],
+    },
+    "knowledge_information_daily_brief": {
+        "description": "Read a redacted daily information brief with receipt lineage and confirmation queue.",
+        "properties": {
+            "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "day": {"type": "string", "pattern": "^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
         },
         "required": ["project_id"],
     },

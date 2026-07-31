@@ -3,7 +3,7 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createKnowledgeInformationSource, fetchKnowledgeInformationOverview } from '../../api/knowledgeWorkspaceApi';
+import { createKnowledgeInformationSource, fetchKnowledgeInformationOverview, type KnowledgeInformationOverview } from '../../api/knowledgeWorkspaceApi';
 import { InformationOperationsPanel } from './InformationOperationsPanel';
 
 vi.mock('../../api/knowledgeWorkspaceApi', () => ({
@@ -22,6 +22,25 @@ const overview = {
     created_at: '2026-07-29T00:00:00Z', updated_at: '2026-07-29T00:00:01Z',
   }],
   counts: { sources: 2, available_sources: 1, unavailable_sources: 0, captured: 6, new_sources: 2, duplicate_sources: 4, lead_only: 0, rejected: 0 },
+};
+
+const overviewWithBrief: KnowledgeInformationOverview = {
+  ...overview,
+  daily_brief: {
+    project_id: 'project-a', state: 'available', coverage: 'complete', denominator: 2,
+    window: { date: '2026-07-31', timezone: 'Asia/Shanghai', start_at: '2026-07-30T16:00:00Z', end_at: '2026-07-31T16:00:00Z' },
+    summary: { captured: 1, repeat_discoveries: 0, confirmation_required: 1, rejected: 0, failures: 0 },
+    sections: {
+      captured: { count: 1, items: [{ receipt_id: 'receipt-1', batch_id: 'batch-1', registry_id: 'source-1', source_id: 'source-1', disposition: 'captured', reason: '', canonical_url: 'https://example.com/captured', title: 'Captured evidence', published_at: '', source_created: true, created_at: '' }] },
+      repeat_discoveries: { count: 0, items: [] },
+      confirmation_required: { count: 1, items: [{ receipt_id: 'receipt-2', batch_id: 'batch-2', registry_id: 'source-1', source_id: 'source-lead', disposition: 'lead_only', reason: '', canonical_url: 'https://example.com/lead', title: 'Needs original source', published_at: '', source_created: true, created_at: '' }] },
+      rejected: { count: 0, items: [] },
+      failures: { count: 0, items: [] },
+    },
+    confirmation_queue: [{ receipt_id: 'receipt-2', batch_id: 'batch-2', registry_id: 'source-1', source_id: 'source-lead', disposition: 'lead_only', reason: '', canonical_url: 'https://example.com/lead', title: 'Needs original source', published_at: '', source_created: true, created_at: '', next_action: 'capture_original_source' }],
+    lineage: { batch_ids: ['batch-1', 'batch-2'], run_ids: ['run-1', 'run-2'], receipt_ids: ['receipt-1', 'receipt-2'], source_ids: ['source-1', 'source-lead'], revision: 'abc123456789abcd' },
+    delivery: { provider: 'feishu', state: 'unavailable', reason: 'delivery_not_configured', attempts: [] },
+  },
 };
 
 describe('InformationOperationsPanel', () => {
@@ -58,5 +77,18 @@ describe('InformationOperationsPanel', () => {
     expect(within(metrics).getByText('Repeat discoveries')).toBeVisible();
     expect(within(metrics).getByText('2 new evidence asset(s)')).toBeVisible();
     expect(within(metrics).getByText('4 repeat receipt(s), no source growth')).toBeVisible();
+  });
+
+  it('renders the completed-receipt daily brief and drills a confirmation lead into the source inspector', async () => {
+    const inspect = vi.fn();
+    vi.mocked(fetchKnowledgeInformationOverview).mockResolvedValue(overviewWithBrief);
+    render(<InformationOperationsPanel projectId="project-a" canWrite refreshToken={0} onInspectSource={inspect} />);
+
+    expect(await screen.findByText('DAILY INTELLIGENCE BRIEF')).toBeVisible();
+    expect(screen.getByText('2 completed receipts')).toBeVisible();
+    expect(screen.getAllByText('Needs original source').length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect source source-lead' }));
+    expect(inspect).toHaveBeenCalledWith('source-lead');
+    expect(screen.queryByText(/Original body must stay outside/i)).toBeNull();
   });
 });

@@ -450,6 +450,13 @@ class WikiRepository(BaseRepository):
         ).fetchone()
         return self._decode(row, ("output_refs_json",))
 
+    def list_signal_batches(self, project_id: str, *, limit: int = 500) -> list[dict]:
+        rows = self._execute(
+            "SELECT * FROM knowledge_signal_batches WHERE project_id=? ORDER BY created_at DESC,id DESC LIMIT ?",
+            (project_id, max(1, min(int(limit), 1_000))),
+        ).fetchall()
+        return [self._decode(row, ("output_refs_json",)) or {} for row in rows]
+
     def update_signal_batch_status(
         self, project_id: str, batch_id: str, status: str, *, output_refs: dict[str, Any] | None = None
     ) -> dict:

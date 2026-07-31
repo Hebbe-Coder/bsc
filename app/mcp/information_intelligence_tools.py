@@ -23,3 +23,11 @@ def receipts(project_id: str, limit: int = 100) -> dict:
         }
     finally:
         repository.close()
+
+
+def daily_brief(project_id: str, day: str = "") -> dict:
+    repository = WikiRepository()
+    try:
+        return InformationIntelligenceService(repository).daily_brief(project_id, day=day)
+    finally:
+        repository.close()

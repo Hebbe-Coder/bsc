@@ -4,11 +4,12 @@ import { AlertTriangle, CheckCircle2, Inbox, Radio, RefreshCw, Send, ShieldAlert
 import {
   createKnowledgeInformationSource,
   fetchKnowledgeInformationOverview,
+  type InformationBriefItem,
   type InformationRegistrySource,
   type KnowledgeInformationOverview,
 } from '../../api/knowledgeWorkspaceApi';
 
-type Props = { projectId: string; canWrite: boolean; refreshToken: number };
+type Props = { projectId: string; canWrite: boolean; refreshToken: number; onInspectSource?: (sourceId: string) => void };
 
 const connectorLabels: Record<InformationRegistrySource['connector_type'], string> = {
   rss: 'RSS',
@@ -19,7 +20,7 @@ const connectorLabels: Record<InformationRegistrySource['connector_type'], strin
   tiktok: 'TikTok',
 };
 
-export function InformationOperationsPanel({ projectId, canWrite, refreshToken }: Props) {
+export function InformationOperationsPanel({ projectId, canWrite, refreshToken, onInspectSource }: Props) {
   const [overview, setOverview] = useState<KnowledgeInformationOverview | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -104,6 +105,7 @@ export function InformationOperationsPanel({ projectId, canWrite, refreshToken }
       <Metric icon={<Inbox size={16} />} label="Needs original source" value={overview.counts.lead_only} detail="Discovery lead only, not evidence" />
       <Metric icon={<ShieldAlert size={16} />} label="Rejected items" value={overview.counts.rejected} detail="Policy, registry, or payload failure" />
     </div>
+    {overview.daily_brief && <DailyBrief brief={overview.daily_brief} onInspectSource={onInspectSource} />}
     <div className="information-operations__grid">
       <section className="information-panel">
         <header><div><span>PROJECT SOURCE REGISTRY</span><small>{overview.source_registry.length} declared</small></div></header>
@@ -144,6 +146,40 @@ export function InformationOperationsPanel({ projectId, canWrite, refreshToken }
       <span>n8n reads only this project's enabled RSS and YouTube Channel RSS registry entries at each run.</span>
       <span>DeepSeek summaries and classifications remain derivatives. They never replace the original RSS body.</span>
     </footer>
+  </section>;
+}
+
+function DailyBrief({ brief, onInspectSource }: { brief: NonNullable<KnowledgeInformationOverview['daily_brief']>; onInspectSource?: (sourceId: string) => void }) {
+  const captured = brief.sections.captured;
+  const repeats = brief.sections.repeat_discoveries;
+  const confirmations = brief.sections.confirmation_required;
+  const failures = brief.sections.failures;
+  return <section className="information-panel information-panel--brief" aria-label="Daily intelligence brief">
+    <header><div><span>DAILY INTELLIGENCE BRIEF</span><small>{brief.window.date} / {brief.state} / {brief.coverage}</small></div></header>
+    <div className="information-brief-meta"><span>{brief.denominator} completed receipt{brief.denominator === 1 ? '' : 's'}</span><span>Lineage {brief.lineage.receipt_ids.length} receipt refs</span><span>Revision {brief.lineage.revision.slice(0, 12)}</span><span>Feishu {brief.delivery.state}</span></div>
+    {brief.state === 'no_sample' ? <p className="information-empty">No completed BSC batch is in this window. The brief remains no_sample.</p> : <div className="information-brief-grid">
+      <BriefSection label="New evidence" section={captured} onInspectSource={onInspectSource} />
+      <BriefSection label="Repeat discovery" section={repeats} onInspectSource={onInspectSource} />
+      <BriefSection label="Needs original source" section={confirmations} onInspectSource={onInspectSource} />
+      <BriefSection label="Batch failures" section={failures} onInspectSource={onInspectSource} />
+    </div>}
+  </section>;
+}
+
+function BriefSection({ label, section, onInspectSource }: { label: string; section?: { count: number; items: Array<InformationBriefItem | Record<string, unknown>> }; onInspectSource?: (sourceId: string) => void }) {
+  const items = (section?.items || []).slice(0, 8);
+  return <section className="information-brief-section">
+    <header><span>{label}</span><small>{section?.count || 0}</small></header>
+    {items.length ? <ol>{items.map((raw, index) => {
+      const entry = raw as Partial<InformationBriefItem> & Record<string, unknown>;
+      const title = String(entry.title || entry.canonical_url || entry.batch_id || entry.reason || 'Unresolved item');
+      const sourceId = String(entry.source_id || '');
+      return <li key={String(entry.receipt_id || entry.batch_id || index)}>
+        <div><strong>{title}</strong><small>{String(entry.reason || entry.disposition || entry['status'] || '')}</small></div>
+        {sourceId && onInspectSource ? <button type="button" className="icon-button" aria-label={`Inspect source ${sourceId}`} title="Inspect authorized source" onClick={() => onInspectSource(sourceId)}><Inbox size={14} /></button> : null}
+      </li>;
+    })}</ol> : <p className="information-empty">No records</p>}
+    {section && section.count > items.length ? <small className="information-brief-more">+{section.count - items.length} more in receipt ledger</small> : null}
   </section>;
 }
 

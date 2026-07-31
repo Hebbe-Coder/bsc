@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
 import pytest
 
 from app.core.config import settings
@@ -233,3 +236,78 @@ def test_signal_intake_projects_bsc_owned_evidence_to_a_configured_obsidian_vaul
         assert (vault_root / "projects" / "project-a" / "01_Sources" / "bsc-evidence" / f"{source['id']}.md").is_file()
     finally:
         repository.close()
+
+
+def test_daily_brief_is_a_redacted_completed_batch_projection_with_confirmation_lineage(tmp_path):
+    repository = WikiRepository(db_path=str(tmp_path / "intelligence-brief.db"))
+    service = InformationIntelligenceService(repository)
+    day = datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
+    try:
+        registry = service.register_source(_entry())
+        captured = service.ingest(_batch(registry["id"], batch_id="brief-captured"))
+        lead = service.ingest(
+            SignalBatch(
+                project_id="project-a",
+                batch_id="brief-lead",
+                execution_id="execution-brief-lead",
+                connector_type="rss",
+                items=[
+                    SignalItem(
+                        registry_id=registry["id"],
+                        external_id="lead-brief-1",
+                        title="Needs primary confirmation",
+                        url="https://example.com/lead-brief",
+                        lead_only=True,
+                    )
+                ],
+            )
+        )
+
+        brief = service.daily_brief("project-a", day=day)
+
+        assert brief["state"] == "available"
+        assert brief["coverage"] == "complete"
+        assert brief["denominator"] == 2
+        assert brief["summary"]["captured"] == 1
+        assert brief["summary"]["confirmation_required"] == 1
+        assert brief["confirmation_queue"][0]["next_action"] == "capture_original_source"
+        assert set(brief["lineage"]["batch_ids"]) == {captured["batch_id"], lead["batch_id"]}
+        assert "raw_content" not in str(brief)
+        assert "derivatives" not in str(brief)
+        assert brief["delivery"]["state"] == "unavailable"
+    finally:
+        repository.close()
+
+
+def test_daily_brief_reports_no_sample_for_a_window_without_completed_batches(tmp_path):
+    repository = WikiRepository(db_path=str(tmp_path / "intelligence-brief-empty.db"))
+    service = InformationIntelligenceService(repository)
+    day = (datetime.now(ZoneInfo("Asia/Shanghai")).date() + timedelta(days=2)).isoformat()
+    try:
+        brief = service.daily_brief("project-a", day=day)
+        assert brief["state"] == "no_sample"
+        assert brief["coverage"] == "no_sample"
+        assert brief["denominator"] == 0
+        assert brief["lineage"]["receipt_ids"] == []
+    finally:
+        repository.close()
+
+
+def test_daily_brief_interprets_legacy_naive_batch_timestamps_in_shanghai_time():
+    start = "2026-07-30T16:00:00Z"
+    end = "2026-07-31T16:00:00Z"
+    assert InformationIntelligenceService._timestamp_in_window(
+        "2026-07-31T00:15:00",
+        start,
+        end,
+    ) is True
+    assert InformationIntelligenceService._timestamp_in_window(
+        "2026-07-30T16:00:00.000001Z",
+        start,
+        end,
+    ) is True
+    assert InformationIntelligenceService._timestamp_in_window(
+        "2026-07-31T16:00:00Z",
+        start,
+        end,
+    ) is False

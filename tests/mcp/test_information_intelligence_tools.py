@@ -48,7 +48,7 @@ def test_http_mcp_advertises_and_invokes_information_read_tools_only_when_enable
     try:
         settings.KNOWLEDGE_INTELLIGENCE_ENABLED = True
         names = {tool["name"] for tool in mcp_http._tool_list()}
-        assert {"knowledge_information_overview", "knowledge_information_receipts"} <= names
+        assert {"knowledge_information_overview", "knowledge_information_receipts", "knowledge_information_daily_brief"} <= names
 
         calls = []
         monkeypatch.setitem(
@@ -74,5 +74,29 @@ def test_http_mcp_advertises_and_invokes_information_read_tools_only_when_enable
         names = {tool["name"] for tool in mcp_http._tool_list()}
         assert "knowledge_information_overview" not in names
         assert "knowledge_information_receipts" not in names
+        assert "knowledge_information_daily_brief" not in names
     finally:
         settings.KNOWLEDGE_INTELLIGENCE_ENABLED = previous_enabled
+
+
+def test_mcp_daily_brief_is_project_scoped_and_read_only(monkeypatch):
+    previous_enabled = settings.KNOWLEDGE_INTELLIGENCE_ENABLED
+    previous_wiki_enabled = settings.KNOWLEDGE_WIKI_ENABLED
+    settings.KNOWLEDGE_INTELLIGENCE_ENABLED = True
+    settings.KNOWLEDGE_WIKI_ENABLED = True
+    try:
+        monkeypatch.setattr(server, "_require_mcp_auth", lambda _key="": ("project_reader", "project-a"))
+        monkeypatch.setattr(
+            information_intelligence_tools,
+            "daily_brief",
+            lambda project_id, day="": {"project_id": project_id, "day": day, "state": "no_sample"},
+        )
+
+        assert server.knowledge_information_daily_brief("project-a", day="2026-07-31") == {
+            "project_id": "project-a", "day": "2026-07-31", "state": "no_sample"
+        }
+        with pytest.raises(PermissionError):
+            server.knowledge_information_daily_brief("project-b", day="2026-07-31")
+    finally:
+        settings.KNOWLEDGE_INTELLIGENCE_ENABLED = previous_enabled
+        settings.KNOWLEDGE_WIKI_ENABLED = previous_wiki_enabled

@@ -711,7 +711,7 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '', activeProje
             {useGraphFocus && <p className="knowledge-limit-note">{isCompactViewport ? 'Mobile focus' : 'Focused view'}: {flowNodes.length} highest-connected records and {flowEdges.length} direct relations from {filteredGraphNodes.length} filtered records.</p>}
             {!useGraphFocus && (graph.truncated || filteredGraphNodes.length > maxNodes) && <p className="knowledge-limit-note">Showing a bounded relationship slice ({flowNodes.length} nodes / {filteredGraphEdges.length} filtered edges). Narrow the filters to inspect another slice.</p>}
           </section>}
-          {centerView === 'intelligence' && <InformationOperationsPanel projectId={projectId} canWrite={canWrite} refreshToken={evidenceRefreshVersion} />}
+          {centerView === 'intelligence' && <InformationOperationsPanel projectId={projectId} canWrite={canWrite} refreshToken={evidenceRefreshVersion} onInspectSource={inspectSource} />}
           {centerView === 'distillation' && <DistillationReader records={distillations} selected={selectedDistillation} onSelect={inspectDistillation} includeHistory={includeDistillationHistory} onIncludeHistoryChange={setDistillationHistory} />}
         </main>
 
