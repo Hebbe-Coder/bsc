@@ -1451,3 +1451,35 @@
   verification. Seven pre-existing or concurrently created uncommitted
   implementation changes were observed after the test run and deliberately
   left unstaged and unreverted.
+
+## 2026-07-31 PBOS First-Use Activation And Runtime Truth Check
+
+- **Released revision:** `2290891` (`feat(pbos): guide first-use personal loop
+  activation`) adds a focused Personal Growth Cockpit activation panel. It
+  lists only the real gates for personal learning: declare missing work
+  context, review a genuine delivery result, and accumulate three comparable
+  accepted outcomes. Its actions scroll to the existing Profile, Reflection,
+  or Outcome Review controls; it does not create profile facts, accept an
+  outcome, or promote a strategy.
+- **Interaction coverage:** the Cockpit test now verifies the incomplete
+  profile fields, the pending-review count, the three-outcome promotion
+  threshold, and both in-panel navigation targets. It protects the distinction
+  between connected Vault context and a learned personal method.
+- **Verification:** `npx vitest run
+  src/components/pbos/PersonalGrowthCockpit.test.tsx` passed `14`; the focused
+  PBOS REST/MCP/E2E suite passed `77`; `npm run test:frontend` passed `23`
+  files / `198` tests; `npm run check` and `npm run build` passed. The build
+  continues to report only the existing large ECharts vendor-chunk advisory.
+- **Live read-only Cockpit:** the authenticated Docker API returned current
+  plan `art_40aa970b2815` in `llm_contextual` Chinese mode with eight governed
+  Vault references. It truthfully returned `profile_context_required`: role,
+  industry, and organization stage are undeclared; one outcome is unverified;
+  there are zero accepted comparable outcomes, Capabilities, and Strategy
+  Genomes. GitHub and Feishu both remain `awaiting_authorization`.
+- **Runtime health:** `/ready` returned `200`; API, Celery Worker, Celery Beat,
+  PostgreSQL, Redis, and n8n were running. The runtime API key was used only
+  in-process for this authenticated read and was not printed, persisted, or
+  written into the Vault.
+- **Rollback:** revert `2290891`. This removes only the activation presentation
+  and its test; it does not modify PBOS artifacts, source records, outcomes,
+  schedules, connector credentials, or Obsidian projections.
