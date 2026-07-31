@@ -15,6 +15,7 @@ import yaml
 from app.knowledge.growth_contracts import KnowledgeLineageEdge, OutputAsset, OutputStatus
 from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.vault import FilesystemWikiVault
+from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus
 
 
 _YEAR = re.compile(r"^20\d{2}$")
@@ -27,6 +28,19 @@ _REQUIRED_PROVENANCE = (
     "model",
     "prompt_revision",
 )
+_MANAGED_SOP_ID = re.compile(r"^[0-9a-f]{24}$")
+_SOP_RUN_ID = re.compile(r"^sop_[0-9a-f]{24}$")
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_MANAGED_INDEX = re.compile(r"\A---\r?\n(?P<frontmatter>.*?)\r?\n---(?:\r?\n|\Z)", re.DOTALL)
+_MAX_MANAGED_INDEX_BYTES = 64 * 1024
+
+
+class ManagedOutputRecoveryError(ValueError):
+    """A bounded reason why a legacy managed artifact cannot be adopted."""
+
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(code)
 
 
 class OutputRegistry:
@@ -188,6 +202,274 @@ class OutputRegistry:
         if str(output.metadata.get("origin") or "") != "external":
             raise ValueError("adopted output provenance must declare origin=external")
         return self.register_file(output, source_path)
+
+    def recover_managed_sop_orphans(self, project_id: str) -> dict[str, Any]:
+        """Restore only legacy BSC-owned SOP artifacts missing from the ledger.
+
+        Legacy filesystem writes can survive a failed database write. Recovery is
+        deliberately constrained to the canonical project SOP layout and only
+        trusts a matching managed index plus a verified content hash. It never
+        adopts plugin/user files and recovered outputs begin at ``registered``.
+        """
+        mapping = self.repository.get_vault(project_id)
+        if not mapping:
+            raise ValueError("project Vault mapping is not configured")
+        vault = FilesystemWikiVault(self.vault_root, project_id, mapping["vault_path"])
+        outputs_root = vault.project_root / "outputs"
+        report: dict[str, Any] = {
+            "scanned": 0,
+            "recovered": [],
+            "already_registered": [],
+            "rejected": {},
+        }
+        if not outputs_root.exists():
+            return report
+        if outputs_root.is_symlink() or not outputs_root.is_dir():
+            raise ValueError("managed output root is not a regular directory")
+
+        for year_directory in sorted(outputs_root.iterdir(), key=lambda path: path.name):
+            if not _YEAR.fullmatch(year_directory.name) or year_directory.is_symlink() or not year_directory.is_dir():
+                continue
+            for output_directory in sorted(year_directory.iterdir(), key=lambda path: path.name):
+                if not _MANAGED_SOP_ID.fullmatch(output_directory.name) or output_directory.is_symlink() or not output_directory.is_dir():
+                    continue
+                index = output_directory / "index.md"
+                if not index.exists():
+                    continue
+                report["scanned"] += 1
+                try:
+                    outcome = self._recover_managed_sop(vault, output_directory, index)
+                except ManagedOutputRecoveryError as exc:
+                    report["rejected"][output_directory.name] = exc.code
+                else:
+                    report[outcome].append(output_directory.name)
+        return report
+
+    def _recover_managed_sop(
+        self,
+        vault: FilesystemWikiVault,
+        output_directory: Path,
+        index: Path,
+    ) -> str:
+        metadata, index_hash, title = self._managed_sop_index(index)
+        output_id = output_directory.name
+        project_id = vault.project_id
+        if metadata.get("bsc_managed") is not True:
+            raise ManagedOutputRecoveryError("unmanaged_index")
+        if str(metadata.get("project_id") or "") != project_id:
+            raise ManagedOutputRecoveryError("project_scope_mismatch")
+        if str(metadata.get("output_id") or "") != output_id:
+            raise ManagedOutputRecoveryError("output_id_mismatch")
+        if str(metadata.get("kind") or "") != "project_sop":
+            raise ManagedOutputRecoveryError("unsupported_output_kind")
+        if str(metadata.get("mime_type") or "") != "text/markdown":
+            raise ManagedOutputRecoveryError("unsupported_mime_type")
+        if str(metadata.get("original_path") or ""):
+            raise ManagedOutputRecoveryError("external_origin_not_recoverable")
+
+        run_id = str(metadata.get("run_id") or "")
+        content_hash = str(metadata.get("content_hash") or "").lower()
+        context_revision = str(metadata.get("context_revision") or "")
+        if not _SOP_RUN_ID.fullmatch(run_id):
+            raise ManagedOutputRecoveryError("invalid_run_id")
+        if not _SHA256.fullmatch(content_hash):
+            raise ManagedOutputRecoveryError("invalid_content_hash")
+        if not _SHA256.fullmatch(context_revision):
+            raise ManagedOutputRecoveryError("invalid_context_revision")
+
+        source_refs = self._managed_reference_list(metadata, "source_refs", required=True)
+        page_refs = self._managed_reference_list(metadata, "page_refs")
+        method_revision_id = str(metadata.get("method_revision_id") or "")
+        provenance = metadata.get("provenance")
+        if not isinstance(provenance, dict):
+            raise ManagedOutputRecoveryError("invalid_provenance")
+        provenance = {key: str(value) for key, value in provenance.items() if isinstance(key, str)}
+        missing = [key for key in _REQUIRED_PROVENANCE if not provenance.get(key, "").strip()]
+        if missing:
+            raise ManagedOutputRecoveryError("invalid_provenance")
+
+        target = output_directory / "project-sop.md"
+        if target.is_symlink() or not target.is_file():
+            raise ManagedOutputRecoveryError("missing_output_file")
+        content = target.read_bytes()
+        if not hmac.compare_digest(hashlib.sha256(content).hexdigest(), content_hash):
+            raise ManagedOutputRecoveryError("content_hash_mismatch")
+        expected_path = (output_directory / "project-sop.md").relative_to(vault.project_root).as_posix()
+        if expected_path != f"outputs/{output_directory.parent.name}/{output_id}/project-sop.md":
+            raise ManagedOutputRecoveryError("invalid_output_path")
+
+        registered_at = self._managed_timestamp(metadata.get("registered_at"))
+        output = OutputAsset(
+            id=output_id,
+            project_id=project_id,
+            kind="project_sop",
+            title=title,
+            mime_type="text/markdown",
+            content_hash=content_hash,
+            vault_path=expected_path,
+            run_id=run_id,
+            method_revision_id=method_revision_id,
+            context_revision=context_revision,
+            source_refs=source_refs,
+            page_refs=page_refs,
+            idempotency_key=f"managed-recovery:{output_id}",
+            status=OutputStatus.REGISTERED,
+            metadata={
+                **provenance,
+                "origin": "bsc_system_generated",
+                "recovery": {
+                    "state": "recovered_from_managed_artifact",
+                    "index_sha256": index_hash,
+                    "registered_at": registered_at.isoformat(),
+                },
+            },
+            created_at=registered_at,
+            updated_at=registered_at,
+        )
+        self._validate_recovered_references(output)
+
+        existing = self.repository.get_output(project_id, output_id)
+        if existing:
+            self._assert_recovered_identity(existing, output)
+            self._ensure_recovery_run(output)
+            self._ensure_lineage(output)
+            self._complete_recovery_run(output)
+            return "already_registered"
+
+        self._ensure_recovery_run(output)
+        try:
+            self.repository.register_output(output)
+            self._ensure_lineage(output)
+            self._complete_recovery_run(output)
+        except Exception:
+            current = self.repository.get_run(project_id, run_id)
+            if current and str(current.get("status") or "") in {RunStatus.QUEUED.value, RunStatus.RUNNING.value}:
+                self.repository.update_run_status(
+                    project_id,
+                    run_id,
+                    RunStatus.FAILED,
+                    error="managed output recovery did not complete",
+                )
+            raise
+        return "recovered"
+
+    def _ensure_recovery_run(self, output: OutputAsset) -> None:
+        current = self.repository.get_run(output.project_id, output.run_id)
+        if current:
+            input_refs = current.get("input_refs") if isinstance(current.get("input_refs"), dict) else {}
+            output_refs = current.get("output_refs") if isinstance(current.get("output_refs"), dict) else {}
+            if (
+                current.get("run_type") != "prd_to_sop"
+                or current.get("trigger") != "recovery"
+                or input_refs.get("recovery") != "managed_output_orphan"
+                or input_refs.get("output_id") != output.id
+            ):
+                raise ManagedOutputRecoveryError("existing_run_conflict")
+            if output_refs and output_refs.get("output_id") not in {None, "", output.id}:
+                raise ManagedOutputRecoveryError("existing_run_conflict")
+            return
+        self.repository.create_run(
+            KnowledgeRun(
+                id=output.run_id,
+                project_id=output.project_id,
+                run_type="prd_to_sop",
+                trigger="recovery",
+                actor_id="system",
+                status=RunStatus.QUEUED,
+                input_refs={
+                    "recovery": "managed_output_orphan",
+                    "output_id": output.id,
+                    "content_hash": output.content_hash,
+                    "context_revision": output.context_revision,
+                    "source_refs": output.source_refs,
+                    "page_refs": output.page_refs,
+                },
+            )
+        )
+
+    def _complete_recovery_run(self, output: OutputAsset) -> None:
+        current = self.repository.get_run(output.project_id, output.run_id)
+        if not current:
+            raise ManagedOutputRecoveryError("missing_recovery_run")
+        output_refs = current.get("output_refs") if isinstance(current.get("output_refs"), dict) else {}
+        if output_refs and output_refs.get("output_id") not in {None, "", output.id}:
+            raise ManagedOutputRecoveryError("existing_run_conflict")
+        status = str(current.get("status") or "")
+        if status == RunStatus.COMPLETED.value:
+            return
+        if status not in {RunStatus.QUEUED.value, RunStatus.RUNNING.value}:
+            raise ManagedOutputRecoveryError("recovery_run_not_resumable")
+        self.repository.update_run_status(
+            output.project_id,
+            output.run_id,
+            RunStatus.COMPLETED,
+            output_refs={
+                "output_id": output.id,
+                "output_status": output.status.value,
+                "output_vault_path": output.vault_path,
+                "recovery": "recovered_from_managed_artifact",
+            },
+        )
+
+    def _validate_recovered_references(self, output: OutputAsset) -> None:
+        for source_id in output.source_refs:
+            if not self.repository.get_source(output.project_id, source_id):
+                raise ManagedOutputRecoveryError("missing_source_reference")
+        for page_id in output.page_refs:
+            if not self.repository.get_page(output.project_id, page_id):
+                raise ManagedOutputRecoveryError("missing_page_reference")
+        if output.method_revision_id and not self.repository.get_method_revision(output.project_id, output.method_revision_id):
+            raise ManagedOutputRecoveryError("missing_method_reference")
+
+    @staticmethod
+    def _assert_recovered_identity(existing: dict[str, Any], output: OutputAsset) -> None:
+        for field in ("id", "project_id", "kind", "content_hash", "vault_path", "run_id", "method_revision_id", "context_revision"):
+            if str(existing.get(field) or "") != str(getattr(output, field) or ""):
+                raise ManagedOutputRecoveryError("existing_output_conflict")
+        if list(existing.get("source_refs") or []) != output.source_refs or list(existing.get("page_refs") or []) != output.page_refs:
+            raise ManagedOutputRecoveryError("existing_output_conflict")
+
+    @staticmethod
+    def _managed_reference_list(metadata: dict[str, Any], key: str, *, required: bool = False) -> list[str]:
+        values = metadata.get(key)
+        if not isinstance(values, list) or any(not isinstance(value, str) or not value.strip() for value in values):
+            raise ManagedOutputRecoveryError(f"invalid_{key}")
+        normalized = [value.strip() for value in values]
+        if len(normalized) != len(set(normalized)) or (required and not normalized):
+            raise ManagedOutputRecoveryError(f"invalid_{key}")
+        return normalized
+
+    @staticmethod
+    def _managed_timestamp(value: Any) -> datetime:
+        try:
+            parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            return parsed.astimezone(timezone.utc) if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError) as exc:
+            raise ManagedOutputRecoveryError("invalid_registered_at") from exc
+
+    @staticmethod
+    def _managed_sop_index(index: Path) -> tuple[dict[str, Any], str, str]:
+        if index.is_symlink() or not index.is_file() or index.stat().st_size > _MAX_MANAGED_INDEX_BYTES:
+            raise ManagedOutputRecoveryError("invalid_index")
+        try:
+            raw = index.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise ManagedOutputRecoveryError("invalid_index") from exc
+        matched = _MANAGED_INDEX.match(raw)
+        if not matched:
+            raise ManagedOutputRecoveryError("invalid_index")
+        try:
+            metadata = yaml.safe_load(matched.group("frontmatter"))
+        except yaml.YAMLError as exc:
+            raise ManagedOutputRecoveryError("invalid_index") from exc
+        if not isinstance(metadata, dict):
+            raise ManagedOutputRecoveryError("invalid_index")
+        title = "project_sop"
+        for line in raw[matched.end():].splitlines():
+            if line.startswith("# "):
+                title = line[2:].strip()[:500] or title
+                break
+        return metadata, hashlib.sha256(raw.encode("utf-8")).hexdigest(), title
 
     def file_output(
         self,

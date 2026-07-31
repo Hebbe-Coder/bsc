@@ -22,6 +22,139 @@ def _provenance(**overrides):
     }
 
 
+def _write_managed_sop_orphan(
+    repo: GrowthRepository,
+    vault_root: Path,
+    *,
+    project_id: str = "project-a",
+    output_id: str = "a" * 24,
+    run_id: str = "sop_" + "b" * 24,
+    index_project_id: str | None = None,
+    content: bytes = b"# Recovered SOP\n",
+    declared_hash: str | None = None,
+) -> tuple[OutputRegistry, OutputAsset]:
+    registry = OutputRegistry(repo, vault_root)
+    output = OutputAsset(
+        id=output_id,
+        project_id=project_id,
+        kind="project_sop",
+        title="Recovered SOP",
+        mime_type="text/markdown",
+        content_hash=declared_hash or hashlib.sha256(content).hexdigest(),
+        vault_path=f"outputs/2026/{output_id}/project-sop.md",
+        run_id=run_id,
+        context_revision="c" * 64,
+        source_refs=["source-a"],
+        idempotency_key=f"unavailable-legacy-key:{output_id}",
+        metadata=_provenance(generator="project_sop_generation_service"),
+    )
+    target = vault_root / "projects" / project_id / output.vault_path
+    target.parent.mkdir(parents=True)
+    target.write_bytes(content)
+    index = registry._index(output, original_path="")
+    if index_project_id:
+        index = index.replace(f"project_id: {project_id}", f"project_id: {index_project_id}")
+    (target.parent / "index.md").write_text(index, encoding="utf-8")
+    return registry, output
+
+
+def test_recover_managed_sop_orphan_restores_registered_output_and_run_lineage(tmp_path):
+    vault_root = tmp_path / "vault"
+    vault_root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "recovery.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        repo.create_source(SourceRecord(
+            id="source-a", project_id="project-a", source_type="article",
+            content_hash="s" * 64, raw_content="evidence", status=SourceStatus.ELIGIBLE,
+        ))
+        registry, output = _write_managed_sop_orphan(repo, vault_root)
+
+        recovered = registry.recover_managed_sop_orphans("project-a")
+
+        assert recovered["recovered"] == [output.id]
+        saved = repo.get_output("project-a", output.id)
+        assert saved is not None
+        assert saved["status"] == OutputStatus.REGISTERED.value
+        assert saved["vault_path"] == output.vault_path
+        assert saved["metadata"]["recovery"]["state"] == "recovered_from_managed_artifact"
+        run = repo.get_run("project-a", output.run_id)
+        assert run is not None
+        assert run["status"] == RunStatus.COMPLETED.value
+        assert run["trigger"] == "recovery"
+        assert run["output_refs"]["output_id"] == output.id
+        relations = {edge["edge_type"] for edge in repo.list_lineage("project-a")}
+        assert {"output_used_source", "output_produced_by_run"}.issubset(relations)
+    finally:
+        repo.close()
+
+
+def test_recovery_rejects_tampered_cross_project_and_unmanaged_sop_indexes(tmp_path):
+    vault_root = tmp_path / "vault"
+    vault_root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "recovery-rejections.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        repo.create_source(SourceRecord(
+            id="source-a", project_id="project-a", source_type="article",
+            content_hash="s" * 64, raw_content="evidence", status=SourceStatus.ELIGIBLE,
+        ))
+        registry, _ = _write_managed_sop_orphan(
+            repo, vault_root, output_id="c" * 24, declared_hash="d" * 64,
+        )
+        _write_managed_sop_orphan(
+            repo, vault_root, output_id="e" * 24, index_project_id="project-b",
+        )
+        unmanaged_id = "f" * 24
+        unmanaged = vault_root / "projects" / "project-a" / "outputs" / "2026" / unmanaged_id
+        unmanaged.mkdir(parents=True)
+        (unmanaged / "project-sop.md").write_text("# Unmanaged\n", encoding="utf-8")
+        (unmanaged / "index.md").write_text("---\nbsc_managed: false\n---\n", encoding="utf-8")
+
+        result = registry.recover_managed_sop_orphans("project-a")
+
+        assert result["recovered"] == []
+        assert result["rejected"] == {
+            "c" * 24: "content_hash_mismatch",
+            "e" * 24: "project_scope_mismatch",
+            unmanaged_id: "unmanaged_index",
+        }
+        assert repo.list_outputs("project-a") == []
+        assert repo.get_run("project-a", "sop_" + "b" * 24) is None
+    finally:
+        repo.close()
+
+
+def test_recovery_is_idempotent_and_refuses_existing_conflicting_records(tmp_path):
+    vault_root = tmp_path / "vault"
+    vault_root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "recovery-idempotency.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        repo.create_source(SourceRecord(
+            id="source-a", project_id="project-a", source_type="article",
+            content_hash="s" * 64, raw_content="evidence", status=SourceStatus.ELIGIBLE,
+        ))
+        registry, output = _write_managed_sop_orphan(repo, vault_root)
+        assert registry.recover_managed_sop_orphans("project-a")["recovered"] == [output.id]
+
+        repeated = registry.recover_managed_sop_orphans("project-a")
+
+        assert repeated["already_registered"] == [output.id]
+        assert len(repo.list_outputs("project-a")) == 1
+        assert len(repo.list_run_events(project_id="project-a", run_id=output.run_id)) == 2
+
+        repo._execute(
+            "UPDATE knowledge_outputs SET content_hash=? WHERE project_id=? AND id=?",
+            ("0" * 64, "project-a", output.id),
+        )
+        repo._commit()
+        conflict = registry.recover_managed_sop_orphans("project-a")
+        assert conflict["rejected"] == {output.id: "existing_output_conflict"}
+    finally:
+        repo.close()
+
+
 def test_register_output_materializes_text_atomically_and_is_idempotent(tmp_path):
     vault_root = tmp_path / "vault"
     vault_root.mkdir()

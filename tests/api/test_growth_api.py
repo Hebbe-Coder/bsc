@@ -192,6 +192,49 @@ def test_project_sop_generation_endpoint_requires_writer_and_returns_durable_res
     assert calls[0][1].prd_source_id == "prd-source"
 
 
+def test_managed_sop_recovery_endpoint_requires_writer_and_restores_only_governed_artifacts(growth_api):
+    client, repo = growth_api
+    repo.configure_vault("project-a", "projects/project-a", "owner")
+    source = _capture(repo, "project-a")
+    repo.update_source_status("project-a", source["id"], SourceStatus.ELIGIBLE)
+    content = b"# Managed SOP\n"
+    output_id = "a" * 24
+    output = OutputAsset(
+        id=output_id,
+        project_id="project-a",
+        kind="project_sop",
+        title="Managed SOP",
+        content_hash=hashlib.sha256(content).hexdigest(),
+        vault_path=f"outputs/2026/{output_id}/project-sop.md",
+        run_id="sop_" + "b" * 24,
+        context_revision="c" * 64,
+        source_refs=[source["id"]],
+        idempotency_key="legacy-unavailable",
+        metadata={
+            "goal": "Recover an existing governed SOP without re-generation",
+            "audience": "project operator",
+            "channel": "knowledge_workspace",
+            "generator": "project_sop_generation_service",
+            "provider": "deterministic",
+            "model": "test",
+            "prompt_revision": "project-prd-to-sop-v1",
+        },
+    )
+    registry = OutputRegistry(repo, Path(settings.OBSIDIAN_VAULT_ROOT))
+    target = Path(settings.OBSIDIAN_VAULT_ROOT) / "projects" / "project-a" / output.vault_path
+    target.parent.mkdir(parents=True)
+    target.write_bytes(content)
+    (target.parent / "index.md").write_text(registry._index(output, original_path=""), encoding="utf-8")
+
+    denied = client.post("/knowledge/projects/project-a/outputs/recover-managed", headers=_headers("growth-reader-key"))
+    repaired = client.post("/knowledge/projects/project-a/outputs/recover-managed", headers=_headers())
+
+    assert denied.status_code == 403
+    assert repaired.status_code == 200, repaired.text
+    assert repaired.json()["data"]["recovery"]["recovered"] == [output_id]
+    assert repo.get_output("project-a", output_id)["status"] == "registered"
+
+
 def test_profile_source_policy_is_validated_revisioned_and_returned_by_the_api(growth_api):
     client, _repo = growth_api
     response = client.patch(

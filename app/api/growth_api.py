@@ -972,6 +972,20 @@ def generate_project_sop(
     )
 
 
+@project_router.post("/outputs/recover-managed")
+def recover_managed_sop_outputs(
+    project_id: str,
+    request: Request,
+    repo: GrowthRepository = Depends(get_growth_repository),
+):
+    """Explicitly repair verified legacy BSC-managed SOP ledger gaps."""
+    project_id = _enforce_growth_access(request, project_id, write=True)
+    recovery = _guard(
+        lambda: OutputRegistry(repo, _vault_root()).recover_managed_sop_orphans(project_id)
+    )
+    return _ok(request, repo, project_id, {"recovery": recovery})
+
+
 @project_router.get("/outputs/{output_id}")
 def read_output(
     project_id: str,

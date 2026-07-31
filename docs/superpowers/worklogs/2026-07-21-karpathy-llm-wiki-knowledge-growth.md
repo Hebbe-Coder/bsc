@@ -1114,3 +1114,39 @@ Live Horizon endpoint/API credentials and a real Wiki-maintenance LLM provider r
 - **Rollback:** revert the PRD-to-SOP request settings and prompt limits
   together. Existing runs, context packs, and SOP artifacts remain immutable
   ledger history.
+
+## 2026-07-31 Managed D-Layer Ledger Recovery
+
+- **Gap closed:** added a restricted repair path for the only recoverable
+  filesystem/database split: a canonical BSC-managed `project_sop` file whose
+  immutable `index.md` survived but whose D-layer ledger row did not. The
+  recovery scans only `outputs/<year>/<24-hex-id>/project-sop.md`; it does not
+  inspect or adopt user files, plugin exports, or arbitrary output folders.
+- **Acceptance gate:** project identity, directory/output ID, `sop_` run ID,
+  context revision, managed front matter, empty external-origin field,
+  provenance fields, source/page ownership, regular-file checks, and SHA-256
+  content integrity must all pass. A recovered artifact is registered only;
+  it is never auto-evaluated, accepted, filed, published to Wiki, or promoted
+  to a method.
+- **Recovery lineage:** a verified orphan restores a `prd_to_sop` run marked
+  `trigger=recovery`, its output reference, and source/page/run graph edges.
+  The ledger explicitly records `recovered_from_managed_artifact`, so this is
+  distinguishable from a live model invocation. Repeated repair is idempotent;
+  hash, project, run, or reference conflicts are rejected.
+- **Production verification:** PostgreSQL, which is the running Docker API
+  authority, currently contains 40 sources, 5 pages, 102 runs, and both
+  managed SOP output IDs. Both have completed runs and four lineage edges, so
+  no historical file was re-registered. Each remains `registered` with zero
+  evaluations and zero feedback records, an honest review-pending state rather
+  than a fabricated quality or reuse claim. The unrelated local SQLite file is
+  a legacy development store and is not used to infer production loss.
+- **Verification:** `uv run pytest tests/knowledge/test_output_registry.py
+  tests/api/test_growth_api.py tests/integration/test_abcd_growth_e2e.py
+  tests/integration/test_abcd_growth_isolation.py -q` passed `43` with `1`
+  PostgreSQL-only test skipped; frontend type checking, production build,
+  Compose validation, compilation, and whitespace checks passed. The new tests cover valid recovery, source/run graph repair,
+  tampered content, cross-project/unmanaged index rejection, idempotent retry,
+  conflicting ledger protection, and write-permission enforcement.
+- **Rollback:** remove the explicit `POST /knowledge/projects/{project_id}/outputs/recover-managed`
+  route and the recovery-only registry methods together. Existing managed
+  files and ledger rows are left intact; the route never alters their bytes.
