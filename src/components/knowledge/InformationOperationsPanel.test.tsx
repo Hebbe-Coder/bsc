@@ -26,6 +26,10 @@ const overview = {
 
 const overviewWithBrief: KnowledgeInformationOverview = {
   ...overview,
+  horizon_review_queue: {
+    project_id: 'project-a', state: 'available', count: 1,
+    items: [{ source_id: 'horizon-pending', title: 'Needs primary review', origin: 'https://example.com/radar', status: 'eligible', trust_level: 'reviewed', ai_score: 8.7, task_families: ['research'], next_action: 'capture_primary_source' }],
+  },
   daily_brief: {
     project_id: 'project-a', state: 'available', coverage: 'complete', denominator: 2,
     window: { date: '2026-07-31', timezone: 'Asia/Shanghai', start_at: '2026-07-30T16:00:00Z', end_at: '2026-07-31T16:00:00Z' },
@@ -90,5 +94,15 @@ describe('InformationOperationsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Inspect source source-lead' }));
     expect(inspect).toHaveBeenCalledWith('source-lead');
     expect(screen.queryByText(/Original body must stay outside/i)).toBeNull();
+  });
+
+  it('renders unpromoted Horizon signals as a primary-source review queue', async () => {
+    vi.mocked(fetchKnowledgeInformationOverview).mockResolvedValue(overviewWithBrief);
+    render(<InformationOperationsPanel projectId="project-a" canWrite refreshToken={0} />);
+
+    expect(await screen.findByText('HORIZON PRIMARY-SOURCE REVIEW')).toBeVisible();
+    expect(screen.getByText('Needs primary review')).toBeVisible();
+    expect(screen.getByText('capture_primary_source')).toBeVisible();
+    expect(screen.queryByText(/verified conclusion/i)).toBeNull();
   });
 });

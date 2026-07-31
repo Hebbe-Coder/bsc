@@ -953,6 +953,16 @@ body .knowledge-workspace .information-brief-section li strong { color: #dcebed;
 body .knowledge-workspace .information-brief-section li small { margin-top: 3px; color: #8fa6b0; font: 9px ui-monospace, monospace; }
 body .knowledge-workspace .information-brief-section .icon-button { width: 26px; height: 26px; padding: 0; }
 body .knowledge-workspace .information-brief-more { display: block; padding: 7px 10px; color: #77cdb7; font: 9px ui-monospace, monospace; }
+body .knowledge-workspace .information-brief-list { max-height: 188px; margin: 0; padding: 0; overflow: auto; list-style: none; }
+body .knowledge-workspace .information-brief-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; border-bottom: 1px solid #213641; padding: 9px 12px; }
+body .knowledge-workspace .information-brief-list li > div { min-width: 0; }
+body .knowledge-workspace .information-brief-list strong, body .knowledge-workspace .information-brief-list small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body .knowledge-workspace .information-brief-list strong { color: #dcebed; font: 10px ui-monospace, monospace; }
+body .knowledge-workspace .information-brief-list small { margin-top: 3px; color: #8fa6b0; font: 9px ui-monospace, monospace; }
+body .knowledge-workspace .information-brief-list small:first-of-type { width: fit-content; border: 1px solid #315969; padding: 2px 5px; color: #8ad8c5; }
+body .knowledge-workspace .information-brief-list .icon-button { width: 26px; height: 26px; padding: 0; }
+body .knowledge-workspace .information-horizon-actions { display: flex; align-items: center; gap: 7px; }
+body .knowledge-workspace .information-horizon-actions code { border: 1px solid #315969; padding: 3px 5px; color: #8ad8c5; background: #102832; font: 8px ui-monospace, monospace; }
 @media (max-width: 780px) { body .knowledge-workspace .information-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } body .knowledge-workspace .information-operations__grid { grid-template-columns: 1fr; } body .knowledge-workspace .information-source-form { grid-template-columns: 1fr; } body .knowledge-workspace .information-source-form button { width: 100%; } body .knowledge-workspace .information-runs { grid-template-columns: 1fr; } body .knowledge-workspace .information-runs li:nth-child(odd) { border-right: 0; } body .knowledge-workspace .information-operations__footer { display: grid; } }
 @media (max-width: 780px) { body .knowledge-workspace .information-brief-grid { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 520px) { body .knowledge-workspace .information-brief-grid { grid-template-columns: 1fr; } }

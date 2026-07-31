@@ -54,6 +54,7 @@ _TOOL_HANDLERS = {
     "knowledge_information_overview": server.knowledge_information_overview,
     "knowledge_information_receipts": server.knowledge_information_receipts,
     "knowledge_information_daily_brief": server.knowledge_information_daily_brief,
+    "knowledge_information_horizon_review_queue": server.knowledge_information_horizon_review_queue,
     "dbos_create_mission": server.dbos_create_mission,
     "dbos_diagnose_mission": server.dbos_diagnose_mission,
     "dbos_confirm_mission": server.dbos_confirm_mission,
@@ -104,6 +105,7 @@ _INFORMATION_INTELLIGENCE_TOOLS = {
     "knowledge_information_overview",
     "knowledge_information_receipts",
     "knowledge_information_daily_brief",
+    "knowledge_information_horizon_review_queue",
 }
 _GROWTH_WRITE_ONLY_TOOLS = {
     "knowledge_growth_review",
@@ -431,6 +433,14 @@ _TOOL_SPECS = {
         "properties": {
             "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
             "day": {"type": "string", "pattern": "^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+        },
+        "required": ["project_id"],
+    },
+    "knowledge_information_horizon_review_queue": {
+        "description": "Read project-scoped Horizon metadata that has not yet been cited by published Wiki content.",
+        "properties": {
+            "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 100},
         },
         "required": ["project_id"],
     },

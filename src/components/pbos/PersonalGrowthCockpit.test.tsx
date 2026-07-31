@@ -266,7 +266,7 @@ describe('PersonalGrowthCockpit', () => {
       today_action: { state: 'no_plan' },
       capabilities: [],
       outcomes: [{ artifact_id: 'outcome-pending-1', execution_record_id: 'execution-safe-1', acceptance_status: 'unverified', quality_score: null, outcome_summary: '' }],
-      outcome_observations: [{ artifact_id: 'outcome-pending-1', acceptance_status: 'unverified', quality_score: null, eligible_for_evolution: false, missing_requirements: ['accepted_outcome', 'quality_score', 'outcome_summary'] }],
+      outcome_observations: [{ artifact_id: 'outcome-pending-1', acceptance_status: 'unverified', quality_score: null, eligible_for_evolution: false, missing_requirements: ['accepted_outcome', 'quality_score', 'outcome_summary'], outcome_summary_draft: 'Recorded delivery actions: Frozen the reviewable scope. Recorded reflection: Ready for owner review.', outcome_summary_draft_receipts: 2 }],
       executions: [{
         artifact_id: 'execution-safe-1', mission_id: 'mission-1', plan_id: 'plan-1',
         actions_count: 1, receipt_count: 2, verified_receipt_count: 2,
@@ -280,7 +280,8 @@ describe('PersonalGrowthCockpit', () => {
     render(<PersonalGrowthCockpit projectId="default" onClose={vi.fn()} runtimeAccessKey="session-key" />);
 
     await screen.findByText('REVIEW PENDING OUTCOMES');
-    fireEvent.change(screen.getByLabelText('Observed delivery result for outcome-pending-1'), { target: { value: 'The reviewable delivery met its stated acceptance boundary.' } });
+    expect(screen.getByLabelText('Observed delivery result for outcome-pending-1')).toHaveValue('Recorded delivery actions: Frozen the reviewable scope. Recorded reflection: Ready for owner review.');
+    expect(screen.getByText('Draft source: 2 verified execution receipts and recorded reflection.')).toBeVisible();
     fireEvent.change(screen.getByLabelText('Observed impact for outcome-pending-1'), { target: { value: 'Scope frozen, regression path covered' } });
     fireEvent.change(screen.getByLabelText('Quality score for outcome-pending-1'), { target: { value: '88' } });
     fireEvent.change(screen.getByLabelText('Review note for outcome-pending-1'), { target: { value: 'Validated against the attached evidence.' } });
@@ -288,7 +289,7 @@ describe('PersonalGrowthCockpit', () => {
 
     await waitFor(() => expect(reviewPbosOutcome).toHaveBeenCalledWith('default', 'outcome-pending-1', {
       decision: 'accepted', quality_score: 88,
-      outcome_summary: 'The reviewable delivery met its stated acceptance boundary.',
+      outcome_summary: 'Recorded delivery actions: Frozen the reviewable scope. Recorded reflection: Ready for owner review.',
       observed_impacts: ['Scope frozen', 'regression path covered'],
       review_note: 'Validated against the attached evidence.',
     }));

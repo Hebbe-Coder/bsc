@@ -640,3 +640,62 @@ npm run build
   `1,601` tests and completed with `1,587 passed, 14 skipped` in `221.28s`.
   It retained only the pre-existing Starlette/httpx and Pydantic v2
   deprecation warnings; there were no regressions.
+
+## 2026-07-31 Evidence Review And Horizon Queue Closure
+
+### Implemented
+
+- Pending PBOS Outcomes can display an editable, non-persisted summary draft
+  derived from their own execution actions and reflection. It is visibly
+  sourced from the verified receipt count and remains subject to explicit
+  owner review, observed impact entry, quality scoring, and acceptance.
+- Horizon metadata now flows through the information overview, project-scoped
+  REST route, MCP read tool, and Knowledge Workspace primary-source queue.
+  Active Wiki citations remove a Horizon signal from the queue; no immutable
+  source body is read by the queue projection.
+
+### Evidence
+
+- New PBOS service/API/integration tests: `43 passed`.
+- Horizon information, API, and MCP tests: `16 passed`.
+- Frontend suite: `187 passed`; `npm run check` and `npm run build` passed.
+- Full backend regression: `1,589 passed, 14 skipped`; no new failures.
+
+### Remaining
+
+- The production project still correctly reports `profile_context_required`
+  and one unverified Outcome. No draft is a personal method, and no Horizon
+  discovery is treated as verified knowledge until the primary source is
+  captured, reviewed, and cited through the existing Wiki gates.
+
+## 2026-07-31 Horizon Review Queue Consolidation
+
+### Delivered And Verified
+
+- The live growth loop now carries a metadata-only Horizon review queue from
+  its immutable input ledger into daily and weekly managed artifacts. It does
+  not promote a discovery signal to a Wiki claim or expose source bodies.
+- Queue selection uses the authoritative Wiki citation table as well as the
+  derived graph relation. This prevents an already-cited source from being
+  presented as a pending discovery even if the graph projection has not yet
+  been rebuilt.
+- The targeted growth-distillation suite passed `58` tests and the final
+  repository regression passed `1,587` tests with `14` expected skips. The
+  final production image rebuilt successfully; API, Worker, and Beat restarted
+  without altering PostgreSQL, Redis, n8n, or Vault volumes.
+- The final durable weekly run `a51e1b0ff65e` completed and emitted its full
+  execution event chain. Vault and database readback confirmed five hashed
+  weekly files, the daily increment for `2026-07-31`, 16 metadata-only queued
+  Horizon sources, five active citations, and no cited source in that queue.
+
+### Remaining Boundaries
+
+- Horizon discovery records remain evidence candidates, not verified Wiki
+  claims. Each must still pass source review and the existing proposal/publish
+  gate before it can influence a published page or a reusable method.
+- Obsidian plugins remain `awaiting_export` until they create real files in
+  their declared project paths. This validation did not read plugin code,
+  manufacture a capture, or claim a third-party sync that did not occur.
+- No commit or push was performed for this runtime validation. Existing
+  unrelated PBOS worktree changes remain separate from the knowledge queue
+  evidence above.

@@ -11,6 +11,7 @@ from app.main import app
 from app.middleware import auth
 from app.knowledge.information_intelligence import InformationIntelligenceService
 from app.knowledge.information_intelligence_contracts import SignalBatch, SignalItem
+from app.knowledge.wiki_contracts import SourceRecord, SourceStatus
 from app.knowledge.wiki_repository import WikiRepository
 
 
@@ -42,6 +43,19 @@ def test_project_reader_can_read_daily_brief_without_cross_project_or_raw_body_a
             ],
         )
     )
+    repository.create_source(
+        SourceRecord(
+            id="horizon-review",
+            project_id="project-a",
+            source_type="horizon_signal",
+            origin="https://example.com/radar",
+            content_hash="a" * 64,
+            raw_content="PRIVATE HORIZON BODY MUST NOT LEAK",
+            trust_level="reviewed",
+            status=SourceStatus.ELIGIBLE,
+            metadata={"title": "Primary confirmation needed", "ai_score": 8.1},
+        )
+    )
     day = datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
     monkeypatch.setattr(
         auth,
@@ -60,6 +74,14 @@ def test_project_reader_can_read_daily_brief_without_cross_project_or_raw_body_a
             f"/knowledge/intelligence/projects/project-b/daily-brief?day={day}",
             headers={"Authorization": "Bearer reader-key"},
         )
+        horizon_queue = client.get(
+            "/knowledge/intelligence/projects/project-a/horizon-review-queue",
+            headers={"Authorization": "Bearer reader-key"},
+        )
+        cross_project_queue = client.get(
+            "/knowledge/intelligence/projects/project-b/horizon-review-queue",
+            headers={"Authorization": "Bearer reader-key"},
+        )
 
         assert response.status_code == 200, response.text
         brief = response.json()["data"]
@@ -68,6 +90,10 @@ def test_project_reader_can_read_daily_brief_without_cross_project_or_raw_body_a
         assert brief["lineage"]["receipt_ids"]
         assert "Original body must stay outside the brief." not in response.text
         assert cross_project.status_code == 403
+        assert horizon_queue.status_code == 200, horizon_queue.text
+        assert horizon_queue.json()["data"]["items"][0]["source_id"] == "horizon-review"
+        assert "PRIVATE HORIZON BODY" not in horizon_queue.text
+        assert cross_project_queue.status_code == 403
     finally:
         app.dependency_overrides.clear()
         repository.close()

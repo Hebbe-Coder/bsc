@@ -12,6 +12,7 @@ from app.knowledge.information_intelligence_contracts import (
     SignalItem,
     SourceRegistryEntry,
 )
+from app.knowledge.wiki_contracts import SourceRecord, SourceStatus
 from app.knowledge.wiki_repository import WikiRepository
 
 
@@ -311,3 +312,93 @@ def test_daily_brief_interprets_legacy_naive_batch_timestamps_in_shanghai_time()
         start,
         end,
     ) is False
+
+
+def test_horizon_review_queue_is_metadata_only_and_excludes_already_cited_signals(tmp_path, monkeypatch):
+    repository = WikiRepository(db_path=str(tmp_path / "intelligence-horizon-queue.db"))
+    service = InformationIntelligenceService(repository)
+    try:
+        repository.create_source(
+            SourceRecord(
+                id="horizon-cited",
+                project_id="project-a",
+                source_type="horizon_signal",
+                origin="https://example.com/cited",
+                content_hash="a" * 64,
+                raw_content="PRIVATE CITED HORIZON BODY",
+                trust_level="reviewed",
+                status=SourceStatus.ELIGIBLE,
+                metadata={"title": "Already cited", "ai_score": 9.7},
+            )
+        )
+        repository.create_source(
+            SourceRecord(
+                id="horizon-pending",
+                project_id="project-a",
+                source_type="horizon_signal",
+                origin="https://example.com/pending",
+                content_hash="b" * 64,
+                raw_content="PRIVATE PENDING HORIZON BODY",
+                trust_level="reviewed",
+                status=SourceStatus.ELIGIBLE,
+                metadata={"title": "Pending primary review", "ai_score": 8.7, "task_families": ["research"]},
+            )
+        )
+        repository.record_publication(
+            project_id="project-a",
+            contents={"wiki/cited.md": "# Cited\n[source:horizon-cited]\n"},
+            source_ids=["horizon-cited"],
+        )
+        # Publication normally transitions sources to processed. Restore the
+        # fixture to eligible so this test proves citation filtering instead
+        # of passing only because of the source-status filter.
+        repository._execute(
+            "UPDATE knowledge_sources SET status=? WHERE project_id=? AND id=?",
+            (SourceStatus.ELIGIBLE.value, "project-a", "horizon-cited"),
+        )
+        repository._commit()
+        repository.create_source(
+            SourceRecord(
+                id="horizon-low-priority",
+                project_id="project-a",
+                source_type="horizon_signal",
+                origin="https://example.com/low-priority",
+                content_hash="c" * 64,
+                raw_content="PRIVATE LOW PRIORITY HORIZON BODY",
+                trust_level="reviewed",
+                status=SourceStatus.ELIGIBLE,
+                metadata={"title": "Lower priority review", "ai_score": 1.2},
+            )
+        )
+
+        def reject_full_source_read(*_args, **_kwargs):
+            raise AssertionError("Horizon review queue must use metadata-only source projections")
+
+        monkeypatch.setattr(repository, "list_sources", reject_full_source_read)
+        monkeypatch.setattr(repository, "get_source", reject_full_source_read)
+        monkeypatch.setattr(repository, "list_citations", reject_full_source_read)
+        queue = service.horizon_review_queue("project-a", limit=1)
+
+        assert queue["state"] == "available"
+        assert queue["count"] == 1
+        assert queue["items"] == [{
+            "source_id": "horizon-pending",
+            "title": "Pending primary review",
+            "origin": "https://example.com/pending",
+            "status": "eligible",
+            "trust_level": "reviewed",
+            "ai_score": 8.7,
+            "task_families": ["research"],
+            "next_action": "capture_primary_source",
+        }]
+        assert "PRIVATE" not in str(queue)
+        full_queue = service.horizon_review_queue("project-a")
+        assert [item["source_id"] for item in full_queue["items"]] == ["horizon-pending", "horizon-low-priority"]
+        metadata_by_id = {
+            str(source["id"]): source
+            for source in repository.list_evidence_source_metadata("project-a")
+        }
+        assert metadata_by_id["horizon-pending"]["status"] == SourceStatus.ELIGIBLE.value
+        assert metadata_by_id["horizon-low-priority"]["status"] == SourceStatus.ELIGIBLE.value
+    finally:
+        repository.close()

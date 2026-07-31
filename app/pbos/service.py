@@ -15,6 +15,7 @@ from app.artifacts import (
     WorkFeedbackArtifact, WorkOutcomeArtifact,
 )
 from app.core.config import settings
+from app.knowledge.capture_adapters import redact_secrets
 from .capture import local_receipts
 from .compiler import PBOSPlanCompiler
 
@@ -635,6 +636,8 @@ class PBOSService:
         user's capability profile.
         """
         missing: list[str] = []
+        outcome_summary_draft = ""
+        outcome_summary_draft_receipts = 0
         if outcome.acceptance_status != "accepted":
             missing.append("accepted_outcome")
         if outcome.quality_score is None:
@@ -653,13 +656,41 @@ class PBOSService:
                 missing.append("verified_tool_receipt")
             if not any(str(value).strip() for value in execution.reflection.values()):
                 missing.append("reflection")
+            if not outcome.outcome_summary.strip():
+                outcome_summary_draft = self._outcome_summary_draft(execution)
+                outcome_summary_draft_receipts = sum(
+                    1
+                    for receipt in execution.tool_receipts
+                    if isinstance(receipt, dict) and receipt.get("verified") is True
+                )
         return {
             "artifact_id": outcome.artifact_id,
             "acceptance_status": outcome.acceptance_status,
             "quality_score": outcome.quality_score,
             "eligible_for_evolution": not missing,
             "missing_requirements": missing,
+            # This is a review aid, not an Outcome field. It never becomes
+            # learning evidence until an owner explicitly accepts it.
+            "outcome_summary_draft": outcome_summary_draft,
+            "outcome_summary_draft_receipts": outcome_summary_draft_receipts,
         }
+
+    @staticmethod
+    def _outcome_summary_draft(execution: WorkExecutionRecordArtifact) -> str:
+        """Summarize recorded facts for review without inferring a result."""
+        actions = [
+            str(redact_secrets(action)).replace("\n", " ").strip()[:260]
+            for action in execution.actions
+            if str(action).strip()
+        ][:2]
+        reflection = execution.reflection if isinstance(execution.reflection, dict) else {}
+        changed = str(redact_secrets(reflection.get("changed") or reflection.get("completed") or "")).replace("\n", " ").strip()[:340]
+        parts: list[str] = []
+        if actions:
+            parts.append(f"Recorded delivery actions: {' '.join(actions)}")
+        if changed:
+            parts.append(f"Recorded reflection: {changed}")
+        return " ".join(parts)[:900]
 
     def _latest_capabilities(self) -> list[CapabilityArtifact]:
         latest: dict[str, CapabilityArtifact] = {}

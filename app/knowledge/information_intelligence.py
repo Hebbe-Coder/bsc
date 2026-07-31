@@ -306,6 +306,7 @@ class InformationIntelligenceService:
             "receipts": receipts,
             "runs": runs,
             "daily_brief": self.daily_brief(project_id),
+            "horizon_review_queue": self.horizon_review_queue(project_id),
             "confirmation_queue": [
                 receipt for receipt in receipts if receipt.get("disposition") == "lead_only"
             ],
@@ -319,6 +320,61 @@ class InformationIntelligenceService:
                 "lead_only": sum(1 for receipt in receipts if receipt["disposition"] == "lead_only"),
                 "rejected": sum(1 for receipt in receipts if receipt["disposition"] == "rejected"),
             },
+        }
+
+    def horizon_review_queue(self, project_id: str, *, limit: int = 100) -> dict[str, Any]:
+        """Expose un-cited Horizon metadata without reading immutable bodies."""
+        bounded_limit = max(1, min(int(limit), 100))
+        citations = self.repository.list_evidence_citation_metadata(project_id)
+        cited_source_ids = {
+            str(item.get("source_id") or "")
+            for item in citations
+            if str(item.get("status") or "active") == "active"
+        }
+        candidates: list[dict[str, Any]] = []
+        for source in self.repository.list_evidence_source_metadata(project_id):
+            source_id = str(source.get("id") or "")
+            if (
+                str(source.get("source_type") or "") != "horizon_signal"
+                or str(source.get("status") or "") != "eligible"
+                or not source_id
+                or source_id in cited_source_ids
+            ):
+                continue
+            metadata = source.get("metadata") if isinstance(source.get("metadata"), dict) else {}
+            intelligence = metadata.get("intelligence") if isinstance(metadata.get("intelligence"), dict) else {}
+            title = str(metadata.get("title") or intelligence.get("title") or source.get("origin") or source_id).strip()[:240]
+            score_value = metadata.get("ai_score", intelligence.get("ai_score"))
+            try:
+                ai_score = float(score_value) if score_value is not None else None
+            except (TypeError, ValueError):
+                ai_score = None
+            task_values = metadata.get("task_families") or intelligence.get("task_families") or metadata.get("ai_tags") or []
+            task_families = [str(value).strip()[:80] for value in task_values if str(value).strip()][:8] if isinstance(task_values, list) else []
+            item = {
+                "source_id": source_id,
+                "title": title,
+                "origin": str(source.get("origin") or "")[:500],
+                "status": str(source.get("status") or ""),
+                "trust_level": str(source.get("trust_level") or ""),
+                "ai_score": ai_score,
+                "task_families": task_families,
+                "next_action": "capture_primary_source",
+            }
+            candidates.append(item)
+        candidates.sort(
+            key=lambda item: (
+                -(item["ai_score"] if item["ai_score"] is not None else -1.0),
+                item["title"].casefold(),
+                item["source_id"],
+            )
+        )
+        items = candidates[:bounded_limit]
+        return {
+            "project_id": project_id,
+            "state": "available" if items else "no_sample",
+            "count": len(items),
+            "items": items,
         }
 
     @staticmethod

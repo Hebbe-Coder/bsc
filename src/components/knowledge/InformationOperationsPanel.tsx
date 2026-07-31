@@ -6,6 +6,7 @@ import {
   fetchKnowledgeInformationOverview,
   type InformationBriefItem,
   type InformationRegistrySource,
+  type HorizonReviewItem,
   type KnowledgeInformationOverview,
 } from '../../api/knowledgeWorkspaceApi';
 
@@ -106,6 +107,7 @@ export function InformationOperationsPanel({ projectId, canWrite, refreshToken, 
       <Metric icon={<ShieldAlert size={16} />} label="Rejected items" value={overview.counts.rejected} detail="Policy, registry, or payload failure" />
     </div>
     {overview.daily_brief && <DailyBrief brief={overview.daily_brief} onInspectSource={onInspectSource} />}
+    {overview.horizon_review_queue?.count ? <HorizonPrimaryReview queue={overview.horizon_review_queue} onInspectSource={onInspectSource} /> : null}
     <div className="information-operations__grid">
       <section className="information-panel">
         <header><div><span>PROJECT SOURCE REGISTRY</span><small>{overview.source_registry.length} declared</small></div></header>
@@ -146,6 +148,17 @@ export function InformationOperationsPanel({ projectId, canWrite, refreshToken, 
       <span>n8n reads only this project's enabled RSS and YouTube Channel RSS registry entries at each run.</span>
       <span>DeepSeek summaries and classifications remain derivatives. They never replace the original RSS body.</span>
     </footer>
+  </section>;
+}
+
+function HorizonPrimaryReview({ queue, onInspectSource }: { queue: NonNullable<KnowledgeInformationOverview['horizon_review_queue']>; onInspectSource?: (sourceId: string) => void }) {
+  return <section className="information-panel information-panel--brief" aria-label="Horizon primary-source review">
+    <header><div><span>HORIZON PRIMARY-SOURCE REVIEW</span><small>{queue.count} un-cited signal{queue.count === 1 ? '' : 's'}</small></div></header>
+    <p className="information-empty">Discovery leads only. Capture an authoritative primary source before a signal can support project knowledge.</p>
+    <ol className="information-brief-list">{queue.items.map((item: HorizonReviewItem) => <li key={item.source_id}>
+      <div><strong title={item.title}>{item.title}</strong><small title={item.origin}>{item.origin || 'No origin recorded'}</small><small>{item.trust_level} / score {item.ai_score ?? 'unavailable'}{item.task_families.length ? ` / ${item.task_families.join(', ')}` : ''}</small></div>
+      <div className="information-horizon-actions"><code>{item.next_action}</code>{onInspectSource ? <button type="button" className="icon-button" aria-label={`Inspect source ${item.source_id}`} title="Inspect authorized source" onClick={() => onInspectSource(item.source_id)}><Inbox size={14} /></button> : null}</div>
+    </li>)}</ol>
   </section>;
 }
 

@@ -57,6 +57,8 @@ export interface PbosOutcomeObservation {
   quality_score: number | null;
   eligible_for_evolution: boolean;
   missing_requirements: string[];
+  outcome_summary_draft?: string;
+  outcome_summary_draft_receipts?: number;
 }
 
 export interface PbosOutcomeReviewPayload {

@@ -31,3 +31,11 @@ def daily_brief(project_id: str, day: str = "") -> dict:
         return InformationIntelligenceService(repository).daily_brief(project_id, day=day)
     finally:
         repository.close()
+
+
+def horizon_review_queue(project_id: str, limit: int = 100) -> dict:
+    repository = WikiRepository()
+    try:
+        return InformationIntelligenceService(repository).horizon_review_queue(project_id, limit=limit)
+    finally:
+        repository.close()

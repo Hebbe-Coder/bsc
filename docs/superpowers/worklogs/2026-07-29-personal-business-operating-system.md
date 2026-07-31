@@ -1302,3 +1302,70 @@
   existing DBOS, Artifact Graph, knowledge-growth, MCP, runtime, and API
   contracts. It does not turn the pending real Outcome into accepted personal
   learning evidence.
+
+## 2026-07-31 Review Friction And Horizon Primary-Source Queue
+
+- **Outcome review usability:** the Cockpit now receives a transient
+  `outcome_summary_draft` generated only from the recorded execution actions
+  and reflection, with the number of verified receipts. The draft is editable
+  and is never persisted as an Outcome until the owner explicitly accepts it;
+  no quality score or observed impact is inferred.
+- **Horizon integration:** the information-intelligence overview, REST API,
+  MCP read tool, and Knowledge Workspace now expose a project-scoped primary-
+  source review queue. It reads metadata-only source projections, includes
+  only eligible `horizon_signal` records not already cited by published Wiki
+  content, and returns `capture_primary_source` as the next action. Horizon
+  source bodies are not selected or returned.
+- **Verification:** the new PBOS service/API/integration tests passed `43`;
+  the Horizon information, REST, and MCP tests passed `16`; frontend coverage
+  passed `187`; full backend regression passed `1,589` with `14` skips; the
+  TypeScript check and production build passed.
+- **Repair included:** a concurrent Horizon test had its timestamp assertions
+  displaced into the wrong test scope; they were restored before the full
+  regression. No existing behavior was deleted to make the suite green.
+- **Remaining gate:** the real project still has no accepted Outcome or
+  promoted personal method. The draft reduces entry work but cannot replace
+  the owner's result confirmation, score, and three comparable deliveries.
+
+## 2026-07-31 Horizon Queue Distillation Runtime Closure
+
+- **Implemented behavior:** growth distillation now exposes unpromoted
+  `horizon_signal` records as a metadata-only review queue in daily output and
+  in the weekly summary, knowledge-action, and next-week-context documents.
+  The queue joins the immutable input ledger by source ID, never by a string
+  representation of the complete input record.
+- **Evidence boundary:** queue membership excludes sources in the authoritative
+  active `knowledge_citations` table and also excludes the source endpoint of
+  a `wiki_cites_source` graph edge. Queue rows contain only the source ID,
+  title, origin URL, lifecycle status, trust level, radar score, task families,
+  and next action. Source bodies are not read into this queue or written to
+  the managed distillation files.
+- **Focused verification:** `tests/knowledge/test_growth_distillation.py`
+  passed `58` tests. The regression removes graph edges from the fixture and
+  proves that a published citation row alone suppresses an already-cited
+  Horizon source while a pending source remains visible without its raw body.
+- **Repository regression:** `./.venv/Scripts/python.exe -m pytest -q`
+  collected `1,601` tests and passed with `1,587 passed, 14 skipped` in
+  `229.13s`. The only warnings were the pre-existing Starlette/httpx and
+  Pydantic v2 deprecations.
+- **Live runtime evidence:** Docker rebuilt the API, Celery Worker, and Beat
+  from the current workspace; the API returned healthy at
+  `http://127.0.0.1:8002/live`. A live daily run `d83e78bedf52` and weekly
+  runs `839e338828b9` and `a51e1b0ff65e` completed through the durable event
+  chain: queued, execution assigned, dispatched, Obsidian sync completed,
+  model completed, distillation completed, and run completed.
+- **Vault readback:** the current `2026-W31` bundle in
+  `D:\bsc\bsc\projects\proj_b8a285642094\distillations\每周蒸馏\2026-W31`
+  contains all five managed weekly files and the daily file
+  `每日增量\2026-07-31.md`. Every manifest file hash matched its on-disk
+  SHA-256. All 16 queue IDs occur in the three intended weekly documents;
+  the manifest queue has no raw/body/content field.
+- **Database cross-check:** the project currently has 38 sources, 16 Horizon
+  signals, and five active Wiki citations. The 16 queued source IDs have an
+  empty intersection with active citation source IDs. No user-authored Vault
+  content, plugin export, approval, source body, or external credential was
+  created by this verification.
+- **Rollback:** revert the queue rendering and its input/citation selection
+  logic, then rebuild the three application containers. Existing immutable
+  sources, citations, completed runs, and managed historical revisions remain
+  auditable and are not deleted by a code rollback.

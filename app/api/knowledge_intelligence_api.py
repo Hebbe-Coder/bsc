@@ -141,6 +141,17 @@ def information_daily_brief(
         ) from exc
 
 
+@router.get("/projects/{project_id}/horizon-review-queue")
+def information_horizon_review_queue(
+    project_id: str,
+    request: Request,
+    limit: int = 100,
+    repository: WikiRepository = Depends(get_intelligence_repository),
+):
+    effective_project_id = _enforce_project_access(request, project_id)
+    return ApiResponse.ok(_service(repository).horizon_review_queue(effective_project_id, limit=limit))
+
+
 @router.get("/projects/{project_id}/sources")
 def information_sources(
     project_id: str,

@@ -568,6 +568,13 @@ def knowledge_information_daily_brief(project_id: str, day: str = "", api_key: s
     return information_intelligence_tools.daily_brief(project_id, day=day)
 
 
+@mcp.tool()
+def knowledge_information_horizon_review_queue(project_id: str, limit: int = 100, api_key: str = "") -> dict:
+    """Read un-cited Horizon metadata that still needs primary-source confirmation."""
+    _authorize_information_project(project_id, api_key)
+    return information_intelligence_tools.horizon_review_queue(project_id, max(1, min(int(limit), 100)))
+
+
 def _authorize_growth_project(project_id: str, api_key: str = "", *, write: bool = False) -> None:
     from app.core.config import settings
 

@@ -451,6 +451,42 @@ def test_outcome_review_requires_an_observed_delivery_result_for_personal_learni
     assert service._outcome_observation(reviewed)["eligible_for_evolution"] is True
 
 
+def test_pbos_outcome_review_draft_is_bounded_to_recorded_execution_and_reflection(tmp_path):
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(store)
+    service = PBOSService(store, "personal")
+    record = service.record_execution(
+        "mission",
+        "",
+        {
+            "actions": [
+                "Implemented the bounded evidence projection.",
+                "Verified the focused delivery contract.",
+            ],
+            "tool_receipts": [{"kind": "test", "command": "pytest focused", "verified": True}],
+            "reflection": {
+                "changed": "The result is ready for owner review.",
+                "next_action": "Review the delivery outcome.",
+            },
+        },
+    )
+    outcome = service.record_outcome(record.artifact_id, {"acceptance_status": "unverified"})
+
+    observation = service.cockpit()["outcome_observations"][0]
+    persisted = store.get(outcome.artifact_id)
+
+    assert observation["outcome_summary_draft"] == (
+        "Recorded delivery actions: Implemented the bounded evidence projection. "
+        "Verified the focused delivery contract. Recorded reflection: "
+        "The result is ready for owner review."
+    )
+    assert observation["outcome_summary_draft_receipts"] == 1
+    assert observation["missing_requirements"] == ["accepted_outcome", "quality_score", "outcome_summary"]
+    assert isinstance(persisted, WorkOutcomeArtifact)
+    assert persisted.outcome_summary == ""
+    assert persisted.acceptance_status == "unverified"
+
+
 def test_outcome_review_cannot_accept_a_result_without_reviewable_execution_evidence(tmp_path):
     store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
     _mission(store)

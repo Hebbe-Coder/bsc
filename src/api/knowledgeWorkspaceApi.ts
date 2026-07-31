@@ -270,12 +270,29 @@ export type KnowledgeInformationDailyBrief = {
   lineage: { batch_ids: string[]; run_ids: string[]; receipt_ids: string[]; source_ids: string[]; revision: string };
   delivery: { provider: string; state: string; reason: string; attempts: Array<Record<string, unknown>> };
 };
+export type HorizonReviewItem = {
+  source_id: string;
+  title: string;
+  origin: string;
+  status: string;
+  trust_level: string;
+  ai_score: number | null;
+  task_families: string[];
+  next_action: 'capture_primary_source';
+};
+export type HorizonReviewQueue = {
+  project_id: string;
+  state: 'available' | 'no_sample';
+  count: number;
+  items: HorizonReviewItem[];
+};
 export type KnowledgeInformationOverview = {
   state: 'ready' | 'no_sources';
   source_registry: InformationRegistrySource[];
   receipts: InformationSignalReceipt[];
   runs: KnowledgeRun[];
   daily_brief?: KnowledgeInformationDailyBrief;
+  horizon_review_queue?: HorizonReviewQueue;
   confirmation_queue?: InformationSignalReceipt[];
   counts: {
     sources: number;

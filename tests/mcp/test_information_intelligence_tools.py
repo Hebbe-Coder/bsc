@@ -18,10 +18,12 @@ def test_information_mcp_tools_are_read_only_and_project_scoped(monkeypatch):
         monkeypatch.setattr(server, "_require_mcp_auth", lambda _key="": ("project_reader", "project-a"))
         monkeypatch.setattr(information_intelligence_tools, "overview", lambda project_id: calls.append(("overview", project_id)) or {"project_id": project_id})
         monkeypatch.setattr(information_intelligence_tools, "receipts", lambda project_id, limit=100: calls.append(("receipts", project_id, limit)) or {"project_id": project_id})
+        monkeypatch.setattr(information_intelligence_tools, "horizon_review_queue", lambda project_id, limit=100: calls.append(("horizon_review_queue", project_id, limit)) or {"project_id": project_id})
 
         assert server.knowledge_information_overview("project-a") == {"project_id": "project-a"}
         assert server.knowledge_information_receipts("project-a", limit=999) == {"project_id": "project-a"}
-        assert calls == [("overview", "project-a"), ("receipts", "project-a", 500)]
+        assert server.knowledge_information_horizon_review_queue("project-a", limit=999) == {"project_id": "project-a"}
+        assert calls == [("overview", "project-a"), ("receipts", "project-a", 500), ("horizon_review_queue", "project-a", 100)]
         with pytest.raises(PermissionError):
             server.knowledge_information_overview("project-b")
     finally:
@@ -48,7 +50,7 @@ def test_http_mcp_advertises_and_invokes_information_read_tools_only_when_enable
     try:
         settings.KNOWLEDGE_INTELLIGENCE_ENABLED = True
         names = {tool["name"] for tool in mcp_http._tool_list()}
-        assert {"knowledge_information_overview", "knowledge_information_receipts", "knowledge_information_daily_brief"} <= names
+        assert {"knowledge_information_overview", "knowledge_information_receipts", "knowledge_information_daily_brief", "knowledge_information_horizon_review_queue"} <= names
 
         calls = []
         monkeypatch.setitem(
@@ -75,6 +77,7 @@ def test_http_mcp_advertises_and_invokes_information_read_tools_only_when_enable
         assert "knowledge_information_overview" not in names
         assert "knowledge_information_receipts" not in names
         assert "knowledge_information_daily_brief" not in names
+        assert "knowledge_information_horizon_review_queue" not in names
     finally:
         settings.KNOWLEDGE_INTELLIGENCE_ENABLED = previous_enabled
 
