@@ -190,6 +190,50 @@ def test_plugin_status_verifies_declared_destination_from_readonly_settings(tmp_
     assert mismatch["runtime_configuration"]["state"] == "mismatch"
 
 
+def test_plugin_status_verifies_copilot_reviewed_output_destination_from_readonly_settings(tmp_path):
+    root = tmp_path / "vault"
+    project_root = root / "projects" / "project-a"
+    output_root = project_root / "04_Outputs" / "copilot"
+    output_root.mkdir(parents=True)
+    (project_root / "bsc-plugins.json").write_text(
+        '{"plugins":[{"id":"copilot","name":"Obsidian Copilot reviewed outputs","adapter":"filesystem_output","input_paths":["04_Outputs/copilot"]}]}',
+        encoding="utf-8",
+    )
+    settings_path = root / ".obsidian" / "plugins" / "copilot" / "data.json"
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(
+        '{"defaultSaveFolder":"projects/project-a/04_Outputs/copilot"}',
+        encoding="utf-8",
+    )
+    manifest = ObsidianPluginManifest.load(project_root)
+    manifest.set_trust(
+        project_root,
+        plugin_ids=["copilot"],
+        trusted=True,
+        actor_id="test",
+        reason="fixture",
+    )
+
+    configured = ObsidianPluginManifest.load(project_root).public_status(
+        project_root=project_root,
+        vault_root=root,
+    )["plugins"][0]
+
+    assert configured["runtime_configuration"] == {
+        "state": "configured",
+        "detail_code": "destination_matches_bridge",
+    }
+    assert configured["status"] == "awaiting_output"
+
+    settings_path.write_text('{"defaultSaveFolder":"copilot/copilot-conversations"}', encoding="utf-8")
+    mismatch = manifest.public_status(project_root=project_root, vault_root=root)["plugins"][0]
+
+    assert mismatch["runtime_configuration"] == {
+        "state": "mismatch",
+        "detail_code": "plugin_destination_differs_from_bridge",
+    }
+
+
 def test_zotero_bridge_captures_citation_provenance_from_an_exported_note(tmp_path):
     root = tmp_path / "vault"
     project_root = root / "projects" / "project-a"

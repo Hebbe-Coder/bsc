@@ -372,7 +372,7 @@
   real Celery task `d31563c7-360e-47ea-8767-41ff5b2ffcde` ran
   `pbos.daily_review` and wrote
   `pbos/reviews/daily/2026-08-01/daily-action.md`. Its current action is
-  `读取交付简报，冻结验收条件`; it cites twelve governed references including
+  `read the owner brief and freeze acceptance criteria`; it cites twelve governed references including
   the new owner Brief. The managed SHA-256 footer was recomputed and verified,
   the report says no verified capability update exists, and the agent outcome
   remains explicitly ineligible for personal learning.
@@ -380,3 +380,49 @@
   owner-attributed outcomes, zero verified Capabilities, and zero active
   Strategy Genomes. The system is now ready to learn from real personal work,
   but no agent-run technical test is presented as the owner's capability.
+
+## 2026-08-01 Scoped Delivery Commit
+
+- Committed the audited PBOS/knowledge ecosystem implementation as
+  `9928271` (`feat(pbos): deliver evidence-grounded personal operating system`).
+  The commit contains `45` explicitly selected implementation, UI, test, and
+  evidence-document files; no runtime key or Vault-authored content was
+  included.
+- The subsequent integration hardening increment prefers a native async Agent
+  entrypoint when one is available, while retaining thread isolation for
+  synchronous Agents. Its regression covers both entrypoint selection and the
+  SOP/Risk parallel latency gate; it is intentionally kept separate from the
+  PBOS feature commit for reviewability.
+
+## 2026-08-01 Copilot Output Bridge Alignment
+
+- The operator selected Copilot as the active Obsidian AI path and explicitly
+  excluded Claudian. Removed `realclaudian` from Obsidian's enabled-plugin
+  list and replaced the project bridge manifest through the authorized
+  workspace API. The installed Claudian package was left untouched; BSC now
+  governs only Clipper, Xiaohongshu Importer, Zotero Integration, and Copilot.
+- Corrected Copilot's own `defaultSaveFolder` from the unmanaged global
+  `copilot/copilot-conversations` location to
+  `projects/proj_b8a285642094/04_Outputs/copilot`. No model credential was
+  copied into Obsidian, BSC Artifacts, logs, or this worklog.
+- Added a bounded, read-only `defaultSaveFolder` probe to
+  `ObsidianPluginManifest`. A bridge now reports `configured` only when the
+  public Copilot destination matches the declared project output route; a
+  different destination reports `mismatch`. The probe reads neither saved
+  conversations nor plugin source code.
+- Test-first evidence: the new Copilot route test failed before the probe with
+  `declared_only`, then passed after the implementation. The focused test pair
+  passed `2`; the sync, workspace API, and Celery growth regression passed
+  `68 passed, 1 skipped`.
+- Runtime evidence: rebuilt and recreated only `bsc-backend`; PostgreSQL,
+  Redis, n8n, Celery Worker, and Celery Beat remained running. An authorized
+  live workspace read now reports Copilot as `trusted`, `path_status=ready`,
+  `runtime_configuration=configured`, and `awaiting_output` with zero output
+  records. This is the correct pre-first-output state, not a synchronization
+  claim.
+- Remaining user-owned boundary: Copilot has no configured provider credential
+  and no saved, reviewed Markdown output yet. It cannot be marked captured or
+  registered until an actual Copilot conversation is saved into the configured
+  folder and a governed growth Sync records it. Rollback is to restore the
+  prior Copilot folder and re-register that explicit bridge; doing so would
+  intentionally return the route to `mismatch` against PBOS's output contract.

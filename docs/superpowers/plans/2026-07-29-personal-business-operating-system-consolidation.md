@@ -1066,7 +1066,7 @@ helper and rebuild `celery-worker`; already written reports remain auditable.
   Mission cannot run an external capability and does not add an execution.
 - After a normal Worker restart, Celery task
   `d31563c7-360e-47ea-8767-41ff5b2ffcde` wrote the daily PBOS report for the
-  corrected plan. The report's next action is `读取交付简报，冻结验收条件`, it
+  corrected plan. The report's next action is `read the owner brief and freeze acceptance criteria`, it
   contains twelve governed references including the owner Brief, its managed
   SHA-256 footer validates, and it retains the non-promotable agent outcome.
 - The Knowledge Workspace release ledger UI is present, project-scoped,
@@ -1100,3 +1100,11 @@ are still required before PBOS can claim personal learning. GitHub and Feishu
 remain `awaiting_authorization`; configured Obsidian plugin bridges remain
 `awaiting_export` or `awaiting_output` until a real plugin-produced file is
 captured.
+
+### Delivery Commit
+
+The audited implementation, UI, tests, and evidence documents were committed
+as `9928271` (`feat(pbos): deliver evidence-grounded personal operating
+system`). A follow-up integration hardening increment adds the native async
+agent fast path and a complete release-evidence matrix to the Workspace; it
+retains the same project isolation, review, and operational-proof boundaries.

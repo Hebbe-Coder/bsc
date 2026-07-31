@@ -46,6 +46,7 @@ _RUNTIME_SETTING_PROBES = {
         Path(".obsidian/plugins/obsidian-zotero-desktop-connector/data.json"),
         "noteImportFolder",
     ),
+    "copilot": (Path(".obsidian/plugins/copilot/data.json"), "defaultSaveFolder"),
 }
 _INTERACTIVE_DESTINATION_PLUGINS = frozenset({"obsidian-importer", "docxer"})
 # Claudian agents work from the Vault and can create files directly. Its
