@@ -1103,6 +1103,14 @@
   the reviewable outcome for `art_4126dc26952e`, then accept or reject it with
   a real quality score. It remains one of three comparable accepted deliveries
   required for promotion.
+- **Studio acceptance:** the stale Vite process on `5174` was restarted through
+  the existing authorized-Studio launcher so its server-side proxy loaded the
+  configured local credential without exposing it to the browser. The real
+  Cockpit rendered the current plan, `Vault context connected (12)`, the five
+  verified receipts, and exactly one `Create reviewable outcome for
+  art_4126dc26952e` control. At `390x844`, the control remained visible, the
+  document measured `384/384` client/scroll width, and the browser recorded
+  zero console errors. The control was not activated.
 - **Rollback:** revert the outcome-intake UI plus the duplicate-outcome guard.
   Existing execution receipts, Vault projections, and any future user review
   history remain immutable audit records.
