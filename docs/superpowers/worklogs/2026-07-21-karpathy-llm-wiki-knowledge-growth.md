@@ -1150,3 +1150,10 @@ Live Horizon endpoint/API credentials and a real Wiki-maintenance LLM provider r
 - **Rollback:** remove the explicit `POST /knowledge/projects/{project_id}/outputs/recover-managed`
   route and the recovery-only registry methods together. Existing managed
   files and ledger rows are left intact; the route never alters their bytes.
+- **Deployment:** the clean commit `2614be3` was built into a dedicated Docker
+  image and used to recreate only the API, Celery Worker, and Celery Beat.
+  API `/live` and `/ready` returned `200`; the route is present in OpenAPI and
+  the loaded container class exposes the recovery method. PostgreSQL/Redis and
+  n8n `/healthz` were healthy after restart. The application image was built
+  from the clean commit specifically so concurrent uncommitted n8n and UI work
+  was neither deployed nor included in this change.
