@@ -21,11 +21,13 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe('GrowthFunnel', () => {
-  it('exposes API-derived counts and conversion summaries accessibly', () => {
+  it('exposes API-derived inventory and truthful coverage summaries accessibly', () => {
     render(<GrowthFunnel counts={counts} state="success" />);
-    expect(screen.getByRole('table', { name: 'Persisted growth funnel values' })).toHaveTextContent('A Evidence10');
-    expect(screen.getByText('50%', { selector: 'dd' })).toBeVisible();
-    expect(screen.getByText('200%', { selector: 'dd' })).toBeVisible();
+    expect(screen.getByRole('table', { name: 'Persisted knowledge inventory values' })).toHaveTextContent('A Evidence10');
+    expect(screen.getByText('80% (8/10)', { selector: 'dd' })).toBeVisible();
+    expect(screen.getByText('50% (1/2)', { selector: 'dd' })).toBeVisible();
+    expect(screen.getByText('75% (3/4)', { selector: 'dd' })).toBeVisible();
+    expect(screen.queryByText('200%', { selector: 'dd' })).not.toBeInTheDocument();
   });
 
   it('does not draw fake activity for all-zero values', () => {

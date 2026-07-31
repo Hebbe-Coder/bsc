@@ -1333,7 +1333,11 @@ body .knowledge-runtime-state{align-self:center;border:1px solid #3a5060;padding
   .growth-reader { min-height: 340px; }
   .growth-list-toolbar { grid-template-columns: 1fr; }
   .growth-funnel { grid-template-columns: 1fr; }
-  .growth-funnel__summary { display: none; }
+  .growth-funnel__summary { display: block; border-top: 1px solid var(--studio-line); border-left: 0; padding: 9px 0 0; }
+  .growth-funnel__summary dl { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+  .growth-funnel__summary dl div { display: grid; align-content: start; gap: 3px; min-width: 0; }
+  .growth-funnel__summary dt { overflow-wrap: anywhere; white-space: normal; }
+  .growth-funnel__summary dd { font-size: 10px; white-space: nowrap; }
   .growth-metric-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .growth-metric-strip > div:nth-child(3) { border-left: 0; border-top: 1px solid var(--studio-line); }
   .growth-metric-strip > div:nth-child(4) { border-top: 1px solid var(--studio-line); }

@@ -154,3 +154,29 @@ Studio interface.
 - Verification: `npm run test:frontend --
   src/components/operations/KnowledgeOperationsCockpit.test.tsx` passed 8
   tests and `npm run check` passed. Browser checks observed no console errors.
+
+## 2026-07-31 Growth Health Visualization Semantics Correction
+
+- A live, server-authorized Growth workspace read exposed a misleading metric:
+  the project had `177` evidence records, `11` Wiki pages, `1` method and
+  `11` outputs, but the UI rendered the final inventory ratio as a `C to D`
+  conversion of `1100%`. Outputs can be independently grounded and one method
+  can be reused, so this ratio is neither a lifecycle conversion nor a measure
+  of method impact.
+- Replaced the funnel with a horizontal A/B/C/D inventory chart and changed
+  the summary to only three source-backed coverage facts: evidence admitted,
+  methods published, and outputs verified. The view now labels itself as
+  persisted inventory and coverage rather than a conversion snapshot. It does
+  not infer method use, business value, or a causal rate from layer counts.
+- Regression coverage verifies real bounded ratios and rejects the old `200%`
+  presentation. `npm run test:frontend -- --run
+  src/components/growth/GrowthVisualizations.test.tsx
+  src/components/growth/GrowthWorkspace.test.tsx` passed with `38` tests;
+  `npm run check` and `npm run build` passed.
+- The Compose API, Worker and Beat were rebuilt after the frontend change.
+  API readiness returned `200`, Celery returned `pong`, and PostgreSQL, Redis
+  and n8n remained healthy. A post-change browser reload was blocked by the
+  local browser URL policy, so it is deliberately not recorded as a fresh
+  visual acceptance pass. The pre-change authorized read is recorded only as
+  the defect observation; a new desktop/mobile visual pass remains required
+  when the browser connection is available.

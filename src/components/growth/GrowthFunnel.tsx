@@ -8,8 +8,13 @@ type Props = { counts: GrowthCounts | null; state: GrowthRequestState; error?: s
 
 export function GrowthFunnel({ counts, state, error }: Props) {
   const chartRef = useRef<HTMLDivElement>(null);
-  const values = useMemo(() => counts ? [counts.sources, counts.pages, counts.methods, counts.outputs] : [], [counts]);
-  const hasData = values.some((value) => value > 0);
+  const inventory = useMemo(() => counts ? [
+    { value: counts.sources, name: 'A Evidence', color: '#76c9dc' },
+    { value: counts.pages, name: 'B Knowledge', color: '#a8cf74' },
+    { value: counts.methods, name: 'C Methods', color: '#e5b65e' },
+    { value: counts.outputs, name: 'D Outputs', color: '#df8793' },
+  ] : [], [counts]);
+  const hasData = inventory.some((item) => item.value > 0);
 
   useEffect(() => {
     if (!chartRef.current || !counts || !hasData) return undefined;
@@ -23,19 +28,15 @@ export function GrowthFunnel({ counts, state, error }: Props) {
       chart.setOption({
         animation: !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
         animationDuration: 360,
-        color: ['#76c9dc', '#a8cf74', '#e5b65e', '#df8793'],
-        tooltip: { trigger: 'item', formatter: '{b}: {c}' },
+        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, formatter: '{b}: {c} persisted records' },
+        grid: { left: 92, right: 40, top: 12, bottom: 12 },
+        xAxis: { type: 'value', minInterval: 1, splitLine: { lineStyle: { color: '#273844' } }, axisLabel: { color: '#8ca4b1' } },
+        yAxis: { type: 'category', data: inventory.map((item) => item.name), axisTick: { show: false }, axisLine: { show: false }, axisLabel: { color: '#d9e5eb', fontSize: 11 } },
         series: [{
-          type: 'funnel', left: '4%', top: 8, bottom: 8, width: '92%', min: 0,
-          max: Math.max(...values, 1), minSize: '10%', maxSize: '100%', sort: 'none', gap: 4,
-          label: { color: '#d9e5eb', fontSize: 11 },
-          itemStyle: { borderColor: '#0c151d', borderWidth: 2 },
-          data: [
-            { value: counts.sources, name: 'A Evidence' },
-            { value: counts.pages, name: 'B Knowledge' },
-            { value: counts.methods, name: 'C Methods' },
-            { value: counts.outputs, name: 'D Outputs' },
-          ],
+          type: 'bar',
+          barMaxWidth: 24,
+          label: { show: true, position: 'right', color: '#d9e5eb', fontSize: 11, formatter: '{c}' },
+          data: inventory.map((item) => ({ value: item.value, itemStyle: { color: item.color, borderRadius: [0, 3, 3, 0] } })),
         }],
       });
     }).catch(() => { chart = undefined; });
@@ -44,26 +45,26 @@ export function GrowthFunnel({ counts, state, error }: Props) {
     observer?.observe(element);
     window.addEventListener('resize', resize);
     return () => { active = false; observer?.disconnect(); window.removeEventListener('resize', resize); chart?.dispose(); };
-  }, [counts, hasData, values]);
+  }, [counts, hasData, inventory]);
 
   if (state === 'loading') return <div className="growth-empty growth-empty--funnel" role="status"><LoaderCircle className="spin" size={18} /><span>Loading persisted flow counts...</span></div>;
   if (state === 'permission' || state === 'offline' || state === 'unavailable' || state === 'error') {
     return <div className="growth-empty growth-empty--funnel" role="alert"><AlertTriangle size={18} /><span>{error || 'Flow counts are unavailable. No fallback values are rendered.'}</span></div>;
   }
-  if (!counts || !hasData) return <div className="growth-empty growth-empty--funnel" aria-label="A to D growth funnel"><BarChart3 size={18} /><span>No persisted A/B/C/D records to visualize.</span></div>;
+  if (!counts || !hasData) return <div className="growth-empty growth-empty--funnel" aria-label="A to D knowledge inventory"><BarChart3 size={18} /><span>No persisted A/B/C/D records to visualize.</span></div>;
 
-  const conversion = (next: number, previous: number) => previous > 0 ? `${Math.round((next / previous) * 100)}%` : 'n/a';
-  return <div className="growth-funnel" aria-label="A to D growth funnel">
+  const coverage = (covered: number, total: number) => total > 0 ? `${Math.round((covered / total) * 100)}% (${covered}/${total})` : 'No sample';
+  return <div className="growth-funnel" aria-label="A to D knowledge inventory">
     <div ref={chartRef} className="growth-funnel__chart" data-chart="growth-funnel" />
     <div className="growth-funnel__summary">
-      <p>Persisted project snapshot</p>
+      <p>Persisted coverage facts</p>
       <dl>
-        <div><dt>A to B</dt><dd>{conversion(counts.pages, counts.sources)}</dd></div>
-        <div><dt>B to C</dt><dd>{conversion(counts.methods, counts.pages)}</dd></div>
-        <div><dt>C to D</dt><dd>{conversion(counts.outputs, counts.methods)}</dd></div>
+        <div><dt>Evidence admitted</dt><dd>{coverage(counts.eligible_sources, counts.sources)}</dd></div>
+        <div><dt>Methods published</dt><dd>{coverage(counts.published_methods, counts.methods)}</dd></div>
+        <div><dt>Outputs verified</dt><dd>{coverage(counts.accepted_outputs, counts.outputs)}</dd></div>
       </dl>
     </div>
-    <table className="growth-visually-hidden"><caption>Persisted growth funnel values</caption><tbody>
+    <table className="growth-visually-hidden"><caption>Persisted knowledge inventory values</caption><tbody>
       <tr><th>A Evidence</th><td>{counts.sources}</td></tr><tr><th>B Knowledge</th><td>{counts.pages}</td></tr>
       <tr><th>C Methods</th><td>{counts.methods}</td></tr><tr><th>D Outputs</th><td>{counts.outputs}</td></tr>
     </tbody></table>
