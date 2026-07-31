@@ -699,3 +699,38 @@ npm run build
 - No commit or push was performed for this runtime validation. Existing
   unrelated PBOS worktree changes remain separate from the knowledge queue
   evidence above.
+
+## 2026-07-31 Final Review-Flow Release Evidence
+
+### Released
+
+- Revision `28c85ea` released the final first-loop usability work: a Cockpit
+  owner can start from a receipt-and-reflection-derived Outcome draft without
+  the system persisting it as a result, assigning its quality, or learning from
+  it before explicit review.
+- The Horizon primary-source queue is live through the Knowledge Workspace,
+  REST, and MCP read paths. It returned five project-scoped candidates during
+  validation, with metadata only and `capture_primary_source` as the next
+  action. This preserves the immutable evidence and Wiki publication gates.
+
+### Runtime Evidence
+
+- The healthy `bsc-backend`, `celery-worker`, and `celery-beat` containers used
+  hashes equal to the released workspace for the PBOS service and Horizon
+  information-intelligence service.
+- Live Cockpit readback showed five verified receipts for the existing
+  execution, one still-unverified Outcome, zero accepted Outcomes, zero
+  Capabilities, and zero Strategy Genomes. This is the required evidence-first
+  state, not a missing projection.
+
+### Completion Boundary
+
+- PBOS v1 implementation and its governed first execution loop are complete
+  and usable. Its claimed end state, a personal operating system that improves
+  from the owner's history, cannot truthfully be declared complete yet: the
+  profile still lacks declared role, industry, and organization stage; the
+  owner has not accepted the actual observed result; and the promotion rule
+  needs two more comparable real delivery loops.
+- To roll back this release, revert `28c85ea` and rebuild the API, worker, and
+  beat containers. Artifact history, Vault material, and source evidence are
+  not deleted by that action.

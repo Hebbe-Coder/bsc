@@ -1369,3 +1369,25 @@
   logic, then rebuild the three application containers. Existing immutable
   sources, citations, completed runs, and managed historical revisions remain
   auditable and are not deleted by a code rollback.
+
+## 2026-07-31 PBOS Review And Horizon Queue Release Verification
+
+- **Released revision:** `28c85ea` (`feat(pbos): add review drafts and Horizon
+  source queue`) contains the owner-editable Outcome summary draft and the
+  metadata-only Horizon primary-source queue. It includes only PBOS and
+  knowledge-review files; unrelated workspace changes were not staged.
+- **Runtime parity:** Docker API source hashes matched the workspace for
+  `app/pbos/service.py` and `app/knowledge/information_intelligence.py`.
+  `bsc-backend`, `celery-worker`, and `celery-beat` were healthy at the time of
+  verification.
+- **Live API readback:** the Cockpit retained one receipt-backed but
+  `unverified` Outcome and returned a transient, editable evidence-derived
+  result draft with five verified receipts. It retained zero accepted Outcomes,
+  Capabilities, or Strategy Genomes. The Horizon queue returned five
+  `capture_primary_source` metadata records containing source ID, title, URL,
+  lifecycle, trust, score, and task families only; it returned no source body.
+- **Truthful product state:** the system is ready for the first real owner
+  review, but it has not learned a personal method. The owner must declare the
+  remaining profile context, review this delivery with an observed result and
+  quality score, then complete two further comparable deliveries before any
+  strategy promotion can be considered.

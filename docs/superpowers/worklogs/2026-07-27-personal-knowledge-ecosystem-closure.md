@@ -1275,3 +1275,38 @@ criteria.
   `release_ready`: a real signed n8n ingress batch, real primary-source
   confirmation, real Feishu delivery and user-reviewed D-layer feedback remain
   external/user-owned evidence gates. They were not fabricated or bypassed.
+
+## 2026-07-31 Horizon Metadata Review Queue Regression Closure
+
+- Recorded the immediate, read-only Horizon primary-source review queue in
+  commit `28c85ea`. It returns only project-scoped source ID, title, origin,
+  lifecycle state, trust level, score, task families and the
+  `capture_primary_source` next action. It does not make a discovery signal a
+  knowledge claim.
+- The queue reads only Evidence Atlas source metadata and citation metadata.
+  Its regression test rejects the full `list_sources`, `get_source` and
+  `list_citations` readers, proves an active cited signal is excluded even
+  when its status is eligible, verifies score ordering before the bounded
+  limit, and confirms queue access leaves eligible source state unchanged.
+- REST, MCP HTTP, in-process MCP and the Studio information-operations view
+  share the same read-only projection. The Studio presents origin, review
+  score, task-family metadata and a discrete inspection action without
+  presenting the lead as publishable evidence.
+
+### Verification
+
+- Focused service, REST and MCP regression: `16 passed`.
+- Focused Studio regression: `4 passed`; `npm run check` and `npm run build`
+  passed.
+- Full local Python regression: `1589 passed, 14 skipped`.
+- Full frontend regression: `187 passed`.
+
+### Boundary Confirmation
+
+- No source `raw_content`, Wiki `claim_text`, derivative body, Vault file or
+  original knowledge file was read or written by the queue implementation or
+  its direct verification. No live Horizon, Obsidian, n8n, Feishu or web
+  collection was invoked.
+- The delivery remains `implemented_with_operational_proof_pending`: a real
+  signed ingress batch and a human-reviewed primary-source capture are still
+  required before an actual lead may support a Wiki publication.
