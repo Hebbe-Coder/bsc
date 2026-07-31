@@ -807,6 +807,7 @@ class PBOSPlanCompiler:
                 "execution_paths": PBOSPlanCompiler._strategy_text_items(genome.get("execution_paths"), limit=2),
                 "failure_boundaries": PBOSPlanCompiler._strategy_text_items(genome.get("failure_boundaries"), limit=2),
                 "success_metrics": PBOSPlanCompiler._strategy_text_items(genome.get("success_metrics"), limit=2),
+                "outcome_patterns": PBOSPlanCompiler._strategy_outcome_patterns(genome.get("outcome_cases")),
                 "confidence": PBOSPlanCompiler._strategy_confidence(genome.get("confidence")),
             }
             if asset["artifact_id"] and asset["strategy_name"]:
@@ -825,6 +826,22 @@ class PBOSPlanCompiler:
             if len(items) >= limit:
                 break
         return items
+
+    @staticmethod
+    def _strategy_outcome_patterns(value: Any) -> list[str]:
+        """Use only bounded, reviewed result summaries from a promoted genome."""
+        if not isinstance(value, list):
+            return []
+        patterns: list[str] = []
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            summary = str(item.get("summary") or "").strip()[:240]
+            if summary and summary not in patterns:
+                patterns.append(summary)
+            if len(patterns) >= 2:
+                break
+        return patterns
 
     @staticmethod
     def _strategy_confidence(value: Any) -> float:
@@ -884,11 +901,13 @@ class PBOSPlanCompiler:
         reference = str(first.get("artifact_id") or "")[:160]
         rules = [str(item).strip() for item in first.get("decision_rules") or [] if str(item).strip()]
         boundaries = [str(item).strip() for item in first.get("failure_boundaries") or [] if str(item).strip()]
+        outcome_patterns = [str(item).strip() for item in first.get("outcome_patterns") or [] if str(item).strip()]
         phase = phases[0] if isinstance(phases[0], dict) else None
         if phase is None:
             return plan
         strategy_input = f"Verified Strategy Genome: {strategy_name} v{version} ({reference})"
-        inputs = [strategy_input, *[str(item).strip() for item in phase.get("inputs") or [] if str(item).strip()]]
+        outcome_input = [f"Verified prior delivery result: {outcome_patterns[0]}"] if outcome_patterns else []
+        inputs = [strategy_input, *outcome_input, *[str(item).strip() for item in phase.get("inputs") or [] if str(item).strip()]]
         phase["inputs"] = list(dict.fromkeys(inputs))[:6]
         if rules:
             strategy_action = f"Apply verified strategy decision rule: {rules[0]}"
@@ -1250,6 +1269,7 @@ class PBOSPlanCompiler:
                     "execution_paths": [cls._bounded_prompt_text(value, 80) for value in item.get("execution_paths") or []],
                     "failure_boundaries": [cls._bounded_prompt_text(value, 80) for value in item.get("failure_boundaries") or []],
                     "success_metrics": [cls._bounded_prompt_text(value, 80) for value in item.get("success_metrics") or []],
+                    "outcome_patterns": [cls._bounded_prompt_text(value, 80) for value in item.get("outcome_patterns") or []],
                     "confidence": item.get("confidence"),
                 }
                 for item in strategy_assets[:3] if isinstance(item, dict)

@@ -158,8 +158,11 @@ class PBOSService:
         acceptance_status = str(values.get("acceptance_status") or "unverified")
         if acceptance_status not in {"unverified", "accepted"}:
             raise ValueError("PBOS outcomes must start as unverified or be explicitly accepted with a score")
+        values["outcome_summary"] = self._normalize_outcome_summary(values.get("outcome_summary"))
+        values["observed_impacts"] = self._normalize_observed_impacts(values.get("observed_impacts"))
         if acceptance_status == "accepted":
             self._require_quality_score(values.get("quality_score"))
+            self._require_outcome_summary(values["outcome_summary"])
         elif values.get("quality_score") is not None:
             raise ValueError("PBOS quality scores are recorded only with explicit acceptance")
         metrics = dict(values.get("metrics") or {})
@@ -196,12 +199,19 @@ class PBOSService:
         if decision not in {"accepted", "rejected"}:
             raise ValueError("PBOS outcome review decision must be accepted or rejected")
         quality_score = payload.get("quality_score")
+        outcome_summary = self._normalize_outcome_summary(
+            payload.get("outcome_summary") or outcome.outcome_summary
+        )
+        observed_impacts = self._normalize_observed_impacts(
+            payload.get("observed_impacts") if "observed_impacts" in payload else outcome.observed_impacts
+        )
         if decision == "accepted":
             self._require_quality_score(quality_score)
+            self._require_outcome_summary(outcome_summary)
             missing_evidence = [
                 item
                 for item in self._outcome_observation(outcome)["missing_requirements"]
-                if item not in {"accepted_outcome", "quality_score"}
+                if item not in {"accepted_outcome", "quality_score", "outcome_summary"}
             ]
             if missing_evidence:
                 raise ValueError(
@@ -220,6 +230,8 @@ class PBOSService:
         })
         outcome.acceptance_status = decision
         outcome.quality_score = float(quality_score) if decision == "accepted" else None
+        outcome.outcome_summary = outcome_summary
+        outcome.observed_impacts = observed_impacts
         outcome.review_note = review_note
         outcome.reviewed_at = reviewed_at
         self.store.update(outcome)
@@ -235,6 +247,28 @@ class PBOSService:
             raise ValueError("An accepted PBOS outcome requires a quality score from 0 to 100") from exc
         if not 0 <= score <= 100:
             raise ValueError("An accepted PBOS outcome requires a quality score from 0 to 100")
+
+    @staticmethod
+    def _normalize_outcome_summary(value: Any) -> str:
+        return str(value or "").strip()[:2000]
+
+    @staticmethod
+    def _normalize_observed_impacts(value: Any) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        items: list[str] = []
+        for item in value:
+            text = str(item or "").strip()[:320]
+            if text and text not in items:
+                items.append(text)
+            if len(items) >= 8:
+                break
+        return items
+
+    @staticmethod
+    def _require_outcome_summary(value: Any) -> None:
+        if not str(value or "").strip():
+            raise ValueError("An accepted PBOS outcome requires an observed delivery result")
 
     def record_feedback(self, outcome_id: str, payload: dict[str, Any]) -> WorkFeedbackArtifact:
         outcome = self.store.get(outcome_id)
@@ -605,6 +639,8 @@ class PBOSService:
             missing.append("accepted_outcome")
         if outcome.quality_score is None:
             missing.append("quality_score")
+        if not outcome.outcome_summary.strip():
+            missing.append("outcome_summary")
         execution = self.store.get(outcome.execution_record_id)
         if not isinstance(execution, WorkExecutionRecordArtifact):
             missing.append("execution_record")
@@ -681,7 +717,11 @@ class PBOSService:
         return None, {"state": "comparison_required", "comparison_groups": summaries}
 
     def _is_complete_record(self, outcome: WorkOutcomeArtifact) -> bool:
-        if outcome.acceptance_status != "accepted" or outcome.quality_score is None:
+        if (
+            outcome.acceptance_status != "accepted"
+            or outcome.quality_score is None
+            or not outcome.outcome_summary.strip()
+        ):
             return False
         execution = self.store.get(outcome.execution_record_id)
         if not isinstance(execution, WorkExecutionRecordArtifact):
@@ -721,6 +761,8 @@ class PBOSService:
         evidence_ids = [item.artifact_id for item in outcomes]
         execution_paths = self._execution_paths(outcomes)
         feedback_patterns = self._feedback_for_outcomes(evidence_ids)
+        outcome_cases = self._outcome_cases(outcomes)
+        observed_impacts = self._observed_impacts(outcomes)
         genome = {
             "scope": "personal_ai_project_delivery",
             "comparison_key": comparison_key,
@@ -734,7 +776,7 @@ class PBOSService:
             "capabilities": [item.name for item in self._latest_capabilities()],
             "risks": feedback_patterns,
             "failure_boundaries": ["severe failure", "two comparable quality regressions"],
-            "success_metrics": ["accepted outcome quality"],
+            "success_metrics": observed_impacts or ["accepted outcome quality"],
             "verification": {
                 "complete_records": len(outcomes),
                 "baseline_quality": baseline,
@@ -743,6 +785,7 @@ class PBOSService:
             },
             "evidence": evidence_ids,
             "success_cases": evidence_ids,
+            "outcome_cases": outcome_cases,
             "failure_cases": [],
             "median_quality": median_quality,
             "confidence": min(0.95, 0.55 + len(outcomes) * 0.1),
@@ -772,7 +815,12 @@ class PBOSService:
         experience = ExperienceArtifact(
             project_id=self.project_id,
             label=f"Verified experience: {self._strategy_name(comparison_key)}",
-            statement=f"{self._strategy_name(comparison_key)} improved median quality to {median_quality:.1f} in {comparison_context}.",
+            statement=self._experience_statement(
+                comparison_key,
+                comparison_context,
+                median_quality,
+                outcome_cases,
+            ),
             applicability=[comparison_key, comparison_context],
             success_factors=execution_paths[:5],
             failure_patterns=feedback_patterns,
@@ -845,6 +893,46 @@ class PBOSService:
                 if value and value not in paths:
                     paths.append(value[:500])
         return paths[:12]
+
+    @staticmethod
+    def _outcome_cases(outcomes: list[WorkOutcomeArtifact]) -> list[dict[str, Any]]:
+        """Carry bounded, human-reviewed result semantics into an immutable genome."""
+        cases: list[dict[str, Any]] = []
+        for outcome in outcomes:
+            summary = outcome.outcome_summary.strip()[:500]
+            if not summary:
+                continue
+            cases.append({
+                "outcome_id": outcome.artifact_id,
+                "summary": summary,
+                "observed_impacts": list(outcome.observed_impacts)[:4],
+            })
+        return cases[:5]
+
+    @staticmethod
+    def _observed_impacts(outcomes: list[WorkOutcomeArtifact]) -> list[str]:
+        impacts: list[str] = []
+        for outcome in outcomes:
+            for item in outcome.observed_impacts:
+                value = str(item).strip()[:320]
+                if value and value not in impacts:
+                    impacts.append(value)
+        return impacts[:8]
+
+    def _experience_statement(
+        self,
+        comparison_key: str,
+        comparison_context: str,
+        median_quality: float,
+        outcome_cases: list[dict[str, Any]],
+    ) -> str:
+        base = (
+            f"{self._strategy_name(comparison_key)} improved median quality to "
+            f"{median_quality:.1f} in {comparison_context}."
+        )
+        summaries = [str(item.get("summary") or "").strip()[:180] for item in outcome_cases]
+        summaries = [item for item in summaries if item]
+        return f"{base} Observed delivery results: {' | '.join(summaries[:3])}." if summaries else base
 
     def _feedback_for_outcomes(self, outcome_ids: list[str]) -> list[str]:
         values: list[str] = []

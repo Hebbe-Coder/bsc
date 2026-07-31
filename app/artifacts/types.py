@@ -737,6 +737,11 @@ class WorkOutcomeArtifact(BaseArtifact):
     artifact_type: ArtifactType = ArtifactType.WORK_OUTCOME
     mission_id: str = ""
     execution_record_id: str = ""
+    # A score says how the delivery was judged; it does not say what happened.
+    # Keep the user-reviewed result distinct so future Experience and Strategy
+    # Genome assets can be traced to an actual observed outcome.
+    outcome_summary: str = ""
+    observed_impacts: list[str] = Field(default_factory=list)
     quality_score: float | None = Field(default=None, ge=0, le=100)
     severe_failure: bool = False
     acceptance_status: str = "unverified"

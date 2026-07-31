@@ -61,6 +61,8 @@ export interface PbosOutcomeObservation {
 
 export interface PbosOutcomeReviewPayload {
   decision: 'accepted' | 'rejected';
+  outcome_summary?: string;
+  observed_impacts?: string[];
   quality_score?: number;
   review_note?: string;
 }

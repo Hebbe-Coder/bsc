@@ -163,7 +163,13 @@ def test_pbos_outcome_review_updates_the_existing_pending_outcome(monkeypatch, t
     )
     response = client.post(
         f"/api/pbos/projects/personal/outcomes/{outcome.artifact_id}/review",
-        json={"decision": "accepted", "quality_score": 88, "review_note": "Verified during release review."},
+        json={
+            "decision": "accepted",
+            "quality_score": 88,
+            "outcome_summary": "The release review verified the bounded delivery.",
+            "observed_impacts": ["Review queue completed"],
+            "review_note": "Verified during release review.",
+        },
     )
 
     assert missing_score.status_code == 422
@@ -172,6 +178,7 @@ def test_pbos_outcome_review_updates_the_existing_pending_outcome(monkeypatch, t
     assert reviewed["artifact_id"] == outcome.artifact_id
     assert reviewed["acceptance_status"] == "accepted"
     assert reviewed["quality_score"] == 88
+    assert reviewed["outcome_summary"] == "The release review verified the bounded delivery."
     assert reviewed["review_history"][0]["previous_acceptance_status"] == "unverified"
 
 
@@ -238,7 +245,11 @@ def test_pbos_outcome_review_api_rejects_acceptance_without_verified_execution_r
 
     response = TestClient(app).post(
         f"/api/pbos/projects/personal/outcomes/{outcome.artifact_id}/review",
-        json={"decision": "accepted", "quality_score": 91},
+        json={
+            "decision": "accepted",
+            "quality_score": 91,
+            "outcome_summary": "The manual receipt remains unverified.",
+        },
     )
 
     assert response.status_code == 422

@@ -135,6 +135,8 @@ describe('PersonalGrowthCockpit', () => {
 
     await screen.findByText('THREE-MINUTE REFLECTION');
     fireEvent.change(screen.getByLabelText('What changed?'), { target: { value: 'Closed the audited local evidence path.' } });
+    fireEvent.change(screen.getByLabelText('Observed delivery result'), { target: { value: 'The project evidence path was captured and is ready for review.' } });
+    fireEvent.change(screen.getByLabelText('Observed impact'), { target: { value: 'Five verified receipts, review queue unblocked' } });
     fireEvent.change(screen.getByLabelText('Evidence files in this BSC workspace'), { target: { value: 'app/pbos/service.py, tests/pbos/test_pbos_service.py' } });
     fireEvent.click(screen.getByRole('checkbox'));
     fireEvent.change(screen.getByLabelText('Quality score (0-100)'), { target: { value: '86' } });
@@ -146,7 +148,11 @@ describe('PersonalGrowthCockpit', () => {
       reflection: expect.objectContaining({ completed: 'Closed the audited local evidence path.' }),
     })));
     expect(recordPbosExecution).not.toHaveBeenCalled();
-    expect(recordPbosOutcome).toHaveBeenCalledWith('default', 'execution-1', expect.objectContaining({ acceptance_status: 'accepted', quality_score: 86 }));
+    expect(recordPbosOutcome).toHaveBeenCalledWith('default', 'execution-1', expect.objectContaining({
+      acceptance_status: 'accepted', quality_score: 86,
+      outcome_summary: 'The project evidence path was captured and is ready for review.',
+      observed_impacts: ['Five verified receipts', 'review queue unblocked'],
+    }));
   });
 
   it('shows the verified strategy genome that is applied to the current plan', async () => {
@@ -259,8 +265,8 @@ describe('PersonalGrowthCockpit', () => {
       today: null,
       today_action: { state: 'no_plan' },
       capabilities: [],
-      outcomes: [{ artifact_id: 'outcome-pending-1', execution_record_id: 'execution-safe-1', acceptance_status: 'unverified', quality_score: null }],
-      outcome_observations: [{ artifact_id: 'outcome-pending-1', acceptance_status: 'unverified', quality_score: null, eligible_for_evolution: false, missing_requirements: ['accepted_outcome', 'quality_score'] }],
+      outcomes: [{ artifact_id: 'outcome-pending-1', execution_record_id: 'execution-safe-1', acceptance_status: 'unverified', quality_score: null, outcome_summary: '' }],
+      outcome_observations: [{ artifact_id: 'outcome-pending-1', acceptance_status: 'unverified', quality_score: null, eligible_for_evolution: false, missing_requirements: ['accepted_outcome', 'quality_score', 'outcome_summary'] }],
       executions: [{
         artifact_id: 'execution-safe-1', mission_id: 'mission-1', plan_id: 'plan-1',
         actions_count: 1, receipt_count: 2, verified_receipt_count: 2,
@@ -274,12 +280,17 @@ describe('PersonalGrowthCockpit', () => {
     render(<PersonalGrowthCockpit projectId="default" onClose={vi.fn()} runtimeAccessKey="session-key" />);
 
     await screen.findByText('REVIEW PENDING OUTCOMES');
+    fireEvent.change(screen.getByLabelText('Observed delivery result for outcome-pending-1'), { target: { value: 'The reviewable delivery met its stated acceptance boundary.' } });
+    fireEvent.change(screen.getByLabelText('Observed impact for outcome-pending-1'), { target: { value: 'Scope frozen, regression path covered' } });
     fireEvent.change(screen.getByLabelText('Quality score for outcome-pending-1'), { target: { value: '88' } });
     fireEvent.change(screen.getByLabelText('Review note for outcome-pending-1'), { target: { value: 'Validated against the attached evidence.' } });
     fireEvent.click(screen.getByRole('button', { name: 'Accept result' }));
 
     await waitFor(() => expect(reviewPbosOutcome).toHaveBeenCalledWith('default', 'outcome-pending-1', {
-      decision: 'accepted', quality_score: 88, review_note: 'Validated against the attached evidence.',
+      decision: 'accepted', quality_score: 88,
+      outcome_summary: 'The reviewable delivery met its stated acceptance boundary.',
+      observed_impacts: ['Scope frozen', 'regression path covered'],
+      review_note: 'Validated against the attached evidence.',
     }));
     expect(recordPbosExecution).not.toHaveBeenCalled();
     expect(recordPbosOutcome).not.toHaveBeenCalled();

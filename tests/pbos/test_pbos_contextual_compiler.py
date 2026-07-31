@@ -585,9 +585,10 @@ def test_model_prompt_receives_only_the_matching_strategy_genome(tmp_path):
             "comparison_context": "engineering",
             "decision_rules": ["Freeze one public contract before coding."],
             "execution_paths": ["Run focused contract tests."],
-            "failure_boundaries": ["Do not widen the public API before verification."],
-            "success_metrics": ["A focused contract test passes."],
-            "confidence": 0.88,
+          "failure_boundaries": ["Do not widen the public API before verification."],
+          "success_metrics": ["A focused contract test passes."],
+          "outcome_cases": [{"summary": "A bounded API slice passed focused review."}],
+          "confidence": 0.88,
         },
     )
     store.add(strategy)
@@ -610,6 +611,7 @@ def test_model_prompt_receives_only_the_matching_strategy_genome(tmp_path):
         "execution_paths": ["Run focused contract tests."],
         "failure_boundaries": ["Do not widen the public API before verification."],
         "success_metrics": ["A focused contract test passes."],
+        "outcome_patterns": ["A bounded API slice passed focused review."],
         "confidence": 0.88,
     }]
     assert plan.strategy_refs == [strategy.artifact_id]

@@ -61,6 +61,8 @@ class BscWorkspaceCaptureRequest(PBOSRequest):
 
 
 class OutcomeRequest(PBOSRequest):
+    outcome_summary: str = Field(default="", max_length=2000)
+    observed_impacts: list[str] = Field(default_factory=list, max_length=8)
     quality_score: float | None = Field(default=None, ge=0, le=100)
     severe_failure: bool = False
     acceptance_status: str = "unverified"
@@ -74,6 +76,8 @@ class OutcomeRequest(PBOSRequest):
 
 class OutcomeReviewRequest(PBOSRequest):
     decision: Literal["accepted", "rejected"]
+    outcome_summary: str = Field(default="", max_length=2000)
+    observed_impacts: list[str] = Field(default_factory=list, max_length=8)
     quality_score: float | None = Field(default=None, ge=0, le=100)
     review_note: str = Field(default="", max_length=2000)
 

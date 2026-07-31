@@ -67,7 +67,13 @@ def test_personal_ai_delivery_loop_retains_evidence_gates(monkeypatch, tmp_path)
 
     review = client.post(
         f"/api/pbos/projects/{project_id}/outcomes/{outcome.json()['outcome']['artifact_id']}/review",
-        json={"decision": "accepted", "quality_score": 88, "review_note": "Verified against the execution receipt."},
+        json={
+            "decision": "accepted",
+            "quality_score": 88,
+            "outcome_summary": "The focused PBOS regression suite verified the bounded delivery loop.",
+            "observed_impacts": ["Contract receipt captured", "Next plan can use the review feedback"],
+            "review_note": "Verified against the execution receipt.",
+        },
     )
     assert review.status_code == 200
     assert review.json()["outcome"]["acceptance_status"] == "accepted"

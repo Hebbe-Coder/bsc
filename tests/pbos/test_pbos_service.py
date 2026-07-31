@@ -56,6 +56,8 @@ def _accepted_outcome(
         {
             "quality_score": score,
             "acceptance_status": "accepted",
+            "outcome_summary": f"Delivered comparable AI-project slice with reviewed quality {score}.",
+            "observed_impacts": ["Reviewable delivery completed"],
             "comparison_key": comparison_key,
             "metrics": metrics,
         },
@@ -149,7 +151,8 @@ def test_pbos_strategy_genome_and_cockpit_expose_traceable_growth_state(tmp_path
     promoted = service.evolve()
     genome = promoted["sop_version"].genome
 
-    assert {"input_conditions", "decision_rules", "execution_paths", "failure_boundaries", "success_metrics", "verification", "evidence", "confidence"}.issubset(genome)
+    assert {"input_conditions", "decision_rules", "execution_paths", "failure_boundaries", "success_metrics", "verification", "evidence", "outcome_cases", "confidence"}.issubset(genome)
+    assert genome["outcome_cases"][0]["summary"].startswith("Delivered comparable AI-project slice")
     cockpit = service.cockpit()
     assert cockpit["strategies"][0]["artifact_id"] == promoted["sop_version"].artifact_id
     assert cockpit["project_health"]["accepted_outcomes"] == 3
@@ -305,7 +308,12 @@ def test_manual_client_receipts_cannot_complete_or_promote_personal_learning(tmp
     )
     outcome = service.record_outcome(
         record.artifact_id,
-        {"acceptance_status": "accepted", "quality_score": 90, "baseline_quality": 70},
+        {
+            "acceptance_status": "accepted",
+            "quality_score": 90,
+            "outcome_summary": "Reported a delivery that still lacks a server-verified receipt.",
+            "baseline_quality": 70,
+        },
     )
 
     observation = service._outcome_observation(outcome)
@@ -353,12 +361,20 @@ def test_outcome_review_accepts_a_pending_result_with_a_score_and_audit_history(
 
     reviewed = service.review_outcome(
         outcome.artifact_id,
-        {"decision": "accepted", "quality_score": 87, "review_note": "Reviewed against the attached evidence."},
+        {
+            "decision": "accepted",
+            "quality_score": 87,
+            "outcome_summary": "The governed delivery slice passed its reviewable acceptance boundary.",
+            "observed_impacts": ["Evidence path closed"],
+            "review_note": "Reviewed against the attached evidence.",
+        },
     )
 
     assert reviewed.artifact_id == outcome.artifact_id
     assert reviewed.acceptance_status == "accepted"
     assert reviewed.quality_score == 87
+    assert reviewed.outcome_summary == "The governed delivery slice passed its reviewable acceptance boundary."
+    assert reviewed.observed_impacts == ["Evidence path closed"]
     assert reviewed.reviewed_at
     assert reviewed.review_note == "Reviewed against the attached evidence."
     assert reviewed.review_history == [{
@@ -399,6 +415,42 @@ def test_outcome_review_requires_a_score_for_acceptance(tmp_path):
         service.review_outcome(outcome.artifact_id, {"decision": "accepted"})
 
 
+def test_outcome_review_requires_an_observed_delivery_result_for_personal_learning(tmp_path):
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(store)
+    service = PBOSService(store, "personal")
+    record = service.record_execution(
+        "mission",
+        "",
+        {
+            "actions": ["Delivered one bounded engineering slice."],
+            "tool_receipts": [{"kind": "test", "verified": True}],
+            "reflection": {"completed": "The evidence is ready for a human review."},
+        },
+    )
+    outcome = service.record_outcome(record.artifact_id, {"acceptance_status": "unverified"})
+
+    with pytest.raises(ValueError, match="observed delivery result"):
+        service.review_outcome(outcome.artifact_id, {"decision": "accepted", "quality_score": 84})
+
+    persisted = store.get(outcome.artifact_id)
+    assert isinstance(persisted, WorkOutcomeArtifact)
+    assert persisted.acceptance_status == "unverified"
+    assert persisted.review_history == []
+
+    reviewed = service.review_outcome(
+        outcome.artifact_id,
+        {
+            "decision": "accepted",
+            "quality_score": 84,
+            "outcome_summary": "The bounded engineering slice passed its intended verification.",
+            "observed_impacts": ["Focused test remains green"],
+        },
+    )
+
+    assert service._outcome_observation(reviewed)["eligible_for_evolution"] is True
+
+
 def test_outcome_review_cannot_accept_a_result_without_reviewable_execution_evidence(tmp_path):
     store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
     _mission(store)
@@ -415,7 +467,14 @@ def test_outcome_review_cannot_accept_a_result_without_reviewable_execution_evid
     outcome = service.record_outcome(record.artifact_id, {"acceptance_status": "unverified"})
 
     with pytest.raises(ValueError, match="verified_tool_receipt"):
-        service.review_outcome(outcome.artifact_id, {"decision": "accepted", "quality_score": 82})
+        service.review_outcome(
+            outcome.artifact_id,
+            {
+                "decision": "accepted",
+                "quality_score": 82,
+                "outcome_summary": "The manual receipt needs server verification.",
+            },
+        )
 
     persisted = store.get(outcome.artifact_id)
     assert isinstance(persisted, WorkOutcomeArtifact)
@@ -617,7 +676,14 @@ def test_one_complete_outcome_cannot_promote_a_strategy(tmp_path):
     _mission(store)
     service = PBOSService(store, "personal")
     record = service.record_execution("mission", "", {"actions": ["deliver"], "tool_receipts": [{"kind": "test", "verified": True}]})
-    service.record_outcome(record.artifact_id, {"quality_score": 99, "acceptance_status": "accepted"})
+    service.record_outcome(
+        record.artifact_id,
+        {
+            "quality_score": 99,
+            "acceptance_status": "accepted",
+            "outcome_summary": "One bounded delivery was reviewed without a reflection.",
+        },
+    )
     assert service.evolve()["state"] == "insufficient_evidence"
 
 
@@ -630,7 +696,14 @@ def test_cockpit_marks_incomplete_accepted_outcomes_ineligible_for_personal_lear
         "",
         {"actions": ["Ran the release check."], "tool_receipts": [{"kind": "test", "passed": True}]},
     )
-    service.record_outcome(record.artifact_id, {"acceptance_status": "accepted", "quality_score": 100})
+    service.record_outcome(
+        record.artifact_id,
+        {
+            "acceptance_status": "accepted",
+            "quality_score": 100,
+            "outcome_summary": "The release check was completed but its evidence remains incomplete.",
+        },
+    )
 
     cockpit = service.cockpit()
     vault = tmp_path / "vault"
@@ -653,7 +726,14 @@ def test_feedback_is_a_traceable_constraint_for_the_next_plan(tmp_path):
     service.save_profile({"focus": ["AI delivery"]})
     first_plan = service.compile_plan("mission-1")
     record = service.record_execution("mission-1", first_plan.artifact_id, {"actions": ["deliver"]})
-    outcome = service.record_outcome(record.artifact_id, {"acceptance_status": "accepted", "quality_score": 75})
+    outcome = service.record_outcome(
+        record.artifact_id,
+        {
+            "acceptance_status": "accepted",
+            "quality_score": 75,
+            "outcome_summary": "The first delivery produced feedback for the next plan.",
+        },
+    )
     feedback = service.record_feedback(outcome.artifact_id, {
         "source": "manual_reflection",
         "sentiment": "negative",
@@ -685,7 +765,14 @@ def test_cockpit_exposes_feedback_that_will_constrain_the_next_plan(tmp_path):
     _mission(store)
     service = PBOSService(store, "personal")
     record = service.record_execution("mission", "", {"actions": ["deliver"]})
-    outcome = service.record_outcome(record.artifact_id, {"acceptance_status": "accepted", "quality_score": 70})
+    outcome = service.record_outcome(
+        record.artifact_id,
+        {
+            "acceptance_status": "accepted",
+            "quality_score": 70,
+            "outcome_summary": "The delivery produced a reviewable feedback item.",
+        },
+    )
     feedback = service.record_feedback(outcome.artifact_id, {"statement": "Use the evidence atlas in the review."})
 
     cockpit = service.cockpit()

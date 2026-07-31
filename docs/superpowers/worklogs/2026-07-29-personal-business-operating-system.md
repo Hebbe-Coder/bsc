@@ -1259,3 +1259,33 @@
 - **Rollback:** start Studio without the authorised local-proxy launcher to
   restore the explicit access-key gate. This does not rotate the backend key,
   alter PBOS records, or expose a credential to the browser.
+
+## 2026-07-31 Observed Outcome Gate And Production Readback
+
+- **Implementation closure:** `WorkOutcomeArtifact` now stores an observed
+  delivery result and bounded observed impacts separately from a quality score.
+  An accepted Outcome requires both a real result summary and a score; a
+  Strategy Genome carries bounded outcome cases, and a future compiler may use
+  only those reviewed cases in the matching context.
+- **Focused verification:** PBOS/API/MCP/integration coverage passed `76`;
+  frontend coverage passed `186`; shared Artifact/Runtime/Wiki/Distillation
+  coverage passed `103` with one Windows symlink condition skipped. `npm run
+  check`, `npm run build`, and `docker compose config --quiet` passed.
+- **Production gate test:** through the live same-origin Studio proxy,
+  accepting `art_064fc49cff71` with a score but without an observed delivery
+  result returned HTTP `422` with
+  `An accepted PBOS outcome requires an observed delivery result`. A second
+  live Cockpit readback confirmed the record remains `unverified`, with no
+  score, review history, or learning eligibility.
+- **Runtime parity:** the SHA-256 of host `app/pbos/service.py` matches the
+  file inside the healthy `bsc-backend` container. The running Cockpit reports
+  `profile_context_required`, missing only the user-declared role, industry,
+  and organization stage; accepted outcomes remain `0`, unverified outcomes
+  `1`, Capabilities `0`, and Strategy Genomes `0`.
+- **No fabricated progress:** no personal score, delivery result, acceptance,
+  capability, strategy, connector authorization, or remote sync was created
+  by this verification. The pending Outcome remains user-owned evidence.
+- **Rollback:** revert only the result-summary fields, acceptance gate,
+  bounded genome/compiler projection, and their focused tests. Existing
+  unverified Outcome data remains valid and can be reviewed later with a real
+  observed result.

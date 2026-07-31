@@ -601,3 +601,35 @@ npm run build
   learning gate closed. Existing code, immutable Artifact Graph records,
   Vault projections, connector states, and schedules do not need deletion to
   roll back an individual review decision.
+
+## 2026-07-31 Result Semantics Closure
+
+### Implemented
+
+- Work Outcomes now distinguish an observed delivery result and observed
+  impacts from the evaluative quality score. The result is projected into the
+  PBOS outcome artifact and is required before an accepted record can become
+  eligible for personal learning.
+- Promoted Strategy Genomes retain bounded, reviewed `outcome_cases`; the
+  contextual compiler exposes at most two matching result summaries and never
+  treats an unverified Outcome as a personal pattern.
+
+### Evidence
+
+- `pytest tests/pbos tests/api/test_pbos_api.py tests/mcp/test_pbos_http_contract.py tests/integration/test_pbos_e2e.py`:
+  `76 passed`.
+- `pytest tests/test_artifact_store_durability.py tests/test_agent_runtime_convergence.py tests/knowledge/test_wiki_sync.py tests/knowledge/test_growth_distillation.py`:
+  `103 passed, 1 skipped`.
+- `npm run test:frontend`: `186 passed`; `npm run check`, `npm run build`,
+  and `docker compose config --quiet` passed.
+- Live Studio proxy acceptance without an observed result returned `422`; a
+  subsequent live Cockpit readback preserved `unverified`, zero accepted
+  outcomes, and zero learning-eligible outcomes. Host/container source hashes
+  matched for `app/pbos/service.py`.
+
+### Remaining
+
+- The current project still needs a user-declared role, industry, and
+  organization stage, a real review of the pending delivery, and two further
+  comparable receipt-backed AI-project deliveries. These are not replaceable
+  by fixtures or automatic inference.

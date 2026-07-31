@@ -15,7 +15,14 @@ def _source_graph(tmp_path):
     profile = service.save_profile({"focus": ["delivery"]})
     plan = service.compile_plan(mission.artifact_id)
     execution = service.record_execution(mission.artifact_id, plan.artifact_id, {"actions": ["test"]})
-    outcome = service.record_outcome(execution.artifact_id, {"acceptance_status": "accepted", "quality_score": 80})
+    outcome = service.record_outcome(
+        execution.artifact_id,
+        {
+            "acceptance_status": "accepted",
+            "quality_score": 80,
+            "outcome_summary": "The migrated delivery completed its recorded evidence handoff.",
+        },
+    )
     service.record_feedback(outcome.artifact_id, {"statement": "Keep the evidence link."})
     return store, mission, profile
 
