@@ -155,11 +155,25 @@ class Settings(BaseSettings):
     # before a project_ingress key can submit a SignalBatch.
     KNOWLEDGE_INTELLIGENCE_ENABLED: bool = False
     KNOWLEDGE_INTELLIGENCE_INGRESS_SIGNING_SECRET: str = ""
+    # A project writer may ask BSC to invoke the local n8n workflow. The
+    # request carries a separate, short-lived HMAC payload and n8n still has
+    # to obtain a signed ingress receipt before the run is considered useful.
+    KNOWLEDGE_INTELLIGENCE_N8N_MANUAL_TRIGGER_ENABLED: bool = False
+    KNOWLEDGE_INTELLIGENCE_N8N_MANUAL_TRIGGER_URL: str = ""
+    KNOWLEDGE_INTELLIGENCE_N8N_MANUAL_TRIGGER_PROJECT_ID: str = ""
+    KNOWLEDGE_INTELLIGENCE_N8N_MANUAL_TRIGGER_TIMEOUT_SECONDS: float = 330.0
     KNOWLEDGE_TESSERACT_PATH: str = ""
     KNOWLEDGE_FFPROBE_PATH: str = ""
     DYNAMIC_BUSINESS_OS_ENABLED: bool = True
     DBOS_BLINDSPOT_INTAKE_ENABLED: bool = True
     OBSIDIAN_VAULT_ROOT: str = ""
+    # Optional, read-only local plugin probe. Keep the Local REST token in the
+    # runtime environment only; BSC never imports it from `.obsidian` files.
+    OBSIDIAN_LOCAL_REST_ENABLED: bool = False
+    OBSIDIAN_LOCAL_REST_URL: str = ""
+    OBSIDIAN_LOCAL_REST_API_KEY: str = ""
+    OBSIDIAN_LOCAL_REST_TIMEOUT_SECONDS: float = 3.0
+    OBSIDIAN_LOCAL_REST_ALLOW_INSECURE_TLS: bool = False
     HORIZON_ENABLED: bool = False
     HORIZON_API_BASE_URL: str = ""
     HORIZON_API_KEY: str = ""

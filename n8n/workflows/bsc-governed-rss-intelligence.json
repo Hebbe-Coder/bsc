@@ -38,6 +38,49 @@
     },
     {
       "parameters": {
+        "httpMethod": "POST",
+        "path": "bsc-governed-rss-intelligence/manual",
+        "authentication": "none",
+        "responseMode": "lastNode",
+        "responseData": "allEntries",
+        "options": {}
+      },
+      "id": "6af81324-29d6-4e5f-9dd2-c9ad1be6107d",
+      "name": "Controlled BSC manual run",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "webhookId": "bsc-governed-rss-intelligence-manual-v1",
+      "position": [-1080, 440]
+    },
+    {
+      "parameters": {
+        "action": "hmac",
+        "type": "SHA256",
+        "binaryData": false,
+        "value": "={{ $json.headers['x-bsc-manual-payload'] || '' }}",
+        "secret": "={{ $env.BSC_SIGNAL_SIGNING_SECRET }}",
+        "dataPropertyName": "bsc_manual_signature",
+        "encoding": "hex"
+      },
+      "id": "74a4e825-2440-431b-ac44-788594267574",
+      "name": "Sign received BSC manual payload",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 1,
+      "position": [-840, 440]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const headers = $json.headers || {};\nconst serializedPayload = String(headers['x-bsc-manual-payload'] || '').trim();\nconst suppliedSignature = String(headers['x-bsc-manual-signature'] || '').trim().toLowerCase();\nconst expectedSignature = String($json.bsc_manual_signature || '').trim().toLowerCase();\nif (!serializedPayload || !suppliedSignature || suppliedSignature !== expectedSignature) throw new Error('Controlled BSC manual run signature is missing or invalid');\nlet payload;\ntry { payload = JSON.parse(serializedPayload); } catch { throw new Error('Controlled BSC manual run payload is invalid'); }\nif (payload.schema_version !== 'bsc-n8n-manual-run-v1') throw new Error('Controlled BSC manual run payload version is invalid');\nconst configuredProjectId = String($env.N8N_BSC_PROJECT_ID || '').trim();\nif (!configuredProjectId || String(payload.project_id || '').trim() !== configuredProjectId) throw new Error('Controlled BSC manual run project is not configured for this n8n instance');\nconst requestedAt = Date.parse(String(payload.requested_at || ''));\nif (!Number.isFinite(requestedAt) || Math.abs(Date.now() - requestedAt) > 5 * 60 * 1000) throw new Error('Controlled BSC manual run request is stale');\nreturn $input.all();"
+      },
+      "id": "4d4f4b02-3b7e-4ba4-9684-feb26d43e16b",
+      "name": "Verify controlled BSC manual run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-610, 440]
+    },
+    {
+      "parameters": {
         "method": "GET",
         "url": "={{ $env.BSC_INFORMATION_SOURCE_MANIFEST_URL }}",
         "sendHeaders": true,
@@ -161,6 +204,9 @@
   "connections": {
     "Manual run": { "main": [[{ "node": "Load BSC source manifest", "type": "main", "index": 0 }]] },
     "08:00 Asia Shanghai (activate only after review)": { "main": [[{ "node": "Load BSC source manifest", "type": "main", "index": 0 }]] },
+    "Controlled BSC manual run": { "main": [[{ "node": "Sign received BSC manual payload", "type": "main", "index": 0 }]] },
+    "Sign received BSC manual payload": { "main": [[{ "node": "Verify controlled BSC manual run", "type": "main", "index": 0 }]] },
+    "Verify controlled BSC manual run": { "main": [[{ "node": "Load BSC source manifest", "type": "main", "index": 0 }]] },
     "Load BSC source manifest": { "main": [[{ "node": "Expand enabled BSC sources", "type": "main", "index": 0 }]] },
     "Expand enabled BSC sources": { "main": [[{ "node": "Read registered RSS or YouTube Channel feed", "type": "main", "index": 0 }]] },
     "Read registered RSS or YouTube Channel feed": { "main": [[{ "node": "Normalize evidence or lead only", "type": "main", "index": 0 }]] },

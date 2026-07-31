@@ -55,9 +55,40 @@ def test_operations_rest_api_enforces_tenant_scope_and_returns_typed_read_models
         ]
         assert "private source body" not in str(data)
 
+        portfolio_contributors = client.get(
+            "/knowledge/operations/portfolio/metrics/qualified_total",
+            params={"limit": 1},
+            headers=headers,
+        )
+        assert portfolio_contributors.status_code == 200
+        contributor_data = portfolio_contributors.json()["data"]
+        assert contributor_data["state"] == "available"
+        assert contributor_data["metric"] == data["metrics"]["assets"]["qualified_total"]
+        assert contributor_data["total"] == 1
+        assert contributor_data["truncated"] is False
+        contributor = contributor_data["contributors"][0]
+        assert {key: contributor[key] for key in ("id", "project_id", "kind", "status", "reason", "drilldown")} == {
+            "id": "source-a",
+            "project_id": "project-a",
+            "kind": "source",
+            "status": "eligible",
+            "reason": "",
+            "drilldown": {"surface": "knowledge", "entity_id": "source-a", "mission_id": ""},
+        }
+        assert contributor["recorded_at"]
+        assert "private source body" not in str(contributor_data)
+
         project = client.get("/knowledge/operations/projects/project-a", headers=headers)
         assert project.status_code == 200
         assert project.json()["data"]["scope"]["selected_project_id"] == "project-a"
+
+        project_contributors = client.get(
+            "/knowledge/operations/projects/project-a/metrics/qualified_total",
+            headers=headers,
+        )
+        assert project_contributors.status_code == 200
+        assert project_contributors.json()["data"]["scope"]["project_ids"] == ["project-a"]
+        assert {item["project_id"] for item in project_contributors.json()["data"]["contributors"]} == {"project-a"}
 
         graph = client.get("/knowledge/operations/projects/project-a/graph", params={"mission_id": "mission-a", "limit": 10}, headers=headers)
         assert graph.status_code == 200
@@ -73,6 +104,9 @@ def test_operations_rest_api_enforces_tenant_scope_and_returns_typed_read_models
 
         forbidden = client.get("/knowledge/operations/projects/project-b", headers=headers)
         assert forbidden.status_code == 403
+        invalid_metric = client.get("/knowledge/operations/portfolio/metrics/not-a-metric", headers=headers)
+        assert invalid_metric.status_code == 422
+        assert invalid_metric.json()["message"]["code"] == "operations_invalid_metric"
         invalid_interval = client.get("/knowledge/operations/portfolio", params={"from": "2026-07-01T00:00:00+00:00"}, headers=headers)
         assert invalid_interval.status_code == 422
         assert invalid_interval.json()["message"]["code"] == "operations_invalid_interval"
@@ -110,14 +144,18 @@ def test_operations_rest_project_key_cannot_enumerate_or_escape_its_project(tmp_
     try:
         portfolio = client.get("/knowledge/operations/portfolio", headers=headers)
         own_project = client.get("/knowledge/operations/projects/project-a", headers=headers)
+        own_contributors = client.get("/knowledge/operations/projects/project-a/metrics/qualified_total", headers=headers)
         same_tenant_other = client.get("/knowledge/operations/projects/project-c", headers=headers)
+        same_tenant_other_contributors = client.get("/knowledge/operations/projects/project-c/metrics/qualified_total", headers=headers)
         cross_tenant_other = client.get("/knowledge/operations/projects/project-b/graph", headers=headers)
 
         assert portfolio.status_code == 403
         assert "project-c" not in portfolio.text and "project-b" not in portfolio.text
         assert own_project.status_code == 200
         assert own_project.json()["data"]["scope"]["project_ids"] == ["project-a"]
-        assert same_tenant_other.status_code == cross_tenant_other.status_code == 403
+        assert own_contributors.status_code == 200
+        assert own_contributors.json()["data"]["scope"]["project_ids"] == ["project-a"]
+        assert same_tenant_other.status_code == same_tenant_other_contributors.status_code == cross_tenant_other.status_code == 403
     finally:
         settings.KNOWLEDGE_WIKI_ENABLED = previous_enabled
         app.dependency_overrides.clear()

@@ -56,8 +56,20 @@ def test_governed_rss_workflow_is_disabled_and_has_no_imported_credentials_or_di
     assert "reddit" not in workflow_text.lower()
     assert "tiktok" not in workflow_text.lower()
     assert "N8N_RSS_FEED_URL" not in workflow_text
-    assert "N8N_BSC_PROJECT_ID" not in workflow_text
     assert "N8N_BSC_RSS_REGISTRY_ID" not in workflow_text
+
+    # The manually callable path may bind to one project, but only through a
+    # runtime environment reference. Workflow JSON must never carry an actual
+    # project ingress key, signing secret or imported n8n credential object.
+    assert "$env.N8N_BSC_PROJECT_ID" in workflow_text
+    controlled_webhook = nodes["Controlled BSC manual run"]["parameters"]
+    assert controlled_webhook["httpMethod"] == "POST"
+    assert controlled_webhook["authentication"] == "none"
+    assert controlled_webhook["responseMode"] == "lastNode"
+    manual_verifier = nodes["Verify controlled BSC manual run"]["parameters"]["jsCode"]
+    assert "bsc-n8n-manual-run-v1" in manual_verifier
+    assert "N8N_BSC_PROJECT_ID" in manual_verifier
+    assert "BSC_PROJECT_INGRESS_KEY" not in manual_verifier
 
     # The all-items mode must retain each feed item's linked registry context,
     # discard stale entries, and emit one signed batch for every fresh item.

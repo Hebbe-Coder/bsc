@@ -83,6 +83,34 @@ class OperationsDrilldown(BaseModel):
     mission_id: str = Field(default="", max_length=256)
 
 
+class OperationsMetricContributor(BaseModel):
+    """One metadata-only durable record that contributes to an operations metric."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str = Field(min_length=1, max_length=256)
+    project_id: str = Field(min_length=1, max_length=128)
+    kind: str = Field(min_length=1, max_length=64)
+    status: str = Field(min_length=1, max_length=64)
+    recorded_at: datetime | None = None
+    reason: str = Field(default="", max_length=512)
+    drilldown: OperationsDrilldown
+
+
+class OperationsMetricContributors(BaseModel):
+    """Bounded, authorized contributor list for one persisted operations metric."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    generated_at: datetime
+    scope: OperationsScope
+    metric: OperationsMetric
+    contributors: tuple[OperationsMetricContributor, ...] = Field(default_factory=tuple, max_length=100)
+    total: int = Field(default=0, ge=0)
+    limit: int = Field(default=50, ge=1, le=100)
+    truncated: bool = False
+
+
 _SEVERITY_PRIORITY = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 _ACTION_KIND_PRIORITY = {
     "unresolved_risk": 0,

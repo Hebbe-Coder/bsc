@@ -1,10 +1,11 @@
 import { type ReactNode, useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Download, Inbox, Radio, RefreshCw, Send, ShieldAlert } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Download, Inbox, Play, Radio, RefreshCw, Send, ShieldAlert } from 'lucide-react';
 
 import {
   captureKnowledgePrimaryWebSource,
   createKnowledgeInformationSource,
   fetchKnowledgeInformationOverview,
+  runKnowledgeInformationManualIngress,
   type InformationBriefItem,
   type InformationRegistrySource,
   type HorizonReviewItem,
@@ -27,6 +28,8 @@ export function InformationOperationsPanel({ projectId, canWrite, refreshToken, 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [runningManualCheck, setRunningManualCheck] = useState(false);
+  const [manualRunMessage, setManualRunMessage] = useState('');
   const [capturingSourceId, setCapturingSourceId] = useState('');
   const [name, setName] = useState('');
   const [connectorType, setConnectorType] = useState<InformationRegistrySource['connector_type']>('rss');
@@ -107,6 +110,28 @@ export function InformationOperationsPanel({ projectId, canWrite, refreshToken, 
     }
   };
 
+  const runManualSourceCheck = async () => {
+    setRunningManualCheck(true);
+    setError('');
+    setManualRunMessage('');
+    try {
+      const result = await runKnowledgeInformationManualIngress(projectId);
+      const detail = result.state === 'receipt_verification_pending'
+        ? 'Source check is awaiting BSC receipt verification. No new receipt is counted yet.'
+        : result.state === 'completed_no_fresh_items'
+          ? 'Source check completed. No fresh feed entries required a BSC receipt.'
+          : result.state === 'completed_with_rejections'
+            ? `Source check persisted ${result.receipt_count} BSC receipt${result.receipt_count === 1 ? '' : 's'} with rejected input(s). Review the receipt ledger before using the result.`
+            : `Source check completed with ${result.receipt_count} BSC receipt${result.receipt_count === 1 ? '' : 's'} across ${result.batch_count} batch${result.batch_count === 1 ? '' : 'es'}.`;
+      setManualRunMessage(detail);
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'The governed source check could not be completed.');
+    } finally {
+      setRunningManualCheck(false);
+    }
+  };
+
   const isYoutubeChannel = connectorType === 'youtube_channel_rss';
 
   if (loading && !overview) return <section className="information-operations information-operations--loading">Loading governed information operations...</section>;
@@ -116,8 +141,9 @@ export function InformationOperationsPanel({ projectId, canWrite, refreshToken, 
   return <section className="information-operations" aria-label="Governed information operations">
     <header className="knowledge-content-header">
       <div><span className="eyebrow"><Radio size={14} /> GOVERNED INFORMATION</span><h3>Discovery is not knowledge.</h3><p>n8n may discover and rank signals. BSC verifies the receipt, preserves original evidence, and routes every item through project review.</p></div>
-      <button type="button" className="icon-button" onClick={() => void load()} aria-label="Refresh information operations" title="Refresh source status and BSC receipts"><RefreshCw size={16} /></button>
+      <div className="information-header-actions"><button type="button" className="information-run-check" onClick={() => void runManualSourceCheck()} disabled={!canWrite || runningManualCheck} title="Run the configured project feeds through the signed n8n and BSC receipt path"><Play size={14} />{runningManualCheck ? 'Running source check...' : 'Run source check'}</button><button type="button" className="icon-button" onClick={() => void load()} aria-label="Refresh information operations" title="Refresh source status and BSC receipts"><RefreshCw size={16} /></button></div>
     </header>
+    {manualRunMessage ? <p className="information-run-message" role="status">{manualRunMessage}</p> : null}
     <div className="information-metrics" aria-label="Information intake metrics">
       <Metric icon={<Radio size={16} />} label="Enabled feeds" value={overview.counts.available_sources} detail={`${overview.counts.unavailable_sources} unavailable adapters`} />
       <Metric icon={<CheckCircle2 size={16} />} label="Evidence receipts" value={overview.counts.captured} detail="All BSC receipts, including repeat discoveries" />

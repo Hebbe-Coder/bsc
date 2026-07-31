@@ -3,13 +3,14 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { captureKnowledgePrimaryWebSource, createKnowledgeInformationSource, fetchKnowledgeInformationOverview, type KnowledgeInformationOverview } from '../../api/knowledgeWorkspaceApi';
+import { captureKnowledgePrimaryWebSource, createKnowledgeInformationSource, fetchKnowledgeInformationOverview, runKnowledgeInformationManualIngress, type KnowledgeInformationOverview } from '../../api/knowledgeWorkspaceApi';
 import { InformationOperationsPanel } from './InformationOperationsPanel';
 
 vi.mock('../../api/knowledgeWorkspaceApi', () => ({
   captureKnowledgePrimaryWebSource: vi.fn(),
   createKnowledgeInformationSource: vi.fn(),
   fetchKnowledgeInformationOverview: vi.fn(),
+  runKnowledgeInformationManualIngress: vi.fn(),
 }));
 
 const overview = {
@@ -146,5 +147,37 @@ describe('InformationOperationsPanel', () => {
     expect(screen.queryByRole('button', { name: 'Capture primary source' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Review primary evidence' }));
     expect(inspect).toHaveBeenCalledWith('primary-evidence');
+  });
+
+  it('runs the configured source check only through the governed BSC and n8n receipt path', async () => {
+    vi.mocked(fetchKnowledgeInformationOverview).mockResolvedValue(overviewWithBrief);
+    vi.mocked(runKnowledgeInformationManualIngress).mockResolvedValue({
+      project_id: 'project-a', trigger: 'n8n_signed_manual_webhook', request_id: 'request-1', requested_at: '2026-07-31T00:00:00Z',
+      state: 'completed', batch_count: 2, receipt_count: 3, batches: [],
+      verification: { state: 'verified', claimed_batch_count: 2, verified_batch_count: 2, pending_batch_ids: [] },
+    });
+    render(<InformationOperationsPanel projectId="project-a" canWrite refreshToken={0} />);
+
+    await screen.findByText('GOVERNED INFORMATION');
+    fireEvent.click(screen.getByRole('button', { name: 'Run source check' }));
+
+    await waitFor(() => expect(runKnowledgeInformationManualIngress).toHaveBeenCalledWith('project-a'));
+    expect(await screen.findByText('Source check completed with 3 BSC receipts across 2 batches.')).toBeVisible();
+  });
+
+  it('does not present an unpersisted n8n batch claim as a completed source check', async () => {
+    vi.mocked(fetchKnowledgeInformationOverview).mockResolvedValue(overviewWithBrief);
+    vi.mocked(runKnowledgeInformationManualIngress).mockResolvedValue({
+      project_id: 'project-a', trigger: 'n8n_signed_manual_webhook', request_id: 'request-2', requested_at: '2026-07-31T00:00:00Z',
+      state: 'receipt_verification_pending', batch_count: 0, receipt_count: 0, batches: [],
+      verification: { state: 'pending', claimed_batch_count: 1, verified_batch_count: 0, pending_batch_ids: ['unverified-batch'] },
+    } as never);
+    render(<InformationOperationsPanel projectId="project-a" canWrite refreshToken={0} />);
+
+    await screen.findByText('GOVERNED INFORMATION');
+    fireEvent.click(screen.getByRole('button', { name: 'Run source check' }));
+
+    expect(await screen.findByText('Source check is awaiting BSC receipt verification. No new receipt is counted yet.')).toBeVisible();
+    expect(screen.queryByText(/Source check completed with 0 BSC receipt/i)).toBeNull();
   });
 });

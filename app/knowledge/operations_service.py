@@ -26,6 +26,8 @@ from app.knowledge.operations_contracts import (
     OperationsFreshness,
     OperationsDrilldown,
     OperationsMetric,
+    OperationsMetricContributor,
+    OperationsMetricContributors,
     OperationsMetricState,
     OperationsProjectMetrics,
     OperationsProjectSummary,
@@ -53,6 +55,13 @@ _ATTENTION_OUTPUT_STATUSES = {"rejected", "superseded", "archived"}
 _PENDING_METHOD_STATUSES = {"candidate", "validating", "approved"}
 # A single completed run is useful evidence, but not a reliable performance rate.
 MINIMUM_AGENT_SAMPLE_SIZE = 3
+_DRILLABLE_METRIC_KEYS = {
+    "qualified_total",
+    "pending_validation",
+    "requires_attention",
+    "durable_references",
+    "open_actions",
+}
 
 
 class KnowledgeOperationsService:
@@ -83,15 +92,7 @@ class KnowledgeOperationsService:
         actions = self._actions(snapshots)
         project_summaries = self._project_summaries(project_records, snapshots, actions)
 
-        sources = sum(len(snapshot["asset_records"]["sources"]) for snapshot in snapshots)
-        pages = sum(len(snapshot["asset_records"]["pages"]) for snapshot in snapshots)
-        methods = sum(len(snapshot["asset_records"]["methods"]) for snapshot in snapshots)
-        outputs = sum(len(snapshot["asset_records"]["outputs"]) for snapshot in snapshots)
-        memories = sum(len(snapshot["asset_records"]["memories"]) for snapshot in snapshots)
-        verified = sum(snapshot["verified"] for snapshot in snapshots)
-        pending = sum(snapshot["pending_validation"] for snapshot in snapshots)
-        attention = sum(snapshot["requires_attention"] for snapshot in snapshots)
-        durable_references = sum(snapshot["durable_references"] for snapshot in snapshots)
+        metrics = self._overview_metrics(snapshots)
         record_count = sum(self._audited_record_count(snapshot) for snapshot in snapshots)
         unavailable_dbos = [snapshot["project_id"] for snapshot in snapshots if snapshot["dbos_unavailable"]]
         coverage = OperationsCoverage(
@@ -115,25 +116,7 @@ class KnowledgeOperationsService:
             },
             "project_count": len(projects),
             "coverage": coverage,
-            "metrics": {
-                "assets": {
-                    "qualified_total": self._metric("qualified_total", sources + pages + methods + outputs + memories),
-                    "sources": self._metric("sources", sources),
-                    "pages": self._metric("pages", pages),
-                    "methods": self._metric("methods", methods),
-                    "outputs": self._metric("outputs", outputs),
-                    "memories": self._metric("memories", memories),
-                },
-                "quality": {
-                    "verified": self._metric("verified", verified),
-                    "pending_validation": self._metric("pending_validation", pending),
-                    "requires_attention": self._metric("requires_attention", attention),
-                },
-                "reuse": {
-                    "durable_references": self._metric("durable_references", durable_references),
-                },
-                "agent_evolution": self._agent_metrics(snapshots),
-            },
+            "metrics": metrics,
             "trends": {
                 "asset_growth": self._asset_growth(snapshots),
                 "agent_evolution": self._agent_evolution_trend(snapshots),
@@ -141,6 +124,225 @@ class KnowledgeOperationsService:
             "project_summaries": project_summaries,
             "actions": actions,
         }
+
+    def metric_contributors(self, scope: OperationsScope, metric_key: str, *, limit: int = 50) -> dict[str, Any]:
+        """Return bounded metadata records that exactly account for one displayed metric."""
+        normalized_key = str(metric_key or "").strip()
+        if normalized_key not in _DRILLABLE_METRIC_KEYS:
+            raise ValueError(f"unsupported operations metric: {normalized_key or 'empty'}")
+        safe_limit = min(100, max(1, int(limit)))
+        project_records = self._authorized_project_records(scope)
+        projects = [str(project["id"]) for project in project_records]
+        snapshots = [self._project_snapshot(project_id, scope.tenant_id, scope) for project_id in projects]
+        actions = self._actions(snapshots)
+        metrics = self._overview_metrics(snapshots)
+        metric = self._drilldown_metric(normalized_key, metrics, actions)
+        contributors = self._metric_contributors(normalized_key, snapshots, actions)
+        contributors.sort(key=lambda item: (item.project_id, item.recorded_at or datetime.min.replace(tzinfo=timezone.utc), item.id))
+        return OperationsMetricContributors(
+            generated_at=datetime.now(timezone.utc),
+            scope=OperationsScope(
+                tenant_id=scope.tenant_id,
+                role=scope.role,
+                project_ids=tuple(projects),
+                selected_project_id=scope.selected_project_id,
+                interval=scope.interval,
+            ),
+            metric=OperationsMetric.model_validate(metric),
+            contributors=tuple(contributors[:safe_limit]),
+            total=len(contributors),
+            limit=safe_limit,
+            truncated=len(contributors) > safe_limit,
+        ).model_dump(mode="json")
+
+    def _overview_metrics(self, snapshots: list[dict[str, Any]]) -> dict[str, Any]:
+        sources = sum(len(snapshot["asset_records"]["sources"]) for snapshot in snapshots)
+        pages = sum(len(snapshot["asset_records"]["pages"]) for snapshot in snapshots)
+        methods = sum(len(snapshot["asset_records"]["methods"]) for snapshot in snapshots)
+        outputs = sum(len(snapshot["asset_records"]["outputs"]) for snapshot in snapshots)
+        memories = sum(len(snapshot["asset_records"]["memories"]) for snapshot in snapshots)
+        verified = sum(snapshot["verified"] for snapshot in snapshots)
+        pending = sum(snapshot["pending_validation"] for snapshot in snapshots)
+        attention = sum(snapshot["requires_attention"] for snapshot in snapshots)
+        durable_references = sum(snapshot["durable_references"] for snapshot in snapshots)
+        return {
+            "assets": {
+                "qualified_total": self._metric("qualified_total", sources + pages + methods + outputs + memories),
+                "sources": self._metric("sources", sources),
+                "pages": self._metric("pages", pages),
+                "methods": self._metric("methods", methods),
+                "outputs": self._metric("outputs", outputs),
+                "memories": self._metric("memories", memories),
+            },
+            "quality": {
+                "verified": self._metric("verified", verified),
+                "pending_validation": self._metric("pending_validation", pending),
+                "requires_attention": self._metric("requires_attention", attention),
+            },
+            "reuse": {
+                "durable_references": self._metric("durable_references", durable_references),
+            },
+            "agent_evolution": self._agent_metrics(snapshots),
+        }
+
+    @staticmethod
+    def _drilldown_metric(metric_key: str, metrics: dict[str, Any], actions: list[dict[str, Any]]) -> dict[str, Any]:
+        if metric_key == "qualified_total":
+            return metrics["assets"][metric_key]
+        if metric_key in {"pending_validation", "requires_attention"}:
+            return metrics["quality"][metric_key]
+        if metric_key == "durable_references":
+            return metrics["reuse"][metric_key]
+        return KnowledgeOperationsService._metric("open_actions", len(actions))
+
+    def _metric_contributors(
+        self,
+        metric_key: str,
+        snapshots: list[dict[str, Any]],
+        actions: list[dict[str, Any]],
+    ) -> list[OperationsMetricContributor]:
+        if metric_key == "open_actions":
+            return [
+                OperationsMetricContributor(
+                    id=str(action["id"]),
+                    project_id=str(action["project_id"]),
+                    kind="action",
+                    status=str(action["severity"]),
+                    recorded_at=self._timestamp(action["created_at"]),
+                    reason=str(action["recommendation"])[:512],
+                    drilldown=OperationsDrilldown.model_validate(action["drilldown"]),
+                )
+                for action in actions
+            ]
+        contributors: list[OperationsMetricContributor] = []
+        for snapshot in snapshots:
+            if metric_key == "qualified_total":
+                contributors.extend(self._asset_contributors(snapshot))
+            elif metric_key == "pending_validation":
+                contributors.extend(self._pending_contributors(snapshot))
+            elif metric_key == "requires_attention":
+                contributors.extend(self._attention_contributors(snapshot))
+            elif metric_key == "durable_references":
+                contributors.extend(self._durable_reference_contributors(snapshot))
+        return contributors
+
+    def _asset_contributors(self, snapshot: dict[str, Any]) -> list[OperationsMetricContributor]:
+        contributors: list[OperationsMetricContributor] = []
+        for record in snapshot["asset_records"]["sources"]:
+            contributors.append(self._record_contributor(snapshot["project_id"], "source", record, "knowledge"))
+        for record in snapshot["asset_records"]["pages"]:
+            contributors.append(self._record_contributor(snapshot["project_id"], "wiki_page", record, "knowledge"))
+        for record in snapshot["asset_records"]["methods"]:
+            contributors.append(self._record_contributor(snapshot["project_id"], "method", record, "growth"))
+        for record in snapshot["asset_records"]["outputs"]:
+            contributors.append(self._record_contributor(snapshot["project_id"], "output", record, "growth"))
+        for memory in snapshot["asset_records"]["memories"]:
+            contributors.append(self._artifact_contributor(snapshot["project_id"], "memory", memory, status=str(memory.governance_status or "recorded")))
+        return contributors
+
+    def _pending_contributors(self, snapshot: dict[str, Any]) -> list[OperationsMetricContributor]:
+        contributors: list[OperationsMetricContributor] = []
+        for source in snapshot["sources"]:
+            if str(source.get("status") or "") == "validated":
+                contributors.append(self._record_contributor(snapshot["project_id"], "source", source, "knowledge"))
+        for method in snapshot["methods"]:
+            if str(method.get("status") or "") in {"candidate", "validating"}:
+                contributors.append(self._record_contributor(snapshot["project_id"], "method", method, "growth"))
+        for output in snapshot["outputs"]:
+            if str(output.get("status") or "") in {"registered", "evaluating"}:
+                contributors.append(self._record_contributor(snapshot["project_id"], "output", output, "growth"))
+        return contributors
+
+    def _attention_contributors(self, snapshot: dict[str, Any]) -> list[OperationsMetricContributor]:
+        contributors: list[OperationsMetricContributor] = []
+        for source in snapshot["sources"]:
+            if str(source.get("status") or "") in {"rejected", "superseded"}:
+                contributors.append(self._record_contributor(snapshot["project_id"], "source", source, "knowledge"))
+        for method in snapshot["methods"]:
+            if str(method.get("status") or "") in _ATTENTION_METHOD_STATUSES:
+                contributors.append(self._record_contributor(snapshot["project_id"], "method", method, "growth"))
+        for output in snapshot["outputs"]:
+            if str(output.get("status") or "") in _ATTENTION_OUTPUT_STATUSES:
+                contributors.append(self._record_contributor(snapshot["project_id"], "output", output, "growth"))
+        for failure in snapshot["failures"]:
+            if str(failure.get("status") or "") != "resolved":
+                contributors.append(self._record_contributor(snapshot["project_id"], "failure", failure, "growth", status="unresolved"))
+        verified_execution_ids = {artifact.execution_id for artifact in snapshot["verifications"] if artifact.execution_id}
+        for artifact in snapshot["artifacts"]:
+            if isinstance(artifact, RiskArtifact) and self._severity(artifact.severity) in {"critical", "high"}:
+                contributors.append(self._artifact_contributor(snapshot["project_id"], "dbos_risk", artifact, status="open"))
+            elif isinstance(artifact, GapArtifact) and not artifact.resolved:
+                contributors.append(self._artifact_contributor(snapshot["project_id"], "dbos_gap", artifact, status="open"))
+            elif isinstance(artifact, TaskVerificationArtifact) and artifact.verification_status == "failed":
+                contributors.append(self._artifact_contributor(snapshot["project_id"], "task_verification", artifact, status="failed"))
+            elif isinstance(artifact, ExecutionResultArtifact) and artifact.execution_status == "completed" and artifact.execution_id not in verified_execution_ids:
+                contributors.append(self._artifact_contributor(snapshot["project_id"], "execution", artifact, status="unverified"))
+            elif isinstance(artifact, AssumptionArtifact) and not artifact.validated and self._severity(artifact.criticality) == "critical":
+                contributors.append(self._artifact_contributor(snapshot["project_id"], "assumption", artifact, status="unvalidated"))
+        return contributors
+
+    def _durable_reference_contributors(self, snapshot: dict[str, Any]) -> list[OperationsMetricContributor]:
+        contributors: list[OperationsMetricContributor] = []
+        for output in snapshot["asset_records"]["outputs"]:
+            method_revision_id = str(output.get("method_revision_id") or "")
+            if method_revision_id:
+                contributors.append(OperationsMetricContributor(
+                    id=f"output-method:{output.get('id')}:{method_revision_id}",
+                    project_id=snapshot["project_id"],
+                    kind="output_method_reference",
+                    status=str(output.get("status") or "recorded"),
+                    recorded_at=self._recorded_at(output),
+                    drilldown=OperationsDrilldown(surface="growth", entity_id=str(output.get("id") or "")),
+                ))
+        for context in snapshot["artifacts"]:
+            if not isinstance(context, RuntimeContextArtifact):
+                continue
+            for method_id in context.method_ids:
+                contributors.append(OperationsMetricContributor(
+                    id=f"context-method:{context.artifact_id}:{method_id}",
+                    project_id=snapshot["project_id"],
+                    kind="context_method_reference",
+                    status="referenced",
+                    recorded_at=self._timestamp(context.created_at),
+                    drilldown=OperationsDrilldown(surface="growth", entity_id=str(method_id)),
+                ))
+        return contributors
+
+    def _record_contributor(
+        self,
+        project_id: str,
+        kind: str,
+        record: dict[str, Any],
+        surface: str,
+        *,
+        status: str | None = None,
+    ) -> OperationsMetricContributor:
+        record_id = str(record.get("id") or "")
+        return OperationsMetricContributor(
+            id=record_id,
+            project_id=project_id,
+            kind=kind,
+            status=status or str(record.get("status") or "recorded"),
+            recorded_at=self._recorded_at(record),
+            drilldown=OperationsDrilldown(surface=surface, entity_id=record_id),
+        )
+
+    def _artifact_contributor(self, project_id: str, kind: str, artifact: Any, *, status: str) -> OperationsMetricContributor:
+        return OperationsMetricContributor(
+            id=str(artifact.artifact_id),
+            project_id=project_id,
+            kind=kind,
+            status=status,
+            recorded_at=self._timestamp(artifact.created_at),
+            drilldown=OperationsDrilldown(
+                surface="dbos",
+                entity_id=str(artifact.artifact_id),
+                mission_id=str(getattr(artifact, "mission_id", "") or ""),
+            ),
+        )
+
+    def _recorded_at(self, record: dict[str, Any]) -> datetime:
+        return self._timestamp(record.get("updated_at") or record.get("captured_at") or record.get("created_at"))
 
     def _authorized_projects(self, scope: OperationsScope) -> list[str]:
         return [str(project["id"]) for project in self._authorized_project_records(scope)]
@@ -214,6 +416,7 @@ class KnowledgeOperationsService:
             "methods": methods,
             "outputs": outputs,
             "proposals": proposals,
+            "failures": failures,
             "artifacts": artifacts,
             "memories": memories,
             "executions": executions,

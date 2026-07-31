@@ -292,6 +292,23 @@ export type HorizonReviewQueue = {
   count: number;
   items: HorizonReviewItem[];
 };
+
+export type KnowledgeInformationManualRun = {
+  project_id: string;
+  trigger: 'n8n_signed_manual_webhook';
+  request_id: string;
+  requested_at: string;
+  state: 'completed' | 'completed_no_fresh_items' | 'completed_with_rejections' | 'receipt_verification_pending';
+  batch_count: number;
+  receipt_count: number;
+  batches: Array<{ batch_id: string; receipt_count: number; replayed: boolean; status: string }>;
+  verification: {
+    state: 'verified' | 'pending' | 'no_receipt_claimed';
+    claimed_batch_count: number;
+    verified_batch_count: number;
+    pending_batch_ids: string[];
+  };
+};
 export type KnowledgeInformationOverview = {
   state: 'ready' | 'no_sources';
   source_registry: InformationRegistrySource[];
@@ -361,6 +378,7 @@ export async function fetchKnowledgeImageThumbnail(projectId: string, assetId: s
 }
 export const fetchKnowledgeInformationOverview = (projectId: string) => request<KnowledgeInformationOverview>(`/knowledge/intelligence/projects/${encodeURIComponent(projectId)}`);
 export const createKnowledgeInformationSource = (projectId: string, source: Omit<InformationRegistrySource, 'id' | 'created_at' | 'updated_at' | 'availability' | 'unavailable_reason'>) => post<{ source: InformationRegistrySource }>(`/knowledge/intelligence/projects/${encodeURIComponent(projectId)}/sources`, source);
+export const runKnowledgeInformationManualIngress = (projectId: string) => post<KnowledgeInformationManualRun>(`/knowledge/intelligence/projects/${encodeURIComponent(projectId)}/manual-runs`, {});
 export const configureKnowledgeVault = (projectId: string, vaultPath: string) => request<{ vault: KnowledgeWorkspaceData['vault'] }>(`/knowledge/workspaces/${encodeURIComponent(projectId)}/vault`, { method: 'PUT', body: JSON.stringify({ vault_path: vaultPath }) });
 export const configureKnowledgePlugins = (projectId: string, plugins: KnowledgePluginBridge[]) => request<KnowledgeWorkspaceData['plugins']>(`/knowledge/workspaces/${encodeURIComponent(projectId)}/plugins`, { method: 'PUT', body: JSON.stringify({ plugins }) });
 export const setKnowledgePluginTrust = (projectId: string, pluginIds: string[], trusted: boolean, reason = '') => request<KnowledgeWorkspaceData['plugins']>(`/knowledge/workspaces/${encodeURIComponent(projectId)}/plugins/trust`, { method: 'PUT', body: JSON.stringify({ plugin_ids: pluginIds, trusted, reason }) });

@@ -7,14 +7,21 @@ import { KnowledgeOperationsCockpit } from './KnowledgeOperationsCockpit';
 
 vi.mock('../../api/knowledgeOperationsApi', async () => {
   const actual = await vi.importActual<typeof import('../../api/knowledgeOperationsApi')>('../../api/knowledgeOperationsApi');
-  return { ...actual, fetchOperationsPortfolio: vi.fn(), fetchOperationsProject: vi.fn(), fetchOperationsGraph: vi.fn() };
+  return {
+    ...actual,
+    fetchOperationsPortfolio: vi.fn(),
+    fetchOperationsProject: vi.fn(),
+    fetchOperationsGraph: vi.fn(),
+    fetchOperationsPortfolioMetricContributors: vi.fn(),
+    fetchOperationsProjectMetricContributors: vi.fn(),
+  };
 });
 
 const overview = {
   generated_at: '2026-07-27T00:00:00+00:00', state: 'available' as const, coverage: { state: 'available' as const, record_count: 4, reason: '' },
   scope: { tenant_id: 'default', role: 'tenant_admin', project_ids: ['project-a'], selected_project_id: '', mode: 'portfolio' as const }, project_count: 1,
   metrics: {
-    assets: { sources: { key: 'sources', state: 'available' as const, value: 2, unit: 'count', record_count: 2, reason: '' }, methods: { key: 'methods', state: 'available' as const, value: 1, unit: 'count', record_count: 1, reason: '' }, outputs: { key: 'outputs', state: 'available' as const, value: 1, unit: 'count', record_count: 1, reason: '' } },
+    assets: { qualified_total: { key: 'qualified_total', state: 'available' as const, value: 4, unit: 'count', record_count: 4, reason: '' }, sources: { key: 'sources', state: 'available' as const, value: 2, unit: 'count', record_count: 2, reason: '' }, methods: { key: 'methods', state: 'available' as const, value: 1, unit: 'count', record_count: 1, reason: '' }, outputs: { key: 'outputs', state: 'available' as const, value: 1, unit: 'count', record_count: 1, reason: '' } },
     quality: { verified: { key: 'verified', state: 'available' as const, value: 2, unit: 'count', record_count: 2, reason: '' }, pending_validation: { key: 'pending_validation', state: 'available' as const, value: 1, unit: 'count', record_count: 1, reason: '' }, requires_attention: { key: 'requires_attention', state: 'available' as const, value: 0, unit: 'count', record_count: 0, reason: '' } },
     reuse: { durable_references: { key: 'durable_references', state: 'available' as const, value: 1, unit: 'count', record_count: 1, reason: '' } }, agent_evolution: {},
   },
@@ -61,6 +68,17 @@ const graph = {
   },
 };
 
+const assetContributors = {
+  generated_at: '2026-07-27T00:00:00+00:00', state: 'available' as const, scope: overview.scope,
+  metric: overview.metrics.assets.qualified_total,
+  contributors: [{
+    id: 'source-a', project_id: 'project-a', kind: 'source', status: 'eligible',
+    recorded_at: '2026-07-27T00:00:00+00:00', reason: '',
+    drilldown: { surface: 'knowledge' as const, entity_id: 'source-a', mission_id: '' },
+  }],
+  total: 1, limit: 50, truncated: false,
+};
+
 describe('KnowledgeOperationsCockpit', () => {
   beforeEach(() => {
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
@@ -82,6 +100,23 @@ describe('KnowledgeOperationsCockpit', () => {
     expect(openDbos).toHaveBeenCalledWith('project-a', 'mission-a', 'risk-a');
     expect(screen.getByText(/Scope: project-a.*tenant_admin/i)).toBeTruthy();
     expect(screen.getByRole('button', { name: /Open Project A cockpit/i })).toBeTruthy();
+  });
+
+  it('loads metadata-only contributors from a decision metric and uses the governed knowledge drill-down', async () => {
+    const openKnowledge = vi.fn();
+    vi.mocked(operationsApi.fetchOperationsPortfolio).mockResolvedValue(overview);
+    vi.mocked(operationsApi.fetchOperationsPortfolioMetricContributors).mockResolvedValue(assetContributors);
+    render(<KnowledgeOperationsCockpit onClose={vi.fn()} onOpenKnowledge={openKnowledge} />);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Inspect contributors for Governed assets' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect contributors for Governed assets' }));
+
+    await waitFor(() => expect(operationsApi.fetchOperationsPortfolioMetricContributors).toHaveBeenCalledWith('qualified_total', {}));
+    expect(screen.getByLabelText('Metric contributors')).toBeTruthy();
+    expect(screen.getByText('source')).toBeTruthy();
+    expect(screen.queryByText('private source body')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect source source-a' }));
+    expect(openKnowledge).toHaveBeenCalledWith('project-a', 'source-a');
   });
 
   it('keeps a large action queue focused without hiding any governed action', async () => {

@@ -28,6 +28,27 @@ export type OperationsAction = {
   drilldown: { surface: 'knowledge' | 'growth' | 'dbos' | 'operations'; entity_id: string; mission_id: string };
 };
 
+export type OperationsMetricContributor = {
+  id: string;
+  project_id: string;
+  kind: string;
+  status: string;
+  recorded_at: string | null;
+  reason: string;
+  drilldown: OperationsAction['drilldown'];
+};
+
+export type OperationsMetricContributors = {
+  generated_at: string;
+  state: OperationsMetricState;
+  scope: OperationsOverview['scope'];
+  metric: OperationsMetric;
+  contributors: OperationsMetricContributor[];
+  total: number;
+  limit: number;
+  truncated: boolean;
+};
+
 export type OperationsFreshness = {
   state: OperationsMetricState;
   latest_activity_at: string | null;
@@ -179,6 +200,14 @@ export function fetchOperationsPortfolio(query: Pick<OperationsQuery, 'from' | '
 
 export function fetchOperationsProject(projectId: string, query: Pick<OperationsQuery, 'from' | 'to'> = {}) {
   return request<OperationsOverview>(`/knowledge/operations/projects/${encodeURIComponent(projectId)}${queryString(query)}`);
+}
+
+export function fetchOperationsPortfolioMetricContributors(metricKey: string, query: Pick<OperationsQuery, 'from' | 'to' | 'limit'> = {}) {
+  return request<OperationsMetricContributors>(`/knowledge/operations/portfolio/metrics/${encodeURIComponent(metricKey)}${queryString(query)}`);
+}
+
+export function fetchOperationsProjectMetricContributors(projectId: string, metricKey: string, query: Pick<OperationsQuery, 'from' | 'to' | 'limit'> = {}) {
+  return request<OperationsMetricContributors>(`/knowledge/operations/projects/${encodeURIComponent(projectId)}/metrics/${encodeURIComponent(metricKey)}${queryString(query)}`);
 }
 
 export function fetchOperationsGraph(projectId: string, query: OperationsQuery = {}) {

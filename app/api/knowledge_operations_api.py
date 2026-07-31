@@ -117,6 +117,25 @@ def _with_state(payload: dict) -> dict:
     return response
 
 
+def _metric_contributors_with_state(
+    context: OperationsContext,
+    scope: OperationsScope,
+    metric_key: str,
+    limit: int,
+) -> dict:
+    try:
+        payload = context.service.metric_contributors(scope, metric_key, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "operations_invalid_metric", "message": str(exc)[:300]},
+        ) from exc
+    response = dict(payload)
+    metric = response.get("metric") if isinstance(response.get("metric"), dict) else {}
+    response["state"] = str(metric.get("state") or "unavailable")
+    return response
+
+
 @router.get("/portfolio")
 def operations_portfolio(
     request: Request,
@@ -127,6 +146,20 @@ def operations_portfolio(
     interval = _interval(from_at, to_at)
     scope = _portfolio_scope(request, context.service.project_repository, interval)
     return ApiResponse.ok(_with_state(context.service.overview(scope)))
+
+
+@router.get("/portfolio/metrics/{metric_key}")
+def operations_portfolio_metric_contributors(
+    request: Request,
+    metric_key: str,
+    from_at: Annotated[str, Query(alias="from")] = "",
+    to_at: Annotated[str, Query(alias="to")] = "",
+    limit: int = Query(default=50, ge=1, le=100),
+    context: OperationsContext = Depends(get_operations_context),
+):
+    interval = _interval(from_at, to_at)
+    scope = _portfolio_scope(request, context.service.project_repository, interval)
+    return ApiResponse.ok(_metric_contributors_with_state(context, scope, metric_key, limit))
 
 
 @router.get("/projects/{project_id}")
@@ -140,6 +173,21 @@ def operations_project(
     interval = _interval(from_at, to_at)
     scope = _project_scope(request, context.service.project_repository, project_id, interval)
     return ApiResponse.ok(_with_state(context.service.overview(scope)))
+
+
+@router.get("/projects/{project_id}/metrics/{metric_key}")
+def operations_project_metric_contributors(
+    request: Request,
+    project_id: str,
+    metric_key: str,
+    from_at: Annotated[str, Query(alias="from")] = "",
+    to_at: Annotated[str, Query(alias="to")] = "",
+    limit: int = Query(default=50, ge=1, le=100),
+    context: OperationsContext = Depends(get_operations_context),
+):
+    interval = _interval(from_at, to_at)
+    scope = _project_scope(request, context.service.project_repository, project_id, interval)
+    return ApiResponse.ok(_metric_contributors_with_state(context, scope, metric_key, limit))
 
 
 @router.get("/projects/{project_id}/graph")

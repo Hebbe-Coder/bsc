@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
+import secrets
+from datetime import datetime, timezone
+from typing import Any
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import ValidationError
 
@@ -70,6 +75,179 @@ def _verify_signature(body: bytes, signature: str) -> None:
             status_code=401,
             detail={"code": "information_ingress_signature_invalid", "message": "Signal batch signature is missing or invalid."},
         )
+
+
+def _require_manual_trigger_configuration(project_id: str) -> None:
+    if not settings.KNOWLEDGE_INTELLIGENCE_N8N_MANUAL_TRIGGER_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "information_manual_trigger_disabled", "message": "The governed n8n manual trigger is disabled."},
+        )
+    if not settings.KNOWLEDGE_INTELLIGENCE_INGRESS_SIGNING_SECRET:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "information_ingress_signing_unconfigured", "message": "Ingress signing is not configured."},
+        )
+    if not settings.KNOWLEDGE_INTELLIGENCE_N8N_MANUAL_TRIGGER_URL:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "information_manual_trigger_unconfigured", "message": "The governed n8n manual trigger URL is not configured."},
+        )
+    if not settings.KNOWLEDGE_INTELLIGENCE_N8N_MANUAL_TRIGGER_PROJECT_ID:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "information_manual_trigger_project_unconfigured", "message": "The governed n8n manual trigger project is not configured."},
+        )
+    if not hmac.compare_digest(project_id, settings.KNOWLEDGE_INTELLIGENCE_N8N_MANUAL_TRIGGER_PROJECT_ID):
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "information_manual_trigger_project_mismatch", "message": "The local n8n workflow is not configured for this project."},
+        )
+
+
+def _project_manual_run_response(payload: Any) -> dict[str, Any]:
+    """Reduce an untrusted n8n webhook response to bounded receipt claims."""
+    entries = payload if isinstance(payload, list) else [payload]
+    batches: list[dict[str, Any]] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        batch_id = str(entry.get("batch_id") or "").strip()
+        if not batch_id:
+            continue
+        try:
+            receipt_count = max(0, int(entry.get("receipt_count") or 0))
+        except (TypeError, ValueError):
+            receipt_count = 0
+        batches.append(
+            {
+                "batch_id": batch_id[:200],
+                "receipt_count": receipt_count,
+                "replayed": bool(entry.get("replayed")),
+                "status": str(entry.get("status") or "completed")[:80],
+            }
+        )
+    return {
+        "state": "claimed_batches" if batches else "completed_no_fresh_items",
+        "batch_count": len(batches),
+        "receipt_count": sum(batch["receipt_count"] for batch in batches),
+        "batches": batches[:100],
+    }
+
+
+def _verify_persisted_manual_receipts(
+    repository: WikiRepository,
+    project_id: str,
+    claimed: dict[str, Any],
+) -> dict[str, Any]:
+    """Promote a webhook claim only when BSC's project ledger proves it."""
+    claimed_batches = claimed.get("batches") if isinstance(claimed.get("batches"), list) else []
+    if not claimed_batches:
+        return {
+            "state": "completed_no_fresh_items",
+            "batch_count": 0,
+            "receipt_count": 0,
+            "batches": [],
+            "verification": {
+                "state": "no_receipt_claimed",
+                "claimed_batch_count": 0,
+                "verified_batch_count": 0,
+                "pending_batch_ids": [],
+            },
+        }
+
+    verified_batches: list[dict[str, Any]] = []
+    pending_batch_ids: list[str] = []
+    includes_partial = False
+    for claim in claimed_batches:
+        if not isinstance(claim, dict):
+            continue
+        batch_id = str(claim.get("batch_id") or "").strip()
+        if not batch_id:
+            continue
+        persisted_batch = repository.get_signal_batch(project_id, batch_id)
+        if not persisted_batch:
+            pending_batch_ids.append(batch_id)
+            continue
+        persisted_status = str(persisted_batch.get("status") or "")
+        receipts = repository.list_signal_receipts(project_id, batch_id=batch_id, limit=100)
+        reported_count = max(0, int(claim.get("receipt_count") or 0))
+        if persisted_status not in {"completed", "partial"} or len(receipts) != reported_count:
+            pending_batch_ids.append(batch_id)
+            continue
+        includes_partial = includes_partial or persisted_status == "partial"
+        verified_batches.append(
+            {
+                "batch_id": batch_id,
+                "receipt_count": len(receipts),
+                "replayed": bool(claim.get("replayed")),
+                "status": persisted_status,
+            }
+        )
+
+    verification = {
+        "state": "pending" if pending_batch_ids else "verified",
+        "claimed_batch_count": len(claimed_batches),
+        "verified_batch_count": len(verified_batches),
+        "pending_batch_ids": pending_batch_ids[:100],
+    }
+    if pending_batch_ids:
+        return {
+            "state": "receipt_verification_pending",
+            "batch_count": len(verified_batches),
+            "receipt_count": sum(batch["receipt_count"] for batch in verified_batches),
+            "batches": verified_batches,
+            "verification": verification,
+        }
+    return {
+        "state": "completed_with_rejections" if includes_partial else "completed",
+        "batch_count": len(verified_batches),
+        "receipt_count": sum(batch["receipt_count"] for batch in verified_batches),
+        "batches": verified_batches,
+        "verification": verification,
+    }
+
+
+async def _dispatch_n8n_manual_run(project_id: str, repository: WikiRepository) -> dict[str, Any]:
+    _require_manual_trigger_configuration(project_id)
+    request_payload = {
+        "schema_version": "bsc-n8n-manual-run-v1",
+        "project_id": project_id,
+        "requested_at": datetime.now(timezone.utc).isoformat(),
+        "request_id": secrets.token_hex(12),
+    }
+    serialized_payload = json.dumps(request_payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
+    signature = hmac.new(
+        settings.KNOWLEDGE_INTELLIGENCE_INGRESS_SIGNING_SECRET.encode("utf-8"),
+        serialized_payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    try:
+        timeout = httpx.Timeout(max(1.0, float(settings.KNOWLEDGE_INTELLIGENCE_N8N_MANUAL_TRIGGER_TIMEOUT_SECONDS)))
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(
+                settings.KNOWLEDGE_INTELLIGENCE_N8N_MANUAL_TRIGGER_URL,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-BSC-Manual-Payload": serialized_payload,
+                    "X-BSC-Manual-Signature": signature,
+                },
+                content=b"{}",
+            )
+            response.raise_for_status()
+            response_payload = response.json() if response.content else []
+    except (httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "information_manual_trigger_failed", "message": "The governed n8n run did not return a valid receipt summary."},
+        ) from exc
+    return {
+        "project_id": project_id,
+        "trigger": "n8n_signed_manual_webhook",
+        "request_id": request_payload["request_id"],
+        "requested_at": request_payload["requested_at"],
+        **_verify_persisted_manual_receipts(repository, project_id, _project_manual_run_response(response_payload)),
+    }
 
 
 @router.post("/signal-batches")
@@ -159,6 +337,17 @@ def information_sources(
     repository: WikiRepository = Depends(get_intelligence_repository),
 ):
     return ApiResponse.ok({"sources": _service(repository).list_sources(_enforce_project_access(request, project_id))})
+
+
+@router.post("/projects/{project_id}/manual-runs")
+async def trigger_information_manual_run(
+    project_id: str,
+    request: Request,
+    repository: WikiRepository = Depends(get_intelligence_repository),
+):
+    """Run the configured project's n8n source check through a signed local webhook."""
+    effective_project_id = _enforce_project_access(request, project_id, write=True)
+    return ApiResponse.ok(await _dispatch_n8n_manual_run(effective_project_id, repository))
 
 
 @router.post("/projects/{project_id}/sources")

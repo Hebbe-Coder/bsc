@@ -212,13 +212,13 @@ def test_operations_overview_uses_real_scoped_growth_and_dbos_records(tmp_path):
             project_repository=project_repository,
             dbos_store_factory=store_for,
         )
-        overview = service.overview(
-            OperationsScope(
-                tenant_id="tenant-a",
-                role="tenant_admin",
-                project_ids=["project-a", "project-b"],
-            )
+        scope = OperationsScope(
+            tenant_id="tenant-a",
+            role="tenant_admin",
+            project_ids=["project-a", "project-b"],
         )
+        overview = service.overview(scope)
+        contributors = service.metric_contributors(scope, "qualified_total", limit=3)
 
         assert overview["scope"]["project_ids"] == ["project-a"]
         assert overview["project_count"] == 1
@@ -231,6 +231,12 @@ def test_operations_overview_uses_real_scoped_growth_and_dbos_records(tmp_path):
         assert overview["metrics"]["agent_evolution"]["verification_pass_rate"]["value"] == 66.67
         assert overview["metrics"]["agent_evolution"]["median_execution_attempt"]["value"] == 2.0
         assert overview["metrics"]["agent_evolution"]["routing_holdout_pass_rate"]["value"] == 66.67
+        assert contributors["metric"] == overview["metrics"]["assets"]["qualified_total"]
+        assert contributors["total"] == 4
+        assert len(contributors["contributors"]) == 3
+        assert contributors["truncated"] is True
+        assert {item["kind"] for item in contributors["contributors"]} <= {"source", "wiki_page", "method", "output", "memory"}
+        assert "immutable source material" not in str(contributors)
         assert len(overview["project_summaries"]) == 1
         project_summary = overview["project_summaries"][0]
         assert project_summary["project_id"] == "project-a"
@@ -321,7 +327,10 @@ def test_operations_keeps_unqualified_assets_in_audit_and_action_queues(tmp_path
                 session_id="dbos",
             ),
         )
-        overview = service.overview(OperationsScope(tenant_id="tenant-a", role="tenant_admin"))
+        scope = OperationsScope(tenant_id="tenant-a", role="tenant_admin")
+        overview = service.overview(scope)
+        pending = service.metric_contributors(scope, "pending_validation")
+        attention = service.metric_contributors(scope, "requires_attention")
 
         assert overview["metrics"]["assets"]["qualified_total"]["value"] == 3
         assert overview["metrics"]["assets"]["sources"]["value"] == 1
@@ -330,6 +339,12 @@ def test_operations_keeps_unqualified_assets_in_audit_and_action_queues(tmp_path
         assert overview["metrics"]["quality"]["verified"]["value"] == 3
         assert overview["metrics"]["quality"]["pending_validation"]["value"] == 3
         assert overview["metrics"]["quality"]["requires_attention"]["value"] == 3
+        assert pending["metric"] == overview["metrics"]["quality"]["pending_validation"]
+        assert {item["id"] for item in pending["contributors"]} == {"source-validated", "method-candidate", "output-registered"}
+        assert attention["metric"] == overview["metrics"]["quality"]["requires_attention"]
+        assert {item["id"] for item in attention["contributors"]} == {"source-rejected", "method-rejected", "output-rejected"}
+        assert "audit body" not in str(pending)
+        assert "audit body" not in str(attention)
         assert overview["coverage"]["record_count"] == 9
         assert overview["project_summaries"][0]["metrics"]["asset_count"]["value"] == 3
         assert {action["kind"] for action in overview["actions"]} == {

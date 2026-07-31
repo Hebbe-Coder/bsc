@@ -6,19 +6,25 @@ import 'reactflow/dist/style.css';
 
 import {
   fetchOperationsGraph,
+  fetchOperationsPortfolioMetricContributors,
   fetchOperationsPortfolio,
+  fetchOperationsProjectMetricContributors,
   fetchOperationsProject,
   OperationsRequestError,
   type OperationsAction,
   type OperationsGraph,
   type OperationsGraphNode,
   type OperationsMetric,
+  type OperationsMetricContributor,
+  type OperationsMetricContributors,
   type OperationsOverview,
   type OperationsProjectSummary,
 } from '../../api/knowledgeOperationsApi';
 
 type View = 'portfolio' | 'project';
 type RequestState = 'idle' | 'loading' | 'success' | 'empty' | 'permission' | 'unavailable' | 'offline' | 'error';
+type DrillableMetricKey = 'qualified_total' | 'pending_validation' | 'requires_attention' | 'durable_references' | 'open_actions';
+type ActiveMetric = { key: DrillableMetricKey; label: string };
 
 type Props = {
   onClose: () => void;
@@ -187,20 +193,57 @@ function OperationsChart({ option, label, emptyText }: { option: EChartsOption; 
   return <div ref={ref} className="operations-chart" role="img" aria-label={label} data-chart={label} />;
 }
 
-function OverviewMetric({ label, metric, tone = '', detail = 'persisted records' }: { label: string; metric: OperationsMetric | undefined; tone?: string; detail?: string }) {
-  return <article className={`operations-metric ${tone}`}>
+function OverviewMetric({ label, metric, metricKey, onInspect, tone = '', detail = 'persisted records' }: { label: string; metric: OperationsMetric | undefined; metricKey: DrillableMetricKey; onInspect: (key: DrillableMetricKey, label: string) => void; tone?: string; detail?: string }) {
+  return <button type="button" className={`operations-metric operations-metric--trigger ${tone}`} onClick={() => onInspect(metricKey, label)} aria-label={`Inspect contributors for ${label}`}>
     <span>{label}</span>
     <strong>{metricValue(metric)}</strong>
     <small>{metric?.state === 'available' ? `${metric.record_count} ${detail}` : (metric?.reason || 'No qualified record')}</small>
-  </article>;
+  </button>;
 }
 
-function ActionCountMetric({ count, coverage }: { count: number; coverage: OperationsOverview['coverage'] | undefined }) {
-  return <article className="operations-metric is-action">
+function ActionCountMetric({ count, coverage, onInspect }: { count: number; coverage: OperationsOverview['coverage'] | undefined; onInspect: (key: DrillableMetricKey, label: string) => void }) {
+  return <button type="button" className="operations-metric operations-metric--trigger is-action" onClick={() => onInspect('open_actions', 'Open actions')} aria-label="Inspect contributors for Open actions">
     <span>Open actions</span>
     <strong>{count}</strong>
     <small>{coverage?.state === 'available' ? `${coverage.record_count} authorized audit records considered` : (coverage?.reason || 'No qualified record')}</small>
-  </article>;
+  </button>;
+}
+
+function contributorTimestamp(value: string | null): string {
+  if (!value) return 'time not recorded';
+  const timestamp = new Date(value);
+  return Number.isNaN(timestamp.getTime()) ? 'time not recorded' : timestamp.toLocaleString();
+}
+
+function MetricContributorsPanel({
+  activeMetric,
+  state,
+  payload,
+  message,
+  onClose,
+  onRetry,
+  onSelect,
+}: {
+  activeMetric: ActiveMetric;
+  state: RequestState;
+  payload: OperationsMetricContributors | null;
+  message: string;
+  onClose: () => void;
+  onRetry: () => void;
+  onSelect: (contributor: OperationsMetricContributor) => void;
+}) {
+  const failure = ['permission', 'offline', 'error', 'unavailable'].includes(state);
+  return <section className="operations-panel operations-panel--contributors" aria-label="Metric contributors">
+    <header><div><p>METRIC COMPOSITION</p><h3>{activeMetric.label}</h3></div><button type="button" className="operations-icon-button" title="Close metric contributors" aria-label="Close metric contributors" onClick={onClose}><X size={16} /></button></header>
+    {state === 'loading' && <div className="operations-contributors__state" role="status"><RefreshCw size={17} className="spin" />Loading authorized metadata...</div>}
+    {failure && <div className="operations-contributors__state" role="alert"><AlertTriangle size={17} /><div><strong>Contributor list unavailable</strong><p>{message || 'No contributor records are shown after a failed request.'}</p></div><button type="button" onClick={onRetry}>Retry</button></div>}
+    {state === 'empty' && <div className="operations-contributors__state"><BookOpenCheck size={17} /><div><strong>No contributor record</strong><p>{message || 'This metric has no authorized metadata record in the selected scope.'}</p></div></div>}
+    {state === 'success' && payload && <>
+      <p className="operations-contributors__disclosure">{payload.total} authorized metadata record{payload.total === 1 ? '' : 's'} account for this metric.</p>
+      <ol className="operations-contributors">{payload.contributors.map((contributor) => <li key={`${contributor.project_id}:${contributor.kind}:${contributor.id}`}><button type="button" onClick={() => onSelect(contributor)} aria-label={`Inspect ${contributor.kind} ${contributor.id}`}><span>{contributor.kind.replace(/_/g, ' ')}</span><strong>{contributor.id}</strong><small>{contributor.status} / {contributorTimestamp(contributor.recorded_at)}{contributor.reason ? ` / ${contributor.reason}` : ''}</small></button></li>)}</ol>
+      {payload.truncated && <p className="operations-contributors__notice">Showing {payload.contributors.length} of {payload.total} records. Refine the date range to inspect a smaller authorized slice.</p>}
+    </>}
+  </section>;
 }
 
 function ActionQueue({
@@ -376,7 +419,12 @@ export function KnowledgeOperationsCockpit({ onClose, initialProjectId = '', onO
   const [selectedNode, setSelectedNode] = useState<OperationsGraphNode | null>(null);
   const [state, setState] = useState<RequestState>('idle');
   const [message, setMessage] = useState('');
+  const [activeMetric, setActiveMetric] = useState<ActiveMetric | null>(null);
+  const [contributors, setContributors] = useState<OperationsMetricContributors | null>(null);
+  const [contributorState, setContributorState] = useState<RequestState>('idle');
+  const [contributorMessage, setContributorMessage] = useState('');
   const requestId = useRef(0);
+  const contributorRequestId = useRef(0);
   const pendingGraphNodeIdRef = useRef('');
   const layoutRef = useRef<HTMLDivElement>(null);
 
@@ -386,7 +434,9 @@ export function KnowledgeOperationsCockpit({ onClose, initialProjectId = '', onO
       setState('empty'); setOverview(null); setGraph(null); setGraphCatalog(null); setMessage('Enter an authorized project ID to open its cockpit.'); return;
     }
     const id = ++requestId.current;
+    contributorRequestId.current += 1;
     setState('loading'); setOverview(null); setGraph(null); setGraphCatalog(null); setSelectedNode(null); setMessage('');
+    setActiveMetric(null); setContributors(null); setContributorState('idle'); setContributorMessage('');
     const until = new Date();
     const since = range === 'all' ? undefined : new Date(until.getTime() - (range === '30d' ? 30 : 90) * 86_400_000);
     const query = since ? { from: since.toISOString(), to: until.toISOString() } : {};
@@ -437,19 +487,53 @@ export function KnowledgeOperationsCockpit({ onClose, initialProjectId = '', onO
   }, [selectedNode, view]);
 
   const selectAction = (action: OperationsAction) => {
-    setProjectId(action.project_id);
-    setActiveProjectId(action.project_id);
+    selectDrilldown(action.project_id, action.drilldown);
+  };
+
+  const selectDrilldown = (nextProjectId: string, drilldown: OperationsAction['drilldown']) => {
+    setProjectId(nextProjectId);
+    setActiveProjectId(nextProjectId);
     setGraphFilters(EMPTY_GRAPH_FILTERS);
-    if (action.drilldown.surface === 'dbos' && !action.drilldown.mission_id) {
-      const currentProjectIsOpen = view === 'project' && activeProjectId.trim() === action.project_id;
-      pendingGraphNodeIdRef.current = action.drilldown.entity_id;
+    if (drilldown.surface === 'dbos' && !drilldown.mission_id) {
+      const currentProjectIsOpen = view === 'project' && activeProjectId.trim() === nextProjectId;
+      pendingGraphNodeIdRef.current = drilldown.entity_id;
       setView('project');
       // An action chosen within the same open project must still fetch its
       // bounded graph again so the exact durable node can be selected.
       if (currentProjectIsOpen) void load();
-    } else if (action.drilldown.surface === 'dbos') onOpenDbos?.(action.project_id, action.drilldown.mission_id, action.drilldown.entity_id);
-    else if (action.drilldown.surface === 'growth') onOpenGrowth?.(action.project_id, action.drilldown.entity_id);
-    else onOpenKnowledge?.(action.project_id, action.drilldown.entity_id);
+    } else if (drilldown.surface === 'dbos') onOpenDbos?.(nextProjectId, drilldown.mission_id, drilldown.entity_id);
+    else if (drilldown.surface === 'growth') onOpenGrowth?.(nextProjectId, drilldown.entity_id);
+    else onOpenKnowledge?.(nextProjectId, drilldown.entity_id);
+  };
+
+  const selectContributor = (contributor: OperationsMetricContributor) => selectDrilldown(contributor.project_id, contributor.drilldown);
+
+  const inspectMetric = async (metricKey: DrillableMetricKey, label: string) => {
+    if (!overview) return;
+    const id = ++contributorRequestId.current;
+    setActiveMetric({ key: metricKey, label }); setContributors(null); setContributorState('loading'); setContributorMessage('');
+    const until = new Date();
+    const since = range === 'all' ? undefined : new Date(until.getTime() - (range === '30d' ? 30 : 90) * 86_400_000);
+    const query = since ? { from: since.toISOString(), to: until.toISOString() } : {};
+    try {
+      const projectScope = overview.scope.mode === 'project' ? overview.scope.selected_project_id : '';
+      const payload = projectScope
+        ? await fetchOperationsProjectMetricContributors(projectScope, metricKey, query)
+        : await fetchOperationsPortfolioMetricContributors(metricKey, query);
+      if (id !== contributorRequestId.current) return;
+      setContributors(payload);
+      setContributorState(payload.metric.state === 'unavailable' ? 'unavailable' : (payload.contributors.length ? 'success' : 'empty'));
+      setContributorMessage(payload.metric.reason);
+    } catch (error) {
+      if (id !== contributorRequestId.current) return;
+      const failure = classifyError(error);
+      setContributorState(failure.state); setContributorMessage(failure.message); setContributors(null);
+    }
+  };
+
+  const closeMetricContributors = () => {
+    contributorRequestId.current += 1;
+    setActiveMetric(null); setContributors(null); setContributorState('idle'); setContributorMessage('');
   };
 
   const openProjectCockpit = (nextProjectId: string) => {
@@ -523,11 +607,11 @@ export function KnowledgeOperationsCockpit({ onClose, initialProjectId = '', onO
       <div className="operations-disclosure"><span className={`operations-state-dot is-${state}`} />{state === 'loading' ? 'Reading authorized operational records...' : `${overview?.scope.mode || view} view`}<span>{overview ? `${overview.project_count} authorized project${overview.project_count === 1 ? '' : 's'}` : 'No record shown'}</span><span>{overview?.coverage ? `Coverage ${overview.coverage.record_count} authorized audit records` : ''}</span><span>{overview?.generated_at ? `Projection generated ${new Date(overview.generated_at).toLocaleString()}` : ''}</span>{message && <span className="is-warning">{message}</span>}</div>
       {state === 'loading' ? <div className="operations-loading" role="status"><RefreshCw size={20} className="spin" />Loading real operational records...</div> : <>
         <section className="operations-decision-strip" aria-label="Decision summary">
-          <OverviewMetric label="Governed assets" metric={assets?.qualified_total} tone="is-good" detail="status-qualified assets" />
-          <OverviewMetric label="Pending validation" metric={quality?.pending_validation} tone="is-pending" detail="records waiting for a gate" />
-          <OverviewMetric label="Needs attention" metric={quality?.requires_attention} tone="is-risk" detail="rejected, retired, or risk records" />
-          <OverviewMetric label="Reusable references" metric={overview?.metrics.reuse.durable_references} tone="is-info" detail="durable reuse references" />
-          <ActionCountMetric count={overview?.actions.length ?? 0} coverage={overview?.coverage} />
+          <OverviewMetric label="Governed assets" metric={assets?.qualified_total} metricKey="qualified_total" onInspect={inspectMetric} tone="is-good" detail="status-qualified assets" />
+          <OverviewMetric label="Pending validation" metric={quality?.pending_validation} metricKey="pending_validation" onInspect={inspectMetric} tone="is-pending" detail="records waiting for a gate" />
+          <OverviewMetric label="Needs attention" metric={quality?.requires_attention} metricKey="requires_attention" onInspect={inspectMetric} tone="is-risk" detail="rejected, retired, or risk records" />
+          <OverviewMetric label="Reusable references" metric={overview?.metrics.reuse.durable_references} metricKey="durable_references" onInspect={inspectMetric} tone="is-info" detail="durable reuse references" />
+          <ActionCountMetric count={overview?.actions.length ?? 0} coverage={overview?.coverage} onInspect={inspectMetric} />
         </section>
         <div className="operations-layout" ref={layoutRef}>
           <main className="operations-main">
@@ -538,6 +622,7 @@ export function KnowledgeOperationsCockpit({ onClose, initialProjectId = '', onO
             {view === 'project' && <section className="operations-panel operations-panel--graph"><header><div><p>SEMANTIC LIFECYCLE</p><h3>Business problem to reusable experience</h3></div><span>Read-only projection</span></header><LifecycleGraph graph={graph} catalog={graphCatalog} filters={graphFilters} onFiltersChange={updateGraphFilters} selectedNode={selectedNode} onSelect={setSelectedNode} /></section>}
           </main>
           <aside className="operations-sidebar">
+            {activeMetric && <MetricContributorsPanel activeMetric={activeMetric} state={contributorState} payload={contributors} message={contributorMessage} onClose={closeMetricContributors} onRetry={() => void inspectMetric(activeMetric.key, activeMetric.label)} onSelect={selectContributor} />}
             <section className="operations-panel operations-panel--actions"><header><div><p>NEXT ACTIONS</p><h3>Prioritized from durable evidence</h3></div><span>{overview?.actions.length ?? 0}</span></header><ActionQueue actions={overview?.actions ?? []} scope={overview?.scope} onSelect={selectAction} /></section>
             <section className="operations-panel operations-panel--agent"><header><div><p>AGENT EVIDENCE</p><h3>Measured, not claimed</h3></div></header><dl>{Object.values(overview?.metrics.agent_evolution ?? {}).map((metric) => <div key={metric.key}><dt>{metric.key.replace(/_/g, ' ')}</dt><dd>{metricValue(metric)}<small>{metric.reason}</small></dd></div>)}</dl></section>
             {view === 'portfolio' && <section className="operations-project-handoff"><ShieldAlert size={17} /><p>Select a project view to inspect its lifecycle graph. Portfolio metrics never assemble graphs in the browser.</p></section>}
