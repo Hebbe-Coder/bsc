@@ -100,7 +100,7 @@ const emptyGraph: KnowledgeGraph = {
 };
 
 export const useKnowledgeWorkspaceStore = create<KnowledgeWorkspaceState>((set, get) => ({
-  projectId: 'default',
+  projectId: '',
   workspace: null,
   sources: [],
   runs: [],
@@ -126,11 +126,11 @@ export const useKnowledgeWorkspaceStore = create<KnowledgeWorkspaceState>((set, 
   pendingNavigationTargetId: '',
   error: '',
   actionMessage: '',
-  loading: true,
+  loading: false,
   actionBusy: false,
   requestEpoch: 0,
   setProjectId: (projectId) => set((state) => ({
-    projectId,
+    projectId: projectId.trim(),
     requestEpoch: state.requestEpoch + 1,
     workspace: null,
     selectedPage: null,
@@ -142,6 +142,7 @@ export const useKnowledgeWorkspaceStore = create<KnowledgeWorkspaceState>((set, 
     proposalBaselines: {},
     runEvents: [],
     error: '',
+    loading: Boolean(projectId.trim()),
   })),
   beginLoad: (projectId) => {
     if (get().projectId !== projectId) return get().requestEpoch;
@@ -232,7 +233,7 @@ const growthRequestStates: GrowthWorkspaceState['requestStates'] = {
 };
 
 const growthInitialState = {
-  projectId: 'default',
+  projectId: '',
   stage: 'A' as GrowthStage,
   selectedId: '',
   inspectorOpen: false,

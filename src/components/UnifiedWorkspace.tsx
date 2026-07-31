@@ -66,7 +66,7 @@ export function formatRuntimeError(reason: unknown): string {
 }
 
 export function syncGrowthProjectContext(projectId: string): void {
-  useGrowthWorkspaceStore.getState().setProjectId(projectId.trim() || 'default');
+  useGrowthWorkspaceStore.getState().setProjectId(projectId.trim());
 }
 
 function includesModeSignal(text: string, signal: string): boolean {
@@ -411,16 +411,16 @@ export function UnifiedWorkspace() {
           <button type="button" className="skill-trigger" onClick={() => setKnowledgeOpen(true)}>
             <BookOpen size={15} aria-hidden="true" /> Knowledge
           </button>
-          <button type="button" className="skill-trigger" onClick={() => { syncGrowthProjectContext(knowledgeProjectId); setGrowthOpen(true); }}>
+          <button type="button" className="skill-trigger" onClick={() => { syncGrowthProjectContext(knowledgeProjectId); setGrowthOpen(true); }} disabled={!knowledgeProjectId.trim()} title={knowledgeProjectId.trim() ? 'Open the active project growth loop' : 'Select an authorized knowledge project first'}>
             <Sprout size={15} aria-hidden="true" /> Growth
           </button>
           <button type="button" className="skill-trigger" onClick={() => setOperationsOpen(true)}>
             <BarChart3 size={15} aria-hidden="true" /> Operate
           </button>
-          <button type="button" className="skill-trigger" onClick={() => setPbosOpen(true)}>
+          <button type="button" className="skill-trigger" onClick={() => setPbosOpen(true)} disabled={!knowledgeProjectId.trim()} title={knowledgeProjectId.trim() ? 'Open the active project personal operating loop' : 'Select an authorized knowledge project first'}>
             <BrainCircuit size={15} aria-hidden="true" /> PBOS
           </button>
-          <button type="button" className="skill-trigger" onClick={() => { setDbosMissionId(''); setDbosArtifactId(''); setDbosOpen(true); }}>
+          <button type="button" className="skill-trigger" onClick={() => { setDbosMissionId(''); setDbosArtifactId(''); setDbosOpen(true); }} disabled={!knowledgeProjectId.trim()} title={knowledgeProjectId.trim() ? 'Open a mission for the active project' : 'Select an authorized knowledge project first'}>
             <Workflow size={15} aria-hidden="true" /> Mission
           </button>
           <span className={'studio-status ' + statusColor}><i aria-hidden="true" />{statusLabel}</span>
@@ -607,8 +607,8 @@ export function UnifiedWorkspace() {
       {knowledgeOpen && <Suspense fallback={<section className="knowledge-workspace" aria-label="Knowledge workspace"><div className="knowledge-loading" role="status">Loading knowledge workspace...</div></section>}><KnowledgeWorkspace onClose={() => setKnowledgeOpen(false)} runtimeAccessKey={runtimeAccessKey} /></Suspense>}
       {growthOpen && <Suspense fallback={<section className="growth-workspace" aria-label="Knowledge growth workspace"><div className="growth-state" role="status">Loading growth workspace...</div></section>}><GrowthWorkspace onClose={() => setGrowthOpen(false)} runtimeAccessKey={runtimeAccessKey} /></Suspense>}
       {operationsOpen && <Suspense fallback={<section className="operations-cockpit" aria-label="Knowledge operations cockpit"><div className="operations-loading" role="status">Loading knowledge operations...</div></section>}><KnowledgeOperationsCockpit onClose={() => setOperationsOpen(false)} initialProjectId={knowledgeProjectId} onOpenKnowledge={(projectId, entityId) => { setKnowledgeProjectId(projectId); useKnowledgeWorkspaceStore.getState().setNavigationTarget(entityId); setOperationsOpen(false); setKnowledgeOpen(true); }} onOpenGrowth={(projectId, entityId) => { setKnowledgeProjectId(projectId); const growthStore = useGrowthWorkspaceStore.getState(); growthStore.setProjectId(projectId); growthStore.setStage('review'); growthStore.setCenterView('assets'); growthStore.setSelectedId(entityId); setOperationsOpen(false); setGrowthOpen(true); }} onOpenDbos={(projectId, missionId, artifactId) => { setKnowledgeProjectId(projectId); setDbosMissionId(missionId); setDbosArtifactId(artifactId); setOperationsOpen(false); setDbosOpen(true); }} /></Suspense>}
-      {pbosOpen && <Suspense fallback={<section className="pbos-cockpit" aria-label="Personal Growth Cockpit"><p className="pbos-empty">Loading personal growth evidence...</p></section>}><PersonalGrowthCockpit projectId={knowledgeProjectId || 'default'} runtimeAccessKey={runtimeAccessKey} onClose={() => setPbosOpen(false)} onConfigureAccess={() => { setPbosOpen(false); window.requestAnimationFrame(() => runtimeAccessRef.current?.focus()); }} /></Suspense>}
-      {dbosOpen && <Suspense fallback={<section className="dbos-control-center" aria-label="Business Control Center"><div className="dbos-message" role="status">Loading mission control center...</div></section>}><BusinessControlCenter onClose={() => setDbosOpen(false)} initialProjectId={knowledgeProjectId || 'default'} initialMissionId={dbosMissionId} initialArtifactId={dbosArtifactId} initialRequestText={dbosInitialRequest} autoStartIntake={Boolean(dbosInitialRequest)} /></Suspense>}
+      {pbosOpen && Boolean(knowledgeProjectId.trim()) && <Suspense fallback={<section className="pbos-cockpit" aria-label="Personal Growth Cockpit"><p className="pbos-empty">Loading personal growth evidence...</p></section>}><PersonalGrowthCockpit projectId={knowledgeProjectId} runtimeAccessKey={runtimeAccessKey} onClose={() => setPbosOpen(false)} onConfigureAccess={() => { setPbosOpen(false); window.requestAnimationFrame(() => runtimeAccessRef.current?.focus()); }} /></Suspense>}
+      {dbosOpen && Boolean(knowledgeProjectId.trim()) && <Suspense fallback={<section className="dbos-control-center" aria-label="Business Control Center"><div className="dbos-message" role="status">Loading mission control center...</div></section>}><BusinessControlCenter onClose={() => setDbosOpen(false)} initialProjectId={knowledgeProjectId} initialMissionId={dbosMissionId} initialArtifactId={dbosArtifactId} initialRequestText={dbosInitialRequest} autoStartIntake={Boolean(dbosInitialRequest)} /></Suspense>}
     </div>
   );
 }

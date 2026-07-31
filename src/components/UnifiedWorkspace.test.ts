@@ -41,11 +41,11 @@ describe('syncGrowthProjectContext', () => {
     expect(useGrowthWorkspaceStore.getState().projectId).toBe('proj_b8a285642094');
   });
 
-  it('uses the explicit default only when no Knowledge project is selected', () => {
+  it('clears the Growth project when no Knowledge project is selected', () => {
     useGrowthWorkspaceStore.getState().setProjectId('stale-project');
 
     syncGrowthProjectContext('   ');
 
-    expect(useGrowthWorkspaceStore.getState().projectId).toBe('default');
+    expect(useGrowthWorkspaceStore.getState().projectId).toBe('');
   });
 });

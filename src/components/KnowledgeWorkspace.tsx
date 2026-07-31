@@ -113,7 +113,7 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
   const [isCompactViewport, setIsCompactViewport] = useState(() => window.matchMedia('(max-width: 780px)').matches);
   const [scheduleJobType, setScheduleJobType] = useState('source_sync');
   const [scheduleCron, setScheduleCron] = useState('0 8 * * 1');
-  const [vaultPath, setVaultPath] = useState('projects/default');
+  const [vaultPath, setVaultPath] = useState('projects/your-project');
   const [pluginPreset, setPluginPreset] = useState('custom');
   const [pluginId, setPluginId] = useState('');
   const [pluginName, setPluginName] = useState('');
@@ -129,13 +129,14 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
   const feishuExportInput = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async (graphFilter = graphEdgeType) => {
-    const requestedProject = projectId;
+    const requestedProject = projectId.trim();
+    if (!requestedProject) return;
     const version = beginLoad(requestedProject);
     try {
       const [nextWorkspace, nextSources, nextRuns, nextGraph, nextSchedules, nextProposals, nextPages, nextDistillations, nextHealth, nextTrend] = await Promise.all([
-        fetchKnowledgeWorkspace(projectId), fetchKnowledgeSources(projectId), fetchKnowledgeRuns(projectId), fetchKnowledgeGraph(projectId, graphFilter),
-        fetchKnowledgeSchedules(projectId), fetchKnowledgeProposals(projectId), fetchKnowledgePages(projectId), fetchWeeklyDistillations(projectId, includeDistillationHistory),
-        fetchKnowledgeHealth(projectId), fetchKnowledgeHealthTrend(projectId),
+        fetchKnowledgeWorkspace(requestedProject), fetchKnowledgeSources(requestedProject), fetchKnowledgeRuns(requestedProject), fetchKnowledgeGraph(requestedProject, graphFilter),
+        fetchKnowledgeSchedules(requestedProject), fetchKnowledgeProposals(requestedProject), fetchKnowledgePages(requestedProject), fetchWeeklyDistillations(requestedProject, includeDistillationHistory),
+        fetchKnowledgeHealth(requestedProject), fetchKnowledgeHealthTrend(requestedProject),
       ]);
       applyLoad(version, requestedProject, {
         workspace: nextWorkspace,
@@ -158,6 +159,11 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
   useEffect(() => { void load(graphEdgeType); }, [graphEdgeType, load, runtimeAccessKey]);
   useEffect(() => { setProjectDraft(projectId); }, [projectId]);
   useEffect(() => {
+    if (!runtimeAccessKey.trim()) {
+      setWorkspaceProjects([]);
+      setWorkspaceProjectsError('');
+      return undefined;
+    }
     let active = true;
     void fetchKnowledgeWorkspaceProjects()
       .then((response) => {
@@ -581,7 +587,7 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
     <header className="knowledge-workspace__header">
       <div className="knowledge-workspace__title"><span className="eyebrow"><BookOpen size={14} /> KNOWLEDGE WORKSPACE</span><h2>Evidence, proposals, and growth loops.</h2><p>Project-scoped Wiki maintenance with evidence, gates, and replayable execution.</p></div>
       <div className="knowledge-workspace__actions">
-        <label><span>Project</span><select value={projectDraft} onChange={(event) => setProjectDraft(event.target.value)} aria-label="Knowledge project" disabled={loading && !workspace}>{projectOptions(projectId, workspaceProjects).map((project) => <option value={project.id} key={project.id}>{project.name || project.id}</option>)}</select></label>
+        <label><span>Project</span><select value={projectDraft} onChange={(event) => setProjectDraft(event.target.value)} aria-label="Knowledge project" disabled={loading && !workspace}><option value="" disabled>Select an authorized project</option>{projectOptions(projectId, workspaceProjects).map((project) => <option value={project.id} key={project.id}>{project.name || project.id}</option>)}</select></label>
         <button type="button" className="knowledge-project-open" onClick={() => setProjectId(projectDraft)} disabled={!projectDraft || projectDraft === projectId || (loading && !workspace)} title="Load the selected authorized project">Open project</button>
         {workspaceProjectsError && <span className="knowledge-project-discovery-error" role="status">Project list unavailable; current project remains open.</span>}
         <span className={`knowledge-runtime-state ${accessStatus.verified ? 'is-ready' : 'is-warning'}`} title={accessStatus.detail}>{accessStatus.label}</span>
@@ -595,6 +601,7 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
         <button className="icon-button" onClick={onClose} aria-label="Close knowledge workspace"><X size={18} /></button>
       </div>
     </header>
+    {!projectId && <section className="knowledge-workspace__empty-project" role="status"><BookOpen size={20} /><div><h3>Select a project before opening its knowledge assets.</h3><p>Enter a project ID in Studio or add the runtime access key to discover authorized projects. BSC will not fall back to a historical project.</p></div></section>}
     {error && <div className="knowledge-workspace__error" role="alert">{error}</div>}
     {actionMessage && <div className="knowledge-action-message" role="status">{actionMessage}</div>}
     {loading && !workspace ? <div className="knowledge-workspace__loading">Loading the project knowledge state...</div> : <>
@@ -633,7 +640,7 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
         <StatusMetric icon={<Network size={16} />} label="Relations" value={graph.count} detail={graphEdgeType || 'all edge types'} />
         <StatusMetric icon={<ShieldCheck size={16} />} label="Citation coverage" value={health?.citation_coverage == null ? 'N/A' : `${Math.round(health.citation_coverage * 100)}%`} detail={evaluationDetail} />
       </div>
-      <EvidenceWorkspace projectId={projectId} refreshVersion={evidenceRefreshVersion} />
+      {projectId && <EvidenceWorkspace projectId={projectId} refreshVersion={evidenceRefreshVersion} />}
       <nav className="knowledge-mobile-tabs" aria-label="Knowledge mobile panes">
         <button className={mobilePane === 'tree' ? 'is-active' : ''} onClick={() => setMobilePane('tree')}>Navigate</button>
         <button className={mobilePane === 'main' ? 'is-active' : ''} onClick={() => setMobilePane('main')}>Workspace</button>
