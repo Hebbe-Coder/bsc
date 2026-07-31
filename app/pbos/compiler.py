@@ -69,6 +69,7 @@ class PBOSPlanCompiler:
             feedback=feedback,
             knowledge_context=knowledge_context,
         )
+        baseline["compiler_metadata"]["response_language"] = self._response_language(mission, profile)
         strategy_assets = self._matching_strategy_assets(
             strategies,
             comparison_key=str(baseline.get("comparison_key") or ""),
@@ -211,7 +212,17 @@ class PBOSPlanCompiler:
         phases = finalized.get("phases")
         if not isinstance(phases, list):
             return finalized
-        finalized["phases"], language_replacements = self._apply_mission_language_guard(phases, mission)
+        compiler_metadata = finalized.get("compiler_metadata")
+        response_language = (
+            str(compiler_metadata.get("response_language") or "")
+            if isinstance(compiler_metadata, dict)
+            else ""
+        )
+        finalized["phases"], language_replacements = self._apply_mission_language_guard(
+            phases,
+            mission,
+            force_chinese=response_language == "Chinese",
+        )
         if language_replacements:
             finalized.setdefault("compiler_metadata", {})["language_guard"] = {
                 "mission_language": "zh",
@@ -280,7 +291,37 @@ class PBOSPlanCompiler:
                 "replacement_phase_indexes": plugin_replaced,
                 "reason": "configured_route_awaiting_real_export",
             }
+
+        if str(metadata.get("task_kind") or "") == "knowledge_delivery":
+            generic_replaced: list[int] = []
+            for index, phase in enumerate(phases):
+                if (
+                    not isinstance(phase, dict)
+                    or index >= len(deterministic_phases)
+                    or not cls._is_unrelated_growth_phase(phase)
+                ):
+                    continue
+                phases[index] = copy.deepcopy(deterministic_phases[index])
+                generic_replaced.append(index + 1)
+            if generic_replaced:
+                metadata["domain_specificity_guard"] = {
+                    "task_kind": "knowledge_delivery",
+                    "replacement_phase_indexes": generic_replaced,
+                    "reason": "unrelated_growth_template",
+                }
         return plan
+
+    @staticmethod
+    def _is_unrelated_growth_phase(phase: dict[str, Any]) -> bool:
+        text = " ".join(
+            str(value)
+            for value in [phase.get("title"), *(phase.get("actions") or [])]
+            if str(value).strip()
+        ).casefold()
+        return any(token in text for token in (
+            "content experiment", "engagement metric", "audience behavior", "retention",
+            "contrastive hook", "alternative opening", "record a result",
+        ))
 
     @staticmethod
     def _safe_operational_state(knowledge_context: dict[str, Any]) -> dict[str, Any]:
@@ -382,8 +423,8 @@ class PBOSPlanCompiler:
         english_target = ("obsidian" in text or "vault" in text) and (
             "bsc" in text or "source" in text or "evidence" in text
         )
-        english_operation = any(term in text for term in ("sync", "import", "mirror", "projection")) or (
-            "project" in text and ("source" in text or "evidence" in text or "bsc" in text)
+        english_operation = any(term in text for term in ("sync", "import", "mirror", "projection")) or any(
+            f"project {target}" in text for target in ("source", "sources", "evidence", "bsc")
         )
         chinese_target = ("obsidian" in text or "vault" in text) and ("bsc" in text or "来源" in text or "证据" in text)
         chinese_operation = any(term in text for term in ("同步", "导入", "镜像", "投影"))
@@ -435,6 +476,8 @@ class PBOSPlanCompiler:
         cls,
         phases: list[dict[str, Any]],
         mission: MissionArtifact,
+        *,
+        force_chinese: bool = False,
     ) -> tuple[list[dict[str, Any]], list[dict[str, int]]]:
         """Keep an LLM's user-facing next actions in the Mission's language.
 
@@ -443,7 +486,7 @@ class PBOSPlanCompiler:
         presentation guard, not translation: it replaces only fully English
         sentence-like actions with a bounded Mission-specific fallback.
         """
-        if not cls._uses_chinese(mission.title, mission.intent):
+        if not force_chinese and not cls._uses_chinese(mission.title, mission.intent):
             return phases, []
         replacements: list[dict[str, Any]] = []
         fallback_actions = cls._chinese_fallback_actions(mission)
@@ -468,6 +511,18 @@ class PBOSPlanCompiler:
     def _uses_chinese(*values: str) -> bool:
         return any("\u4e00" <= character <= "\u9fff" for value in values for character in str(value))
 
+    @classmethod
+    def _response_language(
+        cls,
+        mission: MissionArtifact,
+        profile: PersonalProfileArtifact | None,
+    ) -> str:
+        if cls._uses_chinese(mission.title, mission.intent):
+            return "Chinese"
+        preferences = profile.preferences if profile and isinstance(profile.preferences, dict) else {}
+        language = str(preferences.get("language") or "").strip().lower()
+        return "Chinese" if language.startswith("zh") else "Match the Mission's primary language"
+
     @staticmethod
     def _is_english_sentence(value: str) -> bool:
         if any("\u4e00" <= character <= "\u9fff" for character in value):
@@ -480,6 +535,12 @@ class PBOSPlanCompiler:
         mission_context = mission.context if isinstance(mission.context, dict) else {}
         objective = str(mission_context.get("goal") or mission.intent or mission.title).strip()[:120]
         kind = PBOSPlanCompiler._task_kind(f"{mission.title} {mission.intent}".lower())
+        if kind == "knowledge_delivery":
+            return [
+                f"\u56f4\u7ed5\u201c{objective}\u201d\u6838\u67e5\u4e00\u9879\u53ef\u5f15\u7528\u4e8b\u5b9e\u3001\u4e00\u9879\u5f85\u9a8c\u8bc1\u7f3a\u53e3\u548c\u4e00\u4f4d\u51b3\u7b56\u8d1f\u8d23\u4eba\u3002",
+                "\u4ece\u5df2\u53d1\u5e03 Wiki \u4e0e\u5468\u84b8\u998f\u6784\u9020\u4e00\u4e2a PRD \u4e13\u5c5e\u4e0a\u4e0b\u6587\u5305\uff0c\u5e76\u7f16\u8bd1\u53ef\u5ba1\u67e5 SOP\u3002",
+                "\u8bb0\u5f55\u771f\u5b9e\u4ea4\u4ed8\u56de\u6267\u4e0e\u590d\u76d8\uff0c\u5c06\u5df2\u63a5\u53d7\u7ed3\u679c\u4e0e\u5019\u9009\u6a21\u578b\u5efa\u8bae\u5206\u5f00\u3002",
+            ]
         if kind == "growth":
             return [
                 f"围绕“{objective}”确定一个可量化的内容成效指标。",
@@ -622,10 +683,22 @@ class PBOSPlanCompiler:
         focus = profile.focus if profile else []
         verified_capabilities = [item.name for item in capabilities if item.evidence_count > 0]
         verified_experiences = [item.statement for item in experiences]
-        text = " ".join([
-            mission.title, mission.intent, json.dumps(mission_context, ensure_ascii=False), " ".join(focus)
+        # Task kind is determined by the Mission and its diagnosed constraints,
+        # not a broad profile focus. A knowledge-engineering practitioner can
+        # still have a distinct engineering or growth Mission.
+        task_text = " ".join([
+            mission.title,
+            mission.intent,
+            json.dumps(mission_context, ensure_ascii=False),
+            json.dumps(diagnosis_context, ensure_ascii=False),
         ]).lower()
-        kind = self._task_kind(text)
+        kind = self._task_kind(task_text)
+        # A Mission's explicit wording owns the domain. Profile focus is only
+        # a tie-breaker for otherwise generic delivery requests, so a
+        # knowledge-oriented profile cannot turn an explicit growth Mission
+        # into a knowledge-delivery template.
+        if kind == "delivery" and focus:
+            kind = self._task_kind(" ".join(str(item) for item in focus))
         comparison = self._comparison_identity(mission, diagnosis_context, profile, kind)
         phases = self._phases(kind, mission, source_references, constraints)
         self._add_phase_contracts(phases, mission, document_titles, constraints, comparison["context"])
@@ -935,6 +1008,11 @@ class PBOSPlanCompiler:
 
     @staticmethod
     def _task_kind(text: str) -> str:
+        if any(signal in text for signal in (
+            "wiki", "obsidian", "horizon", "prd", "sop",
+            "\u77e5\u8bc6\u5e93", "\u9700\u6c42\u6587\u6863", "\u6d41\u7a0b",
+        )):
+            return "knowledge_delivery"
         if any(signal in text for signal in ("content", "growth", "retention", "audience", "运营", "增长", "内容", "账号")):
             return "growth"
         if any(signal in text for signal in ("agent", "runtime", "api", "artifact", "code", "system", "engineering", "开发", "工程", "架构")):
@@ -963,6 +1041,33 @@ class PBOSPlanCompiler:
         mission_context = mission.context if isinstance(mission.context, dict) else {}
         objective = str(mission_context.get("goal") or mission.intent).strip()[:320]
         boundary = f"Review {context_note} and record only the task-relevant evidence."
+        if kind == "knowledge_delivery":
+            return [
+                {
+                    "title": "Evidence triage and boundary",
+                    "actions": [
+                        f"Separate verified sources, open gaps, and decision owners for: {objective}",
+                        f"Use {boundary}",
+                    ],
+                    "checks": ["Every proposed knowledge change has a source reference or an explicit gap"],
+                },
+                {
+                    "title": "Context pack and custom SOP",
+                    "actions": [
+                        "Build one PRD-specific context pack from cited Wiki pages and approved weekly distillation.",
+                        f"Compile one reviewable SOP inside {limit} without promoting a template as a method.",
+                    ],
+                    "checks": ["The SOP names its project boundary, evidence inputs, and approval gate"],
+                },
+                {
+                    "title": "Delivery review and feedback",
+                    "actions": [
+                        "Capture one observable delivery receipt and distinguish outcome evidence from model suggestions.",
+                        "Route accepted results back for review; keep unaccepted results as candidates.",
+                    ],
+                    "checks": ["Mission, plan, receipt, and feedback remain traceable in one lineage"],
+                },
+            ]
         if kind == "growth":
             return [
                 {"title": "Audience and signal diagnosis", "actions": [f"Define the measurable audience change required for: {objective}", f"Ground the hypothesis in: {boundary}"], "checks": ["Audience and baseline metric are explicit"]},

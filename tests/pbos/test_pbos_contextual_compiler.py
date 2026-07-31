@@ -743,6 +743,99 @@ def test_configured_plugin_route_replaces_repeated_setup_with_mission_action(tmp
     }
 
 
+def test_knowledge_delivery_uses_project_specific_fallback_when_source_projection_is_blocked(tmp_path):
+    class RepeatingProjectionClient:
+        provider = "test"
+        model = "repeat-projection"
+
+        def chat_structured(self, **_kwargs):
+            return {
+                "title": "Knowledge delivery system",
+                "phases": [
+                    {"title": "Projection", "actions": ["Mirror BSC sources into the Obsidian Vault"]},
+                    {"title": "SOP", "actions": ["Write a generic content experiment"]},
+                    {"title": "Review", "actions": ["Record a result"]},
+                ],
+            }
+
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(
+        store,
+        "knowledge-delivery",
+        "Governed LLM Wiki delivery",
+        "Turn Horizon evidence and Obsidian Wiki context into a custom PRD-to-SOP delivery loop.",
+    )
+    service = PBOSService(
+        store,
+        "personal",
+        context_provider=lambda: {
+            "availability": "available",
+            "documents": [],
+            "refs": [],
+            "operational_state": {
+                "managed_source_mirror": {"state": "available", "file_count": 1, "recorded_source_count": 1},
+            },
+        },
+        plan_compiler=PBOSPlanCompiler(client=RepeatingProjectionClient()),
+    )
+    service.save_profile({"focus": ["knowledge delivery"], "preferences": {"language": "en-US"}})
+
+    plan = service.compile_plan("knowledge-delivery")
+
+    assert plan.compiler_metadata["task_kind"] == "knowledge_delivery"
+    assert plan.compiler_metadata["completed_operation_guard"]["replacement_phase_indexes"] == [1]
+    assert plan.compiler_metadata["domain_specificity_guard"] == {
+        "task_kind": "knowledge_delivery",
+        "replacement_phase_indexes": [2, 3],
+        "reason": "unrelated_growth_template",
+    }
+    assert plan.phases[0]["title"] == "Evidence triage and boundary"
+    assert "content experiment" not in " ".join(
+        action.casefold() for phase in plan.phases for action in phase["actions"]
+    )
+
+
+def test_knowledge_delivery_localizes_the_fallback_from_a_chinese_profile(tmp_path):
+    class EnglishClient:
+        provider = "test"
+        model = "english-output"
+
+        def chat_structured(self, **_kwargs):
+            return {
+                "title": "Knowledge delivery system",
+                "phases": [
+                    {"title": "Triage", "actions": ["Review source evidence"]},
+                    {"title": "SOP", "actions": ["Create a custom SOP"]},
+                    {"title": "Review", "actions": ["Record a result"]},
+                ],
+            }
+
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(
+        store,
+        "knowledge-delivery-zh",
+        "Governed LLM Wiki delivery",
+        "Turn Horizon evidence and Obsidian Wiki context into a custom PRD-to-SOP delivery loop.",
+    )
+    service = PBOSService(
+        store,
+        "personal",
+        context_provider=lambda: {"availability": "available", "documents": [], "refs": []},
+        plan_compiler=PBOSPlanCompiler(client=EnglishClient()),
+    )
+    service.save_profile({"preferences": {"language": "zh-CN"}})
+
+    plan = service.compile_plan("knowledge-delivery-zh")
+
+    assert plan.compiler_metadata["response_language"] == "Chinese"
+    assert "PRD" in plan.phases[1]["actions"][0]
+    assert all(
+        any("\u4e00" <= character <= "\u9fff" for character in action)
+        for phase in plan.phases
+        for action in phase["actions"]
+    )
+
+
 def test_chinese_mission_replaces_complete_english_llm_actions_with_localized_mission_actions(tmp_path):
     class EnglishClient:
         provider = "test"

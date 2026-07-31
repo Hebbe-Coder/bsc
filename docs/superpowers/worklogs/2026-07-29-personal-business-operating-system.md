@@ -898,9 +898,9 @@
   readback reports the execution as reviewable with `5/5` verified receipts
   and reflection, while its outcome remains `unverified_outcome`. This is the
   required evidence-first result, not an incomplete implementation.
-- **Verification:** PBOS/API/MCP/integration coverage passed `67`; shared
+- **Verification:** PBOS/API/MCP/integration coverage passed `69`; shared
   Artifact/Runtime/Wiki/Distillation coverage passed `102` with one existing
-  skip; frontend coverage passed `175`; TypeScript checking, production build,
+  skip; frontend coverage passed `176`; TypeScript checking, production build,
   `docker compose config --quiet`, and healthy API/Worker/Beat/PostgreSQL/
   Redis/n8n readback all passed. On the production Studio, the PBOS access
   gate rendered at `390x844` with `384/384` client/scroll width and zero

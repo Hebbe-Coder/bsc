@@ -33,7 +33,8 @@ Executed from the BSC workspace after the change:
 .\.venv\Scripts\python.exe -m pytest tests/pbos tests/api/test_pbos_api.py tests/mcp/test_pbos_http_contract.py tests/integration/test_pbos_e2e.py -q
 ```
 
-Result: `67 passed`.
+Result: final gate `69 passed` after the weekly-schedule migration and
+knowledge-delivery contextualization regressions were added.
 
 PBOS automation defaults were also reconciled on the running scheduler. Daily
 and weekly actions are enabled at 17:00 Asia/Shanghai, with the weekly action

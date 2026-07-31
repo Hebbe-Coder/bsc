@@ -505,9 +505,9 @@ npm run build
 
 ### Verification And Remaining Gate
 
-- `pytest` PBOS/API/MCP/integration coverage: `67 passed`.
+- `pytest` PBOS/API/MCP/integration coverage: `69 passed`.
 - Shared Artifact/Runtime/Wiki/Distillation coverage: `102 passed, 1 skipped`.
-- Frontend coverage: `175 passed`; TypeScript check, Vite production build,
+- Frontend coverage: `176 passed`; TypeScript check, Vite production build,
   Compose configuration, and Compose health checks passed.
 - Browser acceptance at `390x844` rendered the honest Studio access gate with
   a `384/384` client/scroll width and zero console errors. Authenticated live
