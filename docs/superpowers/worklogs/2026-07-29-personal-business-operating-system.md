@@ -1091,11 +1091,13 @@
   for the same execution; the REST endpoint maps that conflict to HTTP `409`.
   A single execution therefore cannot be counted twice toward personal
   learning.
-- **Verification:** PBOS service/API/MCP/integration coverage passed `41`;
-  focused Cockpit coverage passed `11`; TypeScript and Docker production build
-  passed. The rebuilt API reached `ready=ok`. An authenticated local read
-  confirmed the active project still has one awaiting execution, zero outcomes,
-  twelve governed context references, and zero learned capabilities/strategies.
+- **Verification:** the complete PBOS compiler/service/API/MCP/integration
+  coverage passed `66`; all frontend coverage passed `177`; TypeScript,
+  production build, and Compose validation passed. The rebuilt API reached
+  `ready=ok`, and SHA-256 readback confirmed its service and Cockpit source
+  match the workspace. An authenticated local read confirmed the active
+  project still has one awaiting execution, zero outcomes, twelve governed
+  context references, and zero learned capabilities/strategies.
 - **Deliberate non-action:** no live outcome was created and no explicit review
   was submitted during verification. The next user-owned action is to create
   the reviewable outcome for `art_4126dc26952e`, then accept or reject it with
