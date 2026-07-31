@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from app.knowledge.context_pack import WikiContextProvider
+from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
 from app.knowledge.wiki_repository import WikiRepository
 
 
@@ -253,6 +254,7 @@ class PBOSGovernedContextProvider:
             except ValueError:
                 handoff_path = ""
         pages = repository.list_pages(self.project_id)
+        plugin_bridges = self._plugin_bridges(sources)
         mirror_available = bool(mirror_files and recorded_mirrors)
         return {
             "source_lifecycle_counts": dict(sorted(lifecycle_counts.items())),
@@ -268,7 +270,77 @@ class PBOSGovernedContextProvider:
                 "state": "available" if handoff_path else "unavailable",
                 "path": handoff_path,
             },
+            "plugin_bridges": plugin_bridges,
         }
+
+    def _plugin_bridges(self, sources: list[dict[str, Any]]) -> dict[str, Any]:
+        """Project installed bridge readiness without exposing plugin settings.
+
+        A configured plugin route is useful planning context: PBOS should ask
+        for a real export, not repeat installation or destination setup. The
+        manifest's public status deliberately contains more UI-oriented data,
+        so this projection keeps only the identifiers and finite state needed
+        by the compiler. In particular, it excludes paths, settings values,
+        trust actors, timestamps, observed filenames, and evidence bodies.
+        """
+        status = ObsidianPluginManifest.load(self.project_root).public_status(
+            sources,
+            project_root=self.project_root,
+            vault_root=self.vault_root,
+        )
+        routes: list[dict[str, str]] = []
+        for plugin in status.get("plugins", []):
+            if not isinstance(plugin, dict):
+                continue
+            plugin_id = str(plugin.get("id") or "").strip()[:80]
+            adapter = str(plugin.get("adapter") or "").strip()[:48]
+            if not plugin_id or not adapter:
+                continue
+            route_state = self._plugin_route_state(plugin)
+            capture_state = str(plugin.get("capture_state") or "").strip()
+            if capture_state not in {
+                "awaiting_trust",
+                "trust_stale",
+                "trust_unavailable",
+                "captured",
+                "registered_output",
+                "files_detected_pending_registration",
+                "files_detected_pending_capture",
+                "ready_for_first_output",
+                "ready_for_first_export",
+                "route_unavailable",
+            }:
+                capture_state = "route_unavailable"
+            routes.append(
+                {
+                    "id": plugin_id,
+                    "adapter": adapter,
+                    "route_state": route_state,
+                    "capture_state": capture_state,
+                }
+            )
+        routes.sort(key=lambda item: item["id"])
+        routes = routes[:12]
+        return {
+            "ready_route_count": sum(item["route_state"] != "not_ready" for item in routes),
+            "routes": routes,
+        }
+
+    @staticmethod
+    def _plugin_route_state(plugin: dict[str, Any]) -> str:
+        """Normalize manifest status into a small, planning-safe state set."""
+        status = str(plugin.get("status") or "")
+        runtime = plugin.get("runtime_configuration")
+        runtime_state = str(runtime.get("state") or "") if isinstance(runtime, dict) else ""
+        if status == "captured":
+            return "captured"
+        if status == "registered_output":
+            return "registered_output"
+        if status == "awaiting_export" and runtime_state == "configured":
+            return "configured_awaiting_export"
+        if status == "awaiting_output" and runtime_state == "configured":
+            return "configured_awaiting_output"
+        return "not_ready"
 
     @staticmethod
     def _managed_file_count(root: Path, limit: int = 10_000) -> tuple[int, bool]:

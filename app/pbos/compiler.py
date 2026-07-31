@@ -238,24 +238,47 @@ class PBOSPlanCompiler:
         mirror = operational_state["managed_source_mirror"]
         metadata = plan.setdefault("compiler_metadata", {})
         metadata["operational_state"] = operational_state
-        if mirror["state"] != "available":
-            return plan
-
         replaced: list[int] = []
         phases = plan.get("phases")
         if not isinstance(phases, list):
             return plan
-        for index, phase in enumerate(phases):
-            if not isinstance(phase, dict) or not cls._repeats_completed_source_projection(phase):
-                continue
-            if index < len(deterministic_phases):
-                phases[index] = copy.deepcopy(deterministic_phases[index])
-                replaced.append(index + 1)
+        if mirror["state"] == "available":
+            for index, phase in enumerate(phases):
+                if not isinstance(phase, dict) or not cls._repeats_completed_source_projection(phase):
+                    continue
+                if index < len(deterministic_phases):
+                    phases[index] = copy.deepcopy(deterministic_phases[index])
+                    replaced.append(index + 1)
         if replaced:
             metadata["completed_operation_guard"] = {
                 "operation": "bsc_obsidian_evidence_projection",
                 "replacement_phase_indexes": replaced,
                 "reason": "managed_source_mirror_available",
+            }
+
+        configured_routes = [
+            item["id"]
+            for item in operational_state["plugin_bridges"]["routes"]
+            if item["route_state"] in {"configured_awaiting_export", "configured_awaiting_output"}
+        ]
+        plugin_replaced: list[int] = []
+        plugin_ids: list[str] = []
+        if configured_routes:
+            for index, phase in enumerate(phases):
+                if not isinstance(phase, dict):
+                    continue
+                matched = cls._repeats_configured_plugin_setup(phase, configured_routes)
+                if not matched or index >= len(deterministic_phases):
+                    continue
+                phases[index] = copy.deepcopy(deterministic_phases[index])
+                plugin_replaced.append(index + 1)
+                plugin_ids.extend(matched)
+        if plugin_replaced:
+            metadata["plugin_bridge_guard"] = {
+                "operation": "obsidian_plugin_setup",
+                "route_ids": list(dict.fromkeys(plugin_ids)),
+                "replacement_phase_indexes": plugin_replaced,
+                "reason": "configured_route_awaiting_real_export",
             }
         return plan
 
@@ -276,6 +299,48 @@ class PBOSPlanCompiler:
         raw_wiki = raw_wiki if isinstance(raw_wiki, dict) else {}
         raw_handoff = raw.get("weekly_handoff")
         raw_handoff = raw_handoff if isinstance(raw_handoff, dict) else {}
+        raw_bridges = raw.get("plugin_bridges")
+        raw_bridges = raw_bridges if isinstance(raw_bridges, dict) else {}
+        valid_route_states = {
+            "configured_awaiting_export",
+            "captured",
+            "configured_awaiting_output",
+            "registered_output",
+            "not_ready",
+        }
+        valid_capture_states = {
+            "awaiting_trust",
+            "trust_stale",
+            "trust_unavailable",
+            "captured",
+            "registered_output",
+            "files_detected_pending_registration",
+            "files_detected_pending_capture",
+            "ready_for_first_output",
+            "ready_for_first_export",
+            "route_unavailable",
+        }
+        plugin_routes: list[dict[str, str]] = []
+        for value in raw_bridges.get("routes", []) if isinstance(raw_bridges.get("routes"), list) else []:
+            if not isinstance(value, dict):
+                continue
+            plugin_id = str(value.get("id") or "").strip()[:80]
+            adapter = str(value.get("adapter") or "").strip()[:48]
+            if not plugin_id or not adapter:
+                continue
+            route_state = str(value.get("route_state") or "")
+            capture_state = str(value.get("capture_state") or "")
+            plugin_routes.append(
+                {
+                    "id": plugin_id,
+                    "adapter": adapter,
+                    "route_state": route_state if route_state in valid_route_states else "not_ready",
+                    "capture_state": capture_state if capture_state in valid_capture_states else "route_unavailable",
+                }
+            )
+            if len(plugin_routes) >= 12:
+                break
+        plugin_routes.sort(key=lambda item: item["id"])
         return {
             "source_lifecycle_counts": dict(sorted(source_counts.items())),
             "managed_source_mirror": {
@@ -288,6 +353,10 @@ class PBOSPlanCompiler:
             "weekly_handoff": {
                 "state": "available" if str(raw_handoff.get("state") or "") == "available" else "unavailable",
                 "path": str(raw_handoff.get("path") or "")[:300],
+            },
+            "plugin_bridges": {
+                "ready_route_count": sum(item["route_state"] != "not_ready" for item in plugin_routes),
+                "routes": plugin_routes,
             },
         }
 
@@ -319,6 +388,47 @@ class PBOSPlanCompiler:
         chinese_target = ("obsidian" in text or "vault" in text) and ("bsc" in text or "来源" in text or "证据" in text)
         chinese_operation = any(term in text for term in ("同步", "导入", "镜像", "投影"))
         return (english_target and english_operation) or (chinese_target and chinese_operation)
+
+    @staticmethod
+    def _repeats_configured_plugin_setup(phase: dict[str, Any], configured_routes: list[str]) -> list[str]:
+        """Return configured bridge ids when a phase repeats their setup work.
+
+        Match only explicit Obsidian plugin configuration language and a
+        declared route identifier. A generic connector action therefore stays
+        available for a different integration that has not been configured.
+        """
+        values = [
+            phase.get("title"),
+            phase.get("why_now"),
+            *(phase.get("actions") or []),
+            *(phase.get("outputs") or []),
+            *(phase.get("checks") or []),
+        ]
+        text = " ".join(str(value).casefold() for value in values if str(value).strip())
+        compact_text = "".join(character for character in text if character.isalnum())
+        setup_terms = (
+            "configure",
+            "configuration",
+            "install",
+            "setup",
+            "set up",
+            "reconfigure",
+            "connect",
+            "配置",
+            "安装",
+            "设置",
+            "连接",
+        )
+        if "obsidian" not in text or not any(term in text for term in setup_terms):
+            return []
+        matched: list[str] = []
+        for route_id in configured_routes:
+            normalized = str(route_id).casefold().strip()
+            compact_id = "".join(character for character in normalized if character.isalnum())
+            short_id = compact_id.removeprefix("obsidian")
+            if compact_id in compact_text or (short_id and short_id in compact_text):
+                matched.append(route_id)
+        return matched
 
     @classmethod
     def _apply_mission_language_guard(
@@ -544,6 +654,14 @@ class PBOSPlanCompiler:
         if operational_state["managed_source_mirror"]["state"] == "available":
             rationale.append(
                 "Operational state: the BSC evidence mirror is already available; advance the Mission instead of repeating source projection."
+            )
+        configured_route_count = sum(
+            item["route_state"] in {"configured_awaiting_export", "configured_awaiting_output"}
+            for item in operational_state["plugin_bridges"]["routes"]
+        )
+        if configured_route_count:
+            rationale.append(
+                "Operational state: configured Obsidian bridge routes are awaiting a real export; use the active Mission instead of repeating plugin setup."
             )
         rationale.extend(f"Governed source available for review: {source}" for source in source_references[:2])
         rationale.extend(
@@ -895,7 +1013,8 @@ class PBOSPlanCompiler:
             "Use active_strategy_genomes only when supplied: preserve their decision rule and failure boundary in the plan, and never invent a strategy reference. "
             "Use response_language for user-facing titles and actions. "
             "When operational_state says managed_source_mirror is available, never recommend BSC-to-Obsidian source sync, import, mirroring, or projection. "
-            "In that case phase one must advance a Mission-specific decision, metric, experiment, or delivery."
+            "When a named plugin_bridges route is configured_awaiting_export or configured_awaiting_output, never install, configure, or reconfigure that named Obsidian bridge; it awaits a real user export. "
+            "In either case phase one must advance a Mission-specific decision, metric, experiment, or delivery."
         )
 
     @classmethod

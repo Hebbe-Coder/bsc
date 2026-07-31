@@ -3,6 +3,7 @@ import json
 from app.artifacts import ArtifactGraphStore, ArtifactStatus, DiagnosisArtifact, MissionArtifact, SOPVersionArtifact
 from app.core.config import settings
 from app.knowledge.context_pack import WikiContextProvider
+from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
 from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.wiki_contracts import SourceRecord
 from app.knowledge.wiki_repository import WikiRepository
@@ -181,6 +182,70 @@ def test_governed_context_exposes_metadata_only_operational_state_for_completed_
             "recorded_source_count": 1,
         }
         assert "private source body" not in json.dumps(context, ensure_ascii=False)
+    finally:
+        repo.close()
+
+
+def test_governed_context_exposes_configured_plugin_route_without_plugin_settings(tmp_path):
+    vault_root = tmp_path / "vault"
+    project_root = vault_root / "projects" / "project-a"
+    clipper_path = project_root / "00_Inbox" / "web-clipper"
+    clipper_path.mkdir(parents=True)
+    settings_path = vault_root / ".obsidian" / "plugins" / "obsidian-clipper"
+    settings_path.mkdir(parents=True)
+    (settings_path / "data.json").write_text(
+        json.dumps({
+            "advancedStorageFolder": "projects/project-a/00_Inbox/web-clipper",
+            "unrelated_secret": "must-not-reach-pbos-context",
+        }),
+        encoding="utf-8",
+    )
+    manifest = ObsidianPluginManifest.from_payload({
+        "plugins": [{
+            "id": "obsidian-clipper",
+            "name": "Clipper",
+            "adapter": "filesystem_drop",
+            "input_paths": ["00_Inbox/web-clipper"],
+        }],
+    })
+    manifest.write_to(project_root)
+    manifest.set_trust(
+        project_root,
+        plugin_ids=["obsidian-clipper"],
+        trusted=True,
+        actor_id="test",
+        reason="test route only",
+    )
+    repo = WikiRepository(db_path=str(tmp_path / "plugin-state.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+
+    class NoGovernedContext:
+        def build_context(self, **_kwargs):
+            return None
+
+    provider = PBOSGovernedContextProvider(
+        project_root,
+        project_id="project-a",
+        vault_root=vault_root,
+        repository=repo,
+        wiki_context_provider=NoGovernedContext(),
+    )
+    try:
+        context = provider.build()
+
+        assert context["operational_state"]["plugin_bridges"] == {
+            "ready_route_count": 1,
+            "routes": [{
+                "id": "obsidian-clipper",
+                "adapter": "filesystem_drop",
+                "route_state": "configured_awaiting_export",
+                "capture_state": "ready_for_first_export",
+            }],
+        }
+        serialized = json.dumps(context, ensure_ascii=False)
+        assert "must-not-reach-pbos-context" not in serialized
+        assert "00_Inbox/web-clipper" not in serialized
+        assert "projects/project-a" not in serialized
     finally:
         repo.close()
 
@@ -603,6 +668,79 @@ def test_absent_mirror_does_not_hide_a_requested_projection_action(tmp_path):
 
     assert plan.phases[0]["actions"] == ["Project BSC evidence into Obsidian"]
     assert "completed_operation_guard" not in plan.compiler_metadata
+
+
+def test_configured_plugin_route_replaces_repeated_setup_with_mission_action(tmp_path):
+    class RepeatingPluginSetupClient:
+        provider = "test"
+        model = "repeat-plugin-setup"
+
+        def __init__(self):
+            self.prompt: dict = {}
+            self.system_prompt = ""
+
+        def chat_structured(self, **kwargs):
+            self.prompt = json.loads(kwargs["user_prompt"])
+            self.system_prompt = kwargs["system_prompt"]
+            return {
+                "title": "Plugin-first delivery system",
+                "phases": [
+                    {"title": "Clipper setup", "actions": ["Configure Obsidian Clipper plugin"]},
+                    {"title": "Implementation", "actions": ["Implement the delivery path"]},
+                    {"title": "Reflection", "actions": ["Record the observed result"]},
+                ],
+            }
+
+    context = {
+        "availability": "available",
+        "documents": [{
+            "ref": "vault:03_Projects/active/delivery.md",
+            "path": "03_Projects/active/delivery.md",
+            "title": "Delivery brief",
+            "excerpt": "Deliver one bounded engineering result.",
+        }],
+        "refs": ["vault:03_Projects/active/delivery.md"],
+        "operational_state": {
+            "plugin_bridges": {
+                "ready_route_count": 1,
+                "routes": [{
+                    "id": "obsidian-clipper",
+                    "adapter": "filesystem_drop",
+                    "route_state": "configured_awaiting_export",
+                    "capture_state": "ready_for_first_export",
+                }],
+            },
+        },
+    }
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(store, "engineering", "Agent runtime delivery", "Deliver one verified Agent runtime slice")
+    client = RepeatingPluginSetupClient()
+    service = PBOSService(
+        store,
+        "personal",
+        context_provider=lambda: context,
+        plan_compiler=PBOSPlanCompiler(client=client),
+    )
+    service.save_profile({"focus": ["AI systems"]})
+
+    plan = service.compile_plan("engineering")
+
+    assert client.prompt["operational_state"]["plugin_bridges"]["ready_route_count"] == 1
+    assert client.prompt["operational_state"]["plugin_bridges"]["routes"] == [{
+        "id": "obsidian-clipper",
+        "adapter": "filesystem_drop",
+        "route_state": "configured_awaiting_export",
+        "capture_state": "ready_for_first_export",
+    }]
+    assert "never install, configure, or reconfigure" in client.system_prompt
+    assert plan.phases[0]["title"] == "Architecture and boundary gate"
+    assert all("configure obsidian clipper" not in action.casefold() for phase in plan.phases for action in phase["actions"])
+    assert plan.compiler_metadata["plugin_bridge_guard"] == {
+        "operation": "obsidian_plugin_setup",
+        "route_ids": ["obsidian-clipper"],
+        "replacement_phase_indexes": [1],
+        "reason": "configured_route_awaiting_real_export",
+    }
 
 
 def test_chinese_mission_replaces_complete_english_llm_actions_with_localized_mission_actions(tmp_path):

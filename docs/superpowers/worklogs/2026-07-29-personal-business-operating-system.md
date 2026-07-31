@@ -850,3 +850,22 @@
   client, Cockpit, styles, focused tests, integration lifecycle update, and
   this worklog section together. Historical outcomes and conflict artifacts
   remain auditable; rollback does not delete user Vault files or result data.
+
+## 2026-07-31 Configured Obsidian Bridge Planning Gate
+
+- PBOS now receives a bounded metadata-only projection of installed Obsidian
+  bridge routes. A route can be `configured_awaiting_export` or
+  `configured_awaiting_output` only after the existing manifest/trust checks
+  confirm its declared destination; plugin settings, paths, source bodies,
+  filenames, timestamps, and trust actors stay outside the compiler context.
+- When a model repeats setup for a named configured bridge, the compiler
+  replaces that phase with the mission-specific deterministic phase and keeps
+  an audit record of the guarded route and phase index. A generic connector
+  phase still remains available for integrations that are not configured.
+- This does not claim an export or output exists. The live producer state
+  remains `awaiting_export` or `awaiting_output` until the user-operated
+  plugin actually writes to its declared route.
+- Verification: `./.venv/Scripts/python.exe -m pytest
+  tests/pbos/test_pbos_contextual_compiler.py -q` passed with `22` tests.
+  The regression uses a deliberately secret-looking plugin setting and proves
+  it cannot enter the PBOS context or model prompt.
