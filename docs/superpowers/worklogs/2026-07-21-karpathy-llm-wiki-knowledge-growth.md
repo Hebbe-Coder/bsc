@@ -1157,3 +1157,34 @@ Live Horizon endpoint/API credentials and a real Wiki-maintenance LLM provider r
   n8n `/healthz` were healthy after restart. The application image was built
   from the clean commit specifically so concurrent uncommitted n8n and UI work
   was neither deployed nor included in this change.
+
+## 2026-07-31 Horizon Primary Evidence Verification
+
+- **Live evidence check:** the eligible Horizon discovery signal for the
+  public GitHub Blog item was processed through the governed primary-web
+  capture path. The HTTP capture resolved to an already-registered immutable
+  primary source (`8349de1f7cd0`), so it correctly created no duplicate source
+  record and completed auditable capture run `2d4eee469900`.
+- **Result:** the primary source remains `validated`, its response hash and
+  same-project signal link are recorded, and the Horizon review queue now
+  reports `review_primary_capture` rather than `capture_primary_source`.
+  The primary-capture link and the completed run output reference agree.
+- **No false promotion:** this action did not publish a Wiki page, generate a
+  proposal, accept an output, or create a Skill/method/SOP. The project still
+  has five Wiki pages and zero pending proposals. Project-level source triage
+  and a human review remain required before the primary evidence can support a
+  knowledge claim.
+- **Second independent capture:** the Quanta discovery signal was fetched as a
+  distinct primary source (`78c94804a7d2`) in completed capture run
+  `4d5e3f374b0c`; it increased the project source count from 40 to 41. Its
+  response hash, final public origin, and explicit Horizon link were persisted.
+- **Semantic triage:** both primary sources have a completed
+  `semantic-source-triage-v3` record. The GitHub source received priority 40
+  with disposition `archive`; the Quanta source received priority 24 with
+  disposition `ignore`. Both passed reliability but remain `validated` because
+  the review-only action uses `apply_admission=false`. These are project-fit
+  recommendations, not automatic source rejection or knowledge publication.
+- **Readback:** both Horizon signals now resolve to `review_primary_capture`
+  and their expected linked primary source IDs. There are still five Wiki pages
+  and zero pending proposals, proving that source discovery and semantic review
+  did not create an unauthorized publication path.
