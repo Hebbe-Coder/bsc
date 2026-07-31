@@ -976,3 +976,100 @@ criteria.
   quality scores, and a user-reviewed Copilot output still must be saved to
   `04_Outputs/copilot/`, captured, evaluated and fed back before either loop
   can claim personal learning or Copilot D-layer operational closure.
+
+## 2026-07-31 Live Candidate Extraction And Obsidian D-Layer Route
+
+- Verified the live candidate-extraction admission gate before incurring a
+  model call. The Horizon-only signal `65a7de85ced2` was rejected by the
+  application with `project_triage_reference_requires_corroboration`; no run,
+  candidate, method, Wiki page, or output was created from that uncorroborated
+  derivative.
+- Selected the admitted primary-web source `6d535597e335` and ran the
+  five-way Cangjie extraction against the live PostgreSQL ledger. Run
+  `243d9d655c65` completed with ten `pending_review` candidates: one
+  framework, three principles, one case, three counterexamples, and two
+  glossary entries. Each candidate has one or more evidence anchors whose
+  quote is an exact substring of the immutable source. The persisted provider
+  ledger records five real DeepSeek calls using `deepseek-v4-flash`; no mock
+  or fallback candidate was stored.
+- The ten items remain review-only. A single source, even after exact-quote
+  validation, is not a published method or a custom SOP. The next promotion
+  gate requires real, verified comparable D-layer outputs rather than a
+  system-generated claim of repeated success.
+- Added governed output bridges for the installed `copilot` and
+  `realclaudian` Obsidian agents. The mapped Vault routes
+  `04_Outputs/copilot/` and `04_Outputs/claudian/` now exist and are trusted
+  for the `filesystem_output` adapter. A live sync scanned zero files and
+  registered zero outputs, so both states are correctly
+  `ready_for_first_output`, not `registered_output`. No conversation, plugin
+  code, prompt history, or synthetic D-layer file was read or copied.
+- Re-read all bridge statuses from the running API container. Clipper,
+  Xiaohongshu Importer, and Zotero are `trusted`, have ready paths, and their
+  read-only destination probes match the declared routes. Copilot and Real
+  Claudian are both `trusted` and path-ready; future reviewed files under
+  either declared D-layer route are eligible for governed registration.
+- Corrected a live Real Claudian configuration defect: its media folder and
+  durable-deliverable system prompt had both targeted historical
+  `projects/default` paths. They now target this project's
+  `04_Outputs/claudian/` route. Added the live Copilot slash command
+  `BSC Project Delivery`, which writes only explicit, user-reviewable durable
+  deliverables to this project's `04_Outputs/copilot/` route using the BSC
+  output-contract frontmatter.
+
+### Verification
+
+- Runtime candidate audit confirmed run `243d9d655c65` is `completed`, lists
+  exactly ten candidate IDs, has no failed candidate type, and retains the
+  individual provider run IDs without exposing credentials.
+- For all ten persisted candidates, the audit recomputed every evidence quote
+  check against its referenced immutable source and returned `exact_quotes=True`.
+- `ObsidianOutputSyncService.sync` against the live Vault returned
+  `scanned=0`, `registered=0`, `duplicates=0`, `rejected=0`, and `blocked=0`.
+- `./.venv/Scripts/python.exe -m pytest tests/knowledge/test_candidate_extraction.py
+  tests/knowledge/test_obsidian_output_sync.py
+  tests/integration/test_growth_output_bridges.py -q` completed with
+  `19 passed`.
+- After the Compose runtime refreshed, the protected API `/live` endpoint
+  returned `{"status":"ok"}` and `celery inspect ping --timeout=15` returned
+  one `pong`. The live candidate run remained terminal `completed` after the
+  refresh.
+
+## 2026-07-31 Project Context And Live Workspace Re-Acceptance
+
+- Fixed a Studio routing defect where opening Growth from the global header
+  could mount the Growth store with its historical `default` project before
+  the selected Knowledge project was applied. The header now synchronizes the
+  selected project into the Growth store before it mounts the workspace.
+- Browser readback at `http://127.0.0.1:5174` selected
+  `proj_b8a285642094`, opened Growth, and confirmed the Growth project field,
+  project stage rail, API profile, source inventory, and Stage A records all
+  use that same project. The workspace showed 30 captured sources, 3 eligible
+  sources, 5 Wiki pages, 0 methods, 0 outputs, 5 of 5 configured plugin
+  bridges, 9 immutable Horizon signals, and the persisted DeepSeek weekly
+  distillation. No `default` project inventory was displayed.
+- The first browser request occurred while the Docker API was restarting and
+  returned a Vite proxy 500. It was retried only after `/live` returned 200,
+  the protected profile and summary endpoints returned 200 through the Vite
+  proxy, and Celery reported `pong`. The subsequent UI readback rendered the
+  persisted project data successfully.
+- Mobile acceptance at 390 by 844 rendered the project selector, command
+  controls, health cells, stage rail, and Stage A asset list without overlap.
+  The responsive stage rail intentionally uses compact labels while retaining
+  their accessible names.
+- The durable ledger continues to show completed real runs for daily growth
+  (`36a4c2e2566e`), weekly distillation (`d4d428891850`), and candidate
+  extraction (`243d9d655c65`). The candidate run remains review-only with 10
+  `pending_review` items. C-layer publication and D-layer acceptance were not
+  fabricated: no user business output is currently present in the declared
+  output bridges, so the correct persisted D count remains zero.
+
+### Verification
+
+- `npm run test:frontend -- src/components/UnifiedWorkspace.test.ts
+  src/components/growth/GrowthWorkspace.test.tsx
+  src/components/growth/GrowthVisualizations.test.tsx` completed with
+  `45 passed`.
+- `npm run check` and `npm run build` completed successfully.
+- `docker compose ps` showed healthy API, PostgreSQL, Redis, Celery worker,
+  Celery beat, and n8n services. Direct and proxied protected reads for
+  `proj_b8a285642094` returned the same persisted project summary.
