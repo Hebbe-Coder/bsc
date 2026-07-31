@@ -633,3 +633,10 @@ npm run build
   organization stage, a real review of the pending delivery, and two further
   comparable receipt-backed AI-project deliveries. These are not replaceable
   by fixtures or automatic inference.
+
+### Repository Regression
+
+- Full backend regression after the PBOS result-semantics closure collected
+  `1,601` tests and completed with `1,587 passed, 14 skipped` in `221.28s`.
+  It retained only the pre-existing Starlette/httpx and Pydantic v2
+  deprecation warnings; there were no regressions.

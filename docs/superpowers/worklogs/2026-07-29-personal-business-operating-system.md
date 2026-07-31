@@ -1289,3 +1289,16 @@
   bounded genome/compiler projection, and their focused tests. Existing
   unverified Outcome data remains valid and can be reviewed later with a real
   observed result.
+
+## 2026-07-31 Full Repository Regression After PBOS Result Closure
+
+- **Executed verification:** `./.venv/Scripts/python.exe -m pytest -q`
+  collected `1,601` tests and completed with `1,587 passed, 14 skipped` in
+  `221.28s`.
+- **Warnings:** one existing Starlette/httpx deprecation warning and two
+  existing Pydantic v2 `.dict()` deprecation warnings in `brainstorm_api.py`.
+  There were no failures and no PBOS-specific warning.
+- **Scope:** this confirms the result-summary acceptance gate preserves the
+  existing DBOS, Artifact Graph, knowledge-growth, MCP, runtime, and API
+  contracts. It does not turn the pending real Outcome into accepted personal
+  learning evidence.
