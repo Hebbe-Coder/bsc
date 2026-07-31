@@ -15,7 +15,7 @@ class PBOSScheduleCoordinator:
     MONTHLY_JOB = "pbos_monthly"
     DEFAULTS = (
         (DAILY_JOB, "0 17 * * *"),
-        (WEEKLY_JOB, "30 17 * * 5"),
+        (WEEKLY_JOB, "0 17 * * 5"),
         (MONTHLY_JOB, "0 17 1 * *"),
     )
 

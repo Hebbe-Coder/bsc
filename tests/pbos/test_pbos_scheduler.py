@@ -20,12 +20,36 @@ def test_pbos_default_schedules_use_shanghai_cadence_and_month_boundary(tmp_path
 
         assert [(item["job_type"], item["cron"], item["timezone"]) for item in schedules] == [
             ("pbos_daily", "0 17 * * *", "Asia/Shanghai"),
-            ("pbos_weekly", "30 17 * * 5", "Asia/Shanghai"),
+            ("pbos_weekly", "0 17 * * 5", "Asia/Shanghai"),
             ("pbos_monthly", "0 17 1 * *", "Asia/Shanghai"),
         ]
         assert schedules[0]["next_run_at"] == "2026-07-23T09:00:00+00:00"
-        assert schedules[1]["next_run_at"] == "2026-07-24T09:30:00+00:00"
+        assert schedules[1]["next_run_at"] == "2026-07-24T09:00:00+00:00"
         assert schedules[2]["next_run_at"] == "2026-08-01T09:00:00+00:00"
+    finally:
+        repository.close()
+
+
+def test_pbos_default_schedules_migrate_the_legacy_weekly_half_hour_cron(tmp_path):
+    repository = WikiRepository(db_path=str(tmp_path / "pbos-legacy-schedules.db"))
+    repository.configure_vault("project-a", "projects/project-a")
+    repository.upsert_schedule(
+        project_id="project-a",
+        job_type="pbos_weekly",
+        cron="30 17 * * 5",
+        timezone_name="Asia/Shanghai",
+        enabled=True,
+        next_run_at="2026-07-24T09:30:00+00:00",
+    )
+    coordinator = PBOSScheduleCoordinator(repository, scheduler_available=True)
+    try:
+        schedules = coordinator.ensure_defaults(
+            "project-a", now=datetime(2026, 7, 23, 8, 0, tzinfo=timezone.utc)
+        )
+        weekly = next(item for item in schedules if item["job_type"] == "pbos_weekly")
+
+        assert weekly["cron"] == "0 17 * * 5"
+        assert weekly["next_run_at"] == "2026-07-24T09:00:00+00:00"
     finally:
         repository.close()
 
@@ -67,7 +91,7 @@ def test_due_pbos_schedule_claims_and_dispatches_through_the_knowledge_queue(tmp
     repository = WikiRepository(db_path=str(tmp_path / "pbos-dispatch.db"))
     repository.configure_vault("project-a", "projects/project-a")
     coordinator = PBOSScheduleCoordinator(repository, scheduler_available=True)
-    before_due = datetime(2026, 7, 23, 9, 30, tzinfo=timezone.utc)
+    before_due = datetime(2026, 7, 23, 8, 30, tzinfo=timezone.utc)
     coordinator.ensure_defaults("project-a", now=before_due)
     dispatched: list[list[str]] = []
     monkeypatch.setattr(settings, "KNOWLEDGE_SCHEDULES_ENABLED", True)
@@ -76,7 +100,7 @@ def test_due_pbos_schedule_claims_and_dispatches_through_the_knowledge_queue(tmp
     monkeypatch.setattr(knowledge_tasks, "is_celery_real", lambda: True)
     monkeypatch.setattr(knowledge_tasks, "_submit_task", lambda _task, args: dispatched.append(args))
     monkeypatch.setattr(repository, "close", lambda: None)
-    due = datetime(2026, 7, 24, 9, 31, tzinfo=timezone.utc)
+    due = datetime(2026, 7, 24, 9, 1, tzinfo=timezone.utc)
     try:
         result = knowledge_tasks.reconcile_knowledge_schedules(now=due)
 
@@ -86,7 +110,7 @@ def test_due_pbos_schedule_claims_and_dispatches_through_the_knowledge_queue(tmp
         assert {item["run_type"] for item in runs} == {"pbos_daily", "pbos_weekly"}
         weekly = next(item for item in runs if item["run_type"] == "pbos_weekly")
         assert weekly["input_refs"]["week"] == "2026-W30"
-        assert weekly["input_refs"]["scheduled_at"] == "2026-07-24T09:30:00+00:00"
+        assert weekly["input_refs"]["scheduled_at"] == "2026-07-24T09:00:00+00:00"
         assert any(
             event["event_type"] == "knowledge.run.execution_dispatched"
             for event in repository.list_run_events(project_id="project-a", run_id=weekly["id"])

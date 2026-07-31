@@ -467,3 +467,67 @@ npm run build
   captures then fall back to image-local allowlisted files; existing ledger
   records, Vault projections, outcomes, and user acceptance decisions remain
   intact.
+
+## 2026-07-31 Actual PBOS/Obsidian Plugin-Planning Acceptance
+
+### Implemented And Exercised
+
+- Commit `1107c6f` makes declared, trusted Obsidian bridge state a bounded
+  PBOS planning input. The compiler receives only plugin ID, adapter, route
+  state, and capture state. Plugin settings, Vault paths, content, timestamps,
+  trust actors, and credentials do not enter the plan, its metadata, or the
+  LLM prompt.
+- A narrow post-LLM guard replaces an explicit setup action for a named
+  `configured_awaiting_export` or `configured_awaiting_output` route with the
+  same Mission's deterministic phase. It leaves unconfigured connectors and
+  genuine evidence capture available.
+- The live default Vault's Zotero destination was corrected from the retired
+  project route to the governed `default` route. Runtime manifest readback
+  proves Clipper, Xiaohongshu Importer, and Zotero are path-ready and
+  destination-aligned; each remains honestly `awaiting_export` until a plugin
+  creates a real user export.
+
+### Runtime Evidence
+
+- The rebuilt production API compiled Mission `art_53e74845ac3f` into
+  `art_e3c9018f3dc4` through the configured DeepSeek provider. The persisted
+  plan is `context_grounded`, cites eight governed references, exposes four
+  ready routes in compiler metadata, and begins with a Mission decision rather
+  than plugin configuration. Its managed projection exists in the real Vault.
+- The same plan captured server-observed execution `art_e527463dab68` with
+  five verified receipts and a reflection. It generated unverified outcome
+  `art_7ef77da74462`, deliberately without an acceptance decision or quality
+  score. The real evolution call returned `comparison_required`, yielding no
+  Capability, Experience, or Strategy Genome.
+- This proves the full relevant path: configured plugin state -> bounded
+  PBOS context -> LLM plan -> managed Obsidian projection -> server-verified
+  execution -> explicit unverified outcome -> no premature promotion.
+
+### Verification And Remaining Gate
+
+- `pytest` PBOS/API/MCP/integration coverage: `67 passed`.
+- Shared Artifact/Runtime/Wiki/Distillation coverage: `102 passed, 1 skipped`.
+- Frontend coverage: `175 passed`; TypeScript check, Vite production build,
+  Compose configuration, and Compose health checks passed.
+- Browser acceptance at `390x844` rendered the honest Studio access gate with
+  a `384/384` client/scroll width and zero console errors. Authenticated live
+  data was verified by the protected API rather than placing a runtime key in
+  browser storage.
+- PBOS cadence now uses daily `17:00`, weekly Friday `17:00`, and monthly day
+  one `17:00` in `Asia/Shanghai`. The default reconciler migrates the previous
+  PBOS weekly `17:30` row without changing the independently scheduled
+  knowledge-growth distillation job. Protected runtime readback confirmed all
+  three enabled default rows and the migrated weekly next run at
+  `2026-07-31T09:00:00+00:00`.
+- The remaining non-automatable product evidence is intentional: three
+  comparable, explicitly accepted, receipt-backed and reflected personal AI
+  project deliveries are still required before PBOS can truthfully create a
+  personal Capability, Experience, or Strategy Genome. No plan, test, or
+  connector configuration can substitute for those user-owned results.
+
+### Rollback
+
+- Revert `1107c6f` to remove this planning guard. The existing external
+  plugin configuration can be restored only by changing the single Zotero
+  destination field. Neither rollback deletes source history, projections,
+  execution receipts, outcomes, or future user exports.

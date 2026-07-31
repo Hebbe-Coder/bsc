@@ -869,3 +869,53 @@
   tests/pbos/test_pbos_contextual_compiler.py -q` passed with `22` tests.
   The regression uses a deliberately secret-looking plugin setting and proves
   it cannot enter the PBOS context or model prompt.
+
+## 2026-07-31 Live Default-Project Plugin-Planning Closure
+
+- **Live bridge correction:** the installed Zotero Desktop Connector still
+  pointed at retired project `proj_b8a285642094`. Only its
+  `noteImportFolder` setting was changed to
+  `projects/default/01_Sources/zotero`; the declared route already existed.
+  A subsequent manifest readback confirmed Clipper, Xiaohongshu Importer, and
+  Zotero each have a ready path, a matching configured destination, and
+  `awaiting_export`. No capture was manufactured.
+- **Real compilation:** after rebuilding the API, worker, and beat images,
+  default-project Mission `art_53e74845ac3f` compiled through the configured
+  DeepSeek provider into plan `art_e3c9018f3dc4`. It is
+  `context_grounded`, cites eight governed context references, and persists
+  four planning-ready routes: three configured capture routes plus an already
+  captured Excalidraw context route. Its phases advance PBOS verification,
+  evidence, and receipt work; none asks to install or configure an Obsidian
+  plugin. The plan projection exists at `pbos/plans/art_e3c9018f3dc4.md`.
+- **Real execution evidence:** the read-only workspace capture route recorded
+  execution `art_e527463dab68` for that plan. It carries five
+  server-verified receipts (Git revision plus four approved file hashes) and
+  an explicit reflection covering result, evidence, blocker, and next action.
+  Its linked outcome `art_7ef77da74462` is intentionally `unverified` with no
+  quality score, and both assets were safely projected into the Vault.
+- **Evolution behavior:** an authorized reconciliation returned
+  `comparison_required`; it created no Capability or Strategy Genome. Cockpit
+  readback reports the execution as reviewable with `5/5` verified receipts
+  and reflection, while its outcome remains `unverified_outcome`. This is the
+  required evidence-first result, not an incomplete implementation.
+- **Verification:** PBOS/API/MCP/integration coverage passed `67`; shared
+  Artifact/Runtime/Wiki/Distillation coverage passed `102` with one existing
+  skip; frontend coverage passed `175`; TypeScript checking, production build,
+  `docker compose config --quiet`, and healthy API/Worker/Beat/PostgreSQL/
+  Redis/n8n readback all passed. On the production Studio, the PBOS access
+  gate rendered at `390x844` with `384/384` client/scroll width and zero
+  console errors. No browser key was entered or exported.
+- **Reference record:** detailed commands and non-sensitive observations are
+  retained in
+  `docs/superpowers/verification/2026-07-31-pbos-obsidian-plugin-planning.md`.
+- **Automation alignment:** PBOS weekly review defaults now run at Friday
+  `17:00 Asia/Shanghai`, matching the requested weekly 5 PM cadence. The
+  durable default reconciler updates legacy `17:30` PBOS weekly rows on its
+  next authenticated/default-schedule pass; it does not alter the separate
+  knowledge-growth weekly distillation cadence. Runtime reconciliation already
+  migrated default's enabled `pbos_weekly` row, whose persisted
+  `next_run_at` is `2026-07-31T09:00:00+00:00` (Friday 17:00 local time).
+  The five scheduler tests passed before this protected live readback.
+- **Rollback:** revert `1107c6f` to remove configured-route planning context;
+  restore the Zotero destination only if the retired project is intentionally
+  reactivated; retain all current execution/outcome artifacts as audit history.

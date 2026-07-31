@@ -35,6 +35,14 @@ Executed from the BSC workspace after the change:
 
 Result: `67 passed`.
 
+PBOS automation defaults were also reconciled on the running scheduler. Daily
+and weekly actions are enabled at 17:00 Asia/Shanghai, with the weekly action
+running on Friday. The migration test confirms a previous PBOS Friday 17:30
+row is rewritten to Friday 17:00; separate knowledge-growth distillation
+schedules are not modified. Protected runtime readback confirmed the enabled
+default-project weekly row now persists cron `0 17 * * 5` and its Friday 17:00
+local next-run timestamp.
+
 Focused behavior is covered by tests that prove configured bridge context
 contains no plugin settings or raw evidence, reaches the model prompt as
 bounded operational state, and replaces a repeated Clipper setup phase with a
