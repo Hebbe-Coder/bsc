@@ -434,6 +434,7 @@ class PBOSService:
         }
 
     def cockpit(self) -> dict[str, Any]:
+        profile = self.profile()
         capabilities = self._latest_capabilities()
         plans = self._latest([
             item for item in self.store.get_by_type(ArtifactType.PERSONAL_EXECUTION_PLAN)
@@ -465,13 +466,18 @@ class PBOSService:
         personal_learning_ready = bool(
             active_plan and active_plan.compilation_state == "personalized"
         )
+        personalization_readiness = self._personalization_readiness(
+            profile,
+            active_plan,
+            outcomes,
+        )
         outcome_by_execution_id = {str(item.execution_record_id): observation for item, observation in zip(outcomes, outcome_observations)}
         execution_observations = [
             self._execution_observation(item, outcome_by_execution_id.get(item.artifact_id))
             for item in executions[:6]
         ]
         return {
-            "profile": profile.model_dump(mode="json") if (profile := self.profile()) else None,
+            "profile": profile.model_dump(mode="json") if profile else None,
             "today": plans[0].model_dump(mode="json") if plans else None,
             "today_action": self.today_action(),
             "capabilities": [item.model_dump(mode="json") for item in capabilities],
@@ -496,7 +502,54 @@ class PBOSService:
                 # always meant personal-plan readiness, not Vault connection.
                 "evidence_ready": personal_learning_ready,
             },
+            "personalization_readiness": personalization_readiness,
             "connectors": {"github": "awaiting_authorization", "feishu": "awaiting_authorization"},
+        }
+
+    def _personalization_readiness(
+        self,
+        profile: PersonalProfileArtifact | None,
+        active_plan: PersonalExecutionPlanArtifact | None,
+        outcomes: list[WorkOutcomeArtifact],
+    ) -> dict[str, Any]:
+        """Expose the exact gates between a context-aware plan and a learned method."""
+        metadata = active_plan.compiler_metadata if active_plan else {}
+        effective_context = (
+            metadata.get("effective_personal_context")
+            if isinstance(metadata, dict) and isinstance(metadata.get("effective_personal_context"), dict)
+            else {}
+        )
+        fields = ("role", "industry", "organization_stage")
+        missing = [field for field in fields if not str(effective_context.get(field) or "").strip()]
+        if not effective_context and profile:
+            missing = [
+                field for field in fields
+                if not str(getattr(profile, field, "") or "").strip()
+            ]
+        comparison_key = active_plan.comparison_key if active_plan else ""
+        comparison_context = active_plan.comparison_context if active_plan else ""
+        comparable_complete = [
+            outcome for outcome in outcomes
+            if self._is_complete_record(outcome)
+            and (not comparison_key or outcome.comparison_key == comparison_key)
+            and (not comparison_context or outcome.comparison_context == comparison_context)
+        ]
+        if active_plan and active_plan.compilation_state == "personalized":
+            state = "personalized"
+        elif missing:
+            state = "profile_context_required"
+        elif len(comparable_complete) < 3:
+            state = "learning_evidence_required"
+        else:
+            state = "promotion_evaluation_required"
+        return {
+            "state": state,
+            "declared_profile_ready": bool(profile) and not missing,
+            "missing_profile_fields": missing,
+            "accepted_outcome_count": len(comparable_complete),
+            "required_comparable_outcomes": 3,
+            "comparison_key": comparison_key,
+            "comparison_context": comparison_context,
         }
 
     def _execution_observation(

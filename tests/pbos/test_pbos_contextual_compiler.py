@@ -1187,3 +1187,31 @@ def test_diagnosis_defines_the_personal_comparison_context(tmp_path):
     assert plan.comparison_context == "AI product lead / SaaS / scale-up"
     assert plan.personal_context_fingerprint
     assert plan.compiler_metadata["diagnosis_context"]["industry"] == "SaaS"
+
+
+def test_declared_personal_profile_context_makes_an_empty_diagnosis_specific_without_claiming_evidence(tmp_path):
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(store, "mission", "AI delivery", "Deliver an evidence-backed AI feature")
+    service = PBOSService(
+        store,
+        "personal",
+        context_provider=lambda: {"availability": "available", "documents": [], "refs": []},
+    )
+    service.save_profile({
+        "role": "Independent AI product builder",
+        "industry": "AI productivity software",
+        "organization_stage": "solo validation",
+        "focus": ["AI systems"],
+        "goals": ["Ship one reviewable AI feature"],
+        "work_style": ["architecture first"],
+        "decision_style": ["evidence before expansion"],
+    })
+
+    plan = service.compile_plan("mission")
+
+    assert plan.comparison_key == "engineering:independent-ai-product-builder:ai-productivity-software:solo-validation"
+    assert plan.comparison_context == "Independent AI product builder / AI productivity software / solo validation"
+    assert plan.compiler_metadata["effective_personal_context"]["role"] == "Independent AI product builder"
+    assert plan.compiler_metadata["effective_personal_context_sources"]["role"] == "declared_profile"
+    assert plan.compilation_state == "capture_required"
+    assert not plan.strategy_refs

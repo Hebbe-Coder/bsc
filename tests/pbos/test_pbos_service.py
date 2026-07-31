@@ -537,6 +537,21 @@ def test_cockpit_distinguishes_connected_vault_context_from_personal_learning(tm
     assert health["evidence_ready"] is False
 
 
+def test_cockpit_exposes_missing_personal_model_fields_without_claiming_a_personal_method(tmp_path):
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(store, "mission-context")
+    service = PBOSService(store, "personal")
+    service.save_profile({"focus": ["AI systems"], "goals": ["Ship a verified delivery"]})
+
+    readiness = service.cockpit()["personalization_readiness"]
+
+    assert readiness["state"] == "profile_context_required"
+    assert readiness["declared_profile_ready"] is False
+    assert readiness["missing_profile_fields"] == ["role", "industry", "organization_stage"]
+    assert readiness["accepted_outcome_count"] == 0
+    assert readiness["required_comparable_outcomes"] == 3
+
+
 def test_managed_daily_report_refreshes_but_preserves_user_edits_as_a_conflict(tmp_path):
     service = PBOSService(ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal"), "personal")
     reports = PBOSReportService(service, tmp_path)

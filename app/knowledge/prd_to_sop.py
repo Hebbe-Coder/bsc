@@ -7,7 +7,7 @@ import hashlib
 import json
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 import yaml
 
 from app.core.config import settings
@@ -310,6 +310,13 @@ class ProjectSopGenerationService:
             raise ProjectSopGenerationError("prd_source_not_found", "PRD source not found in the requested project")
         if source.get("status") not in {"eligible", "processed"}:
             raise ProjectSopGenerationError("prd_source_not_admitted", "PRD source must be eligible or processed before generation")
+        metadata = source.get("metadata") if isinstance(source.get("metadata"), dict) else {}
+        evidence_role = str(metadata.get("evidence_role") or "").strip().lower()
+        if evidence_role not in {"project_prd", "prd"}:
+            raise ProjectSopGenerationError(
+                "prd_source_not_designated",
+                "selected source is not designated as a project PRD",
+            )
         reason = source_admission_reason(self.repository, project_id, source)
         if reason:
             raise ProjectSopGenerationError("prd_source_not_admitted", f"PRD source is not admitted: {reason}")
@@ -435,6 +442,15 @@ class ProjectSopGenerationService:
     ) -> ProjectSopDraft:
         try:
             draft = ProjectSopDraft.model_validate(value)
+        except ValidationError as exc:
+            # Preserve only contract paths and error codes. Model output can
+            # contain project content, so it must never be copied into the run
+            # ledger merely to explain a validation failure.
+            diagnostics = self._schema_diagnostics(exc)
+            raise ProjectSopGenerationError(
+                "output_contract_invalid",
+                f"model output did not match the project SOP contract ({diagnostics})",
+            ) from exc
         except Exception as exc:
             raise ProjectSopGenerationError("output_contract_invalid", "model output did not match the project SOP contract") from exc
         source_refs = self._unique_refs(draft.source_refs)
@@ -458,6 +474,20 @@ class ProjectSopGenerationService:
         if len(normalized) != len(values):
             raise ProjectSopGenerationError("output_contract_invalid", "model output contained blank or duplicate evidence references")
         return normalized
+
+    @staticmethod
+    def _schema_diagnostics(error: ValidationError) -> str:
+        """Return bounded, content-free validation hints for an operator retry."""
+        hints: list[str] = []
+        for issue in error.errors():
+            location = ".".join(str(part) for part in issue.get("loc", ())) or "root"
+            kind = str(issue.get("type") or "invalid")
+            hint = f"{location}:{kind}"
+            if hint not in hints:
+                hints.append(hint)
+            if len(hints) == 6:
+                break
+        return ", ".join(hints) or "unknown_schema_error"
 
     def _manifest(
         self,

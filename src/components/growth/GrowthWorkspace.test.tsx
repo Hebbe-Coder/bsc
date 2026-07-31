@@ -21,6 +21,7 @@ import {
   fetchGrowthStage,
   fetchGrowthTrend,
   fileGrowthOutput,
+  generateProjectSop,
   linkGrowthOutputEvidence,
   runGrowthWorkspaceJob,
   resolveGrowthFailure,
@@ -51,6 +52,7 @@ vi.mock('../../api/growthApi', async (importOriginal) => {
     distillGrowthSourceMethods: vi.fn(),
     evaluateGrowthOutput: vi.fn(),
     fileGrowthOutput: vi.fn(),
+    generateProjectSop: vi.fn(),
     linkGrowthOutputEvidence: vi.fn(),
     processGrowthFeedback: vi.fn(),
     runGrowthWorkspaceJob: vi.fn(),
@@ -78,6 +80,7 @@ const mockedAddFeedback = vi.mocked(addGrowthOutputFeedback);
 const mockedDistillSourceMethods = vi.mocked(distillGrowthSourceMethods);
 const mockedEvaluateOutput = vi.mocked(evaluateGrowthOutput);
 const mockedFileOutput = vi.mocked(fileGrowthOutput);
+const mockedGenerateProjectSop = vi.mocked(generateProjectSop);
 const mockedLinkEvidence = vi.mocked(linkGrowthOutputEvidence);
 const mockedWorkspaceJob = vi.mocked(runGrowthWorkspaceJob);
 const mockedResolveFailure = vi.mocked(resolveGrowthFailure);
@@ -89,7 +92,7 @@ const overview = {
   profile: { project_id: 'default', user_role: 'researcher', revision: 3 },
   summary: { project_id: 'default', counts: { sources: 25, eligible_sources: 20, pages: 1, methods: 1, published_methods: 1, outputs: 1, accepted_outputs: 1, rejected_outputs: 0, feedback: 1, wiki_proposals: 1, review_records: 2 } },
 };
-const source = { id: 'source-a', origin: 'Source brief', status: 'eligible', created_at: '2026-07-20T09:00:00Z', content_hash: 'a'.repeat(64) };
+const source = { id: 'source-a', origin: 'Source brief', status: 'eligible', created_at: '2026-07-20T09:00:00Z', content_hash: 'a'.repeat(64), metadata: { evidence_role: 'project_prd' } };
 const page = { id: 'page-a', title: 'Wiki page', path: 'wiki/page.md', status: 'published', updated_at: '2026-07-21T09:00:00Z' };
 
 function installSuccessfulProject() {
@@ -114,6 +117,7 @@ function installSuccessfulProject() {
   mockedDistillSourceMethods.mockResolvedValue({ run: { id: 'method-distillation-run', run_type: 'source_method_distillation', status: 'queued' }, proposals: [], publication_status: 'proposal_only', execution: { execution: 'in_process', task_id: 'in-process:method-distillation-run' } });
   mockedEvaluateOutput.mockResolvedValue({ id: 'evaluation-new', quality: 90, status: 'completed' });
   mockedFileOutput.mockResolvedValue({ id: 'output-a', status: 'filed' });
+  mockedGenerateProjectSop.mockResolvedValue({ run: { id: 'sop-run-a', run_type: 'prd_to_sop', status: 'completed' }, output: { id: 'sop-output-a', status: 'registered', asset_type: 'output' }, idempotent: false });
   mockedLinkEvidence.mockResolvedValue({ output: { id: 'output-a', status: 'registered', source_refs: [] }, evidence: { source_ids: ['source-a'], page_ids: [] } });
   mockedWorkspaceJob.mockResolvedValue({ run_id: 'workspace-run-a', status: 'queued' });
   mockedResolveFailure.mockResolvedValue({ id: 'failure-a', code: 'routing_mismatch', severity: 'error', summary: 'routing failed', status: 'resolved' });
@@ -338,6 +342,27 @@ describe('GrowthWorkspace', () => {
 
     await waitFor(() => expect(mockedStartGrowthRun).toHaveBeenCalledWith('default', 'growth_daily'));
     expect(await screen.findByText(/growth_daily: queued/i)).toBeVisible();
+  });
+
+  it('generates a reviewable SOP only from an admitted project PRD and opens the registered output', async () => {
+    render(<GrowthWorkspace onClose={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole('tab', { name: /Outputs/i }));
+    const prd = await screen.findByRole('combobox', { name: 'Admitted project PRD' });
+    expect(prd).toHaveValue('source-a');
+    fireEvent.change(screen.getByRole('textbox', { name: 'SOP delivery goal' }), { target: { value: 'Create the governed delivery SOP for the active project.' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'SOP audience' }), { target: { value: 'Project operators' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Generate reviewable SOP' }));
+
+    await waitFor(() => expect(mockedGenerateProjectSop).toHaveBeenCalledWith('default', expect.objectContaining({
+      prd_source_id: 'source-a',
+      goal: 'Create the governed delivery SOP for the active project.',
+      audience: 'Project operators',
+      channel: 'knowledge_workspace',
+      idempotency_key: expect.stringMatching(/^browser-prd-to-sop-/),
+    })));
+    expect(await screen.findByText(/New registered SOP is open/i)).toBeVisible();
+    expect(useGrowthWorkspaceStore.getState().selectedId).toBe('sop-output-a');
   });
 
   it('audits persisted run inputs, events, output references and linked failures in one workspace view', async () => {

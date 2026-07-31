@@ -14,6 +14,7 @@ import {
   evaluateGrowthOutput,
   fileGrowthOutput,
   distillGrowthSourceMethods,
+  generateProjectSop,
   growthRecordKind,
   linkGrowthOutputEvidence,
   resolveGrowthFailure,
@@ -245,6 +246,35 @@ describe('growthApi', () => {
       expect.stringContaining('/project-a/outputs/output-a/file'),
     ]);
     expect(requests.every((item) => item.init?.method === 'POST')).toBe(true);
+  });
+
+  it('generates one reviewable SOP from an admitted project PRD through the canonical endpoint', async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ url: String(input), init });
+      return Promise.resolve(ok({
+        run: { id: 'sop-run-a', status: 'completed', run_type: 'prd_to_sop' },
+        output: { id: 'sop-output-a', status: 'registered', kind: 'project_sop' },
+        idempotent: false,
+      }));
+    }));
+
+    const result = await generateProjectSop('project-a', {
+      prd_source_id: 'prd-source-a',
+      goal: 'Deliver the governed project workflow.',
+      audience: 'project operators',
+      idempotency_key: 'browser-sop-a',
+    });
+
+    expect(result.output.status).toBe('registered');
+    expect(requests[0].url).toContain('/knowledge/projects/project-a/outputs/generate-sop');
+    expect(JSON.parse(String(requests[0].init?.body))).toEqual({
+      prd_source_id: 'prd-source-a',
+      goal: 'Deliver the governed project workflow.',
+      audience: 'project operators',
+      idempotency_key: 'browser-sop-a',
+      channel: 'knowledge_workspace',
+    });
   });
 
   it('submits accepted candidate ids only as a review-guided source distillation selection', async () => {

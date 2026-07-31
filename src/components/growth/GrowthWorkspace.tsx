@@ -2,7 +2,7 @@ import {
   AlertTriangle, BarChart3, BookOpen, FileDiff, FileText,
   Download, LayoutList, ListChecks, LoaderCircle, Network, Play, RefreshCw, Settings2, ShieldAlert, Sparkles, Sprout, X,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import {
   classifyGrowthError,
@@ -24,6 +24,7 @@ import {
   fetchGrowthStage,
   fetchGrowthTrend,
   fileGrowthOutput,
+  generateProjectSop,
   linkGrowthOutputEvidence,
   processGrowthFeedback,
   publishGrowthMethodProposal,
@@ -53,6 +54,7 @@ import {
   type GrowthStage,
   type GrowthStageResult,
   type GrowthTrend,
+  type ProjectSopGenerationInput,
   startGrowthRun,
 } from '../../api/growthApi';
 import { useGrowthWorkspaceStore, useKnowledgeWorkspaceStore, type GrowthCenterView } from '../../store/knowledgeWorkspaceStore';
@@ -207,6 +209,55 @@ function AssetReader({ selected, detail, state, error }: { selected: GrowthRecor
   return <div className="growth-descriptor-preview"><FileText size={20} /><h4>{growthRecordLabel(detail.record)}</h4><p>{detail.detailMessage || 'The persisted descriptor is available in the inspector.'}</p>{typeof detail.record.vault_path === 'string' && <code>{detail.record.vault_path}</code>}</div>;
 }
 
+function isProjectPrdSource(source: GrowthRecord): boolean {
+  if (!['eligible', 'processed'].includes(String(source.status || ''))) return false;
+  const metadata = source.metadata;
+  const evidenceRole = metadata && typeof metadata === 'object'
+    ? String((metadata as Record<string, unknown>).evidence_role || '').toLowerCase()
+    : '';
+  return evidenceRole === 'project_prd' || evidenceRole === 'prd';
+}
+
+function ProjectSopGenerator({
+  sources,
+  sourceState,
+  canWrite,
+  busy,
+  onGenerate,
+}: {
+  sources: GrowthRecord[];
+  sourceState: GrowthRequestState;
+  canWrite: boolean;
+  busy: boolean;
+  onGenerate: (input: Omit<ProjectSopGenerationInput, 'idempotency_key' | 'channel'>) => void;
+}) {
+  const [prdSourceId, setPrdSourceId] = useState('');
+  const [goal, setGoal] = useState('');
+  const [audience, setAudience] = useState('');
+
+  useEffect(() => {
+    if (!sources.some((source) => source.id === prdSourceId)) setPrdSourceId(sources[0]?.id || '');
+  }, [prdSourceId, sources]);
+
+  const unavailable = ['loading', 'permission', 'offline', 'unavailable', 'error'].includes(sourceState);
+  const disabled = !canWrite || busy || unavailable || !prdSourceId || goal.trim().length < 8 || audience.trim().length < 2;
+  return <section className="growth-panel growth-sop-generator" aria-label="Project PRD to SOP">
+    <div className="growth-panel__heading"><div><p>PRD TO SOP</p><h3>Reviewable project output</h3></div><Sparkles size={18} /></div>
+    <form onSubmit={(event) => {
+      event.preventDefault();
+      if (!disabled) onGenerate({ prd_source_id: prdSourceId, goal: goal.trim(), audience: audience.trim() });
+    }}>
+      <label><span>Admitted project PRD</span><select aria-label="Admitted project PRD" value={prdSourceId} onChange={(event) => setPrdSourceId(event.target.value)} disabled={busy || sourceState === 'loading'}>
+        {sources.map((source) => <option key={source.id} value={source.id}>{growthRecordLabel(source)} ({source.id.slice(0, 8)})</option>)}
+      </select></label>
+      <label><span>Delivery goal</span><textarea aria-label="SOP delivery goal" value={goal} onChange={(event) => setGoal(event.target.value)} minLength={8} maxLength={4000} required /></label>
+      <label><span>Audience</span><input aria-label="SOP audience" value={audience} onChange={(event) => setAudience(event.target.value)} minLength={2} maxLength={1000} required /></label>
+      {sourceState === 'loading' ? <small>Loading admitted project PRDs...</small> : !sources.length ? <small>No eligible source is designated as a project PRD.</small> : null}
+      <button type="submit" disabled={disabled} title={canWrite ? 'Generate a registered SOP for review' : 'Project write permission is required'}>{busy ? <LoaderCircle size={14} className="spin" /> : <Sparkles size={14} />}Generate reviewable SOP</button>
+    </form>
+  </section>;
+}
+
 export function GrowthWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
   const {
     projectId, stage, selectedId, inspectorOpen, query, statusFilter, page, pageSize, centerView, requestStates,
@@ -248,6 +299,9 @@ export function GrowthWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
   const [latestDistillationState, setLatestDistillationState] = useState<'loading' | 'available' | 'unavailable'>('loading');
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
   const [profileMessage, setProfileMessage] = useState('');
+  const [projectPrds, setProjectPrds] = useState<GrowthRecord[]>([]);
+  const [projectPrdState, setProjectPrdState] = useState<GrowthRequestState>('idle');
+  const projectSopIdempotencyKey = useRef('');
 
   useEffect(() => {
     document.documentElement.classList.add('growth-workspace-open');
@@ -401,6 +455,24 @@ export function GrowthWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
   }, [detail, projectId, reloadEpoch]);
 
   useEffect(() => {
+    if (stage !== 'D') {
+      setProjectPrds([]); setProjectPrdState('idle');
+      return undefined;
+    }
+    const controller = new AbortController();
+    setProjectPrds([]); setProjectPrdState('loading');
+    void fetchGrowthStage(projectId, 'A', 500, controller.signal).then((result) => {
+      if (controller.signal.aborted) return;
+      const admitted = result.records.filter(isProjectPrdSource);
+      setProjectPrds(admitted); setProjectPrdState(admitted.length ? 'success' : 'empty');
+    }).catch((reason: unknown) => {
+      if (controller.signal.aborted) return;
+      setProjectPrds([]); setProjectPrdState(errorInfo(reason).state);
+    });
+    return () => controller.abort();
+  }, [projectId, reloadEpoch, stage]);
+
+  useEffect(() => {
     const controller = new AbortController();
     setHealth(null); setTrend(null); setMetricsError(null); setRequestState('metrics', 'loading');
     void Promise.all([fetchGrowthHealth(projectId, controller.signal), fetchGrowthTrend(projectId, controller.signal)]).then(([nextHealth, nextTrend]) => {
@@ -536,6 +608,25 @@ export function GrowthWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
       setRequestState('action', 'success'); setActionMessage('Evidence lineage was persisted. Inspect it, then complete the quality gate.'); refresh();
     } catch (reason) {
       const failure = errorInfo(reason); setRequestState('action', failure.state); setActionMessage(failure.info.message);
+    }
+  };
+  const submitProjectSop = async (input: Omit<ProjectSopGenerationInput, 'idempotency_key' | 'channel'>) => {
+    setRequestState('action', 'loading'); setActionMessage('');
+    const idempotencyKey = projectSopIdempotencyKey.current || `browser-prd-to-sop-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    projectSopIdempotencyKey.current = idempotencyKey;
+    try {
+      const result = await generateProjectSop(projectId, { ...input, idempotency_key: idempotencyKey, channel: 'knowledge_workspace' });
+      projectSopIdempotencyKey.current = '';
+      setLatestRun(result.run); setSelectedRunId(result.run.id); setStage('D'); setSelectedId(result.output.id); setCenterView('assets'); setInspectorOpen(true);
+      setRequestState('action', 'success');
+      setActionMessage(`${result.idempotent ? 'Existing' : 'New'} registered SOP is open for lineage inspection and quality evaluation.`);
+      refresh();
+    } catch (reason) {
+      const failure = errorInfo(reason);
+      // Keep a key only after an ambiguous transport error. Retrying after an
+      // observed terminal API response must create a distinct model run.
+      if (failure.info.status > 0 && failure.info.status < 500) projectSopIdempotencyKey.current = '';
+      setRequestState('action', failure.state); setActionMessage(failure.info.message);
     }
   };
   const submitEvaluation = async (current: GrowthAssetDetail, payload: GrowthOutputEvaluationInput) => {
@@ -689,6 +780,7 @@ export function GrowthWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
           <header className="growth-main__header"><div><p>{stage === 'review' ? 'REVIEW QUEUE' : `STAGE ${stage}`}</p><h3>{stageMeta?.detail}</h3></div><div className="growth-view-switcher" role="group" aria-label="Growth workspace view">{viewButtons.map(({ id, label, icon: Icon }) => <button type="button" key={id} className={centerView === id ? 'is-active' : ''} aria-pressed={centerView === id} onClick={() => setCenterView(id)}><Icon size={14} />{label}</button>)}</div></header>
           {centerView === 'assets' && <>
             <section className="growth-panel growth-panel--overview"><div className="growth-panel__heading"><div><p>GROWTH HEALTH</p><h3>Persisted inventory and coverage</h3></div><BarChart3 size={18} /></div><GrowthFunnel counts={counts} state={requestStates.overview} error={overviewError?.message} /></section>
+            {stage === 'D' && <ProjectSopGenerator sources={projectPrds} sourceState={projectPrdState} canWrite={access?.can_write === true} busy={requestStates.action === 'loading'} onGenerate={(input) => void submitProjectSop(input)} />}
             <div className="growth-assets-view">
               <section className="growth-panel"><div className="growth-panel__heading"><div><p>ASSET INDEX</p><h3>{stageMeta?.label}</h3></div><span>{stageResult ? `${stageResult.records.length}${stageResult.truncated ? '+' : ''} loaded` : 'not loaded'}</span></div><GrowthAssetList stage={stage} records={records} selectedId={selectedId} query={query} statusFilter={statusFilter} page={page} pageSize={pageSize} totalHint={stageTotal(overview, stage)} truncated={Boolean(stageResult?.truncated)} serverCapped={stageResult?.limit === 500} state={requestStates.stage} error={stageError?.message} onQueryChange={setQuery} onStatusChange={setStatusFilter} onPageChange={setPage} onSelect={selectAsset} onRetry={refresh} /></section>
               <section className="growth-panel growth-reader"><div className="growth-panel__heading"><div><p>{detail?.kind === 'proposal' ? 'DIFF' : 'READER'}</p><h3>{selected ? growthRecordLabel(selected) : 'No asset selected'}</h3></div>{detail?.kind === 'proposal' ? <FileDiff size={17} /> : <BookOpen size={17} />}</div><AssetReader selected={selected} detail={detail} state={requestStates.detail} error={detailError?.message} /></section>

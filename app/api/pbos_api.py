@@ -26,8 +26,13 @@ class PBOSRequest(BaseModel):
 
 
 class ProfileRequest(PBOSRequest):
+    role: str = Field(default="", max_length=160)
+    industry: str = Field(default="", max_length=160)
+    organization_stage: str = Field(default="", max_length=160)
     focus: list[str] = Field(default_factory=list)
     goals: list[str] = Field(default_factory=list)
+    work_style: list[str] = Field(default_factory=list)
+    decision_style: list[str] = Field(default_factory=list)
     preferences: dict[str, Any] = Field(default_factory=dict)
     resources: list[str] = Field(default_factory=list)
     constraints: list[str] = Field(default_factory=list)

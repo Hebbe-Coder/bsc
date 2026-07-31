@@ -1114,3 +1114,100 @@
 - **Rollback:** revert the outcome-intake UI plus the duplicate-outcome guard.
   Existing execution receipts, Vault projections, and any future user review
   history remain immutable audit records.
+
+## 2026-07-31 Governed PRD-to-SOP Live Quality Gate And Workspace Closure
+
+- **Scope:** this entry applies only to project `proj_b8a285642094`. It closes
+  the path from a source explicitly designated as `project_prd`, through
+  governed context and a real DeepSeek structured response, to a D-layer SOP
+  registered in the mapped Vault. It does not change a registered output into
+  an accepted, filed, executed, or learned outcome.
+- **Provider evidence:** a first post-recharge quality-gate run completed its
+  real DeepSeek request but failed the strict SOP schema. It was retained as
+  failed run `sop_8039fa5810b7c38939fde5a5` with
+  `output_contract_invalid`; no output was registered. Schema-failure
+  diagnostics now retain only bounded field paths/error codes, never a model
+  response body or project text.
+- **Successful retry:** new idempotency key
+  `quality-gate-real-20260731-002` completed as
+  `sop_44a316e0bd76cd57165c2b1f` using `deepseek/deepseek-v4-pro`.
+  Its registered output is `a13dc20cbd875910e62b95ad`, stored at
+  `outputs/2026/a13dc20cbd875910e62b95ad/project-sop.md`. Readback verified
+  the persisted SHA-256, five SOP phases, Assumptions/Risks/Open Questions/
+  Evidence References sections, two immutable source references, one Wiki
+  page reference, and run-to-output lineage. Replaying the same request
+  returned the same run/output with `idempotent=true` and did not invoke the
+  model again.
+- **Admission boundary:** the service and Growth workspace now require
+  `eligible` or `processed` evidence with metadata role `project_prd` (or
+  `prd`). A generic admitted source cannot be misrepresented as the PRD used
+  to generate a project SOP. Cross-project and non-designated sources are
+  rejected before model invocation.
+- **Studio wiring:** the D-layer Growth workspace now shows a project-scoped
+  PRD-to-SOP form. It lists only admitted designated PRDs, collects goal and
+  audience, calls the canonical `/knowledge/projects/{project_id}/outputs/
+  generate-sop` endpoint, preserves its idempotency key after an ambiguous
+  transport failure, then opens the registered output for existing lineage
+  inspection and quality review. The interface does not file or accept the
+  output automatically.
+- **Verification:** `./.venv/Scripts/pytest.exe -q
+  tests/knowledge/test_prd_to_sop.py tests/api/test_growth_api.py` passed
+  `33`; `npm run check` passed; focused Growth API/workspace tests passed
+  `55`; and `npm run build` passed. Docker `bsc-backend` was rebuilt and
+  `/live` returned `200`. Browser inspection confirmed Studio loads normally;
+  Growth write controls remain disabled until the existing runtime access key
+  gate is supplied, and no browser credential was read or exposed.
+- **Remaining gate:** output `a13dc20cbd875910e62b95ad` is `registered` and
+  awaiting a real human evaluation and feedback. No acceptance, filing,
+  external publication, plugin export, or business execution was claimed.
+- **Rollback:** revert the PRD designation gate, API client/workspace form,
+  and their focused tests to remove new submissions. Existing run records,
+  immutable source evidence, Vault output, and PromptOps audit data remain
+  historical records and are not deleted.
+
+## 2026-07-31 Full Regression Closure
+
+- **Executed verification:** `./.venv/Scripts/pytest.exe -q` collected 1,594
+  tests and completed with `1580 passed, 14 skipped` in 265.70 seconds.
+- **Offline evidence boundary:** the Evidence Atlas API test starts
+  Starlette's local in-process transport before it blocks external connection
+  creation. This keeps the test's metadata-only, no-network guarantee while
+  avoiding a Windows-specific false positive from the local event loop's
+  `socketpair` bootstrap. The focused file passed `5` tests before the full
+  regression was rerun.
+- **Known warnings:** the pass retains one existing Starlette/httpx
+  deprecation warning and two existing Pydantic v2 `.dict()` deprecation
+  warnings in `brainstorm_api.py`; none are failures or new runtime claims.
+- **Final state:** the PRD-to-SOP path is implemented and regression-verified.
+  Output `a13dc20cbd875910e62b95ad` remains only `registered` and pending
+  human evaluation. It has not been accepted, filed, executed, published, or
+  fed back into the knowledge base.
+
+## 2026-07-31 Personal Context Closure And Runtime Readback
+
+- **Observed gap:** the active personal project had a saved profile with
+  focus, goals, resources, and constraints, but no declared role, industry,
+  or organization stage. The compiler could therefore ground a plan in the
+  Mission and governed Vault context, but could not distinguish an explicitly
+  declared personal work context from missing data.
+- **Implemented closure:** `PersonalProfileArtifact`, PBOS REST contracts,
+  the compiler, and the Personal Growth Cockpit now carry role, industry,
+  organization stage, work style, and decision style. Compilation prefers
+  Mission diagnosis values and falls back only to declared profile values;
+  every effective personal-context field retains its source. Declared context
+  is never elevated to a verified Capability, Experience, or Strategy Genome.
+- **Runtime readback:** the protected live Cockpit for
+  `proj_b8a285642094` reports a real active plan with twelve governed context
+  references and one reviewable execution. Its readiness is correctly
+  `profile_context_required` with the three missing declared fields, zero
+  learning-eligible outcomes, zero Capabilities, and zero Strategy Genomes.
+  GitHub and Feishu remain `awaiting_authorization`.
+- **User workflow:** save real personal context in the Cockpit and use
+  `Recompile current plan`; create and explicitly review the outcome for the
+  existing receipt-backed execution; repeat two more comparable AI-project
+  deliveries before evolution is eligible. No profile value, outcome score,
+  acceptance decision, connector authorization, or Vault body was created by
+  this verification.
+- **Rollback:** revert the PersonalProfile/context compiler and Cockpit
+  changes. Existing Mission, Plan, execution receipts, Vault projections,
+  outcomes, and immutable Strategy Genomes remain unchanged.

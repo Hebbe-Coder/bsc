@@ -40,11 +40,22 @@ def test_pbos_plan_api_uses_project_vault_context(monkeypatch, tmp_path):
 
     profile = client.put(
         "/api/pbos/projects/personal/profile",
-        json={"focus": ["AI systems"], "preferences": {"architecture_first": True}},
+        json={
+            "role": "Independent AI product builder",
+            "industry": "AI productivity software",
+            "organization_stage": "solo validation",
+            "focus": ["AI systems"],
+            "goals": ["Ship a verified delivery"],
+            "work_style": ["architecture first"],
+            "decision_style": ["evidence before expansion"],
+            "preferences": {"architecture_first": True},
+        },
     )
     plan = client.post("/api/pbos/projects/personal/missions/mission-context/plans")
 
     assert profile.status_code == 200
+    assert profile.json()["profile"]["role"] == "Independent AI product builder"
+    assert profile.json()["profile"]["decision_style"] == ["evidence before expansion"]
     assert plan.status_code == 200
     payload = plan.json()["plan"]
     assert payload["compilation_state"] == "context_grounded"
@@ -65,6 +76,9 @@ def test_pbos_plan_api_uses_project_vault_context(monkeypatch, tmp_path):
     assert health["knowledge_context_ready"] is True
     assert health["knowledge_context_reference_count"] == 1
     assert health["personal_learning_ready"] is False
+    readiness = cockpit.json()["personalization_readiness"]
+    assert readiness["declared_profile_ready"] is True
+    assert readiness["state"] == "learning_evidence_required"
 
 
 def test_pbos_workspace_capture_records_one_execution_with_safe_receipt_and_reflection(monkeypatch, tmp_path):

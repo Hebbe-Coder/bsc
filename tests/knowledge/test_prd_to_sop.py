@@ -39,7 +39,14 @@ class RecordingPromptOps:
         )
 
 
-def _source(repo: GrowthRepository, project_id: str, source_id: str, content: str) -> dict:
+def _source(
+    repo: GrowthRepository,
+    project_id: str,
+    source_id: str,
+    content: str,
+    *,
+    evidence_role: str = "",
+) -> dict:
     return repo.create_source(
         SourceRecord(
             id=source_id,
@@ -50,6 +57,7 @@ def _source(repo: GrowthRepository, project_id: str, source_id: str, content: st
             raw_content=content,
             trust_level="trusted",
             status=SourceStatus.ELIGIBLE,
+            metadata={"evidence_role": evidence_role} if evidence_role else {},
         )
     )
 
@@ -59,7 +67,13 @@ def _setup(tmp_path):
     root.mkdir()
     repo = GrowthRepository(db_path=str(tmp_path / "prd-to-sop.db"))
     repo.configure_vault("project-a", "projects/project-a", "test")
-    prd = _source(repo, "project-a", "prd-a", "The project must review every generated SOP before execution.")
+    prd = _source(
+        repo,
+        "project-a",
+        "prd-a",
+        "The project must review every generated SOP before execution.",
+        evidence_role="project_prd",
+    )
     support = _source(repo, "project-a", "support-a", "Reports require traceable evidence references.")
     repo.record_publication(
         project_id="project-a",
@@ -171,6 +185,27 @@ def test_project_sop_generation_rejects_cross_project_prd_before_model_invocatio
         repo.close()
 
 
+def test_project_sop_generation_rejects_an_admitted_source_without_prd_designation(tmp_path):
+    repo, root, _prd, page = _setup(tmp_path)
+    non_prd = _source(repo, "project-a", "research-a", "Research evidence is not a project PRD.")
+    promptops = RecordingPromptOps(_draft(non_prd["id"], page["id"]))
+    service = ProjectSopGenerationService(repo, str(root), promptops=promptops)
+    request = ProjectSopGenerationRequest(
+        prd_source_id=non_prd["id"],
+        goal="Deliver a governed SOP for this project.",
+        audience="project operators",
+        idempotency_key="non-prd-source",
+    )
+    try:
+        with pytest.raises(ProjectSopGenerationError) as error:
+            service.generate(project_id="project-a", request=request)
+        assert error.value.category == "prd_source_not_designated"
+        assert promptops.requests == []
+        assert repo.list_runs("project-a") == []
+    finally:
+        repo.close()
+
+
 def test_invalid_model_reference_fails_run_without_registering_output(tmp_path):
     repo, root, prd, page = _setup(tmp_path)
     invalid = _draft(prd["id"], page["id"])
@@ -212,6 +247,32 @@ def test_provider_failure_leaves_a_durable_failed_run_and_no_output(tmp_path):
         run = repo.list_runs("project-a")[0]
         assert run["status"] == "failed"
         assert run["output_refs"] == {"failure_category": "payment_required"}
+        assert repo.list_outputs("project-a") == []
+    finally:
+        repo.close()
+
+
+def test_schema_failure_records_only_contract_paths_not_model_content(tmp_path):
+    repo, root, prd, page = _setup(tmp_path)
+    invalid = _draft(prd["id"], page["id"])
+    invalid["assumptions"] = []
+    invalid["purpose"] = "secret project wording must not reach the run ledger"
+    service = ProjectSopGenerationService(repo, str(root), promptops=RecordingPromptOps(invalid))
+    request = ProjectSopGenerationRequest(
+        prd_source_id=prd["id"],
+        goal="Deliver a governed SOP for the current project request.",
+        audience="project operators",
+        idempotency_key="schema-diagnostics",
+    )
+
+    try:
+        with pytest.raises(ProjectSopGenerationError) as error:
+            service.generate(project_id="project-a", request=request)
+
+        assert error.value.category == "output_contract_invalid"
+        run = repo.list_runs("project-a")[0]
+        assert "assumptions:too_short" in run["error"]
+        assert "secret project wording" not in run["error"]
         assert repo.list_outputs("project-a") == []
     finally:
         repo.close()

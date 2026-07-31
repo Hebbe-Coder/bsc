@@ -4,11 +4,12 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { capturePbosWorkspaceExecution, fetchPbosCockpit, fetchPbosProfile, recordPbosExecution, recordPbosOutcome, reviewPbosOutcome } from '../../api/pbosApi';
+import { capturePbosWorkspaceExecution, compilePbosPlan, fetchPbosCockpit, fetchPbosProfile, recordPbosExecution, recordPbosOutcome, reviewPbosOutcome } from '../../api/pbosApi';
 import { PersonalGrowthCockpit } from './PersonalGrowthCockpit';
 
 vi.mock('../../api/pbosApi', () => ({
   capturePbosWorkspaceExecution: vi.fn(),
+  compilePbosPlan: vi.fn(),
   fetchPbosCockpit: vi.fn(),
   fetchPbosProfile: vi.fn(),
   recordPbosExecution: vi.fn(),
@@ -324,5 +325,53 @@ describe('PersonalGrowthCockpit', () => {
     expect(await screen.findByText('LLM fallback')).toBeVisible();
     expect(screen.getByText('transport timeout')).toBeVisible();
     expect(screen.queryByText('LLM contextual')).not.toBeInTheDocument();
+  });
+
+  it('shows why a Vault-grounded plan is not yet a personal method', async () => {
+    vi.mocked(fetchPbosCockpit).mockResolvedValue({
+      profile: { focus: ['AI systems'], goals: ['Ship a verified delivery'], preferences: {}, resources: [], constraints: [] },
+      today: {
+        title: 'Evidence-backed delivery plan', compilation_state: 'context_grounded',
+        knowledge_context_refs: ['vault:wiki/overview.md'], feedback_refs: [], phases: [], execution_contract: {}, compiler_metadata: { mode: 'llm_contextual' },
+      },
+      today_action: { state: 'recommended', title: 'Define the acceptance card' },
+      capabilities: [], outcomes: [], feedback: [], strategies: [], failure_patterns: [],
+      personalization_readiness: {
+        state: 'profile_context_required', declared_profile_ready: false,
+        missing_profile_fields: ['role', 'industry', 'organization_stage'],
+        accepted_outcome_count: 0, required_comparable_outcomes: 3,
+      },
+      project_health: { knowledge_context_ready: true, personal_learning_ready: false }, connectors: {},
+    });
+    vi.mocked(fetchPbosProfile).mockResolvedValue({ profile: { focus: ['AI systems'], goals: ['Ship a verified delivery'], preferences: {}, resources: [], constraints: [] } });
+
+    render(<PersonalGrowthCockpit projectId="default" onClose={vi.fn()} runtimeAccessKey="session-key" />);
+
+    expect(await screen.findByText('PERSONALIZATION READINESS')).toBeVisible();
+    expect(screen.getByText('Profile context needed')).toBeVisible();
+    expect(screen.getByText(/role, industry, organization stage/i)).toBeVisible();
+    expect(screen.getByText(/0 of 3 comparable accepted outcomes/i)).toBeVisible();
+    expect(screen.getByText(/not yet a learned personal method/i)).toBeVisible();
+  });
+
+  it('recompiles the current Mission after declared personal context changes', async () => {
+    vi.mocked(fetchPbosCockpit).mockResolvedValue({
+      profile: { focus: [], goals: [], preferences: {}, resources: [], constraints: [] },
+      today: {
+        artifact_id: 'plan-current', mission_id: 'mission-current', diagnosis_id: 'diagnosis-current',
+        title: 'Current plan', compilation_state: 'context_grounded', knowledge_context_refs: [], feedback_refs: [], phases: [], execution_contract: {}, compiler_metadata: {},
+      },
+      today_action: { state: 'recommended', title: 'Define the acceptance card' },
+      capabilities: [], outcomes: [], feedback: [], strategies: [], failure_patterns: [], project_health: {}, connectors: {},
+    });
+    vi.mocked(fetchPbosProfile).mockResolvedValue({ profile: { focus: [], goals: [], preferences: {}, resources: [], constraints: [] } });
+    vi.mocked(compilePbosPlan).mockResolvedValue({ plan: { artifact_id: 'plan-updated' } });
+
+    render(<PersonalGrowthCockpit projectId="default" onClose={vi.fn()} runtimeAccessKey="session-key" />);
+
+    await screen.findByText('PERSONAL CONTEXT');
+    fireEvent.click(screen.getByRole('button', { name: 'Recompile current plan' }));
+
+    await waitFor(() => expect(compilePbosPlan).toHaveBeenCalledWith('default', 'mission-current', 'diagnosis-current'));
   });
 });

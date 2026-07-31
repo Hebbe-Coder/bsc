@@ -674,10 +674,14 @@ class PBOSPlanCompiler:
         source_references = self._context_source_references(documents)
         mission_context = mission.context if isinstance(mission.context, dict) else {}
         diagnosis_context = self._diagnosis_context(diagnosis)
+        effective_personal_context, effective_context_sources = self._effective_personal_context(
+            diagnosis_context, profile
+        )
         constraint_values = mission_context.get("constraints") or []
         constraints = [
             *[str(item) for item in constraint_values if str(item).strip()],
             *[str(item) for item in diagnosis_context.get("constraints", []) if str(item).strip()],
+            *[str(item) for item in (profile.constraints if profile else []) if str(item).strip()],
         ]
         constraints = list(dict.fromkeys(constraints))
         focus = profile.focus if profile else []
@@ -690,7 +694,7 @@ class PBOSPlanCompiler:
             mission.title,
             mission.intent,
             json.dumps(mission_context, ensure_ascii=False),
-            json.dumps(diagnosis_context, ensure_ascii=False),
+            json.dumps(effective_personal_context, ensure_ascii=False),
         ]).lower()
         kind = self._task_kind(task_text)
         # A Mission's explicit wording owns the domain. Profile focus is only
@@ -699,7 +703,7 @@ class PBOSPlanCompiler:
         # into a knowledge-delivery template.
         if kind == "delivery" and focus:
             kind = self._task_kind(" ".join(str(item) for item in focus))
-        comparison = self._comparison_identity(mission, diagnosis_context, profile, kind)
+        comparison = self._comparison_identity(mission, effective_personal_context, profile, kind)
         phases = self._phases(kind, mission, source_references, constraints)
         self._add_phase_contracts(phases, mission, document_titles, constraints, comparison["context"])
         feedback_actions = [item["statement"] for item in feedback if item.get("statement")]
@@ -771,6 +775,8 @@ class PBOSPlanCompiler:
                 "document_paths": [str(item.get("path") or "") for item in documents],
                 "task_kind": kind,
                 "diagnosis_context": diagnosis_context,
+                "effective_personal_context": effective_personal_context,
+                "effective_personal_context_sources": effective_context_sources,
                 "operational_state": operational_state,
             },
         }
@@ -907,7 +913,16 @@ class PBOSPlanCompiler:
         if profile:
             basis.append({
                 "kind": "declared_profile",
-                "signals": {"focus": profile.focus[:6], "constraints": profile.constraints[:6], "resources": profile.resources[:6]},
+                "signals": {
+                    "role": profile.role,
+                    "industry": profile.industry,
+                    "organization_stage": profile.organization_stage,
+                    "focus": profile.focus[:6],
+                    "work_style": profile.work_style[:6],
+                    "decision_style": profile.decision_style[:6],
+                    "constraints": profile.constraints[:6],
+                    "resources": profile.resources[:6],
+                },
                 "state": "declared",
             })
         if diagnosis:
@@ -970,9 +985,42 @@ class PBOSPlanCompiler:
         }
 
     @staticmethod
+    def _effective_personal_context(
+        diagnosis_context: dict[str, Any],
+        profile: PersonalProfileArtifact | None,
+    ) -> tuple[dict[str, Any], dict[str, str]]:
+        """Prefer mission-specific diagnosis, then declared profile context.
+
+        A profile can personalize a plan only as a declared input. The source
+        marker keeps this fallback distinct from a completed diagnostic pass.
+        """
+        declared = {
+            "role": profile.role if profile else "",
+            "industry": profile.industry if profile else "",
+            "organization_stage": profile.organization_stage if profile else "",
+            "goal": profile.goals[0] if profile and profile.goals else "",
+        }
+        effective: dict[str, Any] = {}
+        sources: dict[str, str] = {}
+        for key, fallback in declared.items():
+            diagnosed = diagnosis_context.get(key)
+            if diagnosed not in (None, "", [], {}):
+                effective[key] = diagnosed
+                sources[key] = "mission_diagnosis"
+            elif fallback not in (None, "", [], {}):
+                effective[key] = fallback
+                sources[key] = "declared_profile"
+            else:
+                effective[key] = ""
+                sources[key] = "missing"
+        effective["constraints"] = list(diagnosis_context.get("constraints") or [])
+        effective["success_metrics"] = list(diagnosis_context.get("success_metrics") or [])
+        return effective, sources
+
+    @staticmethod
     def _comparison_identity(
         mission: MissionArtifact,
-        diagnosis: dict[str, Any],
+        personal_context: dict[str, Any],
         profile: PersonalProfileArtifact | None,
         task_kind: str,
     ) -> dict[str, str]:
@@ -980,23 +1028,25 @@ class PBOSPlanCompiler:
         explicit_key = str(mission_context.get("comparison_key") or "").strip()
         key_parts = [
             task_kind,
-            str(diagnosis.get("role") or "").strip(),
-            str(diagnosis.get("industry") or "").strip(),
-            str(diagnosis.get("organization_stage") or "").strip(),
+            str(personal_context.get("role") or "").strip(),
+            str(personal_context.get("industry") or "").strip(),
+            str(personal_context.get("organization_stage") or "").strip(),
         ]
         key = explicit_key or ":".join(part.lower().replace(" ", "-") for part in key_parts if part) or "personal_ai_project_delivery"
         explicit_context = str(mission_context.get("comparison_context") or "").strip()
         context_parts = [
             explicit_context,
-            str(diagnosis.get("role") or "").strip(),
-            str(diagnosis.get("industry") or "").strip(),
-            str(diagnosis.get("organization_stage") or "").strip(),
+            str(personal_context.get("role") or "").strip(),
+            str(personal_context.get("industry") or "").strip(),
+            str(personal_context.get("organization_stage") or "").strip(),
         ]
         context = " / ".join(part for part in context_parts if part) or task_kind
         fingerprint_payload = {
             "key": key,
             "context": context,
             "focus": profile.focus if profile else [],
+            "work_style": profile.work_style if profile else [],
+            "decision_style": profile.decision_style if profile else [],
             "constraints": profile.constraints if profile else [],
             "preferences": profile.preferences if profile else {},
             "mission_constraints": mission_context.get("constraints") or [],
@@ -1140,8 +1190,13 @@ class PBOSPlanCompiler:
         profile_payload = None
         if profile:
             profile_payload = {
+                "role": cls._bounded_prompt_text(profile.role, 80),
+                "industry": cls._bounded_prompt_text(profile.industry, 80),
+                "organization_stage": cls._bounded_prompt_text(profile.organization_stage, 80),
                 "focus": [cls._bounded_prompt_text(item, 80) for item in profile.focus[:6]],
                 "goals": [cls._bounded_prompt_text(item, 80) for item in profile.goals[:6]],
+                "work_style": [cls._bounded_prompt_text(item, 80) for item in profile.work_style[:6]],
+                "decision_style": [cls._bounded_prompt_text(item, 80) for item in profile.decision_style[:6]],
                 "preferences": {
                     cls._bounded_prompt_text(key, 40): cls._bounded_prompt_text(value, 80)
                     for key, value in list(profile.preferences.items())[:6]
@@ -1162,6 +1217,13 @@ class PBOSPlanCompiler:
                 if value not in (None, "", [], {})
             },
             "personal_profile": profile_payload,
+            "effective_personal_context": {
+                key: cls._bounded_prompt_text(value, 100)
+                for key, value in cls._effective_personal_context(
+                    cls._diagnosis_context(diagnosis), profile
+                )[0].items()
+                if value not in (None, "", [], {})
+            },
             "verified_capabilities": [
                 {
                     "name": cls._bounded_prompt_text(item.name, 80),

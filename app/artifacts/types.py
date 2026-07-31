@@ -678,8 +678,13 @@ class AdvisorReviewArtifact(BaseArtifact):
 
 class PersonalProfileArtifact(BaseArtifact):
     artifact_type: ArtifactType = ArtifactType.PERSONAL_PROFILE
+    role: str = ""
+    industry: str = ""
+    organization_stage: str = ""
     focus: list[str] = Field(default_factory=list)
     goals: list[str] = Field(default_factory=list)
+    work_style: list[str] = Field(default_factory=list)
+    decision_style: list[str] = Field(default_factory=list)
     preferences: dict[str, Any] = Field(default_factory=dict)
     resources: list[str] = Field(default_factory=list)
     constraints: list[str] = Field(default_factory=list)

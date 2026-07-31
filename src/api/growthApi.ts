@@ -220,7 +220,7 @@ export type GrowthStageResult = {
 
 export type GrowthRun = GrowthRecord & {
   run_id?: string;
-  run_type?: 'growth_daily' | 'growth_weekly_distillation' | 'source_sync' | 'horizon_capture' | 'source_method_distillation' | 'cangjie_candidate_extraction';
+  run_type?: 'growth_daily' | 'growth_weekly_distillation' | 'source_sync' | 'horizon_capture' | 'source_method_distillation' | 'cangjie_candidate_extraction' | 'prd_to_sop';
   status?: string;
 };
 
@@ -343,6 +343,20 @@ export type GrowthOutputEvaluationInput = {
 export type GrowthOutputEvidenceInput = {
   source_ids: string[];
   page_ids: string[];
+};
+
+export type ProjectSopGenerationInput = {
+  prd_source_id: string;
+  goal: string;
+  audience: string;
+  idempotency_key: string;
+  channel?: string;
+};
+
+export type ProjectSopGenerationResult = {
+  run: GrowthRun;
+  output: GrowthRecord;
+  idempotent: boolean;
 };
 
 export type GrowthMethodReviewInput = {
@@ -871,6 +885,18 @@ export async function evaluateGrowthOutput(
     { method: 'POST', body: JSON.stringify(evaluation) },
   );
   return payload.evaluation;
+}
+
+export async function generateProjectSop(
+  projectId: string,
+  input: ProjectSopGenerationInput,
+  signal?: AbortSignal,
+): Promise<ProjectSopGenerationResult> {
+  return request<ProjectSopGenerationResult>(
+    `/knowledge/projects/${encoded(projectId)}/outputs/generate-sop`,
+    signal,
+    { method: 'POST', body: JSON.stringify({ ...input, channel: input.channel || 'knowledge_workspace' }) },
+  );
 }
 
 export async function linkGrowthOutputEvidence(

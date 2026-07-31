@@ -21,8 +21,19 @@ export interface PbosCockpit {
   feedback: Array<Record<string, unknown>>;
   strategies: Array<Record<string, unknown>>;
   failure_patterns: Array<Record<string, unknown>>;
+  personalization_readiness?: PbosPersonalizationReadiness;
   project_health: PbosProjectHealth;
   connectors: Record<string, string>;
+}
+
+export interface PbosPersonalizationReadiness {
+  state: 'profile_context_required' | 'learning_evidence_required' | 'promotion_evaluation_required' | 'personalized' | string;
+  declared_profile_ready: boolean;
+  missing_profile_fields: string[];
+  accepted_outcome_count: number;
+  required_comparable_outcomes: number;
+  comparison_key?: string;
+  comparison_context?: string;
 }
 
 export interface PbosProjectHealth {
@@ -55,8 +66,13 @@ export interface PbosOutcomeReviewPayload {
 }
 
 export interface PbosProfile {
+  role?: string;
+  industry?: string;
+  organization_stage?: string;
   focus: string[];
   goals: string[];
+  work_style?: string[];
+  decision_style?: string[];
   preferences: Record<string, unknown>;
   resources: string[];
   constraints: string[];
@@ -88,6 +104,13 @@ export function fetchPbosProfile(projectId: string): Promise<{ profile: PbosProf
 export function savePbosProfile(projectId: string, profile: PbosProfile): Promise<{ profile: PbosProfile }> {
   return fetchWrapper.fetch<{ profile: PbosProfile }>(`/api/pbos/projects/${encodeURIComponent(projectId)}/profile`, {
     method: 'PUT', body: JSON.stringify(profile),
+  });
+}
+
+export function compilePbosPlan(projectId: string, missionId: string, diagnosisId = ''): Promise<{ plan: Record<string, unknown> }> {
+  const query = diagnosisId ? `?diagnosis_id=${encodeURIComponent(diagnosisId)}` : '';
+  return fetchWrapper.fetch<{ plan: Record<string, unknown> }>(`/api/pbos/projects/${encodeURIComponent(projectId)}/missions/${encodeURIComponent(missionId)}/plans${query}`, {
+    method: 'POST',
   });
 }
 
