@@ -238,36 +238,37 @@ def test_evidence_overview_and_record_queries_are_metadata_only_read_only_and_of
     monkeypatch.setattr(repository, "get_source", reject_full_source_read)
     monkeypatch.setattr(repository, "list_citations", reject_full_source_read)
     monkeypatch.setattr(repository, "get_citation", reject_full_source_read)
-    monkeypatch.setattr(socket, "create_connection", reject_network)
 
     previous_key = settings.API_KEY
     previous_enabled = settings.KNOWLEDGE_WIKI_ENABLED
     settings.API_KEY = "evidence-key"
     settings.KNOWLEDGE_WIKI_ENABLED = True
     app.dependency_overrides[get_evidence_repository] = lambda: repository
-    client = TestClient(app)
     try:
-        headers = {"Authorization": "Bearer evidence-key"}
-        overview = client.get("/knowledge/evidence/projects/project-a", headers=headers)
-        assert overview.status_code == 200
-        _assert_redacted_evidence_payload(overview.json()["data"])
-        assert overview.json()["data"]["summary"] == {
-            "sources": 1,
-            "assets": 0,
-            "extractions": {},
-            "tables": 0,
-            "references": 1,
-            "source_statuses": {"captured": 1},
-            "denominator": 2,
-        }
+        with TestClient(app) as client:
+            # Start Starlette's local transport before disallowing external connections.
+            monkeypatch.setattr(socket, "create_connection", reject_network)
+            headers = {"Authorization": "Bearer evidence-key"}
+            overview = client.get("/knowledge/evidence/projects/project-a", headers=headers)
+            assert overview.status_code == 200
+            _assert_redacted_evidence_payload(overview.json()["data"])
+            assert overview.json()["data"]["summary"] == {
+                "sources": 1,
+                "assets": 0,
+                "extractions": {},
+                "tables": 0,
+                "references": 1,
+                "source_statuses": {"captured": 1},
+                "denominator": 2,
+            }
 
-        detail = client.get(
-            f"/knowledge/evidence/projects/project-a/records/reference/citation:{citation_id}",
-            headers=headers,
-        )
-        assert detail.status_code == 200
-        _assert_redacted_evidence_payload(detail.json()["data"])
-        assert executed_sql
+            detail = client.get(
+                f"/knowledge/evidence/projects/project-a/records/reference/citation:{citation_id}",
+                headers=headers,
+            )
+            assert detail.status_code == 200
+            _assert_redacted_evidence_payload(detail.json()["data"])
+            assert executed_sql
     finally:
         settings.API_KEY = previous_key
         settings.KNOWLEDGE_WIKI_ENABLED = previous_enabled
