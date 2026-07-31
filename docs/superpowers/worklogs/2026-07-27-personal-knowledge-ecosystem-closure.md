@@ -769,8 +769,210 @@ criteria.
   completed successfully, and `docker compose ps` showed a healthy API plus
   live Worker and Beat. `git diff --check` reports no patch errors; its
   line-ending advisories are pre-existing workspace behavior.
+- A fresh Studio browser-automation session loaded the deployed Operations
+  Cockpit but did not inherit the user's loopback-proxy authorization state;
+  its unauthenticated request returned no JSON. The session was closed without
+  writing a key to browser storage. This is not recorded as a visual pass or
+  a runtime failure: the same deployed Cockpit API completed the protected
+  readback above. Visual re-acceptance must use the user's authenticated Studio
+  session or an explicitly authorized local login state.
 - The overall ecosystem state remains
   `implemented_with_operational_proof_pending`: a real user-reviewed Copilot
   output still has to be saved through the declared `04_Outputs/copilot/`
   route, captured, evaluated, and fed back before the Copilot D-layer can be
   called operationally closed.
+
+## 2026-07-30 Runtime Distillation Contract v28 Proof
+
+- Deployed `GrowthDistillationService.DISTILLATION_CONTRACT_REVISION=28` to
+  the Compose API, Worker, and Beat. The revision rejects a daily narrative
+  whose `open_question` section has a citation but does not explicitly state
+  an uncertainty, evidence gap, or verification need. It neither promotes a
+  claim nor changes any source or publication lifecycle state.
+- Submitted one protected manual `growth_daily` run for the default project
+  with a unique idempotency key. Celery run `e8786b6a0553` reached
+  `completed` through the dedicated `knowledge.growth.execute` task. Its
+  redacted run metadata reports `generation.mode=llm`, contract revision
+  `28`, and one managed output path. No Vault source body, model response,
+  prompt, or credential is recorded here.
+- Runtime checks after deployment: BSC API readiness was `200`; Worker
+  inspection returned `pong`; PostgreSQL, Redis, n8n, and the API/Worker/Beat
+  Compose services were healthy. A protected readback confirmed that the
+  operations portfolio keeps status-qualified governed assets separate from
+  the broader authorized audit count.
+- Visual verification supersedes the earlier unauthenticated browser attempt:
+  the current local-proxy Studio session loaded both Portfolio and default
+  Project Operations views. It showed the lifecycle graph and three charts,
+  and at a `390x844` viewport the document/client widths were both `384` with
+  no console errors. The default project honestly reports `0/32` risks with a
+  complete lifecycle, so unresolved validation and feedback remain action
+  work rather than a fabricated success.
+- Remaining boundary: a user-reviewed Copilot output still must be explicitly
+  saved to its declared D-layer route, then captured, evaluated, and fed back
+  before the Copilot output loop can be called closed.
+
+## 2026-07-31 Daily Distillation Evidence-Scope Repair And Live Proof
+
+- Reworked the daily distillation evidence boundary after a live run exposed a
+  semantic quality failure: a multi-topic AINews roundup allowed the model to
+  cite the unrelated sentence "Slack is the home for great culture" and infer
+  agent-policy implications. The source was admissible, but that sentence was
+  not project-relevant evidence.
+- `GrowthDistillationService` now derives one compact, sentence-aligned
+  project-relevant source scope from the active research domains. The complete
+  source remains immutable and searchable; an unmatched source is excluded
+  only from daily factual synthesis, never deleted or relabeled. The runtime
+  manifest records selected and excluded source IDs, while exact source text
+  remains out of the D-layer manifest.
+- Contract revision `30` requires a daily signal to quote an exact scoped
+  source passage and cite that source. Its project implication must cite the
+  same source and reuse a concrete quoted term. Invalid model text receives at
+  most one corrective render; it otherwise becomes an explicitly marked
+  deterministic fallback instead of a fabricated LLM success.
+- Real attempts `69bf4271ec56` and `5eb9a54230e6` each reached completed run
+  state but their model documents were rejected as `missing_scoped_evidence_quote`.
+  Their managed daily revisions were archived rather than discarded. The root
+  cause was a second context-budget truncation that supplied sentence fragments
+  to the model; it was corrected by emitting one 460-character scope before
+  the final attempt.
+- Live run `36a4c2e2566e` completed through `knowledge.growth.execute` with
+  DeepSeek `deepseek-v4-pro`, contract revision `30`, two bounded provider
+  calls, and one quality repair. The accepted distillation is
+  `b3adbb5a70df85662245672c` at
+  `distillations/每周蒸馏/2026-W31/每日增量/2026-07-31.md`.
+  Its direct evidence quote covers asynchronous coding/knowledge-work agents
+  supervised from mobile or voice, not the unrelated Slack sentence.
+- Verified the final file SHA-256 matches its persisted manifest:
+  `a0cbe0ef770b2d5f6a5cca774cc478e8843f5fba041d01eb5c733dc2963a3820`.
+  The four prior input-hash revisions remain under the managed `revisions/`
+  directory. Rollback is selecting a prior retained revision for review or
+  rerunning under a new evidence/input hash; no user-authored file is
+  overwritten.
+
+### Verification
+
+- `./.venv/Scripts/python.exe -m pytest tests/knowledge/test_growth_distillation.py -q`
+  completed with `57 passed`. The added regression creates a multi-topic
+  source containing both an irrelevant Slack claim and a relevant agentic
+  context-management claim, then proves the former is absent from the scoped
+  evidence and cannot pass validation.
+- `docker compose up -d --build bsc-backend celery-worker celery-beat` rebuilt
+  and deployed the API, Worker, and Beat. PostgreSQL, Redis, API, Worker and
+  Beat are healthy; live Celery inspection returned `pong`.
+- Runtime readback of run `36a4c2e2566e` confirmed
+  `generation.mode=llm`, `provider=deepseek`, `model=deepseek-v4-pro`, a
+  resolved PromptOps manifest, one scoped source ID, and no fallback document.
+
+## 2026-07-31 Live Weekly Distillation Proof
+
+- Submitted the manual weekly run only after the successful same-week daily
+  growth run. `knowledge.growth.execute` run `d4d428891850` completed with
+  DeepSeek `deepseek-v4-pro`, contract revision `30`, and one bounded provider
+  call. It did not use a deterministic or hybrid fallback.
+- Generated and hash-verified all five distinct weekly outputs under
+  `distillations/每周蒸馏/2026-W31/`:
+  `00-本周总结.md`, `01-知识行动.md`, `02-内容创作.md`,
+  `03-下周上下文包.md`, and `04-方法迭代.md`. Persisted distillation record:
+  `c8edc880898b513f8e1d3029`.
+- Manual review confirmed that the bundle separates evidence/decision
+  boundaries, a bounded verification queue, two content angles, a carry-forward
+  packet, and a controlled citation-consistency experiment. All factual
+  evidence remains cited to the retained policy-failure Wiki page; proposed
+  project actions are labeled as suggestions or verification work.
+- Runtime readback proved all five mounted Vault files exist and their SHA-256
+  values exactly match the persisted weekly manifest. Both durable schedules
+  remain enabled: daily at `0 17 * * *` and weekly at `30 17 * * 5`, timezone
+  `Asia/Shanghai`.
+
+## 2026-07-31 Weekly Distillation And Recovery Re-acceptance
+
+- Confirmed the previously abandoned default-project `source_sync` run
+  `10f86b2325af` is no longer stuck in `running`. Its protected API readback
+  is terminal `failed` with a `knowledge.run.failed` terminal event, while
+  the later source-sync runs remain completed. No duplicate source or
+  publication was created by recovery.
+- Read the protected metadata for weekly distillation
+  `1d228616091f09dc796adc1e` without exposing source bodies. It is a generated
+  `2026-W31` record with five managed paths, 598 bounded inputs, contract
+  revision `28`, an LLM generation, and one quality retry.
+- Re-checked the real Vault files under the default project against the local
+  manifest. All five files exist, each has at least two `##` sections, at
+  least 260 non-whitespace characters, an allowed source/page citation, an
+  explicit uncertainty marker recognized by the application validator, and a
+  SHA-256 hash matching `manifest.json`. This is a file/manifest proof, not a
+  claim that the generated conclusions are independently true.
+- The first ad-hoc PowerShell check reported four missing uncertainty markers
+  because its inline Chinese regular expression was decoded incorrectly by
+  the Windows shell. It was discarded as an invalid check; the authoritative
+  application matcher and a UTF-8 Python verification both returned all five
+  files valid.
+
+### Verification
+
+- `./.venv/Scripts/python.exe -m pytest
+  tests/knowledge/test_growth_distillation.py
+  tests/knowledge/test_knowledge_tasks.py -q` completed with `83 passed`.
+- `npm run test:frontend -- --run
+  src/components/KnowledgeWorkspace.test.tsx
+  src/components/operations/KnowledgeOperationsCockpit.test.tsx` completed
+  with `21 passed`.
+- `npm run check` completed successfully with no TypeScript diagnostics.
+- The overall ecosystem state remains
+  `implemented_with_operational_proof_pending`: the user-reviewed Copilot
+  D-layer output still needs to be saved through the declared
+  `04_Outputs/copilot/` route, captured, evaluated, and fed back before that
+  loop can be called operationally closed.
+
+## 2026-07-31 PBOS Review Gate And Live Workspace Proof
+
+- Rechecked the live Obsidian host rather than treating configuration files as
+  runtime proof. Obsidian was running; its Local REST API was secure
+  loopback-only HTTPS on port `27124`, had an owner-configured token, and an
+  authenticated read-only root request returned `200`. No plaintext listener,
+  token, certificate, plugin credential, source body, or Copilot history was
+  copied into BSC or this log.
+- The active enabled-plugin inventory contains Clipper, Importer, Docxer,
+  Xiaohongshu Importer, Dataview, Metadata Menu, Zotero connectors, Local
+  REST API, Excalidraw and Copilot. The actual default project has one older
+  Codex D-layer smoke file but zero files in `04_Outputs/copilot/`; this is
+  reported as `awaiting_output`, not a completed Copilot delivery.
+- Browser acceptance of the running Studio at `127.0.0.1:5174` loaded the
+  Personal Growth Cockpit against protected live data. It displayed 22
+  governed Vault references, one weekly handoff, three unverified outcomes,
+  two reviewable outcomes with verified receipts, and one outcome whose
+  missing verified receipt disables acceptance. The rendered lineage and
+  outcome-quality views were present. This is a live UI readback, not a
+  user-review decision.
+- Closed an API/UX integrity gap: the review queue already disabled acceptance
+  when evidence was incomplete, but direct callers could previously submit an
+  accepted review with only a numeric score. `PBOSService.review_outcome` now
+  enforces the same reviewable-execution requirements before it mutates the
+  outcome. Rejection remains possible for an unverified result; acceptance
+  requires actions, a verified receipt, reflection, and an explicit score.
+- Rebuilt Compose API, Celery Worker and Beat with the gate. All dependent
+  services were healthy and Worker inspection returned `pong`. A protected
+  live acceptance request against a real outcome missing a verified receipt
+  returned `422`; the pending count remained `3` and that outcome remained
+  `unverified`. The rejection probe made no user-review, source, Wiki,
+  method, or output mutation.
+
+### Verification
+
+- `./.venv/Scripts/python.exe -m pytest tests/integration/test_pbos_e2e.py
+  tests/pbos/test_pbos_service.py tests/api/test_pbos_api.py -q` completed
+  with `38 passed`. The integration case uses the guarded BSC workspace
+  capture path rather than a caller-asserted tool receipt.
+- `npm run test:frontend -- --run
+  src/components/pbos/PersonalGrowthCockpit.test.tsx
+  src/components/KnowledgeWorkspace.test.tsx
+  src/components/operations/KnowledgeOperationsCockpit.test.tsx` completed
+  with `31 passed`.
+- `npm run check` completed successfully with no TypeScript diagnostics.
+- `docker compose up -d --build bsc-backend celery-worker celery-beat`
+  completed successfully after Docker Desktop recovered; `docker compose ps`
+  showed a healthy API and live Worker/Beat.
+- Remaining external evidence is intentionally explicit: an owner must either
+  accept or reject the two evidence-complete PBOS outcomes with their real
+  quality scores, and a user-reviewed Copilot output still must be saved to
+  `04_Outputs/copilot/`, captured, evaluated and fed back before either loop
+  can claim personal learning or Copilot D-layer operational closure.

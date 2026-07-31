@@ -881,6 +881,81 @@ def test_daily_distillation_prefers_current_primary_capture_over_horizon_discove
         repo.close()
 
 
+def test_daily_distillation_scopes_multi_topic_evidence_before_accepting_a_model_claim(tmp_path):
+    """A cited but irrelevant sentence cannot author a project insight."""
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "daily-evidence-scope.db"))
+
+    class _UnrelatedQuoteProvider:
+        def render(self, *, kind, project_id, period, context):
+            if kind == "daily":
+                return {
+                    "daily": {
+                        "headline": "Culture becomes an unsupported agent-policy analogy",
+                        "signal": "The roundup says 'Slack is the home for great culture' [source:source-a].",
+                        "project_implication": "Treat culture as an agent-policy signal [source:source-a].",
+                        "next_review": "Review the retained source evidence before acting [source:source-a].",
+                        "open_question": "This remains an evidence gap requiring verification [source:source-a].",
+                    }
+                }
+            return _NarrativeProvider().render(kind=kind, project_id=project_id, period=period, context=context)
+
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        repo.save_profile(
+            ProjectKnowledgeProfile(
+                project_id="project-a",
+                research_domains=["LLM context engineering and agent orchestration"],
+                primary_output_types=["custom SOP"],
+            ),
+            actor_id="owner",
+        )
+        unrelated = "Slack is the home for great culture. " + ("Market culture commentary without a project mechanism. " * 120)
+        relevant = (
+            "Agentic context management lets agents decide when to compress context, "
+            "offload information to memory, and retrieve it later."
+        )
+        repo.create_source(
+            SourceRecord(
+                id="source-a",
+                project_id="project-a",
+                source_type="primary_web",
+                content_hash="a" * 64,
+                raw_content=f"{unrelated}\n\n{relevant}",
+                trust_level="trusted",
+                status=SourceStatus.ELIGIBLE,
+                captured_at=_CUTOFF_SAFE_TIME,
+                updated_at=_CUTOFF_SAFE_TIME,
+            )
+        )
+        scoped = GrowthDistillationService._daily_source_scope(
+            repo.get_source("project-a", "source-a") or {},
+            repo.get_profile("project-a") or {},
+        )
+        assert scoped and "Agentic context management" in scoped
+        assert "Slack is the home for great culture" not in scoped
+
+        result = GrowthDistillationService(
+            repo,
+            root,
+            narrative_provider=_UnrelatedQuoteProvider(),
+        ).run_daily("project-a", "2026-07-24", source_cutoff="2026-08-01T00:00:00Z")
+
+        assert result["manifest"]["context"]["daily_source_scope_ids"] == ["source-a"]
+        assert result["manifest"]["generation"] == {
+            "mode": "deterministic",
+            "provider": "",
+            "model": "",
+            "reason": "provider_response_rejected",
+            "rejection_reasons": {"daily": "missing_scoped_evidence_quote"},
+        }
+        rendered = (root / "projects" / "project-a" / result["paths"][0]).read_text(encoding="utf-8")
+        assert "Slack is the home for great culture" not in rendered
+    finally:
+        repo.close()
+
+
 def test_distillation_rejects_uncited_narrative_and_uses_governed_fallback(tmp_path):
     root = tmp_path / "vault"
     root.mkdir()

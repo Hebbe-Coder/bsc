@@ -257,7 +257,11 @@ class ConfiguredDistillationNarrativeProvider:
             "For a daily run, return the five named fields in the JSON shape exactly. The headline must be "
             "a concise single line, while signal, project implication, next review, and open question must "
             "each be concrete prose grounded in the supplied evidence and each of those four prose fields must "
-            "include at least one exact citation label from the ledger. Do not omit the open question merely "
+            "include at least one exact citation label from the ledger. When a source is marked as a project-relevant "
+            "evidence excerpt, the daily signal must quote one exact 24+ character passage from that excerpt and "
+            "cite that same source. The project implication must cite that same source and stay within the quoted "
+            "mechanism; do not turn an unrelated sentence into an analogy about agents, governance, or the project. "
+            "Do not omit the open question merely "
             "because the signal appears promising. For weekly runs, "
             f"{weekly_scope}. The Weekly document contracts below are authoritative and give every requested "
             "key a distinct job; do not repeat one generic status narrative across them. A weekly document is "
@@ -313,10 +317,25 @@ class GrowthDistillationService:
     # schedule timezone. Interpret those legacy timestamps consistently with
     # the persisted Asia/Shanghai growth cadence before comparing a cutoff.
     REPOSITORY_TIMEZONE = ZoneInfo("Asia/Shanghai")
-    DISTILLATION_CONTRACT_REVISION = 28
+    DISTILLATION_CONTRACT_REVISION = 30
     MAX_TARGETED_WEEKLY_QUALITY_REPAIRS_PER_DOCUMENT = 2
     DAILY_CONTEXT_CHARACTER_BUDGET = 4_000
     WEEKLY_CONTEXT_CHARACTER_BUDGET = 10_000
+    # A news roundup can be admissible as a whole while containing many items
+    # that have no bearing on the active project. Daily synthesis gets a small
+    # project-scored evidence window rather than the arbitrary head/tail of
+    # the complete capture. Weekly review retains the wider source context.
+    DAILY_SOURCE_SCOPE_WINDOW_CHARACTERS = 420
+    DAILY_SOURCE_SCOPE_STEP_CHARACTERS = 210
+    DAILY_SOURCE_SCOPE_MAX_WINDOWS = 1
+    DAILY_SOURCE_SCOPE_MAX_CHARACTERS = 460
+    _DAILY_SCOPE_STOPWORDS = frozenset({
+        "and", "are", "backed", "brief", "content", "creation", "custom", "decision",
+        "design", "draft", "evidence", "for", "from", "into", "knowledge", "management",
+        "personal", "product", "research", "self", "synthesis", "system", "systems", "the",
+        "this", "weekly", "with",
+    })
+    _DAILY_QUOTED_EVIDENCE = re.compile(r"[\"'\u201c\u201d\u2018\u2019]([^\"'\u201c\u201d\u2018\u2019]{24,480})[\"'\u201c\u201d\u2018\u2019]")
     DAILY_NARRATIVE_FIELDS = (
         "headline",
         "signal",
@@ -753,23 +772,34 @@ class GrowthDistillationService:
                 })
         source_ids = {item["id"] for item in inputs if item.get("type") == "source"}
         current_decisions = current_project_triage_decisions(self.repository, project_id)
-        sources = [
-            {
-                **source,
-                "revision": source.get("content_hash", ""),
-                "context_priority": int(
-                    (current_decisions.get(str(source.get("id") or "")) or {}).get("priority") or 0
-                ),
-            }
-            for source in self.repository.list_sources(project_id)
-            if source.get("id") in source_ids
-            and not source_admission_reason(
+        sources: list[dict[str, Any]] = []
+        daily_source_scopes: dict[str, str] = {}
+        daily_excluded_source_ids: list[str] = []
+        for source in self.repository.list_sources(project_id):
+            source_id = str(source.get("id") or "")
+            if source_id not in source_ids or source_admission_reason(
                 self.repository,
                 project_id,
                 source,
                 current_decisions=current_decisions,
-            )
-        ]
+            ):
+                continue
+            context_source = {
+                **source,
+                "revision": source.get("content_hash", ""),
+                "context_priority": int((current_decisions.get(source_id) or {}).get("priority") or 0),
+            }
+            if kind == "daily":
+                scoped_content = self._daily_source_scope(source, profile)
+                if scoped_content is None:
+                    # Retain an unaligned source for search and audit, but do
+                    # not let it independently author a project conclusion.
+                    daily_excluded_source_ids.append(source_id)
+                    continue
+                if scoped_content:
+                    context_source["raw_content"] = scoped_content
+                    daily_source_scopes[source_id] = scoped_content
+            sources.append(context_source)
         selected_methods = {
             item["id"]: str(item.get("revision") or "")
             for item in inputs if item.get("type") == "method"
@@ -839,6 +869,14 @@ class GrowthDistillationService:
             source_cutoff=cutoff,
             index_available=False,
         )
+        # Exact scope text is used only by the in-process quality validator.
+        # Persisting it in each D-layer manifest would duplicate immutable
+        # A-layer source content instead of retaining a compact audit pointer.
+        retained_daily_scopes = {
+            source_id: content
+            for source_id, content in daily_source_scopes.items()
+            if source_id in set(pack.source_ids)
+        }
         return {
             "context_id": pack.revision,
             "context_hash": pack.context_hash,
@@ -854,13 +892,103 @@ class GrowthDistillationService:
             # audit, but must not authorize unsupported model citations.
             "citation_source_ids": sorted(pack.source_ids),
             "citation_page_ids": sorted(pack.page_ids),
+            "daily_source_scope_ids": sorted(retained_daily_scopes),
+            "daily_excluded_source_ids": sorted(daily_excluded_source_ids),
             "method_revision_ids": list(pack.method_revision_ids),
             "output_ids": list(pack.output_ids),
             "assumptions": list(pack.assumptions),
             "research_gaps": list(pack.research_gaps),
             "omitted_refs": list(pack.omitted_refs),
             "rendered": pack.rendered,
+            "_daily_source_scopes": retained_daily_scopes,
         }
+
+    @classmethod
+    def _daily_source_scope(cls, source: dict[str, Any], profile: dict[str, Any]) -> str | None:
+        """Return profile-relevant excerpts or exclude a non-matching source.
+
+        ``None`` means an active project profile cannot connect the source to
+        a concrete project term. An empty string means that the profile has no
+        usable lexical anchors yet, so ordinary bounded context still applies.
+        """
+        content = str(source.get("raw_content") or "").strip()
+        if not content:
+            return None
+        terms = cls._daily_profile_terms(profile)
+        if not terms:
+            return ""
+
+        windows: list[tuple[int, int, str]] = []
+        for start in range(0, len(content), cls.DAILY_SOURCE_SCOPE_STEP_CHARACTERS):
+            candidate = cls._daily_window(content, start)
+            if not candidate:
+                continue
+            matched = cls._daily_terms(candidate) & terms
+            if not matched:
+                continue
+            score = sum(
+                3 if term in {"agent", "context", "llm", "mcp", "obsidian", "orchestration", "interoperability"} else 1
+                for term in matched
+            )
+            windows.append((score, start, candidate))
+
+        selected: list[tuple[int, int, str]] = []
+        # Prefer the later equally-scored window. Sliding windows immediately
+        # before a relevant paragraph can contain the same terms only at their
+        # tail, then lose that evidence again when the final excerpt is capped.
+        for score, start, candidate in sorted(windows, key=lambda item: (-item[0], -item[1])):
+            if any(abs(start - prior_start) < cls.DAILY_SOURCE_SCOPE_WINDOW_CHARACTERS for _, prior_start, _ in selected):
+                continue
+            selected.append((score, start, candidate))
+            if len(selected) >= cls.DAILY_SOURCE_SCOPE_MAX_WINDOWS:
+                break
+        if not selected:
+            return None
+        excerpts = [candidate for _, _, candidate in sorted(selected, key=lambda item: item[1])]
+        rendered = "Daily source evidence scope; only this excerpt supports claims:\n\n" + "\n\n---\n\n".join(excerpts)
+        return rendered[: cls.DAILY_SOURCE_SCOPE_MAX_CHARACTERS].rstrip()
+
+    @classmethod
+    def _daily_profile_terms(cls, profile: dict[str, Any]) -> set[str]:
+        domains = [str(value) for value in profile.get("research_domains") or []]
+        domain_terms = {
+            term
+            for value in domains
+            for term in cls._daily_terms(value)
+            if term not in cls._DAILY_SCOPE_STOPWORDS
+        }
+        # Output labels such as "custom SOP" do not describe an evidence
+        # domain. A project needs at least one actual research domain before
+        # source exclusion becomes authoritative.
+        if not domain_terms:
+            return set()
+        return domain_terms | {
+            term
+            for value in profile.get("primary_output_types") or []
+            for term in cls._daily_terms(value)
+            if term not in cls._DAILY_SCOPE_STOPWORDS
+        }
+
+    @staticmethod
+    def _daily_terms(value: str) -> set[str]:
+        return {
+            term[:-1] if term.endswith("s") and len(term) > 4 else term
+            for term in re.findall(r"[a-z][a-z0-9-]{2,}", value.lower())
+        }
+
+    @classmethod
+    def _daily_window(cls, content: str, start: int) -> str:
+        """Align one scored character window to nearby sentence boundaries."""
+        raw_start = max(0, start)
+        raw_end = min(len(content), raw_start + cls.DAILY_SOURCE_SCOPE_WINDOW_CHARACTERS)
+        search_start = max(0, raw_start - 240)
+        before_matches = list(re.finditer(r"[.!?]\s+(?=[A-Z@#])", content[search_start:raw_start]))
+        if before_matches:
+            raw_start = search_start + before_matches[-1].end()
+        after_match = re.search(r"[.!?](?=\s|$)", content[raw_end:min(len(content), raw_end + 300)])
+        if after_match:
+            raw_end += after_match.end()
+        return " ".join(content[raw_start:raw_end].split())
 
     def _output_content(self, vault: FilesystemWikiVault, output: dict[str, Any]) -> str:
         if output.get("status") not in {"accepted", "filed"}:
@@ -1230,12 +1358,48 @@ class GrowthDistillationService:
             return "", "invalid_reference"
         if cls._UNSUPPORTED_PROJECT_STATE_CLAIM.search(normalized):
             return "", "unsupported_project_state"
+        scoped_reason = cls._daily_scoped_evidence_reason(sections, context)
+        if scoped_reason:
+            return "", scoped_reason
         # The heading is deterministic, so it cannot by itself establish that
         # the model preserved a real evidence boundary. Validate citation
         # ownership first so a forged reference keeps the more useful reason.
         if not cls._UNCERTAINTY_MARKER.search(sections["open_question"]):
             return "", "missing_uncertainty"
         return normalized, ""
+
+    @classmethod
+    def _daily_scoped_evidence_reason(cls, sections: dict[str, str], context: dict[str, Any]) -> str:
+        """Keep a daily inference inside the project-scored source excerpt."""
+        scopes = context.get("_daily_source_scopes") or {}
+        if not isinstance(scopes, dict) or not scopes:
+            return ""
+        source_ids = {
+            value
+            for value in re.findall(r"\[source:([^\]]+)\]", sections["signal"])
+            if value in scopes
+        }
+        if not source_ids:
+            return "missing_scoped_source_citation"
+
+        for source_id in sorted(source_ids):
+            normalized_scope = cls._normalize_evidence_text(str(scopes[source_id]))
+            for quote in cls._DAILY_QUOTED_EVIDENCE.findall(sections["signal"]):
+                normalized_quote = cls._normalize_evidence_text(quote)
+                if len(normalized_quote) < 24 or normalized_quote not in normalized_scope:
+                    continue
+                if f"[source:{source_id}]" not in sections["project_implication"]:
+                    return "scoped_implication_missing_source_citation"
+                quote_terms = cls._daily_terms(normalized_quote) - cls._DAILY_SCOPE_STOPWORDS
+                implication_terms = cls._daily_terms(sections["project_implication"])
+                if quote_terms and not (quote_terms & implication_terms):
+                    return "scoped_implication_not_bound_to_quote"
+                return ""
+        return "missing_scoped_evidence_quote"
+
+    @staticmethod
+    def _normalize_evidence_text(value: str) -> str:
+        return " ".join(str(value or "").replace("\u2019", "'").replace("\u2018", "'").split()).lower()
 
     @classmethod
     def _daily_quality_feedback(cls, rejection_reason: str, context: dict[str, Any]) -> str:
@@ -1249,6 +1413,9 @@ class GrowthDistillationService:
             "recommendation or verification instead. The open_question body must include an explicit evidence "
             "gap or verification marker such as 'requires verification', 'uncertain', 'evidence gap', or "
             "'待验证'."
+            " When a project-scoped source excerpt is present, signal must contain a 24+ character exact quote "
+            "from that excerpt and [source:<id>]; project_implication must cite the same source and reuse a "
+            "concrete term from that quote instead of making an analogy."
             + cls._allowed_citation_labels(context)
         )
 
@@ -1758,7 +1925,11 @@ class GrowthDistillationService:
             "source_cutoff": source_cutoff,
             "input_count": len(inputs),
             "inputs": inputs,
-            "context": {key: value for key, value in context.items() if key != "rendered"},
+            "context": {
+                key: value
+                for key, value in context.items()
+                if key != "rendered" and not key.startswith("_")
+            },
             "generation": generation,
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "paths": paths,
