@@ -65,6 +65,10 @@ export function formatRuntimeError(reason: unknown): string {
   return message;
 }
 
+export function syncGrowthProjectContext(projectId: string): void {
+  useGrowthWorkspaceStore.getState().setProjectId(projectId.trim() || 'default');
+}
+
 function includesModeSignal(text: string, signal: string): boolean {
   const normalized = signal.toLowerCase();
   if (!/^[a-z0-9]+(?:[ -][a-z0-9]+)*$/.test(normalized)) {
@@ -407,7 +411,7 @@ export function UnifiedWorkspace() {
           <button type="button" className="skill-trigger" onClick={() => setKnowledgeOpen(true)}>
             <BookOpen size={15} aria-hidden="true" /> Knowledge
           </button>
-          <button type="button" className="skill-trigger" onClick={() => setGrowthOpen(true)}>
+          <button type="button" className="skill-trigger" onClick={() => { syncGrowthProjectContext(knowledgeProjectId); setGrowthOpen(true); }}>
             <Sprout size={15} aria-hidden="true" /> Growth
           </button>
           <button type="button" className="skill-trigger" onClick={() => setOperationsOpen(true)}>

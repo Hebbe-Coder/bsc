@@ -180,3 +180,24 @@ Studio interface.
   visual acceptance pass. The pre-change authorized read is recorded only as
   the defect observation; a new desktop/mobile visual pass remains required
   when the browser connection is available.
+
+## 2026-07-31 Operations Cockpit Focus And Project Continuity
+
+- Growth now inherits the selected Knowledge project when it opens from the
+  Unified Workspace. This removes a real context break where Growth could
+  retain `default` while the user was reviewing a different authorized project.
+- The portfolio action queue initially shows the top five deterministic actions
+  and exposes an explicit control to reveal the remainder. All actions stay
+  in the same server-authorized order; the control changes density, not data,
+  permissions, or priority.
+- Updated the Operations cockpit into a decision-oriented visual system with
+  readable metric hierarchy, chart axis/tooltip contrast, bounded action rows,
+  lifecycle inspection, and mobile-safe layout. Chart values remain the same
+  persisted read model. The stylesheet uses zero letter spacing for compact
+  operational scanning.
+- Verification: `npm run test:frontend -- --run
+  src/components/UnifiedWorkspace.test.ts
+  src/components/operations/KnowledgeOperationsCockpit.test.tsx` passed with
+  `16` tests; `npm run check` and `npm run build` passed. A fresh browser
+  visual pass remains pending because the local browser connection blocked a
+  post-reload inspection; this is not treated as a visual acceptance result.

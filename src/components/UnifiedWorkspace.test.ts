@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { detectMode, formatRuntimeError, isLocalProxySession } from './UnifiedWorkspace';
+import { useGrowthWorkspaceStore } from '../store/knowledgeWorkspaceStore';
+import { detectMode, formatRuntimeError, isLocalProxySession, syncGrowthProjectContext } from './UnifiedWorkspace';
 
 describe('formatRuntimeError', () => {
   it('turns unreachable backend failures into a Vite proxy recovery action', () => {
@@ -28,5 +29,23 @@ describe('isLocalProxySession', () => {
     expect(isLocalProxySession('', '')).toBe(false);
     expect(isLocalProxySession('local-proxy', '')).toBe(false);
     expect(isLocalProxySession('manual-key', 'local-proxy')).toBe(false);
+  });
+});
+
+describe('syncGrowthProjectContext', () => {
+  it('sets the Growth workspace project before it mounts instead of retaining default', () => {
+    useGrowthWorkspaceStore.getState().reset();
+
+    syncGrowthProjectContext('proj_b8a285642094');
+
+    expect(useGrowthWorkspaceStore.getState().projectId).toBe('proj_b8a285642094');
+  });
+
+  it('uses the explicit default only when no Knowledge project is selected', () => {
+    useGrowthWorkspaceStore.getState().setProjectId('stale-project');
+
+    syncGrowthProjectContext('   ');
+
+    expect(useGrowthWorkspaceStore.getState().projectId).toBe('default');
   });
 });

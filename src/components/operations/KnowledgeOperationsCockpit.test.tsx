@@ -79,6 +79,23 @@ describe('KnowledgeOperationsCockpit', () => {
     expect(screen.getByRole('button', { name: /Open Project A cockpit/i })).toBeTruthy();
   });
 
+  it('keeps a large action queue focused without hiding any governed action', async () => {
+    vi.mocked(operationsApi.fetchOperationsPortfolio).mockResolvedValue({
+      ...overview,
+      actions: Array.from({ length: 6 }, (_, index) => ({
+        ...overview.actions[0],
+        id: `action-${index + 1}`,
+        source_refs: [`artifact:risk-${index + 1}`],
+      })),
+    });
+    render(<KnowledgeOperationsCockpit onClose={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getAllByRole('button', { name: /unresolved risk/i })).toHaveLength(5));
+    fireEvent.click(screen.getByRole('button', { name: 'View 1 more actions' }));
+    expect(screen.getAllByRole('button', { name: /unresolved risk/i })).toHaveLength(6);
+    expect(screen.getByRole('button', { name: 'Show top 5 only' })).toBeTruthy();
+  });
+
   it('keeps the project decision strip grounded in metrics, actions, and durable coverage', async () => {
     vi.mocked(operationsApi.fetchOperationsProject).mockResolvedValue(projectOverview);
     vi.mocked(operationsApi.fetchOperationsGraph).mockResolvedValue(graph);

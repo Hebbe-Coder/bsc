@@ -32,6 +32,7 @@ type LifecycleLaneData = {
   lane: string;
   label: string;
   count: number;
+  compact: boolean;
   onSelect: (lane: string) => void;
 };
 
@@ -87,13 +88,13 @@ function nodeDisplayLabel(node: OperationsGraphNode): string {
 function LifecycleLaneNode({ data }: NodeProps<LifecycleLaneData>) {
   const inspectLane = () => data.onSelect(data.lane);
   return <>
-    <Handle type="target" position={Position.Left} isConnectable={false} />
+    <Handle type="target" position={data.compact ? Position.Top : Position.Left} isConnectable={false} />
     <button type="button" className={`operations-flow-lane__card operations-flow-lane__card--${data.lane}`} onClick={inspectLane} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); inspectLane(); } }} aria-label={`Inspect ${data.label} records`}>
       <span>{data.label}</span>
       <strong>{data.count}</strong>
       <small>authorized records</small>
     </button>
-    <Handle type="source" position={Position.Right} isConnectable={false} />
+    <Handle type="source" position={data.compact ? Position.Bottom : Position.Right} isConnectable={false} />
   </>;
 }
 
@@ -112,6 +113,17 @@ function readableLane(value: string): string {
     memory_feedback: 'memory or feedback',
   };
   return labels[value] ?? readableFilterValue(value);
+}
+
+function useCompactOperationsLayout(): boolean {
+  const [compact, setCompact] = useState(() => typeof window !== 'undefined' && window.innerWidth <= 720);
+  useEffect(() => {
+    const update = () => setCompact(window.innerWidth <= 720);
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+  return compact;
 }
 
 function graphMissions(catalog: OperationsGraph | null): Array<{ id: string; label: string }> {
@@ -200,9 +212,12 @@ function ActionQueue({
   scope: OperationsOverview['scope'] | undefined;
   onSelect: (action: OperationsAction) => void;
 }) {
+  const [showAll, setShowAll] = useState(false);
   if (!actions.length) return <div className="operations-empty"><BookOpenCheck size={20} /><p>No action is derived from the currently authorized records.</p></div>;
+  const visibleActions = showAll ? actions : actions.slice(0, 5);
+  const hiddenCount = Math.max(0, actions.length - visibleActions.length);
   return <ol className="operations-actions" aria-label="Prioritized action queue">
-    {actions.map((action) => <li key={action.id} data-severity={action.severity}>
+    {visibleActions.map((action) => <li key={action.id} data-severity={action.severity}>
       <button type="button" onClick={() => onSelect(action)}>
         <span className="operations-action__severity">{action.severity}</span>
         <span className="operations-action__copy">
@@ -215,6 +230,7 @@ function ActionQueue({
         <ArrowUpRight size={15} aria-hidden="true" />
       </button>
     </li>)}
+    {actions.length > 5 && <li className="operations-actions__more"><button type="button" onClick={() => setShowAll((value) => !value)} aria-expanded={showAll}>{showAll ? 'Show top 5 only' : `View ${hiddenCount} more actions`}<ArrowUpRight size={14} aria-hidden="true" /></button></li>}
   </ol>;
 }
 
@@ -259,6 +275,7 @@ function LifecycleGraph({
 }) {
   const [selectedLane, setSelectedLane] = useState('');
   const [recordPage, setRecordPage] = useState(0);
+  const compactLayout = useCompactOperationsLayout();
   const lanes = useMemo(() => graph?.lanes ?? [], [graph]);
   const graphProjection = useMemo(() => {
     const relevantEdges = graph?.edges ?? [];
@@ -270,8 +287,8 @@ function LifecycleGraph({
     const nodes: Node<LifecycleLaneData>[] = laneNodes.map((lane, index) => ({
       id: `lane:${lane.id}`,
       type: 'lifecycleLane',
-      data: { lane: lane.id, label: lane.label, count: (nodesByLane.get(lane.id) ?? []).length, onSelect: (value) => { setSelectedLane(value); setRecordPage(0); } },
-      position: { x: 28 + (index % 4) * 208, y: 28 + Math.floor(index / 4) * 138 },
+      data: { lane: lane.id, label: lane.label, count: (nodesByLane.get(lane.id) ?? []).length, compact: compactLayout, onSelect: (value) => { setSelectedLane(value); setRecordPage(0); } },
+      position: compactLayout ? { x: 28, y: 28 + index * 118 } : { x: 28 + (index % 4) * 208, y: 28 + Math.floor(index / 4) * 138 },
       className: 'operations-flow-lane',
       ariaLabel: `${lane.label}: ${(nodesByLane.get(lane.id) ?? []).length} authorized records`,
     }));
@@ -297,7 +314,7 @@ function LifecycleGraph({
       .map(([relationName]) => ({ relation: relationName, count: relevantEdges.filter((edge) => edge.relation === relationName).length }))
       .sort((left, right) => right.count - left.count || left.relation.localeCompare(right.relation));
     return { nodes, edges, nodesByLane, relations };
-  }, [graph, lanes]);
+  }, [compactLayout, graph, lanes]);
 
   const activeLane = graphProjection.nodesByLane.has(selectedLane)
     ? selectedLane
@@ -328,7 +345,7 @@ function LifecycleGraph({
     </div>
     {graph.pagination.truncated && <p className="operations-boundary"><AlertTriangle size={13} />Showing a bounded graph slice. {graph.pagination.omitted_node_count} nodes and {graph.pagination.omitted_endpoint_count} endpoints are outside this page.</p>}
     {!graphProjection.nodes.length ? <div className="operations-chart-empty"><Network size={18} /><span>No persisted lifecycle relationships match this filter.</span></div> : <>
-      <div className="operations-flow" data-graph-nodes={graph.nodes.length} data-flow-lanes={graphProjection.nodes.length}>
+      <div className={`operations-flow ${compactLayout ? 'is-compact' : ''}`} style={compactLayout ? { height: Math.max(420, graphProjection.nodes.length * 118 + 30) } : undefined} data-graph-nodes={graph.nodes.length} data-flow-lanes={graphProjection.nodes.length}>
         <ReactFlow nodes={graphProjection.nodes} edges={graphProjection.edges} nodeTypes={lifecycleNodeTypes} fitView fitViewOptions={{ padding: 0.16 }} minZoom={0.25} maxZoom={1.6} nodesDraggable={false}><Background gap={22} size={1} /><Controls showInteractive={false} /></ReactFlow>
       </div>
       <p className="operations-relation-summary" aria-label="Lifecycle relationship counts">{graphProjection.relations.map((item) => <span key={item.relation}>{item.relation} x{item.count}</span>)}</p>
@@ -456,9 +473,9 @@ export function KnowledgeOperationsCockpit({ onClose, initialProjectId = '', onO
   const agentEvolution = overview?.trends.agent_evolution ?? [];
   const hasAgentRateTrend = agentEvolution.some((item) => item.verification_pass_rate !== null || item.routing_holdout_pass_rate !== null);
   const growthOption: EChartsOption = {
-    animation: false, color: ['#6bb9d1', '#d7aa63', '#72c5a7'], tooltip: { trigger: 'axis' }, legend: { data: ['Sources', 'Methods', 'Outputs'], textStyle: { color: '#9db1ba', fontSize: 10 } }, grid: { top: 38, right: 16, bottom: 30, left: 38 },
-    xAxis: { type: 'category', data: growth.map((item) => item.date), axisLabel: { color: '#8295a4', fontSize: 9 }, axisLine: { lineStyle: { color: '#29404c' } } },
-    yAxis: { type: 'value', minInterval: 1, axisLabel: { color: '#8295a4', fontSize: 9 }, splitLine: { lineStyle: { color: '#1d303a' } } },
+    animationDuration: 420, animationEasing: 'cubicOut', color: ['#2c796a', '#bd7a32', '#3f788f'], tooltip: { trigger: 'axis', backgroundColor: '#193033', borderWidth: 0, textStyle: { color: '#f3faf6', fontSize: 11 } }, legend: { top: 8, left: 'center', itemWidth: 12, itemHeight: 8, data: ['Sources', 'Methods', 'Outputs'], textStyle: { color: '#536b6e', fontSize: 10 } }, grid: { top: 48, right: 18, bottom: 34, left: 42 },
+    xAxis: { type: 'category', data: growth.map((item) => item.date), axisLabel: { color: '#66797b', fontSize: 10 }, axisLine: { lineStyle: { color: '#cbd9d3' } } },
+    yAxis: { type: 'value', minInterval: 1, axisLabel: { color: '#66797b', fontSize: 10 }, splitLine: { lineStyle: { color: '#e1e9e4' } } },
     series: growth.length ? [
       { name: 'Sources', type: 'line', data: growth.map((item) => item.sources), showSymbol: growth.length < 18, lineStyle: { width: 2 } },
       { name: 'Methods', type: 'line', data: growth.map((item) => item.methods), showSymbol: growth.length < 18, lineStyle: { width: 2 } },
@@ -466,13 +483,13 @@ export function KnowledgeOperationsCockpit({ onClose, initialProjectId = '', onO
     ] : [],
   };
   const qualityOption: EChartsOption = {
-    animation: false, grid: { top: 18, right: 14, bottom: 26, left: 78 }, xAxis: { type: 'value', minInterval: 1, axisLabel: { color: '#8295a4', fontSize: 9 }, splitLine: { lineStyle: { color: '#1d303a' } } }, yAxis: { type: 'category', data: ['Qualified', 'Pending', 'Attention'], axisLabel: { color: '#a8bac3', fontSize: 10 }, axisLine: { lineStyle: { color: '#29404c' } } },
+    animationDuration: 420, animationEasing: 'cubicOut', grid: { top: 18, right: 18, bottom: 28, left: 84 }, xAxis: { type: 'value', minInterval: 1, axisLabel: { color: '#66797b', fontSize: 10 }, splitLine: { lineStyle: { color: '#e1e9e4' } } }, yAxis: { type: 'category', data: ['Qualified', 'Pending', 'Attention'], axisLabel: { color: '#536b6e', fontSize: 11 }, axisLine: { lineStyle: { color: '#cbd9d3' } } },
     series: quality ? [{ type: 'bar', barMaxWidth: 22, data: [quality.verified?.value ?? 0, quality.pending_validation?.value ?? 0, quality.requires_attention?.value ?? 0], itemStyle: { color: (params: { dataIndex: number }) => ['#72c5a7', '#d7aa63', '#e1848d'][params.dataIndex] } }] : [],
   };
   const agentOption: EChartsOption = {
-    animation: false, color: ['#82cbb0', '#85bce4'], tooltip: { trigger: 'axis' }, legend: { data: ['Verification pass rate', 'Routing holdout pass rate'], textStyle: { color: '#9db1ba', fontSize: 9 } }, grid: { top: 34, right: 16, bottom: 30, left: 38 },
-    xAxis: { type: 'category', data: agentEvolution.map((item) => item.date), axisLabel: { color: '#8295a4', fontSize: 9 }, axisLine: { lineStyle: { color: '#29404c' } } },
-    yAxis: { type: 'value', min: 0, max: 100, axisLabel: { color: '#8295a4', fontSize: 9, formatter: '{value}%' }, splitLine: { lineStyle: { color: '#1d303a' } } },
+    animationDuration: 420, animationEasing: 'cubicOut', color: ['#2c796a', '#3f788f'], tooltip: { trigger: 'axis', backgroundColor: '#193033', borderWidth: 0, textStyle: { color: '#f3faf6', fontSize: 11 } }, legend: { top: 8, left: 'center', itemWidth: 12, itemHeight: 8, data: ['Verification pass rate', 'Routing holdout pass rate'], textStyle: { color: '#536b6e', fontSize: 10 } }, grid: { top: 52, right: 18, bottom: 34, left: 44 },
+    xAxis: { type: 'category', data: agentEvolution.map((item) => item.date), axisLabel: { color: '#66797b', fontSize: 10 }, axisLine: { lineStyle: { color: '#cbd9d3' } } },
+    yAxis: { type: 'value', min: 0, max: 100, axisLabel: { color: '#66797b', fontSize: 10, formatter: '{value}%' }, splitLine: { lineStyle: { color: '#e1e9e4' } } },
     series: hasAgentRateTrend ? [
       { name: 'Verification pass rate', type: 'line', data: agentEvolution.map((item) => item.verification_pass_rate), connectNulls: false, showSymbol: agentEvolution.length < 18, lineStyle: { width: 2 } },
       { name: 'Routing holdout pass rate', type: 'line', data: agentEvolution.map((item) => item.routing_holdout_pass_rate), connectNulls: false, showSymbol: agentEvolution.length < 18, lineStyle: { width: 2 } },
