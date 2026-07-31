@@ -546,3 +546,58 @@ npm run build
   evaluation before acceptance or execution. Likewise, PBOS promotion still
   requires three real, comparable, accepted, receipt-backed deliveries. Those
   states are intentionally not auto-completed by this release closure.
+
+## 2026-07-31 Post-Consolidation Live PBOS Evidence
+
+### Actual Runtime State
+
+- The mapped project `proj_b8a285642094` has a reachable Vault, completed
+  source synchronization, 28 active sources, nine captured Horizon signals,
+  and five project schedules. Its active plan `art_abd348e7fe03` cites twelve
+  governed knowledge references and exposes a concrete first unfinished
+  action.
+- Existing server-observed execution `art_4126dc26952e` has five verified
+  receipts and a reflection. PBOS created only its initial reviewable
+  `unverified` Outcome `art_064fc49cff71` and projected it to
+  `pbos/outcomes/art_064fc49cff71.md` in the mapped Obsidian Vault.
+- A real protected acceptance request without a quality score returned HTTP
+  `422`. Subsequent readback confirmed no score, no review history, no
+  learning-eligible outcome, no Capability, and no Strategy Genome.
+  Reconciliation returned `insufficient_evidence` with zero comparable
+  complete records. This is a tested safety gate, not an incomplete sync.
+
+### Local Studio And Automation
+
+- An unauthenticated same-origin request through Studio on port `5174`
+  returned the protected Cockpit state successfully. The API credential is
+  held only by Vite's loopback proxy; it is not supplied by the browser.
+  A scan of all 38 production build files found zero local-key occurrences.
+- The durable schedule rows are enabled with `Asia/Shanghai` timing: daily
+  `0 17 * * *`, weekly `0 17 * * 5`, and monthly `0 17 1 * *`.
+- Obsidian Clipper, Xiaohongshu Importer, and Zotero are trusted and
+  destination-ready but honestly `awaiting_export`. Copilot and Real Claudian
+  output routes are `awaiting_output`. GitHub and Feishu remain
+  `awaiting_authorization`; no remote content is claimed as synchronized.
+
+### Reverified Acceptance Surface
+
+- PBOS/API/MCP/integration: `75 passed`.
+- Personal Growth Cockpit frontend: `185 passed`.
+- Shared Artifact Graph, Agent Runtime, Obsidian sync, and growth
+  distillation: `102 passed, 1 skipped` (Windows symlink condition).
+- TypeScript check, production build, Compose configuration, Compose health,
+  protected runtime readback, source/container SHA-256 equality, and
+  same-origin Studio proxy readback all passed.
+
+### Remaining Evidence And Rollback
+
+- Current personalization is correctly `profile_context_required`: the
+  project profile still needs declared role, industry, and organization stage.
+  After that context is saved and the plan is recompiled, the owner must
+  explicitly accept or reject the pending Outcome with a real quality score.
+  Two additional comparable receipt-backed, reflected, accepted AI-project
+  deliveries are required before PBOS may promote personal learning assets.
+- Rejecting the pending Outcome retains the audit record and leaves the
+  learning gate closed. Existing code, immutable Artifact Graph records,
+  Vault projections, connector states, and schedules do not need deletion to
+  roll back an individual review decision.
