@@ -52,6 +52,7 @@ export type KnowledgeWorkspaceData = {
   release_gate?: {
     status: 'release_ready' | 'implemented_with_operational_proof_pending' | 'not_release_ready';
     contract_revision: string;
+    matrix?: KnowledgeReleaseGateMatrixRow[];
     missing_evidence: string[];
     pending_evidence: string[];
     failed_evidence: string[];
@@ -113,6 +114,13 @@ export type KnowledgeReleaseEvidence = {
   recorded_by: string;
 };
 export type KnowledgeReleaseEvidenceInput = Omit<KnowledgeReleaseEvidence, 'revision' | 'recorded_by'>;
+export type KnowledgeReleaseGateMatrixRow = {
+  evidence_id: string;
+  state: 'verified' | 'pending' | 'unavailable' | 'failed' | 'missing';
+  proof_class: 'real' | 'fixture' | 'none';
+  durable_id_count: number;
+  detail_code: string;
+};
 export type KnowledgePluginBridge = { id: string; name: string; adapter?: 'filesystem_drop' | 'filesystem_output' | 'filesystem_context'; input_paths: string[] };
 export type KnowledgeWorkspaceProject = { id: string; name: string; created_at: string };
 export type FeishuKnowledgeExport = {

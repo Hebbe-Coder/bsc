@@ -57,6 +57,46 @@ describe('ReleaseEvidenceLedger', () => {
     expect(document.body.textContent).not.toContain('source_url');
   });
 
+  it('renders every release requirement, including missing proof, instead of showing only submitted records', async () => {
+    render(<ReleaseEvidenceLedger
+      projectId="project-a"
+      role="project_reader"
+      canWrite={false}
+      onChanged={vi.fn()}
+      matrix={[
+        { evidence_id: 'o1_secure_boundary_restart', state: 'pending', proof_class: 'none', durable_id_count: 0, detail_code: 'awaiting_observation' },
+        { evidence_id: 'o3_real_plugin_exports', state: 'missing', proof_class: 'none', durable_id_count: 0, detail_code: 'missing_evidence' },
+      ]}
+    />);
+
+    await screen.findByText('o1_secure_boundary_restart');
+    const rows = screen.getAllByRole('listitem');
+    const missing = rows.find((row) => row.textContent?.includes('o3_real_plugin_exports'));
+    expect(missing).toHaveTextContent('missing');
+    expect(missing).toHaveTextContent('missing_evidence');
+    expect(missing).toHaveTextContent('not verified');
+    expect(screen.queryByText(/release ready/i)).toBeNull();
+  });
+
+  it('keeps the workspace visible when an older server omits the evidence array', async () => {
+    api.fetchKnowledgeReleaseEvidence.mockResolvedValueOnce({ count: 0 });
+
+    render(<ReleaseEvidenceLedger projectId="project-a" role="project_reader" canWrite={false} onChanged={vi.fn()} />);
+
+    expect(await screen.findByText('No release evidence has been recorded. Missing requirements remain visible below.')).toBeVisible();
+    expect(screen.getByRole('alert')).toHaveTextContent('Release ledger response is incomplete. Required checks remain unverified.');
+    expect(screen.getAllByRole('listitem')).toHaveLength(9);
+    expect(screen.getByText('o1_secure_boundary_restart')).toBeVisible();
+  });
+
+  it('does not query or classify release proof before Studio has authorized a project', () => {
+    render(<ReleaseEvidenceLedger projectId="project-a" role="" canWrite={false} enabled={false} onChanged={vi.fn()} />);
+
+    expect(api.fetchKnowledgeReleaseEvidence).not.toHaveBeenCalled();
+    expect(screen.getByText('Release evidence loads after Studio verifies access to a selected project.')).toBeVisible();
+    expect(screen.queryByRole('listitem')).toBeNull();
+  });
+
   it('allows a project admin to record a non-verified observation without an approval control', async () => {
     const onChanged = vi.fn();
     render(<ReleaseEvidenceLedger projectId="project-a" role="project_admin" canWrite onChanged={onChanged} />);

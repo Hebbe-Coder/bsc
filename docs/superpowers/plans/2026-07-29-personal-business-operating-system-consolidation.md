@@ -1108,3 +1108,18 @@ as `9928271` (`feat(pbos): deliver evidence-grounded personal operating
 system`). A follow-up integration hardening increment adds the native async
 agent fast path and a complete release-evidence matrix to the Workspace; it
 retains the same project isolation, review, and operational-proof boundaries.
+
+### Follow-up Deployment Acceptance
+
+The follow-up increment is deployed locally: the API is healthy, the Worker
+and Beat run the rebuilt images, and the Local REST identity/authentication
+probe is connected through the configured plugin path. The release ledger
+renders all nine requirements and preserves both incomplete-response safety and
+project authorization gating. Full regression passed `1638` Python tests with
+`14` designed skips, `213` frontend tests, and the production build.
+
+This does not alter the release conclusion. Project index 2 has one reviewed,
+real `o3_real_plugin_exports` record with three durable identifiers; its other
+eight E1 categories remain missing. Project index 1 has no recorded evidence.
+The only valid status remains `implemented_with_operational_proof_pending`
+until those independently observed, durable categories are satisfied.

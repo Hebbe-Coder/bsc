@@ -83,6 +83,26 @@ def test_sop_and_risk_run_in_parallel(draft_repo):
     assert elapsed < 0.35, f"并行应 <0.35s，实际 {elapsed:.2f}s"
 
 
+def test_pipeline_prefers_a_native_async_agent_entrypoint(draft_repo):
+    eng = make_engine(draft_repo)
+    calls = []
+
+    class AsyncPlanner:
+        def run(self, *args, **kwargs):
+            raise AssertionError("native async agent must not use the synchronous fallback")
+
+        async def run_async(self, *args, **kwargs):
+            calls.append(kwargs)
+            return {"project": {"name": "async"}, "requirements": []}
+
+    eng.agents["planner"] = AsyncPlanner()
+
+    result = asyncio.run(eng.run_pipeline("s-async", "async pipeline"))
+
+    assert result["project"]["name"] == "async"
+    assert calls and calls[0]["idea"] == "async pipeline"
+
+
 def test_reviewer_receives_risk(draft_repo):
     eng = make_engine(draft_repo)
     captured = {}

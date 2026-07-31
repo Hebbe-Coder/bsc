@@ -426,3 +426,31 @@
   folder and a governed growth Sync records it. Rollback is to restore the
   prior Copilot folder and re-register that explicit bridge; doing so would
   intentionally return the route to `mismatch` against PBOS's output contract.
+
+## 2026-08-01 Runtime Redeploy And Release-Evidence Recheck
+
+- Rebuilt the API, Worker, and Beat images from the audited follow-up change.
+  Docker Compose encountered a container-name replacement race after images
+  had built successfully. The recovery removed only the four verified,
+  project-labelled, stateless API/Worker/Beat replacement containers and then
+  recreated Worker and Beat through Compose. PostgreSQL, Redis, n8n, queues,
+  and persistent volumes remained running and intact.
+- The final Compose state has one healthy API, one Worker, and one Beat. The
+  Worker registers the knowledge and PBOS task families and Beat starts its
+  persistent scheduler normally.
+- An authorized metadata-only workspace read from inside the deployed API
+  reports Obsidian Local REST `connected` with
+  `authenticated_manifest_verified`, `docker_host_tls`, plugin-config source,
+  and plugin version `5.0.2` for both authorized projects. No token, endpoint,
+  note body, output body, or plugin source was printed or retained.
+- Project isolation remains visible in the deployed ledger: project index 1
+  has no recorded proof and nine missing E1 categories; project index 2 alone
+  has reviewed `o3_real_plugin_exports` at revision `2`, with a real proof
+  class and three durable reference identifiers, leaving eight categories
+  missing. Both projects honestly remain
+  `implemented_with_operational_proof_pending`.
+- Final regression on this deployed increment: `1638 passed, 14 skipped` in
+  `308.03s` for the Python suite; `24` frontend files and `213` tests passed;
+  `npm run build` passed; lint completed with `0` errors and `214` existing
+  warnings. The existing ECharts bundle-size advisory remains a follow-up, not
+  a false success or release decision.

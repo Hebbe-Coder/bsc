@@ -635,6 +635,19 @@ release evidence.
   connected services or generated UI state with the remaining operational
   evidence.
 
+### Full Regression
+
+- Serial full backend regression passed `1637 passed, 14 skipped` after the
+  native async Agent dispatch improvement. It includes the release ledger,
+  project isolation, A/B/C/D performance, and the SOP/Risk parallel latency
+  gate.
+- Full frontend regression passed `24 files, 211 tests`. Lint completed with
+  `0` errors and the repository's existing `214` warnings; Compose full-profile
+  rendering and `git diff --check` passed.
+- The workspace evidence ledger now renders the complete authoritative gate
+  matrix, including requirements with no submitted record. A missing row is a
+  visible missing requirement, never a hidden absence or an inferred success.
+
 ## E1 Metadata Ledger Regression And Studio Review Surface
 
 Date: 2026-08-01
@@ -687,3 +700,187 @@ boundary.
   into release proof. E1 remains `implemented_with_operational_proof_pending`
   until the remaining project-authorized external evidence is separately
   observed and reviewed.
+
+## Studio Release-Matrix And Authorization-Gate Repair
+
+Date: 2026-08-01
+Scope: turn the E1 release matrix into an inspectable Studio surface and
+repair a real browser crash without reading knowledge bodies, accessing an
+external service, or writing to a Vault/original file.
+
+### Observed Defects And Repair
+
+- The API already returned the nine-category E1 matrix, but the Studio type
+  discarded it and rendered only submitted ledger records. An unsubmitted
+  proof category was therefore invisible to the operator.
+- A local Studio browser run at `127.0.0.1:5180` also exposed an unhandled
+  `response.evidence[0]` access when the list field was absent. Opening
+  Knowledge then produced a blank page rather than a bounded unavailable
+  state.
+- `ReleaseEvidenceLedger` now merges the gate matrix with persisted metadata,
+  so every required category is visible as `missing`, `pending`, `failed`, or
+  `verified`; no missing check is silently omitted.
+- An incomplete list response now preserves the workspace, renders all nine
+  requirements as unverified, and shows a bounded protocol warning. It never
+  interprets an incomplete response as real evidence.
+- The ledger is now explicitly gated on an authorized, selected project. Before
+  Studio verifies access, it performs no ledger request and presents only the
+  project-access prompt. This avoids an unauthorized/legacy response being
+  misclassified as project release data.
+
+### Test-First And Browser Evidence
+
+- Added failing regressions for missing matrix rows, omitted `evidence` arrays,
+  and unauthorised pre-project rendering. They initially demonstrated the
+  invisible row, React `TypeError`, and premature request respectively.
+- `npm run test:frontend -- src/components/knowledge/ReleaseEvidenceLedger.test.tsx
+  src/components/KnowledgeWorkspace.test.tsx` passed: `21 passed`.
+- Complete frontend regression passed: `24` files and `213` tests. `npm run
+  check` and `npm run build` passed; the existing ECharts `598.72 kB` advisory
+  remains visible.
+- Browser verification used only the local Studio. On desktop, the repaired
+  unauthorized workspace displayed the selected-project access message, no
+  protocol error, and zero fabricated release rows. At `390x844`, the same
+  state remained nonblank with `documentScrollWidth=384`,
+  `workspaceScrollWidth=378`, and `workspaceClientWidth=378`; there was no
+  document-level horizontal overflow. The temporary viewport override was
+  restored after the test.
+- The current full backend baseline independently passed immediately before
+  this UI-only repair: `1635 passed, 14 skipped` in approximately six minutes.
+
+### Boundary And Remaining Proof
+
+- No release status was advanced. The no-access browser session intentionally
+  did not read or submit a ledger item, and the repaired display continues to
+  report project selection/authorization as a prerequisite.
+- E1 remains `implemented_with_operational_proof_pending`. Real user-origin
+  source confirmation, reviewed output feedback, and the remaining separately
+  observed release categories cannot be replaced by a UI or test fixture.
+
+## Local REST Runtime Environment Repair (2026-08-01)
+
+### Implementation
+
+- Replaced direct Compose interpolation of `OBSIDIAN_LOCAL_REST_*` on the API
+  service with the optional, Git-ignored `./.env.runtime` file. This prevents
+  stale parent-process settings from overriding the operator's local runtime.
+- The local runtime file enables only the existing plugin-settings fallback.
+  The Obsidian Local REST token remains in the mounted Vault's plugin settings;
+  it was not copied into Compose, source control, logs, or this record.
+- Added a Compose contract regression to ensure the API service retains the
+  optional runtime file and cannot reintroduce direct Local REST interpolation.
+
+### Verified Runtime Evidence
+
+- `./.venv/Scripts/python.exe -m pytest tests/test_docker_compose_contract.py
+  tests/knowledge/test_obsidian_local_rest.py
+  tests/api/test_knowledge_workspace_api.py -q` passed: `49 passed`.
+- `docker compose config --quiet` passed.
+- After `docker compose up -d --no-deps --force-recreate bsc-backend`, the API
+  container became healthy. Its bounded probe reported `connected`,
+  `authenticated_manifest_verified`, `docker_host_tls`, plugin-config source,
+  and Local REST plugin version `5.0.2`.
+- An authorized BSC workspace API read for `proj_b8a285642094` returned the
+  same connected Local REST status and `vault.connection.state=ready`.
+
+### Boundary
+
+- This repair verifies connector identity and authentication only. It does not
+  read note bodies, list Vault content, or claim that any awaiting plugin
+  export has been synchronized.
+
+### Full Regression
+
+- `./.venv/Scripts/python.exe -m pytest -q` completed after the runtime
+  repair: `1637 passed, 14 skipped` in `342.67s`. The run reported three
+  pre-existing deprecation warnings (Starlette TestClient and two Pydantic
+  `.dict()` calls); no test failed.
+- `npm run test:frontend` passed: `24` test files and `211` tests. `npm run
+  check` and `npm run build` also passed.
+- The production build emits the existing Vite advisory for the `598.72 kB`
+  minified ECharts vendor chunk. It is a performance follow-up, not a failed
+  build or a release-evidence claim.
+
+## Copilot Replacement Recheck (2026-08-01)
+
+- Read the active Obsidian community-plugin inventory without reading Copilot
+  settings or provider credentials. `copilot` is enabled; `realclaudian` is
+  installed for local history but disabled.
+- The Copilot custom-prompt directory and the governed
+  `projects/default/04_Outputs/copilot/` route both exist. The protected BSC
+  workspace API reports no active Claudian adapter and one Copilot
+  `filesystem_output` adapter with `path_status=ready` and
+  `capture_state=ready_for_first_output`.
+- No Copilot-authored Markdown file exists in the output route yet, so its
+  runtime status remains `awaiting_output` with zero registered outputs. This
+  is not treated as a completed content or feedback loop.
+
+## Copilot Project-Scoped Delivery Closure (2026-08-01)
+
+### Actual Correction
+
+- The live Copilot `defaultSaveFolder` already points to the current BSC
+  project. The Chinese `BSC 知识审查与沉淀` command still referenced the
+  historical `default` project, so its output path and frontmatter project ID
+  were corrected to `proj_b8a285642094`.
+- Strengthened this project's `AGENTS.md` rather than relying on the legacy
+  project's rules. It now declares output/method/review page kinds, evidence
+  boundaries, context-specific SOP requirements, a Copilot reviewed-output
+  contract, and A/B/C/D maintenance and feedback rules.
+- No provider setting, Keychain record, chat transcript, or user-authored
+  content was read, copied, or changed.
+
+### Runtime Acceptance
+
+- A protected workspace API read confirmed the Copilot adapter is trusted,
+  `filesystem_output`, `path_status=ready`, and
+  `runtime_configuration=destination_matches_bridge`. The adapter accurately
+  remains `awaiting_output` until a reviewed file exists.
+- Triggered real run `2f7329f57cab` through the protected BSC API and waited
+  for the Celery `source_sync` terminal result. It completed with Copilot
+  output-feedback counts `scanned=0`, `registered=0`, `duplicates=0`,
+  `rejected=0`, and `blocked=0`; empty output was not fabricated or promoted.
+- `./.venv/Scripts/python.exe -m pytest tests/knowledge/test_wiki_sync.py
+  tests/knowledge/test_obsidian_output_sync.py
+  tests/api/test_knowledge_workspace_api.py -q` passed: `59 passed, 1
+  skipped`.
+
+### Remaining User Action
+
+- In Obsidian Copilot, use either `BSC Project Delivery` or `BSC 知识审查与沉淀`
+  for a real task, review the result, and intentionally save one Markdown
+  deliverable in the configured Copilot output folder. That authentic user
+  action is the only missing event needed to exercise capture, evaluation, and
+  feedback with real content; the platform must not synthesize it as a test
+  substitute.
+
+### Prompt Truthfulness Refinement
+
+- The delivery command now distinguishes review-ready Markdown from a saved
+  file: it creates a file only with an explicit write capability and user save
+  intent, otherwise it names the proposed file and says that it remains
+  unsaved. The Chinese review command has the same rule.
+- A static Vault contract check confirmed both commands contain no historical
+  `default` project path or project ID, bind to `proj_b8a285642094`, and retain
+  the no-false-save rule. A fresh protected workspace read still reports the
+  trusted Copilot bridge as `destination_matches_bridge` and
+  `ready_for_first_output`; the API container remains healthy.
+
+## Deployed Ledger Recheck (2026-08-01)
+
+- The released Studio surface now receives the full release-gate matrix and
+  renders every E1 category, including absent evidence. An older or incomplete
+  response no longer crashes the workspace: it leaves all requirements visible
+  as unverified and shows a bounded protocol error instead.
+- The ledger does not issue a request before Studio has verified the selected
+  project's authorization. This prevents a legacy or unauthorised response
+  from being rendered as project proof.
+- The deployed API reports the same matrix truth as Studio: only project index
+  2 has one reviewed real-proof row (`o3_real_plugin_exports`, revision `2`,
+  three durable IDs); the remaining eight requirements are missing. Project
+  index 1 remains empty and isolated.
+- Regression after deployment: focused Workspace/Ledger tests passed `20`,
+  the complete frontend suite passed `213`, the Python suite passed `1638`
+  with `14` designed skips, and the production build passed. This is an
+  inspectable operational-proof surface, not a claim that the remaining
+  evidence or business value has been established.

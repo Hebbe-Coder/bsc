@@ -730,7 +730,7 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '', activeProje
 
         <aside className="knowledge-pane knowledge-pane--inspector" aria-label="Evidence and health inspector">
           <PaneHeader title="Release evidence" detail={releaseGateLabel} />
-          <ReleaseEvidenceLedger projectId={projectId} role={workspace?.access.role || ''} canWrite={canWrite} onChanged={load} />
+          <ReleaseEvidenceLedger projectId={projectId} role={workspace?.access.role || ''} canWrite={canWrite} enabled={accessStatus.verified && workspace?.project_id === projectId} matrix={releaseGate?.matrix} onChanged={load} />
           <PaneHeader title="Source inspector" detail={selectedSource?.status || 'select evidence'} />
           {selectedSource ? <SourceInspector source={selectedSource} triage={selectedSourceTriage} busy={actionBusy} canWrite={canWrite} onApprove={promoteSource} onAnalyze={analyzeSource} onCapturePrimary={capturePrimarySource} /> : <Empty text="Select evidence to inspect immutable provenance, policy state, and capture metadata." />}
           <PaneHeader title="Automation" detail={`${schedules.length} schedules`} />

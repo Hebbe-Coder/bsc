@@ -1,6 +1,7 @@
 # app/orchestrator/engine.py
 from __future__ import annotations
 import asyncio
+import inspect
 from typing import Optional
 from app.agent.state import ProjectDraftRepository, ProjectDraft
 from app.orchestrator.contracts import EventType, JobStatus
@@ -255,6 +256,9 @@ class OrchestratorEngine:
 
     async def _call(self, name, **kwargs):
         agent = self.agents[name]
+        run_async = getattr(agent, "run_async", None)
+        if callable(run_async) and inspect.iscoroutinefunction(run_async):
+            return await run_async(**kwargs)
         if asyncio.iscoroutinefunction(agent.run):
             return await agent.run(**kwargs)
         return await asyncio.to_thread(agent.run, **kwargs)

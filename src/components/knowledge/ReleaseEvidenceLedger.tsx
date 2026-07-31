@@ -7,12 +7,15 @@ import {
   verifyKnowledgeReleaseEvidence,
   type KnowledgeReleaseEvidence,
   type KnowledgeReleaseEvidenceInput,
+  type KnowledgeReleaseGateMatrixRow,
 } from '../../api/knowledgeWorkspaceApi';
 
 type Props = {
   projectId: string;
   role: string;
   canWrite: boolean;
+  enabled?: boolean;
+  matrix?: KnowledgeReleaseGateMatrixRow[];
   onChanged?: () => void | Promise<void>;
 };
 
@@ -34,12 +37,46 @@ function durableIds(value: string): string[] {
   return [...new Set(value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean))];
 }
 
+type LedgerRow = Omit<KnowledgeReleaseEvidence, 'state'> & {
+  state: KnowledgeReleaseEvidence['state'] | 'missing';
+};
+
 function replaceEvidence(records: KnowledgeReleaseEvidence[], next: KnowledgeReleaseEvidence): KnowledgeReleaseEvidence[] {
   const remaining = records.filter((item) => item.evidence_id !== next.evidence_id);
   return [...remaining, next].sort((left, right) => left.evidence_id.localeCompare(right.evidence_id));
 }
 
-export function ReleaseEvidenceLedger({ projectId, role, canWrite, onChanged }: Props) {
+function releaseRows(evidence: KnowledgeReleaseEvidence[], matrix: KnowledgeReleaseGateMatrixRow[]): LedgerRow[] {
+  const records = new Map(evidence.map((item) => [item.evidence_id, item]));
+  const rows = new Map(matrix.map((item) => [item.evidence_id, {
+    evidence_id: item.evidence_id,
+    state: item.state,
+    proof_class: item.proof_class,
+    observed_at: '',
+    durable_ids: [],
+    detail_code: item.detail_code,
+    revision: 0,
+    recorded_by: '',
+  } satisfies LedgerRow]));
+  for (const evidenceId of EVIDENCE_CATEGORIES) {
+    if (!rows.has(evidenceId)) {
+      rows.set(evidenceId, {
+        evidence_id: evidenceId,
+        state: 'missing',
+        proof_class: 'none',
+        observed_at: '',
+        durable_ids: [],
+        detail_code: 'missing_evidence',
+        revision: 0,
+        recorded_by: '',
+      });
+    }
+  }
+  for (const [evidenceId, record] of records) rows.set(evidenceId, record);
+  return [...rows.values()].sort((left, right) => left.evidence_id.localeCompare(right.evidence_id));
+}
+
+export function ReleaseEvidenceLedger({ projectId, role, canWrite, enabled = true, matrix = [], onChanged }: Props) {
   const [evidence, setEvidence] = useState<KnowledgeReleaseEvidence[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -58,8 +95,15 @@ export function ReleaseEvidenceLedger({ projectId, role, canWrite, onChanged }: 
     setError('');
     try {
       const response = await fetchKnowledgeReleaseEvidence(projectId);
-      setEvidence(response.evidence);
-      setReviewEvidenceId((current) => current || response.evidence[0]?.evidence_id || '');
+      const nextEvidence = Array.isArray(response?.evidence) ? response.evidence : null;
+      if (!nextEvidence) {
+        setEvidence([]);
+        setReviewEvidenceId('');
+        setError('Release ledger response is incomplete. Required checks remain unverified.');
+        return;
+      }
+      setEvidence(nextEvidence);
+      setReviewEvidenceId((current) => current || nextEvidence[0]?.evidence_id || '');
     } catch (reason) {
       setEvidence([]);
       setError(reason instanceof Error ? reason.message : 'Release evidence could not be loaded.');
@@ -68,7 +112,10 @@ export function ReleaseEvidenceLedger({ projectId, role, canWrite, onChanged }: 
     }
   }, [projectId]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!enabled) return;
+    void load();
+  }, [enabled, load]);
 
   const notifyChanged = async () => {
     await onChanged?.();
@@ -102,6 +149,7 @@ export function ReleaseEvidenceLedger({ projectId, role, canWrite, onChanged }: 
   };
 
   const selectedReview = evidence.find((item) => item.evidence_id === reviewEvidenceId) || null;
+  const rows = releaseRows(evidence, matrix);
   const reviewedDurableIds = durableIds(reviewDurableIds);
   const canVerify = role === 'admin'
     && canWrite
@@ -140,18 +188,20 @@ export function ReleaseEvidenceLedger({ projectId, role, canWrite, onChanged }: 
   return <section className="knowledge-release-ledger" aria-label="Release evidence ledger">
     <header>
       <div><span className="eyebrow">RELEASE EVIDENCE</span><h3>Auditable proof ledger</h3><p>Only bounded IDs and review metadata are retained. Release state is computed, never edited here.</p></div>
-      <button className="icon-button" type="button" aria-label="Refresh release evidence" title="Refresh release evidence" onClick={() => void load()} disabled={loading || saving}><RefreshCw size={14} className={loading ? 'spin' : ''} /></button>
+      <button className="icon-button" type="button" aria-label="Refresh release evidence" title="Refresh release evidence" onClick={() => void load()} disabled={!enabled || loading || saving}><RefreshCw size={14} className={loading ? 'spin' : ''} /></button>
     </header>
+    {!enabled && <p className="knowledge-empty">Release evidence loads after Studio verifies access to a selected project.</p>}
+    {enabled && <>
     {error && <p className="knowledge-release-ledger__message is-error" role="alert">{error}</p>}
     {message && <p className="knowledge-release-ledger__message" role="status">{message}</p>}
     <div className="knowledge-release-ledger__rows" role="list">
       {loading && <p className="knowledge-empty">Loading release evidence...</p>}
-      {!loading && evidence.length === 0 && <p className="knowledge-empty">No release evidence has been recorded for this project.</p>}
-      {evidence.map((item) => <article key={item.evidence_id} role="listitem">
+      {!loading && evidence.length === 0 && <p className="knowledge-empty">No release evidence has been recorded. Missing requirements remain visible below.</p>}
+      {!loading && rows.map((item) => <article key={item.evidence_id} role="listitem">
         <header><strong>{item.evidence_id}</strong><span className={`source-status source-status--${item.state}`}>{item.state}</span></header>
         <dl>
           <div><dt>Proof</dt><dd>{item.proof_class}</dd></div>
-          <div><dt>Revision</dt><dd>{item.revision}</dd></div>
+          <div><dt>Revision</dt><dd>{item.revision || 'not recorded'}</dd></div>
           <div><dt>Actor</dt><dd>{item.recorded_by || 'unrecorded'}</dd></div>
           <div><dt>Observed</dt><dd>{item.observed_at || 'not verified'}</dd></div>
           <div><dt>Durable IDs</dt><dd>{item.durable_ids.length ? item.durable_ids.join(', ') : 'none'}</dd></div>
@@ -174,5 +224,6 @@ export function ReleaseEvidenceLedger({ projectId, role, canWrite, onChanged }: 
       <label>Review detail code<input aria-label="Review detail code" value={reviewDetailCode} maxLength={128} onChange={(event) => setReviewDetailCode(event.target.value)} disabled={saving} /></label>
       <button type="submit" disabled={!canVerify}><CheckCircle2 size={14} /> Verify real proof</button>
     </form>}
+    </>}
   </section>;
 }
