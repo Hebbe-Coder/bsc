@@ -12,6 +12,9 @@ Scope: keep the selected Knowledge project aligned across the Studio shell and l
 - Added regression coverage for selecting, switching, and explicitly clearing the shared Knowledge project without falling back to `default`.
 - Fixed the top-header `Growth` transition: it now closes an open Knowledge workspace before mounting Growth, so the selected project is visible in the intended workspace rather than hidden beneath the prior overlay.
 - Added an interaction regression that selects a project in Knowledge, opens Growth, and asserts both Growth visibility and preservation of `proj_b8a285642094` in the Growth store.
+- Centralized top-level workspace transitions for Knowledge, Growth, Operations, PBOS and Mission. A transition now unmounts every other full-screen workspace before opening its destination; Operations drill-downs reuse that same path.
+- Corrected the Operations-to-Growth ordering: project activation completes before the Review stage, record selection and center view are applied, preserving action-queue drill-down context.
+- Corrected Mission request ownership: a business run passes its intake request explicitly, while a later header Mission or Operations deep link opens a blank governed mission and cannot repeat a stale auto-start request.
 
 ## Automated Verification
 
@@ -32,6 +35,11 @@ Scope: keep the selected Knowledge project aligned across the Studio shell and l
   - 23 test files passed, 190 tests passed.
 - `npm run build`
   - TypeScript and Vite production build passed. The existing ECharts vendor chunk remains above the 500 kB advisory threshold; this is recorded as a performance follow-up, not a test failure.
+- `npx vitest run src/components/UnifiedWorkspace.test.ts`
+  - First ran red with 3 failures: Operate, PBOS and Mission mounted while the Knowledge dialog remained open.
+  - After the unified transition: 14 tests passed, including the Operations-to-Growth Review target assertion.
+  - A second red test reproduced stale Mission auto-start input after closing and reopening Mission. After explicit request ownership: 15 tests passed.
+- Current full frontend validation: `npm run test:frontend` -> 23 files passed, 195 tests passed; `npm run check`, `npm run build`, and `git diff --check` passed.
 
 ## Live Browser Verification
 

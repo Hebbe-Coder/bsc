@@ -18,6 +18,28 @@ vi.mock('./GrowthWorkspace', () => ({
   GrowthWorkspace: () => createElement('section', { role: 'dialog', 'aria-label': 'Knowledge growth workspace' }, 'Growth workspace'),
 }));
 
+vi.mock('./operations/KnowledgeOperationsCockpit', () => ({
+  KnowledgeOperationsCockpit: ({ onOpenGrowth }: { onOpenGrowth?: (projectId: string, entityId: string) => void }) => createElement(
+    'section',
+    { role: 'dialog', 'aria-label': 'Knowledge operations cockpit' },
+    'Operations cockpit',
+    onOpenGrowth && createElement('button', { type: 'button', onClick: () => onOpenGrowth('project-action', 'proposal-action') }, 'Open governed review'),
+  ),
+}));
+
+vi.mock('./pbos/PersonalGrowthCockpit', () => ({
+  PersonalGrowthCockpit: () => createElement('section', { role: 'dialog', 'aria-label': 'Personal Growth Cockpit' }, 'PBOS cockpit'),
+}));
+
+vi.mock('./dbos/BusinessControlCenter', () => ({
+  BusinessControlCenter: ({ autoStartIntake, initialRequestText, onClose }: { autoStartIntake?: boolean; initialRequestText?: string; onClose?: () => void }) => createElement(
+    'section',
+    { role: 'dialog', 'aria-label': 'Business Control Center' },
+    autoStartIntake ? `Auto intake: ${initialRequestText}` : 'Blank mission',
+    onClose && createElement('button', { type: 'button', onClick: onClose }, 'Close mission'),
+  ),
+}));
+
 beforeEach(() => {
   Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
     configurable: true,
@@ -111,5 +133,58 @@ describe('workspace navigation', () => {
     expect(await screen.findByRole('dialog', { name: 'Knowledge growth workspace' })).toBeVisible();
     expect(screen.queryByRole('dialog', { name: 'Knowledge workspace' })).not.toBeInTheDocument();
     expect(useGrowthWorkspaceStore.getState().projectId).toBe('proj_b8a285642094');
+  });
+
+  it.each([
+    ['Operate', 'Knowledge operations cockpit'],
+    ['PBOS', 'Personal Growth Cockpit'],
+    ['Mission', 'Business Control Center'],
+  ])('closes Knowledge before opening %s for the selected project', async (command, destination) => {
+    render(createElement(UnifiedWorkspace));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Knowledge' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Select knowledge project' }));
+    await waitFor(() => expect(screen.getByLabelText('Project knowledge context ID')).toHaveValue('proj_b8a285642094'));
+
+    fireEvent.click(screen.getByRole('button', { name: command }));
+
+    expect(await screen.findByRole('dialog', { name: destination })).toBeVisible();
+    expect(screen.queryByRole('dialog', { name: 'Knowledge workspace' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Project knowledge context ID')).toHaveValue('proj_b8a285642094');
+  });
+
+  it('preserves the Operations review drill-down after changing the active project', async () => {
+    render(createElement(UnifiedWorkspace));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Knowledge' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Select knowledge project' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Operate' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Open governed review' }));
+
+    expect(await screen.findByRole('dialog', { name: 'Knowledge growth workspace' })).toBeVisible();
+    expect(screen.queryByRole('dialog', { name: 'Knowledge operations cockpit' })).not.toBeInTheDocument();
+    expect(useKnowledgeWorkspaceStore.getState().projectId).toBe('project-action');
+    expect(useGrowthWorkspaceStore.getState()).toMatchObject({
+      projectId: 'project-action',
+      stage: 'review',
+      centerView: 'assets',
+      selectedId: 'proposal-action',
+    });
+  });
+
+  it('clears a prior auto-start request when the user explicitly opens a new Mission', async () => {
+    render(createElement(UnifiedWorkspace));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Knowledge' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Select knowledge project' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Business analysis input' }), { target: { value: 'Prepare a governed expansion plan.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Run workflow' }));
+
+    expect(await screen.findByText('Auto intake: Prepare a governed expansion plan.')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Close mission' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Mission' }));
+
+    expect(await screen.findByText('Blank mission')).toBeVisible();
+    expect(screen.queryByText('Auto intake: Prepare a governed expansion plan.')).not.toBeInTheDocument();
   });
 });

@@ -209,6 +209,38 @@ export function UnifiedWorkspace() {
     setKnowledgeProjectId(normalized);
     syncKnowledgeProjectContext(normalized);
   }, []);
+  const closePrimaryWorkspaces = () => {
+    setKnowledgeOpen(false);
+    setGrowthOpen(false);
+    setOperationsOpen(false);
+    setPbosOpen(false);
+    setDbosOpen(false);
+  };
+  const openKnowledgeWorkspace = (projectId = knowledgeProjectId) => {
+    activateKnowledgeProject(projectId);
+    closePrimaryWorkspaces();
+    setKnowledgeOpen(true);
+  };
+  const openGrowthWorkspace = (projectId = knowledgeProjectId) => {
+    syncGrowthProjectContext(projectId);
+    closePrimaryWorkspaces();
+    setGrowthOpen(true);
+  };
+  const openOperationsWorkspace = () => {
+    closePrimaryWorkspaces();
+    setOperationsOpen(true);
+  };
+  const openPbosWorkspace = () => {
+    closePrimaryWorkspaces();
+    setPbosOpen(true);
+  };
+  const openDbosWorkspace = (missionId = '', artifactId = '', initialRequestText = '') => {
+    setDbosMissionId(missionId);
+    setDbosArtifactId(artifactId);
+    setDbosInitialRequest(initialRequestText);
+    closePrimaryWorkspaces();
+    setDbosOpen(true);
+  };
 
   // Keep the Studio-level selection stable when a lazy workspace mounts.
   // An explicit blank field is still honored as the user's clear action.
@@ -263,10 +295,7 @@ export function UnifiedWorkspace() {
       if (effectiveMode === 'business') {
         // Creating an Intake is non-executable: it collects context before a Mission or capability grant exists.
         addLog('agent', 'Opening governed diagnosis before compiling a Dynamic SOP...');
-        setDbosInitialRequest(value);
-        setDbosMissionId('');
-        setDbosArtifactId('');
-        setDbosOpen(true);
+        openDbosWorkspace('', '', value);
         return;
       }
 
@@ -424,19 +453,19 @@ export function UnifiedWorkspace() {
           <button type="button" className="skill-trigger" onClick={() => setSkillsOpen(true)}>
             <Blocks size={15} aria-hidden="true" /> Skills
           </button>
-          <button type="button" className="skill-trigger" onClick={() => { activateKnowledgeProject(knowledgeProjectId); setKnowledgeOpen(true); }}>
+          <button type="button" className="skill-trigger" onClick={() => openKnowledgeWorkspace()}>
             <BookOpen size={15} aria-hidden="true" /> Knowledge
           </button>
-          <button type="button" className="skill-trigger" onClick={() => { syncGrowthProjectContext(knowledgeProjectId); setKnowledgeOpen(false); setGrowthOpen(true); }} disabled={!knowledgeProjectId.trim()} title={knowledgeProjectId.trim() ? 'Open the active project growth loop' : 'Select an authorized knowledge project first'}>
+          <button type="button" className="skill-trigger" onClick={() => openGrowthWorkspace()} disabled={!knowledgeProjectId.trim()} title={knowledgeProjectId.trim() ? 'Open the active project growth loop' : 'Select an authorized knowledge project first'}>
             <Sprout size={15} aria-hidden="true" /> Growth
           </button>
-          <button type="button" className="skill-trigger" onClick={() => setOperationsOpen(true)}>
+          <button type="button" className="skill-trigger" onClick={openOperationsWorkspace}>
             <BarChart3 size={15} aria-hidden="true" /> Operate
           </button>
-          <button type="button" className="skill-trigger" onClick={() => setPbosOpen(true)} disabled={!knowledgeProjectId.trim()} title={knowledgeProjectId.trim() ? 'Open the active project personal operating loop' : 'Select an authorized knowledge project first'}>
+          <button type="button" className="skill-trigger" onClick={openPbosWorkspace} disabled={!knowledgeProjectId.trim()} title={knowledgeProjectId.trim() ? 'Open the active project personal operating loop' : 'Select an authorized knowledge project first'}>
             <BrainCircuit size={15} aria-hidden="true" /> PBOS
           </button>
-          <button type="button" className="skill-trigger" onClick={() => { setDbosMissionId(''); setDbosArtifactId(''); setDbosOpen(true); }} disabled={!knowledgeProjectId.trim()} title={knowledgeProjectId.trim() ? 'Open a mission for the active project' : 'Select an authorized knowledge project first'}>
+          <button type="button" className="skill-trigger" onClick={() => openDbosWorkspace()} disabled={!knowledgeProjectId.trim()} title={knowledgeProjectId.trim() ? 'Open a mission for the active project' : 'Select an authorized knowledge project first'}>
             <Workflow size={15} aria-hidden="true" /> Mission
           </button>
           <span className={'studio-status ' + statusColor}><i aria-hidden="true" />{statusLabel}</span>
@@ -622,7 +651,7 @@ export function UnifiedWorkspace() {
       {skillsOpen && <SkillMarket onClose={() => setSkillsOpen(false)} context={input || workspaceIdea} />}
       {knowledgeOpen && <Suspense fallback={<section className="knowledge-workspace" aria-label="Knowledge workspace"><div className="knowledge-loading" role="status">Loading knowledge workspace...</div></section>}><KnowledgeWorkspace onClose={() => setKnowledgeOpen(false)} runtimeAccessKey={runtimeAccessKey} activeProjectId={knowledgeProjectId} onProjectChange={activateKnowledgeProject} /></Suspense>}
       {growthOpen && <Suspense fallback={<section className="growth-workspace" aria-label="Knowledge growth workspace"><div className="growth-state" role="status">Loading growth workspace...</div></section>}><GrowthWorkspace onClose={() => setGrowthOpen(false)} runtimeAccessKey={runtimeAccessKey} /></Suspense>}
-      {operationsOpen && <Suspense fallback={<section className="operations-cockpit" aria-label="Knowledge operations cockpit"><div className="operations-loading" role="status">Loading knowledge operations...</div></section>}><KnowledgeOperationsCockpit onClose={() => setOperationsOpen(false)} initialProjectId={knowledgeProjectId} onOpenKnowledge={(projectId, entityId) => { activateKnowledgeProject(projectId); useKnowledgeWorkspaceStore.getState().setNavigationTarget(entityId); setOperationsOpen(false); setKnowledgeOpen(true); }} onOpenGrowth={(projectId, entityId) => { activateKnowledgeProject(projectId); const growthStore = useGrowthWorkspaceStore.getState(); growthStore.setProjectId(projectId); growthStore.setStage('review'); growthStore.setCenterView('assets'); growthStore.setSelectedId(entityId); setOperationsOpen(false); setGrowthOpen(true); }} onOpenDbos={(projectId, missionId, artifactId) => { activateKnowledgeProject(projectId); setDbosMissionId(missionId); setDbosArtifactId(artifactId); setOperationsOpen(false); setDbosOpen(true); }} /></Suspense>}
+      {operationsOpen && <Suspense fallback={<section className="operations-cockpit" aria-label="Knowledge operations cockpit"><div className="operations-loading" role="status">Loading knowledge operations...</div></section>}><KnowledgeOperationsCockpit onClose={() => setOperationsOpen(false)} initialProjectId={knowledgeProjectId} onOpenKnowledge={(projectId, entityId) => { useKnowledgeWorkspaceStore.getState().setNavigationTarget(entityId); openKnowledgeWorkspace(projectId); }} onOpenGrowth={(projectId, entityId) => { activateKnowledgeProject(projectId); openGrowthWorkspace(projectId); const growthStore = useGrowthWorkspaceStore.getState(); growthStore.setStage('review'); growthStore.setCenterView('assets'); growthStore.setSelectedId(entityId); }} onOpenDbos={(projectId, missionId, artifactId) => { activateKnowledgeProject(projectId); openDbosWorkspace(missionId, artifactId); }} /></Suspense>}
       {pbosOpen && Boolean(knowledgeProjectId.trim()) && <Suspense fallback={<section className="pbos-cockpit" aria-label="Personal Growth Cockpit"><p className="pbos-empty">Loading personal growth evidence...</p></section>}><PersonalGrowthCockpit projectId={knowledgeProjectId} runtimeAccessKey={runtimeAccessKey} onClose={() => setPbosOpen(false)} onConfigureAccess={() => { setPbosOpen(false); window.requestAnimationFrame(() => runtimeAccessRef.current?.focus()); }} /></Suspense>}
       {dbosOpen && Boolean(knowledgeProjectId.trim()) && <Suspense fallback={<section className="dbos-control-center" aria-label="Business Control Center"><div className="dbos-message" role="status">Loading mission control center...</div></section>}><BusinessControlCenter onClose={() => setDbosOpen(false)} initialProjectId={knowledgeProjectId} initialMissionId={dbosMissionId} initialArtifactId={dbosArtifactId} initialRequestText={dbosInitialRequest} autoStartIntake={Boolean(dbosInitialRequest)} /></Suspense>}
     </div>
