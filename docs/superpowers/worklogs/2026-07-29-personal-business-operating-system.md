@@ -1038,3 +1038,21 @@
 - **Remaining gate:** external plugin exports, reviewed D-layer outputs,
   explicit outcome acceptance, and comparable delivery evidence remain
   user-owned. This change does not claim a completed knowledge-delivery loop.
+
+## 2026-07-31 Deployed Verification
+
+- **Regression:** the full Python suite passed `1564 passed, 14 skipped`; the
+  complete frontend suite passed `176 passed`. Production build, TypeScript,
+  Compose configuration, and whitespace checks passed. ESLint reported zero
+  errors and pre-existing repository warnings only.
+- **Runtime:** API, Worker, and Beat were rebuilt and restarted. The API
+  readiness endpoint reported healthy database and Redis dependencies; Celery
+  inspection returned one worker `pong`.
+- **Deployment identity:** container SHA-256 matched the workspace for the
+  PBOS output-bridge projection, metadata-only reference projector, and
+  governed PRD-to-SOP generator. The deployed OpenAPI schema exposes the
+  authenticated, project-scoped SOP-generation endpoint.
+- **Operational limit:** deployment proves code and runtime wiring, not that a
+  user plugin produced an export or that a generated SOP has been reviewed,
+  evaluated, accepted, or executed. Those lifecycle events remain explicit
+  evidence gates.

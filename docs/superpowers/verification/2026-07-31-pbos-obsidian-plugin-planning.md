@@ -74,6 +74,21 @@ docker compose config --quiet
 Protected runtime verification is limited to API readiness and a Celery `pong`.
 It must not read raw source text, plugin settings, or secret values.
 
+## Deployment Result
+
+- The complete Python suite passed with `1564 passed, 14 skipped`; the complete
+  frontend suite passed with `176 passed`.
+- Production build, TypeScript check, Compose configuration, and `git diff
+  --check` passed. ESLint completed with zero errors and existing repository
+  warnings only.
+- API, Worker, and Beat were rebuilt and restarted. API `/ready` returned
+  `status=ok` with database and Redis dependencies healthy; Celery inspection
+  returned one `pong`.
+- Host and API-container SHA-256 values matched for `app/pbos/context.py`,
+  `app/knowledge/reference_projection.py`, and `app/knowledge/prd_to_sop.py`.
+  The deployed OpenAPI contract includes the authenticated,
+  project-scoped `/outputs/generate-sop` route.
+
 ## Boundaries And Remaining Gates
 
 - A real user plugin export or reviewed D-layer output is still required before
