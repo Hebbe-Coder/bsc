@@ -149,6 +149,11 @@ class PBOSService:
         execution = self.store.get(execution_id)
         if not isinstance(execution, WorkExecutionRecordArtifact):
             raise ValueError("PBOS outcome requires an existing execution record")
+        if any(
+            isinstance(item, WorkOutcomeArtifact) and item.execution_record_id == execution_id
+            for item in self.store.get_by_type(ArtifactType.WORK_OUTCOME)
+        ):
+            raise ValueError("PBOS execution already has an outcome record")
         values = dict(payload)
         acceptance_status = str(values.get("acceptance_status") or "unverified")
         if acceptance_status not in {"unverified", "accepted"}:

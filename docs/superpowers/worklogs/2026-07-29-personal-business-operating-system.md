@@ -1056,3 +1056,72 @@
   user plugin produced an export or that a generated SOP has been reviewed,
   evaluated, accepted, or executed. Those lifecycle events remain explicit
   evidence gates.
+
+## 2026-07-31 Fresh Core Regression Confirmation
+
+- Re-ran the PBOS contextual compiler, service, REST, MCP, and end-to-end
+  suites after the latest workspace changes: `64 passed`. This covers
+  evidence-poor degradation, project isolation, contextual personal-plan
+  compilation, lifecycle authorization, and promotion/rollback gates.
+- Re-ran the governed Obsidian/reference path: `31 passed, 1 skipped`. The
+  skipped case is the existing integration skip; the executed coverage covers
+  metadata-only citation projection, idempotent Wiki synchronization, and the
+  knowledge-evidence API.
+- `npm run check`, `npm run build`, and `docker compose config --quiet` all
+  passed. The production build retains only the existing large-chunk advisory.
+- Current Compose readback reports healthy API plus running Worker, Beat,
+  PostgreSQL, Redis, and n8n services. This confirms the implemented loop is
+  deployable, while the three accepted comparable-delivery gate remains a
+  required real-world condition before a personal Capability or Strategy
+  Genome can be claimed.
+
+## 2026-07-31 Existing-Execution Outcome Intake Closure
+
+- **Observed live gap:** the active project `proj_b8a285642094` has execution
+  `art_4126dc26952e` with five server-verified receipts and a reflection, but
+  no `WorkOutcomeArtifact`. The Cockpit previously rendered it as
+  `awaiting_outcome` without offering a way to create its initial reviewable
+  outcome; only outcomes that already existed could be accepted or rejected.
+- **Implemented closure:** `PersonalGrowthCockpit` now renders an `OUTCOMES TO
+  RECORD` queue for existing `awaiting_outcome` executions. Creating an entry
+  writes only an `unverified` outcome, then moves it to the existing explicit
+  accept/reject review flow. It does not assign a score, acceptance decision,
+  Capability, Experience, or Strategy Genome.
+- **Data integrity:** `PBOSService.record_outcome` now rejects a second outcome
+  for the same execution; the REST endpoint maps that conflict to HTTP `409`.
+  A single execution therefore cannot be counted twice toward personal
+  learning.
+- **Verification:** PBOS service/API/MCP/integration coverage passed `41`;
+  focused Cockpit coverage passed `11`; TypeScript and Docker production build
+  passed. The rebuilt API reached `ready=ok`. An authenticated local read
+  confirmed the active project still has one awaiting execution, zero outcomes,
+  twelve governed context references, and zero learned capabilities/strategies.
+- **Deliberate non-action:** no live outcome was created and no explicit review
+  was submitted during verification. The next user-owned action is to create
+  the reviewable outcome for `art_4126dc26952e`, then accept or reject it with
+  a real quality score. It remains one of three comparable accepted deliveries
+  required for promotion.
+- **Rollback:** revert the outcome-intake UI plus the duplicate-outcome guard.
+  Existing execution receipts, Vault projections, and any future user review
+  history remain immutable audit records.
+
+## 2026-07-31 Existing-Execution Outcome Intake Closure
+
+- **Gap closed:** an execution that already had verified receipts and a
+  recorded reflection could be visible as `awaiting_outcome`, but the Cockpit
+  had no auditable path to create its initial review record without creating a
+  second execution. It now exposes that existing execution in `OUTCOMES TO
+  RECORD` and creates exactly one `unverified` outcome linked to the original
+  execution. Acceptance and rejection remain separate explicit review actions.
+- **Integrity rule:** `PBOSService.record_outcome` rejects a second outcome for
+  the same execution. The project-scoped REST endpoint returns `409 Conflict`
+  for that duplicate, rather than silently appending a competing result.
+  Neither action creates a Capability, Strategy Genome, or accepted delivery.
+- **Verification:** `pytest tests/pbos/test_pbos_service.py
+  tests/api/test_pbos_api.py -q` passed `39`; the focused Cockpit suite passed
+  `11`; `npm run check`, `npm run build`, `docker compose config --quiet`, and
+  `git diff --check` passed. The Vite build retains the existing ECharts chunk
+  size advisory only.
+- **Rollback:** revert the outcome-intake component and service/API uniqueness
+  changes together. Existing execution and outcome artifacts remain intact as
+  the audit record; no data deletion is needed for rollback.

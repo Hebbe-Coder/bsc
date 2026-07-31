@@ -170,7 +170,7 @@ def record_outcome(project_id: str, execution_id: str, payload: OutcomeRequest, 
     try:
         outcome = _pbos(request, project_id, write=True).record_outcome(execution_id, payload.model_dump())
     except ValueError as exc:
-        status = 404 if "execution record" in str(exc) else 422
+        status = 404 if "execution record" in str(exc) else 409 if "already has an outcome" in str(exc) else 422
         raise HTTPException(status_code=status, detail=str(exc)) from exc
     return {"outcome": outcome.model_dump(mode="json"), "vault": _sync(project_id, outcome)}
 

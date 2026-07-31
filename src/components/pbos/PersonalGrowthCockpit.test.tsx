@@ -215,10 +215,41 @@ describe('PersonalGrowthCockpit', () => {
     render(<PersonalGrowthCockpit projectId="default" onClose={vi.fn()} runtimeAccessKey="session-key" />);
 
     expect(await screen.findByText('RECENT EXECUTION RECEIPTS')).toBeVisible();
+    expect(screen.getByText('OUTCOMES TO RECORD')).toBeVisible();
     expect(screen.getByText('execution-safe-1')).toBeVisible();
-    expect(screen.getByText(/2 verified receipts/i)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Create reviewable outcome for execution-safe-1' })).toBeVisible();
+    expect(screen.getAllByText(/2 verified receipts/i)).toHaveLength(2);
     expect(screen.getByText(/Awaiting explicit outcome/i)).toBeVisible();
     expect(screen.queryByText(/Verified capability/i)).not.toBeInTheDocument();
+  });
+
+  it('creates one unverified outcome for an existing reviewable execution before explicit acceptance', async () => {
+    vi.mocked(fetchPbosCockpit).mockResolvedValue({
+      profile: null,
+      today: null,
+      today_action: { state: 'no_plan' },
+      capabilities: [], outcomes: [], feedback: [], strategies: [], failure_patterns: [],
+      executions: [{
+        artifact_id: 'execution-awaiting-1', mission_id: 'mission-1', plan_id: 'plan-1',
+        actions_count: 1, receipt_count: 2, verified_receipt_count: 2,
+        reflection_recorded: true, outcome_state: 'awaiting_outcome', created_at: '2026-07-31T09:00:00Z',
+      }],
+      project_health: { reviewable_executions: 1, eligible_personal_outcomes: 0 },
+      connectors: {},
+    });
+    vi.mocked(fetchPbosProfile).mockResolvedValue({ profile: null });
+    vi.mocked(recordPbosOutcome).mockResolvedValue({ outcome: { artifact_id: 'outcome-created-1' } });
+
+    render(<PersonalGrowthCockpit projectId="default" onClose={vi.fn()} runtimeAccessKey="session-key" />);
+
+    await screen.findByText('OUTCOMES TO RECORD');
+    fireEvent.click(screen.getByRole('button', { name: 'Create reviewable outcome for execution-awaiting-1' }));
+
+    await waitFor(() => expect(recordPbosOutcome).toHaveBeenCalledWith('default', 'execution-awaiting-1', {
+      acceptance_status: 'unverified',
+      metrics: { outcome_intake: 'explicit_existing_execution' },
+    }));
+    expect(reviewPbosOutcome).not.toHaveBeenCalled();
   });
 
   it('reviews an existing pending outcome without creating another execution or outcome', async () => {

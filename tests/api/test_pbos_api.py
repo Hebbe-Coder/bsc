@@ -161,6 +161,41 @@ def test_pbos_outcome_review_updates_the_existing_pending_outcome(monkeypatch, t
     assert reviewed["review_history"][0]["previous_acceptance_status"] == "unverified"
 
 
+def test_pbos_outcome_api_rejects_a_duplicate_outcome_for_one_execution(monkeypatch, tmp_path):
+    monkeypatch.setattr(dbos_api, "DBOS_DATA_ROOT", tmp_path / "dbos")
+    store = dbos_api.dbos_service_for("personal").store
+    store.add(
+        MissionArtifact(
+            artifact_id="mission-outcome-uniqueness",
+            mission_id="mission-outcome-uniqueness",
+            project_id="personal",
+            label="Outcome uniqueness",
+            title="Outcome uniqueness",
+        )
+    )
+    from app.pbos import PBOSService
+
+    record = PBOSService(store, "personal").record_execution(
+        "mission-outcome-uniqueness",
+        "",
+        {"actions": ["Captured one result."], "reflection": {"completed": "Ready for review."}},
+    )
+    client = TestClient(app)
+
+    first = client.post(
+        f"/api/pbos/projects/personal/executions/{record.artifact_id}/outcomes",
+        json={"acceptance_status": "unverified"},
+    )
+    duplicate = client.post(
+        f"/api/pbos/projects/personal/executions/{record.artifact_id}/outcomes",
+        json={"acceptance_status": "unverified"},
+    )
+
+    assert first.status_code == 200
+    assert duplicate.status_code == 409
+    assert "already has an outcome" in duplicate.json()["message"]
+
+
 def test_pbos_outcome_review_api_rejects_acceptance_without_verified_execution_receipt(monkeypatch, tmp_path):
     monkeypatch.setattr(dbos_api, "DBOS_DATA_ROOT", tmp_path / "dbos")
     store = dbos_api.dbos_service_for("personal").store

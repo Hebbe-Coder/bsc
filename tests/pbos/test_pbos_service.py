@@ -315,6 +315,27 @@ def test_manual_client_receipts_cannot_complete_or_promote_personal_learning(tmp
     assert "verified_tool_receipt" in observation["missing_requirements"]
 
 
+def test_execution_can_create_only_one_outcome_record(tmp_path):
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(store)
+    service = PBOSService(store, "personal")
+    record = service.record_execution(
+        "mission",
+        "",
+        {
+            "actions": ["Completed one reviewable delivery."],
+            "tool_receipts": [{"kind": "test", "verified": True}],
+            "reflection": {"completed": "The result is ready for an explicit outcome review."},
+        },
+    )
+
+    outcome = service.record_outcome(record.artifact_id, {"acceptance_status": "unverified"})
+
+    assert outcome.execution_record_id == record.artifact_id
+    with pytest.raises(ValueError, match="already has an outcome"):
+        service.record_outcome(record.artifact_id, {"acceptance_status": "unverified"})
+
+
 def test_outcome_review_accepts_a_pending_result_with_a_score_and_audit_history(tmp_path):
     store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
     _mission(store)
