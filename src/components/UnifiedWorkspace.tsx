@@ -427,7 +427,7 @@ export function UnifiedWorkspace() {
           <button type="button" className="skill-trigger" onClick={() => { activateKnowledgeProject(knowledgeProjectId); setKnowledgeOpen(true); }}>
             <BookOpen size={15} aria-hidden="true" /> Knowledge
           </button>
-          <button type="button" className="skill-trigger" onClick={() => { syncGrowthProjectContext(knowledgeProjectId); setGrowthOpen(true); }} disabled={!knowledgeProjectId.trim()} title={knowledgeProjectId.trim() ? 'Open the active project growth loop' : 'Select an authorized knowledge project first'}>
+          <button type="button" className="skill-trigger" onClick={() => { syncGrowthProjectContext(knowledgeProjectId); setKnowledgeOpen(false); setGrowthOpen(true); }} disabled={!knowledgeProjectId.trim()} title={knowledgeProjectId.trim() ? 'Open the active project growth loop' : 'Select an authorized knowledge project first'}>
             <Sprout size={15} aria-hidden="true" /> Growth
           </button>
           <button type="button" className="skill-trigger" onClick={() => setOperationsOpen(true)}>

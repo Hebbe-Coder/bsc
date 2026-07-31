@@ -1,6 +1,36 @@
-import { describe, expect, it } from 'vitest';
+// @vitest-environment jsdom
+import '@testing-library/jest-dom/vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { createElement } from 'react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useGrowthWorkspaceStore, useKnowledgeWorkspaceStore } from '../store/knowledgeWorkspaceStore';
-import { detectMode, formatRuntimeError, isLocalProxySession, syncGrowthProjectContext, syncKnowledgeProjectContext } from './UnifiedWorkspace';
+import { detectMode, formatRuntimeError, isLocalProxySession, syncGrowthProjectContext, syncKnowledgeProjectContext, UnifiedWorkspace } from './UnifiedWorkspace';
+
+vi.mock('./KnowledgeWorkspace', () => ({
+  KnowledgeWorkspace: ({ onProjectChange }: { onProjectChange: (projectId: string) => void }) => createElement(
+    'section',
+    { role: 'dialog', 'aria-label': 'Knowledge workspace' },
+    createElement('button', { type: 'button', onClick: () => onProjectChange('proj_b8a285642094') }, 'Select knowledge project'),
+  ),
+}));
+
+vi.mock('./GrowthWorkspace', () => ({
+  GrowthWorkspace: () => createElement('section', { role: 'dialog', 'aria-label': 'Knowledge growth workspace' }, 'Growth workspace'),
+}));
+
+beforeEach(() => {
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+    configurable: true,
+    value: vi.fn(),
+  });
+});
+
+afterEach(() => {
+  cleanup();
+  useGrowthWorkspaceStore.getState().reset();
+  useKnowledgeWorkspaceStore.getState().setProjectId('');
+  delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
+});
 
 describe('formatRuntimeError', () => {
   it('turns unreachable backend failures into a Vite proxy recovery action', () => {
@@ -65,5 +95,21 @@ describe('syncKnowledgeProjectContext', () => {
 
     syncKnowledgeProjectContext('   ');
     expect(useKnowledgeWorkspaceStore.getState().projectId).toBe('');
+  });
+});
+
+describe('workspace navigation', () => {
+  it('moves the selected Knowledge project into a visible Growth workspace without leaving Knowledge over it', async () => {
+    render(createElement(UnifiedWorkspace));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Knowledge' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Select knowledge project' }));
+    await waitFor(() => expect(screen.getByLabelText('Project knowledge context ID')).toHaveValue('proj_b8a285642094'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Growth' }));
+
+    expect(await screen.findByRole('dialog', { name: 'Knowledge growth workspace' })).toBeVisible();
+    expect(screen.queryByRole('dialog', { name: 'Knowledge workspace' })).not.toBeInTheDocument();
+    expect(useGrowthWorkspaceStore.getState().projectId).toBe('proj_b8a285642094');
   });
 });
