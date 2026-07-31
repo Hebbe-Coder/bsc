@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from app.knowledge.context_pack import WikiContextProvider
+from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
 from app.knowledge.wiki_repository import WikiRepository
 
@@ -254,7 +255,7 @@ class PBOSGovernedContextProvider:
             except ValueError:
                 handoff_path = ""
         pages = repository.list_pages(self.project_id)
-        plugin_bridges = self._plugin_bridges(sources)
+        plugin_bridges = self._plugin_bridges(repository, sources)
         mirror_available = bool(mirror_files and recorded_mirrors)
         return {
             "source_lifecycle_counts": dict(sorted(lifecycle_counts.items())),
@@ -273,7 +274,11 @@ class PBOSGovernedContextProvider:
             "plugin_bridges": plugin_bridges,
         }
 
-    def _plugin_bridges(self, sources: list[dict[str, Any]]) -> dict[str, Any]:
+    def _plugin_bridges(
+        self,
+        repository: WikiRepository,
+        sources: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         """Project installed bridge readiness without exposing plugin settings.
 
         A configured plugin route is useful planning context: PBOS should ask
@@ -283,8 +288,13 @@ class PBOSGovernedContextProvider:
         by the compiler. In particular, it excludes paths, settings values,
         trust actors, timestamps, observed filenames, and evidence bodies.
         """
+        # D-layer registrations are the authority for agent/plugin output
+        # state. Omitting them made a registered output look like an empty
+        # route and invited the planner to repeat setup work.
+        outputs = GrowthRepository.borrow(repository).list_outputs(self.project_id)
         status = ObsidianPluginManifest.load(self.project_root).public_status(
             sources,
+            outputs,
             project_root=self.project_root,
             vault_root=self.vault_root,
         )
@@ -330,15 +340,22 @@ class PBOSGovernedContextProvider:
     def _plugin_route_state(plugin: dict[str, Any]) -> str:
         """Normalize manifest status into a small, planning-safe state set."""
         status = str(plugin.get("status") or "")
+        path_status = str(plugin.get("path_status") or "")
         runtime = plugin.get("runtime_configuration")
         runtime_state = str(runtime.get("state") or "") if isinstance(runtime, dict) else ""
         if status == "captured":
             return "captured"
         if status == "registered_output":
             return "registered_output"
-        if status == "awaiting_export" and runtime_state == "configured":
+        route_configured = path_status == "ready" and runtime_state in {
+            "configured",
+            "declared_only",
+            "agent_workspace",
+            "interactive_destination",
+        }
+        if status == "awaiting_export" and route_configured:
             return "configured_awaiting_export"
-        if status == "awaiting_output" and runtime_state == "configured":
+        if status == "awaiting_output" and route_configured:
             return "configured_awaiting_output"
         return "not_ready"
 

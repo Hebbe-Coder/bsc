@@ -3,6 +3,8 @@ import json
 from app.artifacts import ArtifactGraphStore, ArtifactStatus, DiagnosisArtifact, MissionArtifact, SOPVersionArtifact
 from app.core.config import settings
 from app.knowledge.context_pack import WikiContextProvider
+from app.knowledge.growth_contracts import OutputAsset
+from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
 from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.wiki_contracts import SourceRecord
@@ -246,6 +248,85 @@ def test_governed_context_exposes_configured_plugin_route_without_plugin_setting
         assert "must-not-reach-pbos-context" not in serialized
         assert "00_Inbox/web-clipper" not in serialized
         assert "projects/project-a" not in serialized
+    finally:
+        repo.close()
+
+
+def test_governed_context_projects_declared_output_routes_and_registered_outputs(tmp_path):
+    vault_root = tmp_path / "vault"
+    project_root = vault_root / "projects" / "project-a"
+    (project_root / "04_Outputs" / "codex").mkdir(parents=True)
+    (project_root / "04_Outputs" / "copilot").mkdir(parents=True)
+    manifest = ObsidianPluginManifest.from_payload({
+        "plugins": [
+            {
+                "id": "codex-agent",
+                "name": "Codex",
+                "adapter": "filesystem_output",
+                "input_paths": ["04_Outputs/codex"],
+            },
+            {
+                "id": "copilot-agent",
+                "name": "Copilot",
+                "adapter": "filesystem_output",
+                "input_paths": ["04_Outputs/copilot"],
+            },
+        ],
+    })
+    manifest.write_to(project_root)
+    manifest.set_trust(
+        project_root,
+        plugin_ids=["codex-agent", "copilot-agent"],
+        trusted=True,
+        actor_id="test",
+        reason="output bridge fixture",
+    )
+    repo = GrowthRepository(db_path=str(tmp_path / "output-route-state.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    repo.register_output(OutputAsset(
+        id="codex-output",
+        project_id="project-a",
+        kind="external_plugin_output",
+        content_hash="a" * 64,
+        vault_path="outputs/2026/pending/codex.md",
+        idempotency_key="codex-output",
+        metadata={
+            "obsidian_plugin": "codex-agent",
+            "obsidian_adapter": "filesystem_output",
+        },
+    ))
+
+    class NoGovernedContext:
+        def build_context(self, **_kwargs):
+            return None
+
+    provider = PBOSGovernedContextProvider(
+        project_root,
+        project_id="project-a",
+        vault_root=vault_root,
+        repository=repo,
+        wiki_context_provider=NoGovernedContext(),
+    )
+    try:
+        routes = provider.build()["operational_state"]["plugin_bridges"]
+
+        assert routes == {
+            "ready_route_count": 2,
+            "routes": [
+                {
+                    "id": "codex-agent",
+                    "adapter": "filesystem_output",
+                    "route_state": "registered_output",
+                    "capture_state": "registered_output",
+                },
+                {
+                    "id": "copilot-agent",
+                    "adapter": "filesystem_output",
+                    "route_state": "configured_awaiting_output",
+                    "capture_state": "ready_for_first_output",
+                },
+            ],
+        }
     finally:
         repo.close()
 
