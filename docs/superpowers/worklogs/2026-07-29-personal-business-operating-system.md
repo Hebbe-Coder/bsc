@@ -1104,24 +1104,3 @@
 - **Rollback:** revert the outcome-intake UI plus the duplicate-outcome guard.
   Existing execution receipts, Vault projections, and any future user review
   history remain immutable audit records.
-
-## 2026-07-31 Existing-Execution Outcome Intake Closure
-
-- **Gap closed:** an execution that already had verified receipts and a
-  recorded reflection could be visible as `awaiting_outcome`, but the Cockpit
-  had no auditable path to create its initial review record without creating a
-  second execution. It now exposes that existing execution in `OUTCOMES TO
-  RECORD` and creates exactly one `unverified` outcome linked to the original
-  execution. Acceptance and rejection remain separate explicit review actions.
-- **Integrity rule:** `PBOSService.record_outcome` rejects a second outcome for
-  the same execution. The project-scoped REST endpoint returns `409 Conflict`
-  for that duplicate, rather than silently appending a competing result.
-  Neither action creates a Capability, Strategy Genome, or accepted delivery.
-- **Verification:** `pytest tests/pbos/test_pbos_service.py
-  tests/api/test_pbos_api.py -q` passed `39`; the focused Cockpit suite passed
-  `11`; `npm run check`, `npm run build`, `docker compose config --quiet`, and
-  `git diff --check` passed. The Vite build retains the existing ECharts chunk
-  size advisory only.
-- **Rollback:** revert the outcome-intake component and service/API uniqueness
-  changes together. Existing execution and outcome artifacts remain intact as
-  the audit record; no data deletion is needed for rollback.
