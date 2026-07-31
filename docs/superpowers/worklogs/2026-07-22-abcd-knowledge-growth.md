@@ -536,6 +536,20 @@
 - **Authorization boundary:** Vite's development proxy injects the local Bearer credential server-side for `/api`, `/agent`, and `/knowledge` only. It overwrites browser-supplied authorization on those loopback proxy requests. Production builds do not load this development credential path and retain explicit backend Bearer authentication.
 - **Studio behavior:** a public, non-secret marker labels the runtime control as `local proxy` and keeps the actual key out of the browser. The existing manual Key input still works when the marker is absent. This removes the prior false `required` presentation while retaining a real API authentication gate.
 - **Runtime proof:** the restarted local API returned `401` for a direct unauthenticated knowledge request and `200` for the same request through Studio on `127.0.0.1:5180`. The Studio loaded the governed Knowledge Workspace as an authenticated admin without manual Key entry. Verification remained read-only; no maintenance, sync, import, growth, schedule, or publish control was invoked.
+
+## 2026-07-31 - Local Access Provisioner Deduplication
+
+- **Defect corrected:** repeated `BSC_LOCAL_API_KEY` or other managed entries
+  in `.env.development.local` could leave contradictory values after the
+  local-access provisioner ran. The updater now replaces the first matching
+  assignment and removes later duplicates while preserving unrelated lines.
+- **Security boundary:** the script still keeps both API and session secrets
+  out of stdout. Its only public output is the non-secret restart/rotation
+  status object. It neither invokes external services nor changes a running
+  process.
+- **Verification:** `pytest tests/test_local_api_provision.py -q` passed. The
+  isolated fixture started with two stale proxy-key assignments and verified
+  that exactly one matching backend key remained after provisioning.
 - **Regression evidence:** `npm run test:frontend` passed `80/80` across `11` files; `npm run check` and `npm run build` passed; `npm run lint` completed with `0` errors and the existing `195` warnings. The production build retains the existing large-chunk advisory.
 - **Rollback:** stop local `8000` and `5180`, remove the two ignored runtime configuration entries, and revert `vite.config.ts`, `UnifiedWorkspace.tsx`, and the provisioning script. Existing project data and the standard manual Bearer path remain unaffected.
 

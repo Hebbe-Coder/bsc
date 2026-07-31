@@ -36,20 +36,23 @@ function Set-EnvValue {
     }
     $pattern = '^(\s*' + [regex]::Escape($Name) + '\s*=).*?$'
     $found = $false
-    $updated = foreach ($line in $lines) {
+    $updated = [System.Collections.Generic.List[string]]::new()
+    foreach ($line in $lines) {
         if ($line -match $pattern) {
-            $found = $true
-            "$Name=$Value"
+            if (-not $found) {
+                $updated.Add("$Name=$Value")
+                $found = $true
+            }
         } else {
-            $line
+            $updated.Add($line)
         }
     }
     if (-not $found) {
-        $updated += "$Name=$Value"
+        $updated.Add("$Name=$Value")
     }
     [System.IO.File]::WriteAllLines(
         $Path,
-        [string[]]$updated,
+        $updated,
         [System.Text.UTF8Encoding]::new($false)
     )
 }
