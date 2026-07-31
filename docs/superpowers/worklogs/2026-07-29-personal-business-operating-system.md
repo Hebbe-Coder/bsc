@@ -870,10 +870,15 @@
   The regression uses a deliberately secret-looking plugin setting and proves
   it cannot enter the PBOS context or model prompt.
 
-## 2026-07-31 Live Default-Project Plugin-Planning Closure
+## 2026-07-31 Historical Default-Project Plugin-Planning Record
+
+> Scope correction (2026-07-31): this section records evidence obtained when
+> `default` was the active project. Installed-plugin destinations now target
+> `proj_b8a285642094`; none of the route-readiness statements below describes
+> current plugin configuration.
 
 - **Live bridge correction:** the installed Zotero Desktop Connector still
-  pointed at retired project `proj_b8a285642094`. Only its
+  pointed at a retired project route. Only its
   `noteImportFolder` setting was changed to
   `projects/default/01_Sources/zotero`; the declared route already existed.
   A subsequent manifest readback confirmed Clipper, Xiaohongshu Importer, and
@@ -919,3 +924,117 @@
 - **Rollback:** revert `1107c6f` to remove configured-route planning context;
   restore the Zotero destination only if the retired project is intentionally
   reactivated; retain all current execution/outcome artifacts as audit history.
+
+## 2026-07-31 Historical Default-Project Contextual Plan And Citation Provenance
+
+> Scope correction (2026-07-31): this is legacy `default` project evidence,
+> retained for audit. It is not the active project's current plugin, route, or
+> Vault status.
+
+- **Real PBOS use:** after rebuilding the API, Worker, and Beat, the protected
+  default-project API compiled Mission `art_53e74845ac3f` through DeepSeek
+  (`deepseek-v4-flash`) into plan `art_b35f4b8e0b0c`. The plan is persisted at
+  the managed project-relative `pbos/plans/` route with
+  `compilation_state=context_grounded`, `task_kind=knowledge_delivery`, and
+  `response_language=Chinese`.
+- **Observed personalization:** the plan contains eight governed Vault
+  references, the declared profile focus/resources/constraints, two recorded
+  feedback items marked `unverified_direction`, and operational facts showing
+  96 mirrored evidence files, 11 published Wiki pages, and an available
+  weekly handoff. It explicitly says `Verified personal assets: none yet`,
+  asks for an observable receipt and three-minute reflection, and does not
+  create a Capability or Strategy Genome. Its three phases are evidence
+  triage, PRD-specific context/SOP compilation, and receipt/feedback review;
+  no generic content-growth phase or repeated plugin setup is present.
+- **Obsidian state:** the plan sees the configured capture routes as
+  `ready_for_first_export`/`files_detected_pending_registration` rather than
+  claiming a fabricated export. Only the Excalidraw context route is captured.
+  The managed PBOS plan projection was confirmed in the real Vault.
+- **Source reliability repair:** Zotero frontmatter already produced bounded
+  citation metadata, but it was not queryable in the Wiki graph. The sync
+  path now writes idempotent source-scoped `ReferenceLink` records for DOI,
+  URL, and citekey with relation names `declares_doi`, `declares_url`, and
+  `declares_citekey`. It stores identifiers and provenance type only, never
+  the note body or plugin settings. The repeat-sync test confirms no duplicate
+  links are created.
+- **Verification:** PBOS/API/MCP/integration coverage passed `71`; shared
+  Artifact/Runtime/Wiki/Distillation coverage passed `102` with one existing
+  skip; frontend coverage passed `176`; TypeScript check, production build,
+  `docker compose config --quiet`, API health, and the protected live plan
+  readback passed. The first shared run exposed the missing citation-link
+  persistence; after the fix it passed without suppressing the assertion.
+- **Remaining gate:** the default project still has zero verified Capabilities
+  and active Strategy Genomes. The plan correctly remains
+  `context_grounded`; three comparable, receipt-backed, reflected, explicitly
+  accepted AI-project deliveries are still required before personal learning
+  can be promoted. This is a real-data gate, not a missing integration.
+- **Rollback:** revert the Zotero `ReferenceLink` registration and its focused
+  test together to remove graph citation edges while retaining immutable
+  source records. Revert the contextual compiler commit only if the
+  knowledge-delivery specialization is intentionally withdrawn; existing
+  PBOS plans and Vault projections remain historical records.
+
+## 2026-07-31 Project-Scoped Knowledge Delivery Recompilation
+
+- **Scope:** this entry applies only to project `proj_b8a285642094`; it does
+  not reinterpret the earlier `default` project evidence above. The live
+  project Mission is `art_3a077df677ac`, with diagnosis
+  `art_c0a7c222c360` and Dynamic SOP `art_a43a5ed1397f`.
+- **Real model evidence:** DeepSeek completed the adaptive Dynamic SOP with
+  provider `deepseek`, model `deepseek-v4-pro`, and a persisted context pack
+  that references project Wiki pages and immutable sources. PBOS then used
+  `deepseek-v4-flash` for contextual planning. The final plan
+  `art_a7e1308d7343` was accepted as structured JSON on its first attempt and
+  projected to `pbos/plans/art_a7e1308d7343.md` in the managed Vault.
+- **Plan quality closure:** the first live PBOS attempts exposed two defects:
+  a knowledge-delivery request could be classified as generic growth, and a
+  Chinese response guard could replace tailored actions with generic wording.
+  The compiler now has a `knowledge_delivery` task kind, project-specific
+  deterministic phases, a guard against unrelated growth templates, and
+  Chinese fallbacks for evidence triage, a PRD-specific context pack and SOP,
+  and reviewable delivery feedback. The final live plan contains those three
+  user-facing phases and cites 12 governed project references.
+- **Obsidian bridge correction:** only the three verified destination fields
+  in installed plugin settings were changed from historical
+  `projects/default/...` paths to the current project's declared bridge paths.
+  Live status now shows Clipper, Xiaohongshu Importer, and Zotero as
+  `configured_awaiting_export`. Real Claudian remains an `agent_workspace`
+  awaiting first output. Copilot remains `declared_only`; no code or setting
+  proves it will write to the bridge, so it remains `ready_for_first_output`.
+- **Verification:** `pytest tests/pbos/test_pbos_contextual_compiler.py
+  tests/pbos/test_pbos_service.py tests/api/test_pbos_api.py -q` passed with
+  `61 passed`. Rebuilding `bsc-backend`, `celery-worker`, and `celery-beat`
+  completed successfully. The protected API `/live` returned `status=ok` and
+  `celery inspect ping --timeout=15` returned one `pong` after rebuild.
+- **Unchanged boundaries:** no Mission was confirmed, no capability was
+  executed, no external publication occurred, and no model suggestion was
+  promoted to a method, strategy, or accepted delivery. The project still
+  needs a real plugin export or reviewed business output before the D-layer
+  or personal-learning loop can claim actual delivery evidence.
+- **Rollback:** revert the PBOS compiler and focused test changes to remove
+  knowledge-delivery specialization. Restore each plugin destination to its
+  prior `projects/default/...` value only if that retired project is
+  intentionally reactivated. Existing Missions, plans, provider ledger
+  records, and Vault projections remain auditable history and are not deleted.
+
+## 2026-07-31 Output Bridge And Citation Projection Completion
+
+- **Scope:** the active project is `proj_b8a285642094`. Its trusted Obsidian
+  routes are reported only as configured, awaiting export/output, captured, or
+  registered output. Plugin configuration is not copied into PBOS context.
+- **Output bridge repair:** registered D-layer outputs now take part in the
+  bounded operational projection, so an already registered agent output is
+  not mistaken for an empty route. Trusted declared-only, interactive, and
+  agent-workspace routes can be planning-ready without pretending that an
+  export or output exists.
+- **Citation graph repair:** a metadata-only source projector normalizes URL,
+  DOI, and citekey identifiers into idempotent `ReferenceLink` graph edges.
+  It never reads Vault files or source bodies, and invalid local or malformed
+  identifiers are rejected.
+- **Pending verification:** focused suites passed before the scope correction.
+  The combined PBOS/API/MCP/integration suite, frontend checks, Compose
+  validation, and protected runtime health checks must be rerun before this
+  entry is marked as deployed evidence.
+- **Remaining gate:** external plugin exports, reviewed D-layer outputs,
+  explicit outcome acceptance, and comparable delivery evidence remain
+  user-owned. This change does not claim a completed knowledge-delivery loop.

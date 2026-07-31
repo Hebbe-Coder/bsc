@@ -1,66 +1,91 @@
 # PBOS Obsidian Plugin Planning Verification
 
 Date: 2026-07-31
-Project: `default`
+Current project: `proj_b8a285642094`
 
 ## Purpose
 
-Verify that PBOS treats already configured Obsidian capture routes as an
-operational fact. A Personal Execution Plan must advance the active Mission
-instead of asking the user to install or configure the same plugin again.
+Verify that PBOS consumes only a bounded, project-scoped operational projection
+of Obsidian bridge readiness. A Personal Execution Plan must advance the active
+Mission rather than ask the user to configure an already declared route again.
 
-## Real Runtime Evidence
+## Scope And Historical Record
 
-- The local Obsidian Vault route for `obsidian-clipper` reports `ready`,
-  destination `configured`, and `awaiting_export`.
-- The local Obsidian Vault route for `xiaohongshu-importer` reports `ready`,
-  destination `configured`, and `awaiting_export`.
-- The local Obsidian Vault route for
-  `obsidian-zotero-desktop-connector` was corrected from the retired project
-  route to `default`; it now reports `ready`, destination `configured`, and
-  `awaiting_export`.
-- PBOS compiled real default-project Mission `art_53e74845ac3f` into Personal
-  Execution Plan `art_e3c9018f3dc4` using the configured DeepSeek provider.
-- The plan holds eight governed context references and four ready plugin
-  routes. Its first phase is a PBOS verification decision rather than plugin
-  setup. The plan is projected to the managed Vault under `pbos/plans/`.
+Earlier PBOS records contain historical observations made while `default` was
+the active project. They remain audit history, but do not describe current
+plugin destinations. An installed plugin can target only one active project
+route at a time; its current scope is `proj_b8a285642094`.
 
-## Regression Evidence
+This verification never reads or records plugin settings, plugin credentials,
+raw Vault text, observed filenames, source bodies, or provider credentials.
+Managed paths are represented only as project-relative routes.
 
-Executed from the BSC workspace after the change:
+## Current Active-Project Evidence
+
+- Clipper, Xiaohongshu Importer, and Zotero are trusted, their declared
+  destinations are ready, and each remains `awaiting_export` until the
+  user-operated plugin produces a real file.
+- Copilot is trusted with a declared output route and remains
+  `awaiting_output`. No installed-plugin behavior has been inferred from that
+  declaration.
+- Real Claudian is trusted as an `agent_workspace` route and remains
+  `awaiting_output` until its first registered output.
+- The active project has a contextual PBOS plan under the managed
+  project-relative `pbos/plans/` route. Its context contains governed
+  references and route state, not Vault body content or plugin settings.
+
+## Compiler Behavior
+
+- `PBOSGovernedContextProvider` projects only
+  `configured_awaiting_export`, `configured_awaiting_output`,
+  `registered_output`, `captured`, or `not_ready`.
+- D-layer `OutputAsset` registrations participate in the projection. A
+  registered agent output is not misrepresented as an empty route.
+- Declared, interactive, and agent-workspace routes qualify as planning-ready
+  only when the existing trust and project-relative path checks succeed.
+- A configured route is not evidence. It cannot become a captured source,
+  completed output, accepted outcome, Capability, or Strategy Genome without
+  its own lifecycle record.
+
+## Citation Graph Behavior
+
+- Compatible source metadata can create idempotent, source-scoped
+  `ReferenceLink` edges for a normalized HTTP(S) URL, DOI, or citekey.
+- Link projection reads metadata-only candidate fields. It has no Vault path,
+  body reader, network client, or source mutation API.
+- URL query tracking parameters are removed before identity calculation;
+  malformed URLs, local paths, invalid DOIs, and invalid citekeys are rejected.
+- Each link carries only a bounded identifier, relation, and provenance class.
+  Repeated sync/backfill does not create duplicate graph edges.
+
+## Verification Commands
+
+Run from the BSC workspace after rebuilding the affected API, Worker, and Beat
+images:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests/pbos tests/api/test_pbos_api.py tests/mcp/test_pbos_http_contract.py tests/integration/test_pbos_e2e.py -q
+.\.venv\Scripts\python.exe -m pytest tests/pbos/test_pbos_contextual_compiler.py tests/pbos/test_pbos_service.py tests/api/test_pbos_api.py tests/mcp/test_pbos_http_contract.py tests/integration/test_pbos_e2e.py -q
+.\.venv\Scripts\python.exe -m pytest tests/knowledge/test_reference_projection.py tests/knowledge/test_wiki_sync.py tests/api/test_knowledge_evidence_api.py -q
+npm run typecheck
+npm run build
+docker compose config --quiet
 ```
 
-Result: final gate `69 passed` after the weekly-schedule migration and
-knowledge-delivery contextualization regressions were added.
+Protected runtime verification is limited to API readiness and a Celery `pong`.
+It must not read raw source text, plugin settings, or secret values.
 
-PBOS automation defaults were also reconciled on the running scheduler. Daily
-and weekly actions are enabled at 17:00 Asia/Shanghai, with the weekly action
-running on Friday. The migration test confirms a previous PBOS Friday 17:30
-row is rewritten to Friday 17:00; separate knowledge-growth distillation
-schedules are not modified. Protected runtime readback confirmed the enabled
-default-project weekly row now persists cron `0 17 * * 5` and its Friday 17:00
-local next-run timestamp.
+## Boundaries And Remaining Gates
 
-Focused behavior is covered by tests that prove configured bridge context
-contains no plugin settings or raw evidence, reaches the model prompt as
-bounded operational state, and replaces a repeated Clipper setup phase with a
-Mission-specific baseline phase.
-
-## Boundaries
-
-- No real user capture was fabricated. Configured capture bridges remain
-  `awaiting_export` until the corresponding plugin writes a real export.
-- This verification does not accept an outcome, create a Capability, or
-  promote a Strategy Genome. Personal learning still requires comparable,
-  receipt-backed, reflected, explicitly accepted deliveries.
-- No plugin credential, local REST credential, provider key, raw Vault body,
-  or plugin settings value is recorded here.
+- A real user plugin export or reviewed D-layer output is still required before
+  the corresponding bridge can claim captured/registered delivery evidence.
+- Explicit outcome acceptance and repeated comparable delivery evidence remain
+  user-owned gates for personal-learning promotion.
+- This work does not execute a Capability, publish externally, or claim a
+  business result from a page render, container start, or configured route.
 
 ## Rollback
 
-Revert the PBOS bridge-context compiler change. This removes the planning
-guard only; it does not alter Vault source history, plugin exports, outcomes,
-or strategy assets.
+Revert the PBOS output-bridge projection and its regression test to restore the
+previous compiler projection. Revert the metadata projector and its tests to
+remove generated citation edges. Neither rollback deletes immutable source
+records, prior plans, registered outputs, or user-authored Vault files.
