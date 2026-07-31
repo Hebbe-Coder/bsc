@@ -386,4 +386,54 @@ describe('PersonalGrowthCockpit', () => {
 
     await waitFor(() => expect(compilePbosPlan).toHaveBeenCalledWith('default', 'mission-current', 'diagnosis-current'));
   });
+
+  it('guides a first-use workspace to the missing profile and pending real-result review', async () => {
+    vi.mocked(fetchPbosCockpit).mockResolvedValue({
+      profile: { focus: ['Evidence-first delivery'], goals: [], preferences: {}, resources: ['Obsidian'], constraints: [] },
+      today: {
+        artifact_id: 'plan-activation', mission_id: 'mission-activation', title: 'Review a real delivery',
+        compilation_state: 'context_grounded', knowledge_context_refs: [], feedback_refs: [], phases: [], execution_contract: {}, compiler_metadata: {},
+      },
+      today_action: { state: 'recommended', title: 'Review a real delivery' },
+      capabilities: [],
+      outcomes: [{ artifact_id: 'outcome-pending-activation', execution_record_id: 'execution-activation', acceptance_status: 'unverified', quality_score: null }],
+      outcome_observations: [{ artifact_id: 'outcome-pending-activation', acceptance_status: 'unverified', quality_score: null, eligible_for_evolution: false, missing_requirements: ['accepted_outcome', 'quality_score', 'outcome_summary'] }],
+      executions: [{
+        artifact_id: 'execution-activation', mission_id: 'mission-activation', plan_id: 'plan-activation',
+        actions_count: 1, receipt_count: 1, verified_receipt_count: 1, reflection_recorded: true, outcome_state: 'unverified_outcome', created_at: '2026-07-31T10:00:00Z',
+      }],
+      feedback: [], strategies: [], failure_patterns: [],
+      personalization_readiness: {
+        state: 'profile_context_required', declared_profile_ready: false,
+        missing_profile_fields: ['role', 'industry', 'organization_stage'], accepted_outcome_count: 0, required_comparable_outcomes: 3,
+      },
+      project_health: { knowledge_context_ready: true, personal_learning_ready: false, unverified_outcomes: 1, eligible_personal_outcomes: 0 },
+      connectors: {},
+    });
+    vi.mocked(fetchPbosProfile).mockResolvedValue({
+      profile: { focus: ['Evidence-first delivery'], goals: [], preferences: {}, resources: ['Obsidian'], constraints: [] },
+    });
+
+    render(<PersonalGrowthCockpit projectId="default" onClose={vi.fn()} runtimeAccessKey="session-key" />);
+
+    expect(await screen.findByText('让 PBOS 开始学习你的工作方式')).toBeVisible();
+    expect(screen.getByText('仍需填写：role、industry、organization stage。')).toBeVisible();
+    expect(screen.getByText('1 条结果等待你确认。')).toBeVisible();
+    expect(screen.getByText('0 / 3 条已接受的可比结果；达到门槛后才评估个人策略升级。')).toBeVisible();
+
+    const profilePanel = document.getElementById('pbos-personal-context');
+    const reviewPanel = document.getElementById('pbos-outcome-review');
+    expect(profilePanel).not.toBeNull();
+    expect(reviewPanel).not.toBeNull();
+    const profileScroll = vi.fn();
+    const reviewScroll = vi.fn();
+    profilePanel!.scrollIntoView = profileScroll;
+    reviewPanel!.scrollIntoView = reviewScroll;
+
+    fireEvent.click(screen.getByRole('button', { name: '填写画像' }));
+    expect(profileScroll).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
+
+    fireEvent.click(screen.getByRole('button', { name: '审阅待确认结果' }));
+    expect(reviewScroll).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
+  });
 });
