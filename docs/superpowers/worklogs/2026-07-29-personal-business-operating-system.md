@@ -1211,3 +1211,33 @@
 - **Rollback:** revert the PersonalProfile/context compiler and Cockpit
   changes. Existing Mission, Plan, execution receipts, Vault projections,
   outcomes, and immutable Strategy Genomes remain unchanged.
+
+## 2026-07-31 Live Outcome Intake And Evidence Gate Verification
+
+- **Real project action:** PBOS created the initial `unverified`
+  `WorkOutcomeArtifact` `art_064fc49cff71` for the already receipt-backed
+  execution `art_4126dc26952e` in `proj_b8a285642094`. It was projected to
+  `pbos/outcomes/art_064fc49cff71.md` in the mapped Obsidian Vault; filesystem
+  readback confirmed the managed projection exists.
+- **No fabricated learning:** the Outcome has no quality score, no acceptance
+  decision, and no review history. A real protected API request to accept it
+  without a quality score returned `422`; a subsequent Cockpit readback
+  confirmed that it remained `unverified` and ineligible for evolution.
+- **Evolution gate:** reconciliation returned `insufficient_evidence` with
+  zero complete comparable records. No Capability, Experience, or Strategy
+  Genome was created. This is the required non-promotion behavior, not a
+  runtime failure.
+- **Verification:** PBOS/API/MCP/integration coverage passed `75`; frontend
+  coverage passed `185`; shared Artifact/Runtime/Wiki/Distillation coverage
+  passed `102` with one Windows symlink test skipped; `npm run check`,
+  `npm run build`, and `docker compose config --quiet` passed. The healthy
+  Compose API's `app/pbos/service.py` SHA-256 matched the workspace source.
+- **Remaining user-owned evidence:** the owner must explicitly accept or
+  reject this result after evaluating the delivery and providing a real
+  quality score. Two additional comparable, receipt-backed, reflected,
+  accepted AI-project deliveries remain necessary before any personal method
+  can be promoted.
+- **Rollback:** rejecting the Outcome preserves the evidence and records the
+  audit decision. Removing the generated managed projection is not a valid
+  rollback because it would break ledger-to-Vault traceability; the existing
+  Outcome remains an immutable lifecycle record.
