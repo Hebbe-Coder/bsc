@@ -1073,3 +1073,44 @@ criteria.
 - `docker compose ps` showed healthy API, PostgreSQL, Redis, Celery worker,
   Celery beat, and n8n services. Direct and proxied protected reads for
   `proj_b8a285642094` returned the same persisted project summary.
+
+## 2026-07-31 Metadata-Only Bibliographic Reference Projection
+
+- Added a source-reference projector that reads only the persisted source ID,
+  project ID, origin and bounded metadata fields. It has no Vault reader,
+  HTTP client or original-file write path. It creates idempotent `url`, `doi`
+  and `citekey` relationships with hashed target IDs and display anchors.
+- Obsidian Zotero provenance now uses the same projection contract after its
+  trusted metadata reconciliation. Historical-source repair uses the narrow
+  database query rather than rescanning the Vault or selecting source bodies.
+- Evidence Atlas target nodes now retain the safe reference anchor and render
+  readable URL, DOI and citekey labels. The reference browser and inspector
+  remain metadata-only; source and derivative bodies are still excluded from
+  the read API and MCP tools.
+- Runtime verification rebuilt and restarted only the API service. The
+  metadata-only backfill examined 177 default-project source candidates,
+  created 93 URL relationships, and a second execution created zero duplicate
+  rows while recognizing 93 existing relationships. Aggregate database
+  verification reported only `url / declares_url`; no Zotero DOI or citekey
+  relationship was claimed because no real Zotero export is present.
+- Verification passed: `pytest tests/knowledge/test_reference_projection.py
+  tests/knowledge/test_wiki_sync.py tests/knowledge/test_multimodal_evidence.py
+  tests/api/test_knowledge_evidence_api.py tests/mcp/test_knowledge_evidence_tools.py -q`
+  (`43 passed, 1 skipped`); focused frontend tests (`18 passed`); `npm run
+  check`; `npm run build`; and `git diff --check`.
+- Celery Worker and Beat were deliberately not restarted for this operation,
+  so the verification did not trigger or authorize a Vault synchronization.
+  Their normal rolling deployment remains a separate operational action; no
+  user Vault file, plugin export, URL, credential or source body was read or
+  written by the backfill.
+
+### Execution-Path Deployment Follow-Up
+
+- Performed a controlled Worker/Beat rolling deployment after their active,
+  reserved and scheduled queues each reported empty. The rebuilt API, Worker
+  and Beat all loaded `SourceReferenceProjector`; Celery inspection returned
+  one `pong`.
+- The Worker task ledger recorded zero `source_sync` runs at or after its new
+  container start time. No synchronization, external capture or Vault-body
+  read was triggered as part of deployment. Future API and Celery capture
+  paths now share the deployed idempotent metadata-reference behavior.
