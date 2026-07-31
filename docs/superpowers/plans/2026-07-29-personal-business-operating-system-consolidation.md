@@ -531,3 +531,18 @@ npm run build
   plugin configuration can be restored only by changing the single Zotero
   destination field. Neither rollback deletes source history, projections,
   execution receipts, outcomes, or future user exports.
+
+## 2026-07-31 Regression Completion State
+
+- **Implementation status:** the PBOS contextual planning closure and the
+  governed project PRD-to-SOP handoff are implemented in the active
+  workspace. This is an implementation and verification status, not a claim
+  that a generated SOP or a personal learning outcome has been accepted.
+- **Fresh quality gate:** `./.venv/Scripts/pytest.exe -q` collected 1,594
+  tests and passed with `1580 passed, 14 skipped` in 265.70 seconds. The
+  metadata-only Evidence Atlas guard was exercised without external network
+  access; `git diff --check` also passed.
+- **Still user-owned:** the registered SOP output requires explicit human
+  evaluation before acceptance or execution. Likewise, PBOS promotion still
+  requires three real, comparable, accepted, receipt-backed deliveries. Those
+  states are intentionally not auto-completed by this release closure.
