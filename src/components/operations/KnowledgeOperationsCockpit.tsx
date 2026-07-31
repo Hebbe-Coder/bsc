@@ -346,7 +346,7 @@ function LifecycleGraph({
     {graph.pagination.truncated && <p className="operations-boundary"><AlertTriangle size={13} />Showing a bounded graph slice. {graph.pagination.omitted_node_count} nodes and {graph.pagination.omitted_endpoint_count} endpoints are outside this page.</p>}
     {!graphProjection.nodes.length ? <div className="operations-chart-empty"><Network size={18} /><span>No persisted lifecycle relationships match this filter.</span></div> : <>
       <div className={`operations-flow ${compactLayout ? 'is-compact' : ''}`} style={compactLayout ? { height: Math.max(420, graphProjection.nodes.length * 118 + 30) } : undefined} data-graph-nodes={graph.nodes.length} data-flow-lanes={graphProjection.nodes.length}>
-        <ReactFlow nodes={graphProjection.nodes} edges={graphProjection.edges} nodeTypes={lifecycleNodeTypes} fitView fitViewOptions={{ padding: 0.16 }} minZoom={0.25} maxZoom={1.6} nodesDraggable={false}><Background gap={22} size={1} /><Controls showInteractive={false} /></ReactFlow>
+        <ReactFlow nodes={graphProjection.nodes} edges={graphProjection.edges} nodeTypes={lifecycleNodeTypes} fitView fitViewOptions={{ padding: compactLayout ? 0.06 : 0.16 }} minZoom={compactLayout ? 0.45 : 0.25} maxZoom={1.6} nodesDraggable={false}><Background gap={22} size={1} /><Controls showInteractive={false} /></ReactFlow>
       </div>
       <p className="operations-relation-summary" aria-label="Lifecycle relationship counts">{graphProjection.relations.map((item) => <span key={item.relation}>{item.relation} x{item.count}</span>)}</p>
       <section className="operations-lane-records" aria-label="Lifecycle record inspector">

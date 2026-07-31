@@ -65,7 +65,12 @@ describe('KnowledgeOperationsCockpit', () => {
   beforeEach(() => {
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   });
-  afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
+  afterEach(() => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });
+    cleanup();
+    vi.clearAllMocks();
+    vi.unstubAllGlobals();
+  });
 
   it('renders server-backed metrics and keeps the action as a real drill-down', async () => {
     const openDbos = vi.fn();
@@ -228,5 +233,18 @@ describe('KnowledgeOperationsCockpit', () => {
     expect(screen.getByText('Persisted connections')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /artifact parent.*Launch/i }));
     expect(within(screen.getByLabelText('Selected lifecycle node')).getByText('Launch')).toBeTruthy();
+  });
+
+  it('stacks lifecycle lanes vertically on a narrow viewport instead of shrinking the graph', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+    vi.mocked(operationsApi.fetchOperationsProject).mockResolvedValue(projectOverview);
+    vi.mocked(operationsApi.fetchOperationsGraph).mockResolvedValue(graph);
+    render(<KnowledgeOperationsCockpit onClose={vi.fn()} initialProjectId="project-a" />);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Project' }));
+    await waitFor(() => expect(document.querySelector('.operations-flow.is-compact')).toBeTruthy());
+    const flow = document.querySelector<HTMLElement>('.operations-flow.is-compact');
+    expect(flow?.style.height).toBe('420px');
+    expect(flow?.getAttribute('data-flow-lanes')).toBe('1');
   });
 });

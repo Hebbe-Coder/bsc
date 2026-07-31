@@ -2340,5 +2340,8 @@ body .knowledge-connection-path small {
   .operations-panel header { padding: 12px; }
   .operations-chart, .operations-chart-empty { height: 245px; }
   .operations-flow { height: 365px; }
+  .operations-flow.is-compact { min-height: 420px; overflow: hidden; }
+  .operations-flow.is-compact .operations-flow-lane { width: min(264px, calc(100vw - 96px)); }
+  .operations-flow.is-compact .operations-flow-lane__card { min-height: 91px; }
   .operations-actions { max-height: none; }
 }
