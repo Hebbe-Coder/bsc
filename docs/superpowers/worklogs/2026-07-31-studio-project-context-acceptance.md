@@ -56,5 +56,6 @@ Browser target: local Studio at `http://127.0.0.1:5174/`.
 ## Boundary And Remaining Risk
 
 - This increment proves project-context continuity and does not claim that external Obsidian plugin exports, user business outcomes, PBOS accepted outcomes, or third-party credentials exist.
-- This navigation verification did not read Vault note bodies, source bodies, or original files; it did not call external services and did not write to the Vault.
+- The automated navigation verification did not read Vault note bodies, source bodies, or original files; it did not call external services and did not write to the Vault.
+- A later local-browser loading check was stopped immediately because its broad accessibility snapshot expanded visible published Wiki text. It is not counted as a browser-acceptance result for this increment. Future browser checks under the no-body boundary must use a dedicated redacted fixture or bounded metadata-only selectors.
 - The browser viewport override was reset after responsive verification.
