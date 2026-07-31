@@ -1391,3 +1391,63 @@
   remaining profile context, review this delivery with an observed result and
   quality score, then complete two further comparable deliveries before any
   strategy promotion can be considered.
+
+## 2026-07-31 Primary Evidence Capture And Schedule Verification
+
+- **Real source capture:** the Horizon signal `7fb3b8c8ffd9` for the public
+  `astral-sh/uv` `0.12.0` GitHub Release was captured through the scoped
+  primary-web endpoint. BSC created immutable source `0e08f6a0f33e`, recorded
+  its content and extraction hashes, and preserved the explicit
+  Horizon-to-primary relation. No Wiki page was published and no signal claim
+  was promoted by the capture.
+- **Second primary capture:** the official GitHub Blog Stacked Pull Requests
+  announcement was likewise captured from Horizon signal `f0e598b9d75b` as
+  immutable source `8349de1f7cd0`. The live queue now reports four of its five
+  active signals as `review_primary_capture`; one unrelated research signal
+  remains correctly at `capture_primary_source` until a public original is
+  deliberately captured.
+- **Queue repair:** a Horizon item with a linked primary capture now remains
+  visible as unresolved review work but changes from `capture_primary_source`
+  to `review_primary_capture`. The workspace offers capture only when needed;
+  an existing primary capture opens the evidence inspector rather than causing
+  a repeat network fetch. Queue selection and its capture state use metadata
+  projections only; raw source bodies are never read into the queue.
+- **Live readback:** the deployed project queue returned the source, title,
+  URL, trust, score, task families, `review_primary_capture`, and linked source
+  ID/status only. The linked primary capture is `validated` and still requires
+  review before it can support a published Wiki claim.
+- **Automation:** `pbos_daily` (`0 17 * * *`), `pbos_weekly`
+  (`0 17 * * 5`), and `pbos_monthly` (`0 17 1 * *`) are enabled in
+  `Asia/Shanghai`; the scheduler reported available. The Vault has the current
+  five-file weekly bundle, managed daily increments, and
+  `distillations/每周蒸馏/2026-W31/pbos/personal-growth.md`.
+- **Verification:** focused information/REST/MCP tests passed `17`; the
+  information-panel frontend tests passed `6`; the complete frontend suite
+  passed `190`; `npm run check` and `npm run build` passed. Docker rebuilt the
+  API, Worker, and Beat containers and the deployed
+  `information_intelligence.py` SHA-256 matched the workspace.
+
+## 2026-07-31 Information Operations Regression And n8n Recovery
+
+- **Manual n8n retry:** the isolated command
+  `docker compose run --rm --no-deps -e N8N_RUNNERS_ENABLED=false n8n n8n
+  execute --id=QTTSOBtWihuYaWcZ --rawOutput` received no execution result and
+  timed out after `244s`. It is therefore not recorded as a successful manual
+  RSS ingestion.
+- **Service recovery:** immediately after that timeout, the regular n8n
+  service was restored with `docker compose --profile n8n up -d n8n` and
+  reached `healthy`. API, PostgreSQL, Redis, Celery Worker, and Celery Beat
+  remained healthy throughout the check.
+- **Focused verification:** the Horizon ingress, information-intelligence
+  REST/MCP boundaries, project isolation, metadata-only review queue, and
+  distillation suite completed with `77 passed`. This includes the rule that
+  cited Horizon signals never re-enter the review queue and raw bodies remain
+  unavailable to its read models.
+- **Full regression:** `./.venv/Scripts/python.exe -m pytest` collected
+  `1,604` tests and completed with `1,590 passed, 14 skipped` in `278.54s`.
+  The only warnings were one existing Starlette/httpx deprecation and two
+  existing Pydantic v2 `.dict()` deprecations in `brainstorm_api.py`.
+- **Workspace boundary:** no implementation file was modified by this
+  verification. Seven pre-existing or concurrently created uncommitted
+  implementation changes were observed after the test run and deliberately
+  left unstaged and unreverted.

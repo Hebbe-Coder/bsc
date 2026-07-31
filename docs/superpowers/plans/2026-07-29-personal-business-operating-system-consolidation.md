@@ -734,3 +734,42 @@ npm run build
 - To roll back this release, revert `28c85ea` and rebuild the API, worker, and
   beat containers. Artifact history, Vault material, and source evidence are
   not deleted by that action.
+
+## 2026-07-31 Evidence Intake Loop Follow-Through
+
+### Delivered
+
+- The Horizon primary-source review queue now distinguishes an uncaptured lead
+  from a lead with linked primary evidence. A linked capture changes the
+  required action to `review_primary_capture`; it does not remove review gates
+  or misrepresent the source as a published Wiki fact.
+- The Knowledge Workspace has a direct, project-scoped `Capture primary source`
+  command. It creates a bounded public-web evidence capture only after the
+  operator clicks it. Once evidence exists, the same surface opens the capture
+  for review instead of repeating the fetch.
+
+### Live Evidence
+
+- A real Horizon `uv 0.12.0` signal created immutable primary capture
+  `0e08f6a0f33e`. Its live queue row shows `review_primary_capture` and a
+  `validated` linked source ID, while returning no source body.
+- The official GitHub Blog Stacked Pull Requests announcement created the same
+  auditable relation as source `8349de1f7cd0`. Four of five active Horizon
+  rows now expose a linked primary-capture review action; the remaining row
+  truthfully requires its first capture.
+- PBOS durable schedules are enabled at `17:00 Asia/Shanghai` for daily,
+  Friday weekly, and first-of-month reports. The live Vault contains the
+  expected `pbos/personal-growth.md` alongside the protected five-file weekly
+  distillation contract.
+- Focused information contract tests passed `17`, panel tests passed `6`, the
+  full frontend suite passed `190`, and production type/build checks passed.
+  The healthy rebuilt API, worker, and beat containers ran the same
+  information-intelligence source hash as the workspace.
+
+### Remaining Boundary
+
+- Primary evidence capture establishes provenance, not truth or personal
+  learning. The source still needs the existing triage/proposal/publication
+  gate. The PBOS personal-model boundary is unchanged: no capability or
+  Strategy Genome is promoted until declared profile context and three
+  comparable, owner-accepted, receipt-backed Outcomes exist.
