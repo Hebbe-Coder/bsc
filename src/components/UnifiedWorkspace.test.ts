@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { useGrowthWorkspaceStore } from '../store/knowledgeWorkspaceStore';
-import { detectMode, formatRuntimeError, isLocalProxySession, syncGrowthProjectContext } from './UnifiedWorkspace';
+import { useGrowthWorkspaceStore, useKnowledgeWorkspaceStore } from '../store/knowledgeWorkspaceStore';
+import { detectMode, formatRuntimeError, isLocalProxySession, syncGrowthProjectContext, syncKnowledgeProjectContext } from './UnifiedWorkspace';
 
 describe('formatRuntimeError', () => {
   it('turns unreachable backend failures into a Vite proxy recovery action', () => {
@@ -47,5 +47,23 @@ describe('syncGrowthProjectContext', () => {
     syncGrowthProjectContext('   ');
 
     expect(useGrowthWorkspaceStore.getState().projectId).toBe('');
+  });
+});
+
+describe('syncKnowledgeProjectContext', () => {
+  it('sets the shared Knowledge project before the lazy workspace mounts', () => {
+    useKnowledgeWorkspaceStore.getState().setProjectId('default');
+
+    syncKnowledgeProjectContext(' proj_b8a285642094 ');
+
+    expect(useKnowledgeWorkspaceStore.getState().projectId).toBe('proj_b8a285642094');
+  });
+
+  it('propagates a project switch and explicit clear without falling back to default', () => {
+    syncKnowledgeProjectContext('project-next');
+    expect(useKnowledgeWorkspaceStore.getState().projectId).toBe('project-next');
+
+    syncKnowledgeProjectContext('   ');
+    expect(useKnowledgeWorkspaceStore.getState().projectId).toBe('');
   });
 });

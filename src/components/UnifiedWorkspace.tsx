@@ -69,6 +69,10 @@ export function syncGrowthProjectContext(projectId: string): void {
   useGrowthWorkspaceStore.getState().setProjectId(projectId.trim());
 }
 
+export function syncKnowledgeProjectContext(projectId: string): void {
+  useKnowledgeWorkspaceStore.getState().setProjectId(projectId.trim());
+}
+
 function includesModeSignal(text: string, signal: string): boolean {
   const normalized = signal.toLowerCase();
   if (!/^[a-z0-9]+(?:[ -][a-z0-9]+)*$/.test(normalized)) {
@@ -198,8 +202,20 @@ export function UnifiedWorkspace() {
   const businessModel = useWorkspace((s) => s.businessModel);
   const sop = useWorkspace((s) => s.sop);
   const workspaceIdea = useWorkspace((s) => s.idea);
-  const knowledgeProjectId = useKnowledgeWorkspaceStore((s) => s.projectId);
-  const setKnowledgeProjectId = useKnowledgeWorkspaceStore((s) => s.setProjectId);
+  const storeKnowledgeProjectId = useKnowledgeWorkspaceStore((s) => s.projectId);
+  const [knowledgeProjectId, setKnowledgeProjectId] = useState(storeKnowledgeProjectId);
+  const activateKnowledgeProject = useCallback((projectId: string) => {
+    const normalized = projectId.trim();
+    setKnowledgeProjectId(normalized);
+    syncKnowledgeProjectContext(normalized);
+  }, []);
+
+  // Keep the Studio-level selection stable when a lazy workspace mounts.
+  // An explicit blank field is still honored as the user's clear action.
+  useEffect(() => {
+    const normalized = storeKnowledgeProjectId.trim();
+    if (normalized && normalized !== knowledgeProjectId) setKnowledgeProjectId(normalized);
+  }, [knowledgeProjectId, storeKnowledgeProjectId]);
 
   const addLog = useCallback((type: LogType, text: string) => {
     const entry: LogEntry = { id: String(++logCounter), type, text, time: new Date().toLocaleTimeString('en-US', { hour12: false }) };
@@ -408,7 +424,7 @@ export function UnifiedWorkspace() {
           <button type="button" className="skill-trigger" onClick={() => setSkillsOpen(true)}>
             <Blocks size={15} aria-hidden="true" /> Skills
           </button>
-          <button type="button" className="skill-trigger" onClick={() => setKnowledgeOpen(true)}>
+          <button type="button" className="skill-trigger" onClick={() => { activateKnowledgeProject(knowledgeProjectId); setKnowledgeOpen(true); }}>
             <BookOpen size={15} aria-hidden="true" /> Knowledge
           </button>
           <button type="button" className="skill-trigger" onClick={() => { syncGrowthProjectContext(knowledgeProjectId); setGrowthOpen(true); }} disabled={!knowledgeProjectId.trim()} title={knowledgeProjectId.trim() ? 'Open the active project growth loop' : 'Select an authorized knowledge project first'}>
@@ -475,7 +491,7 @@ export function UnifiedWorkspace() {
               <input
                 type="text"
                 value={knowledgeProjectId}
-                onChange={(event) => setKnowledgeProjectId(event.target.value)}
+                onChange={(event) => activateKnowledgeProject(event.target.value)}
                 placeholder="Mapped knowledge project"
                 aria-label="Project knowledge context ID"
                 autoComplete="off"
@@ -604,9 +620,9 @@ export function UnifiedWorkspace() {
 
       <footer className="studio-footer"><span>{mode === 'auto' && detectedMode ? `Auto -> ${MODE_LABELS[detectedMode]}` : MODE_LABELS[effectiveMode]}</span><span>Project: {knowledgeProjectId || 'unscoped'}</span><span>Session: {sessionDisplay}</span>{compiling && <span className="is-live">pipeline active</span>}{dashData && <span>coverage: {dashData.risk.coverage.coverage_pct}%</span>}<span className="studio-footer__right">BSC Studio 5.0</span></footer>
       {skillsOpen && <SkillMarket onClose={() => setSkillsOpen(false)} context={input || workspaceIdea} />}
-      {knowledgeOpen && <Suspense fallback={<section className="knowledge-workspace" aria-label="Knowledge workspace"><div className="knowledge-loading" role="status">Loading knowledge workspace...</div></section>}><KnowledgeWorkspace onClose={() => setKnowledgeOpen(false)} runtimeAccessKey={runtimeAccessKey} /></Suspense>}
+      {knowledgeOpen && <Suspense fallback={<section className="knowledge-workspace" aria-label="Knowledge workspace"><div className="knowledge-loading" role="status">Loading knowledge workspace...</div></section>}><KnowledgeWorkspace onClose={() => setKnowledgeOpen(false)} runtimeAccessKey={runtimeAccessKey} activeProjectId={knowledgeProjectId} onProjectChange={activateKnowledgeProject} /></Suspense>}
       {growthOpen && <Suspense fallback={<section className="growth-workspace" aria-label="Knowledge growth workspace"><div className="growth-state" role="status">Loading growth workspace...</div></section>}><GrowthWorkspace onClose={() => setGrowthOpen(false)} runtimeAccessKey={runtimeAccessKey} /></Suspense>}
-      {operationsOpen && <Suspense fallback={<section className="operations-cockpit" aria-label="Knowledge operations cockpit"><div className="operations-loading" role="status">Loading knowledge operations...</div></section>}><KnowledgeOperationsCockpit onClose={() => setOperationsOpen(false)} initialProjectId={knowledgeProjectId} onOpenKnowledge={(projectId, entityId) => { setKnowledgeProjectId(projectId); useKnowledgeWorkspaceStore.getState().setNavigationTarget(entityId); setOperationsOpen(false); setKnowledgeOpen(true); }} onOpenGrowth={(projectId, entityId) => { setKnowledgeProjectId(projectId); const growthStore = useGrowthWorkspaceStore.getState(); growthStore.setProjectId(projectId); growthStore.setStage('review'); growthStore.setCenterView('assets'); growthStore.setSelectedId(entityId); setOperationsOpen(false); setGrowthOpen(true); }} onOpenDbos={(projectId, missionId, artifactId) => { setKnowledgeProjectId(projectId); setDbosMissionId(missionId); setDbosArtifactId(artifactId); setOperationsOpen(false); setDbosOpen(true); }} /></Suspense>}
+      {operationsOpen && <Suspense fallback={<section className="operations-cockpit" aria-label="Knowledge operations cockpit"><div className="operations-loading" role="status">Loading knowledge operations...</div></section>}><KnowledgeOperationsCockpit onClose={() => setOperationsOpen(false)} initialProjectId={knowledgeProjectId} onOpenKnowledge={(projectId, entityId) => { activateKnowledgeProject(projectId); useKnowledgeWorkspaceStore.getState().setNavigationTarget(entityId); setOperationsOpen(false); setKnowledgeOpen(true); }} onOpenGrowth={(projectId, entityId) => { activateKnowledgeProject(projectId); const growthStore = useGrowthWorkspaceStore.getState(); growthStore.setProjectId(projectId); growthStore.setStage('review'); growthStore.setCenterView('assets'); growthStore.setSelectedId(entityId); setOperationsOpen(false); setGrowthOpen(true); }} onOpenDbos={(projectId, missionId, artifactId) => { activateKnowledgeProject(projectId); setDbosMissionId(missionId); setDbosArtifactId(artifactId); setOperationsOpen(false); setDbosOpen(true); }} /></Suspense>}
       {pbosOpen && Boolean(knowledgeProjectId.trim()) && <Suspense fallback={<section className="pbos-cockpit" aria-label="Personal Growth Cockpit"><p className="pbos-empty">Loading personal growth evidence...</p></section>}><PersonalGrowthCockpit projectId={knowledgeProjectId} runtimeAccessKey={runtimeAccessKey} onClose={() => setPbosOpen(false)} onConfigureAccess={() => { setPbosOpen(false); window.requestAnimationFrame(() => runtimeAccessRef.current?.focus()); }} /></Suspense>}
       {dbosOpen && Boolean(knowledgeProjectId.trim()) && <Suspense fallback={<section className="dbos-control-center" aria-label="Business Control Center"><div className="dbos-message" role="status">Loading mission control center...</div></section>}><BusinessControlCenter onClose={() => setDbosOpen(false)} initialProjectId={knowledgeProjectId} initialMissionId={dbosMissionId} initialArtifactId={dbosArtifactId} initialRequestText={dbosInitialRequest} autoStartIntake={Boolean(dbosInitialRequest)} /></Suspense>}
     </div>

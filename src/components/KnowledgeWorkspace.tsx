@@ -24,7 +24,12 @@ import { InformationOperationsPanel } from './knowledge/InformationOperationsPan
 import { resolveStudioAccessStatus } from './knowledgeWorkspaceAccess';
 import { describeKnowledgeSource, selectDefaultKnowledgePage } from './knowledgePresentation';
 
-type Props = { onClose: () => void; runtimeAccessKey?: string };
+type Props = {
+  onClose: () => void;
+  runtimeAccessKey?: string;
+  activeProjectId?: string;
+  onProjectChange?: (projectId: string) => void;
+};
 type GraphNodeData = { record: KnowledgeGraphNode; label: string };
 type KnowledgeGraphFocus = { nodes: KnowledgeGraphNode[]; edges: KnowledgeGraphEdge[] };
 const MOBILE_GRAPH_FOCUS_LIMIT = 8;
@@ -100,7 +105,7 @@ export function selectKnowledgeGraphFocus(
   };
 }
 
-export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
+export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '', activeProjectId = '', onProjectChange }: Props) {
   const {
     projectId, workspace, sources, runs, schedules, graph, proposals, pages, distillations, health, trend,
     selectedPage, selectedSource, selectedProposal, selectedRun, selectedDistillation, proposalBaselines,
@@ -127,6 +132,12 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
   const [workspaceProjects, setWorkspaceProjects] = useState<KnowledgeWorkspaceProject[]>([]);
   const [workspaceProjectsError, setWorkspaceProjectsError] = useState('');
   const feishuExportInput = useRef<HTMLInputElement>(null);
+
+  const activateProject = useCallback((nextProjectId: string) => {
+    const normalized = nextProjectId.trim();
+    setProjectId(normalized);
+    onProjectChange?.(normalized);
+  }, [onProjectChange, setProjectId]);
 
   const load = useCallback(async (graphFilter = graphEdgeType) => {
     const requestedProject = projectId.trim();
@@ -158,6 +169,10 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
 
   useEffect(() => { void load(graphEdgeType); }, [graphEdgeType, load, runtimeAccessKey]);
   useEffect(() => { setProjectDraft(projectId); }, [projectId]);
+  useEffect(() => {
+    const normalized = activeProjectId.trim();
+    if (normalized && normalized !== projectId) setProjectId(normalized);
+  }, [activeProjectId, projectId, setProjectId]);
   useEffect(() => {
     if (!runtimeAccessKey.trim()) {
       setWorkspaceProjects([]);
@@ -588,7 +603,7 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
       <div className="knowledge-workspace__title"><span className="eyebrow"><BookOpen size={14} /> KNOWLEDGE WORKSPACE</span><h2>Evidence, proposals, and growth loops.</h2><p>Project-scoped Wiki maintenance with evidence, gates, and replayable execution.</p></div>
       <div className="knowledge-workspace__actions">
         <label><span>Project</span><select value={projectDraft} onChange={(event) => setProjectDraft(event.target.value)} aria-label="Knowledge project" disabled={loading && !workspace}><option value="" disabled>Select an authorized project</option>{projectOptions(projectId, workspaceProjects).map((project) => <option value={project.id} key={project.id}>{project.name || project.id}</option>)}</select></label>
-        <button type="button" className="knowledge-project-open" onClick={() => setProjectId(projectDraft)} disabled={!projectDraft || projectDraft === projectId || (loading && !workspace)} title="Load the selected authorized project">Open project</button>
+        <button type="button" className="knowledge-project-open" onClick={() => activateProject(projectDraft)} disabled={!projectDraft || projectDraft === projectId || (loading && !workspace)} title="Load the selected authorized project">Open project</button>
         {workspaceProjectsError && <span className="knowledge-project-discovery-error" role="status">Project list unavailable; current project remains open.</span>}
         <span className={`knowledge-runtime-state ${accessStatus.verified ? 'is-ready' : 'is-warning'}`} title={accessStatus.detail}>{accessStatus.label}</span>
         <button onClick={() => void runJob('source_sync')} disabled={actionBusy || !canWrite || workspace?.features.obsidian_sync === false} title={workspace?.features.obsidian_sync === false ? 'Obsidian synchronization is disabled by configuration' : 'Capture user-authored Obsidian material as immutable evidence'}><Download size={15} /> Sync</button>
