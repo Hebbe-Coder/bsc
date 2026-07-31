@@ -327,3 +327,128 @@ source bodies, credentials, or Vault data.
   governed connection states, but a fully authorized visual check remains
   dependent on a user-authenticated Studio session. This does not weaken the
   API, receipt-ledger, or component-test evidence above.
+
+## Local REST Probe And Dispatch Audit
+
+Date: 2026-07-31
+Scope: make the installed Obsidian Local REST integration observable without
+reading plugin files or note bodies, and retain a bounded audit record for
+every BSC-initiated n8n source check.
+
+### Implementation And Verification
+
+- Committed implementation: `ffe3f60 feat(knowledge): probe local obsidian
+  rest safely`.
+- The Local REST probe accepts only an explicitly configured local HTTPS
+  endpoint, performs one bounded manifest request with an environment-only
+  token, and returns only state, detail code, transport, plugin identity, and
+  a bounded version. It cannot list, read, or write Obsidian notes.
+- `uv run pytest tests/knowledge/test_obsidian_local_rest.py
+  tests/api/test_knowledge_workspace_api.py
+  tests/api/test_knowledge_intelligence_api.py
+  tests/test_n8n_information_intelligence_compose.py -q`
+  - 41 tests passed.
+- `npm run test:frontend -- src/components/KnowledgeWorkspace.test.tsx
+  src/components/knowledge/InformationOperationsPanel.test.tsx`
+  - 2 files and 22 tests passed.
+- `npm run check`, `docker compose --profile full config --quiet`, and
+  `git diff --check` passed before deployment.
+
+### Runtime Result
+
+- Rebuilt the API image from `ffe3f60`; the replacement API container is
+  healthy. n8n, PostgreSQL, Redis, Worker, and Beat remain healthy.
+- A real signed manual RSS check created audit run `d76c34d5ead9` with status
+  `completed`. Its bounded output reports five claimed batches, five verified
+  batches, five verified receipts, and no pending batch IDs. The API response
+  and the persisted run ledger agree.
+- The project workspace returns Local REST state `unconfigured` with detail
+  `disabled` and transport `not_configured`. Because no runtime Local REST
+  token and endpoint were supplied, BSC did not read a plugin configuration,
+  open an Obsidian note, or make a connector request.
+
+### Remaining External Boundary
+
+- Turning this status into `connected` requires the user to explicitly set
+  `OBSIDIAN_LOCAL_REST_ENABLED`, a local HTTPS endpoint, and the plugin token
+  in ignored runtime configuration. BSC will then perform only the manifest
+  health probe; filesystem Vault sync remains the source/knowledge path.
+
+## Obsidian Local REST Boundary Regression
+
+Date: 2026-07-31
+Scope: keep the optional Local REST health indicator inside its explicit,
+metadata-only, authorized boundary.
+
+### Boundary
+
+- No Local REST endpoint, Obsidian process, Vault file, plugin setting, source
+  body, or original user file was read or modified.
+- No network request was made. The new API seam regression replaces
+  `httpx.Client` with a failing sentinel and uses a temporary database.
+- The indicator remains a health probe only. It is not a source bridge and it
+  neither lists files nor reads/writes note content.
+
+### Verification
+
+- `./.venv/Scripts/python.exe -m pytest
+  tests/api/test_knowledge_workspace_api.py
+  tests/knowledge/test_obsidian_local_rest.py -q`
+  - Passed: 31 tests. The added Workspace regression proves that an
+    unauthenticated request is rejected before probe construction, and that a
+    configured-but-disabled connector produces `unconfigured` without
+    constructing an HTTP client.
+- `npm run test:frontend -- --run
+  src/components/KnowledgeWorkspace.test.tsx`
+  - Passed: 14 tests, including redacted connected/rejected Local REST status
+    presentation.
+- `npm run check` and scoped `git diff --check` passed. Git emitted only CRLF
+  normalization warnings.
+
+### Operational Status
+
+- Local REST remains optional. This regression verifies fail-closed behavior
+  in code; it does not claim a new authenticated plugin connection, Obsidian
+  restart, or evidence import in this increment.
+
+### Composite Revalidation
+
+- The combined local regression command covering Operations, DBOS, Growth,
+  Workspace, information intelligence, n8n contracts, and Local REST passed
+  with `110 passed, 1 warning`.
+- The combined focused frontend command for Knowledge Workspace and governed
+  information operations passed with `22 passed`.
+- `npm run build` passed with the existing ECharts vendor chunk advisory
+  (`598.72 kB` minified); `docker compose --profile full config --quiet`
+  passed; `git diff --check` passed with only CRLF normalization warnings.
+
+## Full Regression And Runtime Recheck
+
+Date: 2026-07-31
+Scope: verify the current integrated knowledge-intelligence implementation
+after the durable manual-dispatch audit regression was repaired.
+
+### Automated Verification
+
+- `./.venv/Scripts/python.exe -m pytest -q`
+  - Passed: 1605 tests. Skipped: 14 environment-dependent tests. No failures.
+  - The suite includes the four-outcome `information_manual_dispatch` audit
+    regression and all current API, DBOS, MCP, knowledge, orchestration, and
+    integration contracts.
+- `npm run test:frontend`
+  - Passed: 23 test files and 200 tests.
+- `npm run check`
+  - Passed: TypeScript project check completed without errors.
+- `npm run build`
+  - Passed: Vite production build completed successfully.
+  - Follow-up: the existing ECharts vendor bundle is 598.72 kB minified and
+    emits Vite's chunk-size advisory. This is a performance optimization item,
+    not a build failure or a claim that code splitting has been completed.
+
+### Runtime Recheck
+
+- Docker reports the BSC API, PostgreSQL, Redis, and n8n containers as
+  `healthy`; Celery worker and beat are running.
+- This check neither reads nor writes source bodies, Vault files, external
+  credentials, or Obsidian plugin data. It confirms local service liveness,
+  not a new external capture or authenticated browser-session proof.
