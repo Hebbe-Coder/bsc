@@ -1,7 +1,7 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import ReactFlow, { Background, Controls, type Edge, type Node } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { AlertTriangle, Box, ChevronLeft, ChevronRight, FileBarChart2, Image, Network, Table2, X } from 'lucide-react';
+import { Box, ChevronLeft, ChevronRight, FileBarChart2, FileText, Image, Network, X } from 'lucide-react';
 
 import { fetchKnowledgeEvidence, fetchKnowledgeEvidenceRecord, fetchKnowledgeImageThumbnail, fetchKnowledgeTablePreview, type KnowledgeEvidenceData, type KnowledgeEvidenceRecord, type KnowledgeTablePreview } from '../../api/knowledgeWorkspaceApi';
 
@@ -27,8 +27,36 @@ const RECORD_TYPES = ['all', 'source', 'asset', 'extraction', 'table', 'referenc
 
 type EvidenceRecordTypeFilter = typeof RECORD_TYPES[number];
 export type EvidenceFilters = { recordType: EvidenceRecordTypeFilter; status: string; query: string };
+type EvidenceCompositionRecordType = Exclude<EvidenceRecordTypeFilter, 'all'>;
+export type EvidenceCompositionEntry = {
+  recordType: EvidenceCompositionRecordType;
+  label: string;
+  count: number;
+  color: string;
+};
 type FilteredEvidence = Pick<KnowledgeEvidenceData, 'sources' | 'assets' | 'extractions' | 'tables' | 'references' | 'timeline' | 'graph'> & { records: KnowledgeEvidenceRecord[]; active: boolean };
 type EvidenceGraphOptions = { focusLimit?: number; compact?: boolean; collapseAssetBridges?: boolean };
+
+const EVIDENCE_COMPOSITION_STYLE: Array<Pick<EvidenceCompositionEntry, 'recordType' | 'label' | 'color'>> = [
+  { recordType: 'source', label: 'Sources', color: '#63b7d2' },
+  { recordType: 'asset', label: 'Assets', color: '#d6a85c' },
+  { recordType: 'extraction', label: 'Extractions', color: '#56bd9c' },
+  { recordType: 'table', label: 'Tables', color: '#8999e7' },
+  { recordType: 'reference', label: 'References', color: '#ca91d7' },
+];
+
+export function evidenceComposition(
+  data: Pick<KnowledgeEvidenceData, 'sources' | 'assets' | 'extractions' | 'tables' | 'references'>,
+): EvidenceCompositionEntry[] {
+  const records: Record<EvidenceCompositionRecordType, KnowledgeEvidenceRecord[]> = {
+    source: data.sources,
+    asset: data.assets,
+    extraction: data.extractions,
+    table: data.tables,
+    reference: data.references,
+  };
+  return EVIDENCE_COMPOSITION_STYLE.map((entry) => ({ ...entry, count: records[entry.recordType].length }));
+}
 
 function recordStatus(record: KnowledgeEvidenceRecord): string {
   return String(record.status || record.access_state || 'recorded');
@@ -449,6 +477,7 @@ export function EvidenceWorkspace({ projectId, refreshVersion = 0 }: Props) {
   const allRecords = useMemo(() => data ? [...data.sources, ...data.assets, ...data.extractions, ...data.tables, ...data.references] : [], [data]);
   const statuses = useMemo(() => [...new Set(allRecords.map(recordStatus))].sort(), [allRecords]);
   const records = scoped?.records || [];
+  const composition = useMemo(() => scoped ? evidenceComposition(scoped) : [], [scoped]);
   const evidenceGraphFocusLimit = isCompactViewport ? MOBILE_EVIDENCE_GRAPH_LIMIT : DESKTOP_EVIDENCE_GRAPH_LIMIT;
   const graph = scoped
     ? buildEvidenceGraph(scoped.graph, !showFullEvidenceGraph
@@ -456,6 +485,8 @@ export function EvidenceWorkspace({ projectId, refreshVersion = 0 }: Props) {
       : { compact: isCompactViewport, collapseAssetBridges: true })
     : { nodes: [], edges: [], persistedEdges: [], nodeLabels: {}, collapsedAssetNodeCount: 0, hiddenEdgeCount: 0, hiddenUnconnectedNodeCount: 0, hiddenFocusedNodeCount: 0, connectedNodeCount: 0, focusApplied: false };
   const visibleTables = scoped?.tables || [];
+  const visibleDerived = (scoped?.extractions.length || 0) + visibleTables.length;
+  const totalDerived = Object.values(data?.summary.extractions || {}).reduce((total, value) => total + value, 0) + (data?.summary.tables || 0);
   const pagedTables = visibleTables.slice(tablePage * TABLE_PAGE_SIZE, tablePage * TABLE_PAGE_SIZE + TABLE_PAGE_SIZE);
   const tablePageCount = Math.max(1, Math.ceil(visibleTables.length / TABLE_PAGE_SIZE));
   const visualItems = scoped ? visualEvidence(scoped.extractions, scoped.assets) : [];
@@ -475,24 +506,34 @@ export function EvidenceWorkspace({ projectId, refreshVersion = 0 }: Props) {
     void import('../charts/echartsRuntime').then(({ echarts }) => {
       if (!element.isConnected) return;
       chart = echarts.init(element, undefined, { renderer: 'canvas' });
-      const entries = Object.entries(countStatuses(scoped.extractions));
       chart.setOption({
         animation: !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
-        grid: { top: 18, right: 16, bottom: 24, left: 36 },
-        xAxis: { type: 'category', data: entries.map(([status]) => status), axisLabel: { color: '#a7b8c5', fontSize: 10 }, axisLine: { lineStyle: { color: '#3d515f' } } },
+        aria: {
+          enabled: true,
+          description: `Evidence composition: ${composition.map((entry) => `${entry.label} ${entry.count}`).join(', ')}. Select a category to filter persisted metadata.`,
+        },
+        grid: { top: 18, right: 16, bottom: 28, left: 36 },
+        xAxis: { type: 'category', data: composition.map((entry) => entry.label), axisLabel: { color: '#a7b8c5', fontSize: 10 }, axisLine: { lineStyle: { color: '#3d515f' } } },
         yAxis: { type: 'value', minInterval: 1, axisLabel: { color: '#a7b8c5', fontSize: 10 }, splitLine: { lineStyle: { color: '#263a48' } } },
-        series: [{ type: 'bar', data: entries.map(([, count]) => count), barMaxWidth: 28, itemStyle: { color: '#43b79e' }, emphasis: { focus: 'series' } }],
-        tooltip: { trigger: 'axis' },
+        series: [{
+          type: 'bar',
+          data: composition.map((entry) => ({ value: entry.count, itemStyle: { color: entry.color } })),
+          barMaxWidth: 34,
+          emphasis: { focus: 'series' },
+        }],
+        tooltip: { trigger: 'axis', valueFormatter: (value: number | string) => `${value} persisted record${Number(value) === 1 ? '' : 's'}` },
       });
       chart.on('click', (event: { name?: string }) => {
-        const extraction = scoped.extractions.find((item) => recordStatus(item) === event.name);
-        if (extraction) open('extraction', extraction.id);
+        const selectedType = composition.find((entry) => entry.label === event.name)?.recordType;
+        if (!selectedType) return;
+        setTablePage(0);
+        setFilters((current) => ({ ...current, recordType: selectedType, status: '', query: '' }));
       });
       resize = new ResizeObserver(() => chart?.resize());
       resize.observe(element);
     });
     return () => { resize?.disconnect(); chart?.dispose(); };
-  }, [open, scoped]);
+  }, [composition, scoped]);
   const selectNode = (_: unknown, node: Node<EvidenceGraphNodeData>) => {
     if (node.data.recordType && node.data.recordId) {
       open(node.data.recordType, node.data.recordId);
@@ -520,13 +561,13 @@ export function EvidenceWorkspace({ projectId, refreshVersion = 0 }: Props) {
     {error && <p className="evidence-error" role="alert">{error}</p>}
     {!data ? <p className="evidence-empty">Loading project evidence...</p> : <>
       <div className="evidence-summary">
-        <Metric icon={<Box size={17} />} label="Assets" value={scoped?.assets.length || 0} detail={scopeDetail(scoped?.assets.length || 0, data.summary.assets, `${data.summary.sources} source records`)} />
-        <Metric icon={<FileBarChart2 size={17} />} label="Extractions" value={scoped?.extractions.length || 0} detail={scopeDetail(scoped?.extractions.length || 0, Object.values(data.summary.extractions).reduce((total, value) => total + value, 0), statusDetail(countStatuses(scoped?.extractions || [])))} />
-        <Metric icon={<Table2 size={17} />} label="Tables" value={visibleTables.length} detail={scopeDetail(visibleTables.length, data.summary.tables, `${data.summary.references} typed references`)} />
-        <Metric icon={<AlertTriangle size={17} />} label="Unavailable tools" value={Object.values(data.capabilities).filter((item) => item.state === 'unavailable').length} detail={Object.entries(data.capabilities).filter(([, item]) => item.state === 'unavailable').map(([name]) => name).join(', ') || 'None'} />
+        <Metric icon={<FileText size={17} />} label="Sources" value={scoped?.sources.length || 0} detail={scopeDetail(scoped?.sources.length || 0, data.summary.sources, statusDetail(countStatuses(scoped?.sources || [])))} />
+        <Metric icon={<Box size={17} />} label="Assets" value={scoped?.assets.length || 0} detail={scopeDetail(scoped?.assets.length || 0, data.summary.assets, 'No captured media assets yet')} />
+        <Metric icon={<FileBarChart2 size={17} />} label="Derived records" value={visibleDerived} detail={scopeDetail(visibleDerived, totalDerived, `${scoped?.extractions.length || 0} extractions / ${visibleTables.length} tables`)} />
+        <Metric icon={<Network size={17} />} label="References" value={scoped?.references.length || 0} detail={scopeDetail(scoped?.references.length || 0, data.summary.references, 'Typed persisted relationships')} />
       </div>
       <div className="evidence-layout">
-        <article className="evidence-card evidence-card--chart"><header><strong>Extraction states</strong><small>Persisted derivatives</small></header><div ref={chartRef} className="evidence-chart" aria-label="Extraction status chart" /></article>
+        <article className="evidence-card evidence-card--chart"><header><strong>Evidence composition</strong><small>Persisted records by type</small></header><div ref={chartRef} className="evidence-chart" aria-label={`Evidence composition chart: ${composition.map((entry) => `${entry.label} ${entry.count}`).join(', ')}`} /><nav className="evidence-composition-actions" aria-label="Evidence composition filters">{composition.map((entry) => <button type="button" key={entry.recordType} aria-label={`Filter evidence to ${entry.label}: ${entry.count} records`} aria-pressed={filters.recordType === entry.recordType} onClick={() => updateFilters({ recordType: entry.recordType, status: '', query: '' })}><span>{entry.label}</span><strong>{entry.count}</strong></button>)}</nav></article>
         <article className="evidence-card evidence-card--timeline"><header><strong>Research timeline</strong><small>{scoped?.timeline.length || 0} visible events</small></header><ol>{(scoped?.timeline || []).slice(0, 8).map((item) => <li key={`${item.record_type}:${item.id}`}><button type="button" onClick={() => open(item.record_type, item.id)}><span>{RECORD_LABELS[item.record_type]}</span><strong>{item.status || 'recorded'}</strong><small>{formatTime(item.occurred_at)}</small></button></li>)}</ol>{!scoped?.timeline.length && <p className="evidence-empty">No persisted events match this evidence view.</p>}</article>
         <article className="evidence-card evidence-card--catalog"><header><strong>Reference browser</strong><small>{records.length} metadata records</small></header><ol>{records.slice(0, 12).map((record) => <li key={`${record.record_type}:${record.id}`}><button type="button" onClick={() => open(record.record_type, record.id)}><span>{RECORD_LABELS[record.record_type]}</span><strong>{recordLabel(record)}</strong><small>{recordStatus(record)}</small></button></li>)}</ol>{!records.length && <p className="evidence-empty">No persisted records match this evidence view.</p>}</article>
         <article className="evidence-card evidence-card--inspector"><header><strong>Evidence inspector</strong><small>Metadata only</small></header>{selected ? <dl>{Object.entries(selected).filter(([key]) => !['metadata', 'record_type'].includes(key)).map(([key, value]) => <div key={key}><dt>{key.replace(/_/g, ' ')}</dt><dd>{typeof value === 'object' ? JSON.stringify(value) : String(value)}</dd></div>)}{'metadata' in selected && <div><dt>metadata</dt><dd>{JSON.stringify(selected.metadata || {})}</dd></div>}</dl> : <p className="evidence-empty">Select a timeline item, catalog row, chart bar, or graph node to inspect persisted metadata.</p>}</article>

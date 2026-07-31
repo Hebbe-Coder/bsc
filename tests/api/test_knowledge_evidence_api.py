@@ -1,3 +1,6 @@
+import re
+import socket
+
 from fastapi.testclient import TestClient
 from PIL import Image
 
@@ -6,6 +9,21 @@ from app.core.config import settings
 from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.wiki_contracts import ExtractionArtifact, ExtractionStatus, MediaAsset, ReferenceLink, SourceRecord, TableArtifact
 from app.main import app
+
+
+_FORBIDDEN_EVIDENCE_BODY_FIELDS = frozenset({
+    "raw_content", "content", "claim_text", "prompt", "provider_response",
+})
+
+
+def _assert_redacted_evidence_payload(value):
+    if isinstance(value, dict):
+        assert not _FORBIDDEN_EVIDENCE_BODY_FIELDS.intersection(value), value
+        for nested in value.values():
+            _assert_redacted_evidence_payload(nested)
+    elif isinstance(value, list):
+        for nested in value:
+            _assert_redacted_evidence_payload(nested)
 
 
 def test_evidence_api_returns_project_scoped_read_models_without_source_or_derivative_bodies(tmp_path):
@@ -115,6 +133,7 @@ def test_evidence_api_returns_project_scoped_read_models_without_source_or_deriv
         response = client.get("/knowledge/evidence/projects/project-a?limit=10", headers=headers)
         assert response.status_code == 200
         payload = response.json()["data"]
+        _assert_redacted_evidence_payload(payload)
         assert payload["state"] == "available"
         assert payload["summary"]["assets"] == 1
         assert payload["summary"]["extractions"]["complete"] == 1
@@ -156,17 +175,99 @@ def test_evidence_api_returns_project_scoped_read_models_without_source_or_deriv
 
         detail = client.get("/knowledge/evidence/projects/project-a/records/extraction/extract-a", headers=headers)
         assert detail.status_code == 200
+        _assert_redacted_evidence_payload(detail.json()["data"])
         assert detail.json()["data"]["record"]["id"] == "extract-a"
         assert "content" not in detail.json()["data"]["record"]
 
         source_detail = client.get("/knowledge/evidence/projects/project-a/records/source/source-a", headers=headers)
         assert source_detail.status_code == 200
+        _assert_redacted_evidence_payload(source_detail.json()["data"])
         assert source_detail.json()["data"]["record"]["id"] == "source-a"
         assert "raw_content" not in source_detail.text
 
         empty = client.get("/knowledge/evidence/projects/project-b", headers=headers)
         assert empty.status_code == 200
         assert empty.json()["data"]["state"] == "no_sample"
+    finally:
+        settings.API_KEY = previous_key
+        settings.KNOWLEDGE_WIKI_ENABLED = previous_enabled
+        app.dependency_overrides.clear()
+        repository.close()
+
+
+def test_evidence_overview_and_record_queries_are_metadata_only_read_only_and_offline(tmp_path, monkeypatch):
+    """Protect the default Atlas path from source-body reads, writes and network access."""
+    repository = GrowthRepository(db_path=str(tmp_path / "evidence-metadata-boundary.db"))
+    source = repository.create_source(
+        SourceRecord(
+            id="source-private-a",
+            project_id="project-a",
+            source_type="article",
+            origin="https://example.test/private",
+            content_hash="a" * 64,
+            raw_content="PRIVATE SOURCE BODY MUST NEVER BE QUERIED BY EVIDENCE ATLAS",
+        )
+    )
+    repository.record_publication(
+        project_id="project-a",
+        contents={"wiki/private.md": f"# Private claim\n[source:{source['id']}]\n"},
+        source_ids=[],
+    )
+    citation_id = repository.list_citations("project-a")[0]["id"]
+
+    executed_sql: list[str] = []
+    original_execute = repository._execute
+
+    def read_only_metadata_execute(sql: str, params: tuple = ()):
+        normalized = " ".join(sql.split())
+        executed_sql.append(normalized)
+        assert normalized.upper().startswith("SELECT "), normalized
+        assert "RAW_CONTENT" not in normalized.upper(), normalized
+        assert "CLAIM_TEXT" not in normalized.upper(), normalized
+        assert not re.search(r"\bCONTENT\b", normalized, flags=re.IGNORECASE), normalized
+        return original_execute(sql, params)
+
+    def reject_full_source_read(*_args, **_kwargs):
+        raise AssertionError("Evidence Atlas must use the metadata-only source projection")
+
+    def reject_network(*_args, **_kwargs):
+        raise AssertionError("Evidence Atlas metadata reads must not access the network")
+
+    monkeypatch.setattr(repository, "_execute", read_only_metadata_execute)
+    monkeypatch.setattr(repository, "list_sources", reject_full_source_read)
+    monkeypatch.setattr(repository, "get_source", reject_full_source_read)
+    monkeypatch.setattr(repository, "list_citations", reject_full_source_read)
+    monkeypatch.setattr(repository, "get_citation", reject_full_source_read)
+    monkeypatch.setattr(socket, "create_connection", reject_network)
+
+    previous_key = settings.API_KEY
+    previous_enabled = settings.KNOWLEDGE_WIKI_ENABLED
+    settings.API_KEY = "evidence-key"
+    settings.KNOWLEDGE_WIKI_ENABLED = True
+    app.dependency_overrides[get_evidence_repository] = lambda: repository
+    client = TestClient(app)
+    try:
+        headers = {"Authorization": "Bearer evidence-key"}
+        overview = client.get("/knowledge/evidence/projects/project-a", headers=headers)
+        assert overview.status_code == 200
+        _assert_redacted_evidence_payload(overview.json()["data"])
+        assert overview.json()["data"]["summary"] == {
+            "sources": 1,
+            "assets": 0,
+            "extractions": {},
+            "tables": 0,
+            "references": 1,
+            "source_statuses": {"captured": 1},
+            "denominator": 2,
+        }
+
+        detail = client.get(
+            f"/knowledge/evidence/projects/project-a/records/reference/citation:{citation_id}",
+            headers=headers,
+        )
+        assert detail.status_code == 200
+        _assert_redacted_evidence_payload(detail.json()["data"])
+        assert executed_sql
     finally:
         settings.API_KEY = previous_key
         settings.KNOWLEDGE_WIKI_ENABLED = previous_enabled

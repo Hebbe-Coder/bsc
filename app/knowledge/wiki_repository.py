@@ -327,6 +327,25 @@ class WikiRepository(BaseRepository):
             ).fetchall()
         return [self._decode(row, ("metadata_json",)) or {} for row in rows]
 
+    def get_evidence_source_metadata(self, project_id: str, source_id: str) -> dict[str, Any] | None:
+        """Read one Evidence Atlas source projection without selecting its body."""
+        row = self._execute(
+            "SELECT id,project_id,source_type,origin,vault_path,content_hash,trust_level,status,metadata_json,"
+            "supersedes_id,captured_at,updated_at FROM knowledge_sources WHERE project_id=? AND id=?",
+            (project_id, source_id),
+        ).fetchone()
+        return self._decode(row, ("metadata_json",))
+
+    def list_evidence_source_metadata(self, project_id: str) -> list[dict[str, Any]]:
+        """List Evidence Atlas source metadata without loading ``raw_content``."""
+        rows = self._execute(
+            "SELECT id,project_id,source_type,origin,vault_path,content_hash,trust_level,status,metadata_json,"
+            "supersedes_id,captured_at,updated_at FROM knowledge_sources WHERE project_id=? "
+            "ORDER BY captured_at DESC,id DESC",
+            (project_id,),
+        ).fetchall()
+        return [self._decode(row, ("metadata_json",)) or {} for row in rows]
+
     def get_source_reference_candidate(self, project_id: str, source_id: str) -> dict[str, Any] | None:
         """Return only the immutable source identifiers needed for link projection."""
         row = self._execute(
@@ -1095,6 +1114,27 @@ class WikiRepository(BaseRepository):
                     (project_id,),
                 ).fetchall()
         return [self._decode(row) or {} for row in rows]
+
+    def list_evidence_citation_metadata(self, project_id: str, *, include_stale: bool = False) -> list[dict[str, Any]]:
+        """List citation lineage without selecting immutable Wiki claim text."""
+        query = (
+            "SELECT id,project_id,wiki_page_id,source_id,anchor,status,created_at "
+            "FROM knowledge_citations WHERE project_id=?"
+        )
+        if not include_stale:
+            query += " AND status='active'"
+        query += " ORDER BY wiki_page_id,id"
+        rows = self._execute(query, (project_id,)).fetchall()
+        return [self._decode(row) or {} for row in rows]
+
+    def get_evidence_citation_metadata(self, project_id: str, citation_id: str) -> dict[str, Any] | None:
+        """Read citation lineage metadata without selecting its immutable claim text."""
+        row = self._execute(
+            "SELECT id,project_id,wiki_page_id,source_id,anchor,status,created_at "
+            "FROM knowledge_citations WHERE project_id=? AND id=?",
+            (project_id, citation_id),
+        ).fetchone()
+        return self._decode(row)
 
     def get_citation(self, project_id: str, citation_id: str) -> dict | None:
         """Return one project-scoped Wiki citation for a redacted read projection."""

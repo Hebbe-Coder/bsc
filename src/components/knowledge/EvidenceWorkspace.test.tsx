@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { fetchKnowledgeEvidence, fetchKnowledgeEvidenceRecord, fetchKnowledgeImageThumbnail, fetchKnowledgeTablePreview, type KnowledgeEvidenceData } from '../../api/knowledgeWorkspaceApi';
-import { EvidenceWorkspace, buildEvidenceGraph, filterEvidence, visualEvidence } from './EvidenceWorkspace';
+import { EvidenceWorkspace, buildEvidenceGraph, evidenceComposition, filterEvidence, visualEvidence } from './EvidenceWorkspace';
 
 vi.mock('../../api/knowledgeWorkspaceApi', () => ({
   fetchKnowledgeEvidence: vi.fn(),
@@ -94,6 +94,40 @@ function richEvidenceSnapshot(): KnowledgeEvidenceData {
 }
 
 describe('EvidenceWorkspace graph projection', () => {
+  it('keeps captured sources and references visible in the composition when derivative layers are empty', () => {
+    const data = evidenceSnapshot('https://example.test/research');
+    data.references = [{
+      id: 'reference-a', record_type: 'reference', source_id: 'https://example.test/research',
+      target_type: 'wiki_page', target_id: 'overview', anchor_type: 'heading', anchor: 'Overview',
+      relation: 'supports', resolution_state: 'resolved', created_at: '2026-07-27T00:00:00Z',
+    }];
+
+    expect(evidenceComposition(data)).toEqual([
+      { recordType: 'source', label: 'Sources', count: 1, color: '#63b7d2' },
+      { recordType: 'asset', label: 'Assets', count: 0, color: '#d6a85c' },
+      { recordType: 'extraction', label: 'Extractions', count: 0, color: '#56bd9c' },
+      { recordType: 'table', label: 'Tables', count: 0, color: '#8999e7' },
+      { recordType: 'reference', label: 'References', count: 1, color: '#ca91d7' },
+    ]);
+  });
+
+  it('uses the composition controls to filter the persisted evidence inventory', async () => {
+    const data = evidenceSnapshot('https://example.test/research');
+    data.references = [{
+      id: 'reference-a', record_type: 'reference', source_id: 'https://example.test/research',
+      target_type: 'wiki_page', target_id: 'overview', anchor_type: 'heading', anchor: 'Overview',
+      relation: 'supports', resolution_state: 'resolved', created_at: '2026-07-27T00:00:00Z',
+    }];
+    vi.mocked(fetchKnowledgeEvidence).mockResolvedValue(data);
+
+    render(<EvidenceWorkspace projectId="default" />);
+    const sourceFilter = await screen.findByRole('button', { name: 'Filter evidence to Sources: 1 records' });
+    fireEvent.click(sourceFilter);
+
+    await waitFor(() => expect((screen.getByLabelText('Evidence record type') as HTMLSelectElement).value).toBe('source'));
+    expect(screen.getByText('1 of 2 persisted metadata records in view.')).toBeTruthy();
+  });
+
   it('keeps source nodes drillable and renders non-local reference targets explicitly', () => {
     const graph = buildEvidenceGraph({
       nodes: [

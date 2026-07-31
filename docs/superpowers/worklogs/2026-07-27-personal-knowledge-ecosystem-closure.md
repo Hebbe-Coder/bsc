@@ -1114,3 +1114,113 @@ criteria.
   container start time. No synchronization, external capture or Vault-body
   read was triggered as part of deployment. Future API and Celery capture
   paths now share the deployed idempotent metadata-reference behavior.
+
+## 2026-07-31 Local Studio Proxy Recovery And Metadata-Only Acceptance
+
+- Added a regression test for `scripts/provision_local_api_access.ps1` using
+  a temporary project with intentionally duplicated, stale Studio proxy keys.
+  The test verifies that provisioning retains only one backend `API_KEY`,
+  synchronizes exactly one `BSC_LOCAL_API_KEY`, preserves unrelated settings,
+  and never emits the credential in its JSON result.
+- Corrected `Set-EnvValue` so provisioning replaces the first matching key
+  and removes subsequent duplicates. This makes the backend and Vite proxy
+  configuration deterministic instead of reporting a successful write while
+  leaving multiple candidate values in place.
+- Ran the provisioner without `-Rotate`. The local backend and Studio values
+  are now single-entry and equal, as verified by a non-secret equality check,
+  lengths and a truncated one-way fingerprint. No credential was logged.
+- Restarted only the Vite Studio process on `127.0.0.1:5174` through
+  `start_authorized_studio.ps1`. An unauthenticated browser-side request to
+  `/knowledge/workspaces` returned `200`; the protected direct API request
+  also returned `200`, and the proxy response contained no credential echo.
+- Browser acceptance reopened `Personal Knowledge Intelligence` under its
+  authorized project scope. The project showed a connected Vault, five
+  verified plugin routes, persisted Horizon run state, five published Wiki
+  pages, 28 evidence records, 32 relations and 100% citation coverage. A
+  persisted URL source was selected in Evidence Atlas and its metadata-only
+  inspector displayed origin, provenance, hash, trust and status without
+  exposing a source body.
+- At `390x844`, Evidence Atlas, its source filter and selected metadata
+  inspector remained accessible with no document-level horizontal overflow.
+  The in-app browser host did not honor its attempted desktop viewport
+  override, so that host cannot be cited as a desktop-width visual proof in
+  this run. Existing desktop component tests remain the current desktop
+  coverage; the live mobile result is not misrepresented as desktop evidence.
+
+### Verification
+
+- `./.venv/Scripts/pytest.exe tests/test_local_api_provision.py
+  tests/test_authorized_studio_launcher.py -q` completed with `2 passed`.
+- Local proxy verification returned `proxy_status=200`, `direct_status=200`,
+  one visible authorized project response and `proxy_has_credential_echo=false`.
+- The provisioning flow did not rotate a secret, read a Vault or source body,
+  write any original knowledge file, call an external service, or trigger a
+  source synchronization task.
+
+## 2026-07-31 Evidence Atlas Composition And Truthful Zero-State Repair
+
+- Replaced the misleading derivative-first Evidence Atlas summary. The first
+  view now leads with persisted Sources and References, retains Assets and
+  Derived records as distinct lifecycle layers, and does not imply that a
+  project with zero assets/extractions/tables has zero usable evidence.
+- Replaced the empty-only `Extraction states` chart with an ECharts evidence
+  composition view for sources, assets, extractions, tables and references.
+  Each category is a persisted-record count with an explicit type color,
+  accessible chart description and keyboard-operable filter control. Selecting
+  a category filters the existing metadata inventory; it does not create or
+  alter evidence.
+- The live authorized project read returned `state=available`, `28` sources,
+  `0` assets, `0` extractions, `0` tables and `32` references. The response
+  envelope was checked only for countable arrays and top-level field names;
+  no source body, raw content, prompt or provider response field was present
+  or read.
+- The compact composition control switches to two columns below 520px, so five
+  evidence categories do not compress into an unreadable single row on mobile.
+- A first runtime probe used the obsolete evidence URL and returned `404`.
+  Its empty PowerShell object was discarded and not recorded as evidence. The
+  follow-up used the client contract route and returned `200`.
+
+### Verification
+
+- Added and passed focused regression coverage for a source/reference-only
+  project and for accessible composition filtering. `npm run test:frontend --
+  --run src/components/knowledge/EvidenceWorkspace.test.tsx
+  src/components/KnowledgeWorkspace.test.tsx` completed with `25 passed`.
+- Full frontend regression completed with `180 passed`; `npm run check` and
+  `npm run build` completed successfully. The build retains the existing
+  ECharts bundle-size warning; it is not hidden or treated as a pass/fail
+  result.
+- `./.venv/Scripts/pytest.exe tests/api/test_knowledge_evidence_api.py
+  tests/mcp/test_knowledge_evidence_tools.py -q` completed with `5 passed`.
+- This increment has real API and automated UI proof. A new browser screenshot
+  is intentionally still pending because the previous controlled browser
+  session had already been finalized before this source change.
+
+## 2026-07-31 Evidence Atlas Metadata-Only Regression Boundary
+
+- Replaced the Evidence Atlas source and Wiki citation reads with dedicated
+  metadata projections. These queries select source identity, provenance,
+  status, hashes and citation lineage only; they do not select source
+  `raw_content` or citation `claim_text`. The regular full-record repository
+  methods remain available to governed compiler and publication paths and were
+  not changed.
+- Added recursive response assertions for `raw_content`, `content`,
+  `claim_text`, `prompt` and `provider_response` to the Evidence Atlas API
+  regression. Added a stronger route-level test that rejects the old full
+  source/citation readers, rejects non-`SELECT` SQL, rejects body-column SQL,
+  and blocks outbound `socket.create_connection` calls while exercising the
+  overview and citation-record routes.
+- No Vault path was opened, no source or derivative body was read, no network
+  service was contacted, and no original file or database record was written
+  by this read-only verification.
+
+### Verification
+
+- `./.venv/Scripts/pytest.exe tests/api/test_knowledge_evidence_api.py
+  tests/mcp/test_knowledge_evidence_tools.py -q`: `6 passed`.
+- `./.venv/Scripts/pytest.exe tests/knowledge/test_multimodal_evidence.py
+  tests/knowledge/test_reference_projection.py
+  tests/api/test_knowledge_evidence_api.py
+  tests/mcp/test_knowledge_evidence_tools.py -q`: `20 passed`.
+- `git diff --check`: passed. The remaining warning is the repository's
+  existing CRLF normalization notice, not a whitespace error.

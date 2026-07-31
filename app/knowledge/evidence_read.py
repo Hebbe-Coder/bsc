@@ -65,7 +65,7 @@ class EvidenceReadService:
     def overview(self, project_id: str, *, limit: int = 100) -> dict[str, Any]:
         bounded_limit = max(1, min(int(limit), 200))
         source_records = [
-            item for item in self.repository.list_sources(project_id)
+            item for item in self.repository.list_evidence_source_metadata(project_id)
             if is_active_evidence_source(item)
         ]
         active_source_ids = {str(item["id"]) for item in source_records}
@@ -116,7 +116,7 @@ class EvidenceReadService:
 
     def record(self, project_id: str, record_type: str, record_id: str) -> dict[str, Any] | None:
         if record_type == "source":
-            value = self.repository.get_source(project_id, record_id)
+            value = self.repository.get_evidence_source_metadata(project_id, record_id)
             return self._source(value) if value and is_active_evidence_source(value) else None
         if record_type == "asset":
             value = self.repository.get_media_asset(project_id, record_id)
@@ -132,7 +132,7 @@ class EvidenceReadService:
             if value and self._source_is_visible(project_id, value.get("source_id")):
                 return self._reference(value)
             if record_id.startswith("citation:"):
-                citation = self.repository.get_citation(project_id, record_id.removeprefix("citation:"))
+                citation = self.repository.get_evidence_citation_metadata(project_id, record_id.removeprefix("citation:"))
                 return self._citation_reference(citation) if citation and self._source_is_visible(project_id, citation.get("source_id")) else None
             return None
         raise ValueError("unsupported evidence record type")
@@ -152,7 +152,7 @@ class EvidenceReadService:
         ]
         citations = [
             self._citation_reference(item)
-            for item in self.repository.list_citations(project_id, include_stale=True)
+            for item in self.repository.list_evidence_citation_metadata(project_id, include_stale=True)
             if str(item.get("source_id") or "") in active_source_ids
         ]
         return sorted([*explicit, *citations], key=lambda item: (str(item["created_at"]), str(item["id"])), reverse=True)
@@ -286,7 +286,7 @@ class EvidenceReadService:
     def _source_is_visible(self, project_id: str, source_id: Any) -> bool:
         if not source_id:
             return False
-        source = self.repository.get_source(project_id, str(source_id))
+        source = self.repository.get_evidence_source_metadata(project_id, str(source_id))
         return bool(source) and is_active_evidence_source(source)
 
     @staticmethod
