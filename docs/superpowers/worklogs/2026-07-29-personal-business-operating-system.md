@@ -1241,3 +1241,21 @@
   audit decision. Removing the generated managed projection is not a valid
   rollback because it would break ledger-to-Vault traceability; the existing
   Outcome remains an immutable lifecycle record.
+
+## 2026-07-31 Local Studio Authorization Verification
+
+- **Direct usability check:** an unauthenticated, same-origin request through
+  the live Studio at `http://127.0.0.1:5174` returned `200` for the protected
+  PBOS Cockpit. It read the real active plan, the pending Outcome, and the
+  profile-readiness state without a browser-supplied API key.
+- **Authorization boundary:** the local credential stays in the Vite
+  server-side proxy. It authenticates only loopback proxy requests to the
+  configured backend and is not supplied through client storage, form fields,
+  Artifact Graph records, Vault projections, or PBOS API responses.
+- **Static leakage check:** all 38 files in the current production `dist/`
+  build were scanned for the local credential; zero occurrences were found.
+  The public Studio marker reports proxy availability only and contains no
+  secret.
+- **Rollback:** start Studio without the authorised local-proxy launcher to
+  restore the explicit access-key gate. This does not rotate the backend key,
+  alter PBOS records, or expose a credential to the browser.
