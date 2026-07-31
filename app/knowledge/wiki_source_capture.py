@@ -19,6 +19,7 @@ from app.knowledge.wiki_contracts import (
     can_transition_source,
 )
 from app.knowledge.wiki_repository import WikiRepository
+from app.knowledge.reference_projection import SourceReferenceProjector
 
 
 def sha256_content(content: str | bytes) -> str:
@@ -405,11 +406,13 @@ class SourceCaptureService:
 
             search_index = WikiSearchIndex(repository)
         self.search_index = search_index
+        self.reference_projector = SourceReferenceProjector(repository)
 
     def capture(self, payload: CapturedSourceInput) -> CaptureResult:
         content_hash = payload.content_hash or sha256_content(payload.raw_content)
         existing = self.repository.find_source_by_content_hash(payload.project_id, content_hash)
         if existing:
+            self.reference_projector.project_source_id(payload.project_id, str(existing["id"]))
             assessment = self._assess(payload)
             self._record_attempt(
                 payload,
@@ -451,6 +454,7 @@ class SourceCaptureService:
             created["id"],
             {**created.get("metadata", {}), "projection": projection},
         )
+        self.reference_projector.project_source_id(payload.project_id, str(created["id"]))
         if prior and prior["status"] not in {SourceStatus.REJECTED.value, SourceStatus.SUPERSEDED.value}:
             self.repository.update_source_status(payload.project_id, prior["id"], SourceStatus.SUPERSEDED)
             self.repository.mark_source_citations_stale(payload.project_id, prior["id"])

@@ -99,7 +99,7 @@ describe('EvidenceWorkspace graph projection', () => {
       nodes: [
         { id: 'source-a', type: 'source', status: 'captured' },
         { id: 'asset-a', type: 'asset', status: 'available' },
-        { id: 'target:wiki_page:overview-a', type: 'target', status: 'resolved', target_type: 'wiki_page', target_id: 'overview-a' },
+        { id: 'target:wiki_page:overview-a', type: 'target', status: 'resolved', target_type: 'wiki_page', target_id: 'overview-a', anchor: 'Knowledge overview' },
       ],
       edges: [
         { id: 'source-asset', source: 'source-a', target: 'asset-a', relation: 'has_asset' },
@@ -113,6 +113,7 @@ describe('EvidenceWorkspace graph projection', () => {
 
     expect(graph.nodes.find((node) => node.id === 'source-a')?.data.recordType).toBe('source');
     expect(graph.nodes.find((node) => node.id === 'target:wiki_page:overview-a')?.data.recordType).toBeUndefined();
+    expect(graph.nodes.find((node) => node.id === 'target:wiki_page:overview-a')?.data.targetAnchor).toBe('Knowledge overview');
     expect(graph.edges.map((edge) => edge.id)).toEqual(['source-asset', 'source-wiki']);
   });
 

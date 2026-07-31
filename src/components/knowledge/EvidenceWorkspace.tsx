@@ -6,8 +6,8 @@ import { AlertTriangle, Box, ChevronLeft, ChevronRight, FileBarChart2, Image, Ne
 import { fetchKnowledgeEvidence, fetchKnowledgeEvidenceRecord, fetchKnowledgeImageThumbnail, fetchKnowledgeTablePreview, type KnowledgeEvidenceData, type KnowledgeEvidenceRecord, type KnowledgeTablePreview } from '../../api/knowledgeWorkspaceApi';
 
 type Props = { projectId: string; refreshVersion?: number };
-type EvidenceGraphNodeData = { label: string; recordType?: KnowledgeEvidenceRecord['record_type']; recordId?: string; targetType?: string; targetId?: string; status?: string };
-type ExternalEvidenceTarget = { id: string; record_type: 'external_target'; target_type: string; target_id: string; status: string };
+type EvidenceGraphNodeData = { label: string; recordType?: KnowledgeEvidenceRecord['record_type']; recordId?: string; targetType?: string; targetId?: string; targetAnchor?: string; status?: string };
+type ExternalEvidenceTarget = { id: string; record_type: 'external_target'; target_type: string; target_id: string; anchor?: string; status: string };
 type EvidenceSelection = KnowledgeEvidenceRecord | ExternalEvidenceTarget;
 type PersistedEvidenceEdge = KnowledgeEvidenceData['graph']['edges'][number];
 type EvidenceProjectionEdge = PersistedEvidenceEdge & { persistedEdgeIds: string[]; projectedAssetHop?: boolean };
@@ -159,7 +159,7 @@ export function buildEvidenceGraph(
     return {
       id: node.id,
       position: positions.get(node.id) || { x: 18, y: 24 },
-      data: { label: nodeLabels[node.id], recordType, recordId: recordType ? node.id : undefined, targetType: node.target_type, targetId: node.target_id, status: node.status },
+      data: { label: nodeLabels[node.id], recordType, recordId: recordType ? node.id : undefined, targetType: node.target_type, targetId: node.target_id, targetAnchor: node.anchor, status: node.status },
       className: `evidence-flow-node evidence-flow-node--${node.type}${options.compact ? ' evidence-flow-node--compact' : ''}`,
     };
   });
@@ -503,6 +503,7 @@ export function EvidenceWorkspace({ projectId, refreshVersion = 0 }: Props) {
       record_type: 'external_target',
       target_type: node.data.targetType || 'related_record',
       target_id: node.data.targetId || node.id,
+      ...(node.data.targetAnchor ? { anchor: node.data.targetAnchor } : {}),
       status: node.data.status || 'unavailable',
     });
   };

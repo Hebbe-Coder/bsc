@@ -92,6 +92,18 @@ def test_evidence_api_returns_project_scoped_read_models_without_source_or_deriv
             relation="explains",
         )
     )
+    repository.create_reference_link(
+        ReferenceLink(
+            id="reference-url-a",
+            project_id="project-a",
+            source_id=source["id"],
+            target_type="url",
+            target_id="url:2a3dbf6d9f11c0a7",
+            anchor_type="source_metadata",
+            anchor="https://doi.org/10.1234/example",
+            relation="declares_url",
+        )
+    )
     previous_key = settings.API_KEY
     previous_enabled = settings.KNOWLEDGE_WIKI_ENABLED
     settings.API_KEY = "evidence-key"
@@ -107,7 +119,7 @@ def test_evidence_api_returns_project_scoped_read_models_without_source_or_deriv
         assert payload["summary"]["assets"] == 1
         assert payload["summary"]["extractions"]["complete"] == 1
         assert payload["summary"]["tables"] == 1
-        assert payload["summary"]["references"] == 2
+        assert payload["summary"]["references"] == 3
         assert source["id"] in {item["id"] for item in payload["sources"]}
         redacted_vault = next(item for item in payload["sources"] if item["id"] == vault_source["id"])
         assert redacted_vault["origin"] == "vault-source:source-v"
@@ -117,7 +129,7 @@ def test_evidence_api_returns_project_scoped_read_models_without_source_or_deriv
         assert payload["tables"][0]["schema"] == ["month", "revenue_usd"]
         assert payload["graph"]["nodes"]
         assert {node["id"] for node in payload["graph"]["nodes"]} >= {
-            "source-a", "asset-a", "extract-a", "table-a", "target:wiki_page:wiki-overview-a",
+            "source-a", "asset-a", "extract-a", "table-a", "target:wiki_page:wiki-overview-a", "target:url:url:2a3dbf6d9f11c0a7",
         }
         labels = {node["id"]: node["label"] for node in payload["graph"]["nodes"]}
         assert labels["source-a"] == "Source: example.com/research"
@@ -126,6 +138,9 @@ def test_evidence_api_returns_project_scoped_read_models_without_source_or_deriv
         assert labels["extract-a"] == "Extraction: CSV table (complete)"
         assert labels["table-a"] == "Table: 2 rows"
         assert labels["target:wiki_page:wiki-overview-a"] == "Wiki page: wiki-ov"
+        assert labels["target:url:url:2a3dbf6d9f11c0a7"] == "URL: doi.org/10.1234/example"
+        url_target = next(item for item in payload["graph"]["nodes"] if item["id"] == "target:url:url:2a3dbf6d9f11c0a7")
+        assert url_target["anchor"] == "https://doi.org/10.1234/example"
         wiki_edge = next(edge for edge in payload["graph"]["edges"] if edge["id"] == "reference-wiki-a")
         assert wiki_edge["target"] == "target:wiki_page:wiki-overview-a"
         assert payload["graph"]["edges"]

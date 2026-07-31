@@ -233,6 +233,18 @@ def test_zotero_bridge_captures_citation_provenance_from_an_exported_note(tmp_pa
         assert metadata["zotero_item_key"] == "ABCD1234"
         assert metadata["extension"] == ".md"
         assert metadata["extraction_status"] == "complete"
+        references = repo.list_reference_links("project-a", source_id=source["id"])
+        assert {
+            (item["target_type"], item["anchor"], item["relation"])
+            for item in references
+        } == {
+            ("url", "https://doi.org/10.1234/example", "declares_url"),
+            ("doi", "10.1234/example", "declares_doi"),
+            ("citekey", "smith2025", "declares_citekey"),
+        }
+        repeat = ObsidianSyncService(repo, root).sync(project_id="project-a")
+        assert repeat["duplicates"] == 1
+        assert len(repo.list_reference_links("project-a", source_id=source["id"])) == 3
         assert status["runtime_configuration"] == {"state": "configured", "detail_code": "destination_matches_bridge"}
         assert status["status"] == "captured"
     finally:

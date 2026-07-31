@@ -454,7 +454,12 @@ class EvidenceReadService:
                         "status": reference["resolution_state"],
                         "target_type": reference["target_type"],
                         "target_id": target_id,
-                        "label": EvidenceReadService._target_graph_label(reference["target_type"], target_id),
+                        "anchor": str(reference.get("anchor") or ""),
+                        "label": EvidenceReadService._target_graph_label(
+                            str(reference["target_type"]),
+                            target_id,
+                            str(reference.get("anchor") or ""),
+                        ),
                     }
             all_edges.append({"id": reference["id"], "source": source_id, "target": graph_target_id, "relation": reference["relation"], "resolution_state": reference["resolution_state"]})
 
@@ -527,7 +532,15 @@ class EvidenceReadService:
         return _EXTRACTION_LABELS.get(extractor, extractor.replace("-", " ").title() or "Extraction")
 
     @staticmethod
-    def _target_graph_label(target_type: str, target_id: str) -> str:
+    def _target_graph_label(target_type: str, target_id: str, anchor: str = "") -> str:
+        if target_type == "url" and anchor:
+            parsed = urlsplit(anchor)
+            display = f"{parsed.hostname or 'web source'}{parsed.path or '/'}"
+            return f"URL: {EvidenceReadService._truncate_label(display)}"
+        if target_type == "doi" and anchor:
+            return f"DOI: {EvidenceReadService._truncate_label(anchor)}"
+        if target_type == "citekey" and anchor:
+            return f"Citekey: {EvidenceReadService._truncate_label(anchor)}"
         kind = target_type.replace("_", " ").capitalize() or "Target"
         return f"{kind}: {target_id[:7]}"
 

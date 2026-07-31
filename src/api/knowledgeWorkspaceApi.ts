@@ -193,7 +193,7 @@ export type KnowledgeEvidenceData = {
   tables: KnowledgeEvidenceRecord[];
   references: KnowledgeEvidenceRecord[];
   timeline: Array<{ id: string; record_type: KnowledgeEvidenceRecord['record_type']; status: string; occurred_at: string }>;
-  graph: { nodes: Array<{ id: string; type: string; status: string; label?: string; target_type?: string; target_id?: string }>; edges: Array<{ id: string; source: string; target: string; relation: string; resolution_state?: string }>; node_total: number; edge_total: number; omitted_edge_count: number; truncated: boolean };
+  graph: { nodes: Array<{ id: string; type: string; status: string; label?: string; target_type?: string; target_id?: string; anchor?: string }>; edges: Array<{ id: string; source: string; target: string; relation: string; resolution_state?: string }>; node_total: number; edge_total: number; omitted_edge_count: number; truncated: boolean };
   truncated: boolean;
 };
 export type KnowledgeTablePreview = {

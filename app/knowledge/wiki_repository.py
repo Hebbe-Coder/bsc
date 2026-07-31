@@ -327,6 +327,22 @@ class WikiRepository(BaseRepository):
             ).fetchall()
         return [self._decode(row, ("metadata_json",)) or {} for row in rows]
 
+    def get_source_reference_candidate(self, project_id: str, source_id: str) -> dict[str, Any] | None:
+        """Return only the immutable source identifiers needed for link projection."""
+        row = self._execute(
+            "SELECT id,project_id,origin,metadata_json FROM knowledge_sources WHERE project_id=? AND id=?",
+            (project_id, source_id),
+        ).fetchone()
+        return self._decode(row, ("metadata_json",))
+
+    def list_source_reference_candidates(self, project_id: str, limit: int = 10_000) -> list[dict[str, Any]]:
+        """List metadata-only reference candidates without selecting source bodies."""
+        rows = self._execute(
+            "SELECT id,project_id,origin,metadata_json FROM knowledge_sources WHERE project_id=? ORDER BY captured_at DESC,id DESC LIMIT ?",
+            (project_id, max(1, min(int(limit), 10_000))),
+        ).fetchall()
+        return [self._decode(row, ("metadata_json",)) or {} for row in rows]
+
     # Information-intelligence tables are deliberately separate from the Wiki
     # lifecycle. The registry is discovery configuration; receipts are the
     # audit ledger that connects an untrusted producer to BSC evidence.

@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_source_capture import CapturedSourceInput, SourceCaptureService
 from app.knowledge.wiki_contracts import MediaAsset, SourceStatus
+from app.knowledge.reference_projection import SourceReferenceProjector
 from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
 from app.knowledge.obsidian_metadata import is_managed_index_path
 from app.knowledge.obsidian_source_projection import is_managed_evidence_path
@@ -26,6 +27,7 @@ class ObsidianSyncService:
         if not self.vault_root.is_dir():
             raise ValueError("Obsidian Vault root does not exist")
         self.capture_service = SourceCaptureService(repository)
+        self.reference_projector = SourceReferenceProjector(repository)
 
     def sync(self, *, project_id: str) -> dict[str, int]:
         report = {"scanned": 0, "created": 0, "duplicates": 0, "rejected": 0, "deleted": 0, "skipped": 0, "blocked": 0}
@@ -144,6 +146,7 @@ class ObsidianSyncService:
             )
             report["created" if result.created else "duplicates"] += 1
             self._reconcile_plugin_provenance(result.source, plugin, workspace_role, plugin_provenance)
+            self._project_reference_metadata(result.source)
             self._mark_present(result.source)
             self._register_media_asset(result.source, path, relative)
         for source in self.repository.list_sources(project_id):
@@ -167,6 +170,7 @@ class ObsidianSyncService:
                 },
             )
             report["deleted"] += 1
+        self.backfill_reference_metadata(project_id)
         return report
 
     def _mark_present(self, source: dict) -> None:
@@ -262,6 +266,17 @@ class ObsidianSyncService:
             source["id"],
             {**metadata, "sync": "obsidian", **expected},
         )
+
+    def _project_reference_metadata(self, source: dict) -> None:
+        """Project bounded source identifiers without inspecting the source body."""
+        project_id = str(source.get("project_id") or "")
+        source_id = str(source.get("id") or "")
+        if project_id and source_id:
+            self.reference_projector.project_source_id(project_id, source_id)
+
+    def backfill_reference_metadata(self, project_id: str) -> dict[str, int]:
+        """Repair historical bibliography links using database metadata only."""
+        return self.reference_projector.backfill_project(project_id)
 
     @staticmethod
     def _plugin_metadata(plugin) -> dict:
