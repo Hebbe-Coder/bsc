@@ -8,6 +8,12 @@ from app.knowledge.wiki_commands import WikiCommandService
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.knowledge_graph import KnowledgeGraphService
 from app.knowledge.evidence_read import EvidenceReadService
+from app.knowledge.ecosystem_release_gate import (
+    RELEASE_GATE_CONTRACT_REVISION,
+    ReleaseEvidence,
+    ReleaseEvidencePacket,
+    evaluate_release_evidence,
+)
 
 
 def wiki_guide(project_id: str) -> dict:
@@ -75,6 +81,35 @@ def wiki_evidence_record(project_id: str, record_type: str, record_id: str) -> d
         if record is None:
             raise ValueError("evidence record not found")
         return {"project_id": project_id, "record": record}
+    finally:
+        repo.close()
+
+
+def wiki_release_evidence(project_id: str) -> dict:
+    """Read the current E1 release ledger without source bodies or credentials."""
+    _require_project(project_id)
+    repo = WikiRepository()
+    try:
+        records = repo.list_current_release_evidence(project_id)
+        evidence = tuple(
+            ReleaseEvidence(
+                evidence_id=str(record.get("evidence_id") or ""),
+                state=str(record.get("state") or "pending"),
+                proof_class=str(record.get("proof_class") or "none"),
+                observed_at=str(record.get("observed_at") or ""),
+                durable_ids=tuple(str(item) for item in (record.get("durable_ids") or [])),
+                detail_code=str(record.get("detail_code") or ""),
+            )
+            for record in records
+        )
+        decision = evaluate_release_evidence(
+            ReleaseEvidencePacket(contract_revision=RELEASE_GATE_CONTRACT_REVISION, evidence=evidence)
+        ).model_dump(mode="json")
+        return {
+            "project_id": project_id,
+            "decision": decision,
+            "evidence": [_release_evidence_view(record) for record in records],
+        }
     finally:
         repo.close()
 
@@ -173,3 +208,16 @@ def _require_project(project_id: str) -> None:
 
 def _source_view(source: dict) -> dict:
     return {key: source[key] for key in ("id", "project_id", "source_type", "origin", "content_hash", "trust_level", "status", "metadata", "captured_at")}
+
+
+def _release_evidence_view(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "evidence_id": str(record.get("evidence_id") or ""),
+        "state": str(record.get("state") or ""),
+        "proof_class": str(record.get("proof_class") or ""),
+        "observed_at": str(record.get("observed_at") or ""),
+        "durable_ids": list(record.get("durable_ids") or []),
+        "detail_code": str(record.get("detail_code") or ""),
+        "revision": int(record.get("revision") or 0),
+        "recorded_by": str(record.get("recorded_by") or ""),
+    }

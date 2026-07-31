@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { capturePbosWorkspaceExecution, compilePbosPlan, fetchPbosCockpit, fetchPbosProfile, recordPbosExecution, recordPbosOutcome, reviewPbosOutcome } from '../../api/pbosApi';
+import { capturePbosWorkspaceExecution, compilePbosPlan, fetchPbosCockpit, fetchPbosProfile, recordPbosExecution, recordPbosOutcome, reviewPbosExecutionAttribution, reviewPbosOutcome } from '../../api/pbosApi';
 import { PersonalGrowthCockpit } from './PersonalGrowthCockpit';
 
 vi.mock('../../api/pbosApi', () => ({
@@ -15,6 +15,7 @@ vi.mock('../../api/pbosApi', () => ({
   recordPbosExecution: vi.fn(),
   recordPbosFeedback: vi.fn(),
   recordPbosOutcome: vi.fn(),
+  reviewPbosExecutionAttribution: vi.fn(),
   reviewPbosOutcome: vi.fn(),
   savePbosProfile: vi.fn(),
 }));
@@ -51,6 +52,41 @@ describe('PersonalGrowthCockpit', () => {
 
     expect(await screen.findByText(/Studio access was rejected/i)).toBeVisible();
     expect(screen.queryByText(/HTTP error!/i)).not.toBeInTheDocument();
+  });
+
+  it('opens the Mission intake from PBOS instead of leaving a user on a stale plan', async () => {
+    const startMission = vi.fn();
+    vi.mocked(fetchPbosCockpit).mockResolvedValue({
+      profile: null, today: null,
+      today_action: { state: 'capture_required', title: 'Start a Mission' },
+      capabilities: [], outcomes: [], feedback: [], strategies: [], failure_patterns: [], project_health: {}, connectors: {},
+    });
+    vi.mocked(fetchPbosProfile).mockResolvedValue({ profile: null });
+
+    render(<PersonalGrowthCockpit projectId="default" onClose={vi.fn()} runtimeAccessKey="session-key" onStartMission={startMission} />);
+
+    await screen.findByText('Start a Mission');
+    fireEvent.click(screen.getByRole('button', { name: 'Start a new Mission' }));
+    expect(startMission).toHaveBeenCalledTimes(1);
+  });
+
+  it('compiles a selected Mission when it has no prior PBOS plan', async () => {
+    vi.mocked(fetchPbosCockpit).mockResolvedValue({
+      scope: { mission_id: 'mission-current', title: 'Current AI delivery' },
+      profile: null, today: null,
+      today_action: {
+        state: 'plan_required', mission_id: 'mission-current', title: 'Compile a personal execution plan for Current AI delivery.',
+        success_check: 'The plan names a reviewable first action.',
+      },
+      capabilities: [], outcomes: [], feedback: [], strategies: [], failure_patterns: [], project_health: {}, connectors: {},
+    });
+    vi.mocked(fetchPbosProfile).mockResolvedValue({ profile: null });
+    vi.mocked(compilePbosPlan).mockResolvedValue({ plan: { artifact_id: 'plan-current' } });
+
+    render(<PersonalGrowthCockpit projectId="default" onClose={vi.fn()} runtimeAccessKey="session-key" initialMissionId="mission-current" />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Compile personal plan' }));
+    await waitFor(() => expect(compilePbosPlan).toHaveBeenCalledWith('default', 'mission-current', ''));
   });
 
   it('does not present governed Vault context as a verified personal capability', async () => {
@@ -146,12 +182,69 @@ describe('PersonalGrowthCockpit', () => {
       plan_id: 'plan-1',
       paths: ['app/pbos/service.py', 'tests/pbos/test_pbos_service.py'],
       reflection: expect.objectContaining({ completed: 'Closed the audited local evidence path.' }),
+      execution_attribution: 'owner',
+      owner_contribution: '',
     })));
     expect(recordPbosExecution).not.toHaveBeenCalled();
     expect(recordPbosOutcome).toHaveBeenCalledWith('default', 'execution-1', expect.objectContaining({
       acceptance_status: 'accepted', quality_score: 86,
       outcome_summary: 'The project evidence path was captured and is ready for review.',
       observed_impacts: ['Five verified receipts', 'review queue unblocked'],
+    }));
+  });
+
+  it('requires a declared personal contribution before mixed work can enter the evidence ledger', async () => {
+    vi.mocked(fetchPbosCockpit).mockResolvedValue({
+      profile: null,
+      today: {
+        artifact_id: 'plan-mixed', mission_id: 'mission-mixed', title: 'Review mixed delivery', compilation_state: 'context_grounded',
+        knowledge_context_refs: [], feedback_refs: [], phases: [], execution_contract: {}, compiler_metadata: {},
+      },
+      today_action: { state: 'recommended', title: 'Review mixed delivery' },
+      capabilities: [], outcomes: [], feedback: [], strategies: [], failure_patterns: [], project_health: {}, connectors: {},
+    });
+    vi.mocked(fetchPbosProfile).mockResolvedValue({ profile: null });
+
+    render(<PersonalGrowthCockpit projectId="default" onClose={vi.fn()} runtimeAccessKey="session-key" />);
+
+    await screen.findByText('THREE-MINUTE REFLECTION');
+    fireEvent.change(screen.getByLabelText('What changed?'), { target: { value: 'Reviewed the agent implementation.' } });
+    fireEvent.change(screen.getByLabelText('Observed delivery result'), { target: { value: 'A reviewable mixed delivery exists.' } });
+    fireEvent.change(screen.getByLabelText('Who performed this work?'), { target: { value: 'mixed' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Record reflection' }));
+
+    expect(await screen.findByText(/Describe your contribution/i)).toBeVisible();
+    expect(capturePbosWorkspaceExecution).not.toHaveBeenCalled();
+    expect(recordPbosExecution).not.toHaveBeenCalled();
+  });
+
+  it('requires an explicit one-time attribution review before a legacy execution can support learning', async () => {
+    vi.mocked(fetchPbosCockpit).mockResolvedValue({
+      profile: null, today: null, today_action: { state: 'no_plan' },
+      capabilities: [], outcomes: [], feedback: [], strategies: [], failure_patterns: [],
+      executions: [{
+        artifact_id: 'execution-legacy-1', mission_id: 'mission-legacy', plan_id: 'plan-legacy',
+        actions_count: 1, receipt_count: 2, verified_receipt_count: 2,
+        reflection_recorded: true, execution_attribution: 'unattributed', attribution_reviewable: true,
+        outcome_state: 'awaiting_outcome', created_at: '2026-08-01T10:00:00Z',
+      }],
+      project_health: { reviewable_executions: 1, eligible_personal_outcomes: 0 }, connectors: {},
+    });
+    vi.mocked(fetchPbosProfile).mockResolvedValue({ profile: null });
+    vi.mocked(reviewPbosExecutionAttribution).mockResolvedValue({ execution: { artifact_id: 'execution-legacy-1', execution_attribution: 'mixed' } });
+
+    render(<PersonalGrowthCockpit projectId="default" onClose={vi.fn()} runtimeAccessKey="session-key" />);
+
+    expect(await screen.findByText('EXECUTION ATTRIBUTION REVIEW')).toBeVisible();
+    fireEvent.change(screen.getByLabelText('Attribution for execution-legacy-1'), { target: { value: 'mixed' } });
+    fireEvent.change(screen.getByLabelText('My contribution for execution-legacy-1'), { target: { value: 'I set the acceptance boundary and reviewed the delivery.' } });
+    fireEvent.change(screen.getByLabelText('Attribution review note for execution-legacy-1'), { target: { value: 'Reviewed the historical record before personal use.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm attribution' }));
+
+    await waitFor(() => expect(reviewPbosExecutionAttribution).toHaveBeenCalledWith('default', 'execution-legacy-1', {
+      execution_attribution: 'mixed',
+      owner_contribution: 'I set the acceptance boundary and reviewed the delivery.',
+      review_note: 'Reviewed the historical record before personal use.',
     }));
   });
 
@@ -361,7 +454,7 @@ describe('PersonalGrowthCockpit', () => {
 
     expect(await screen.findByText('PERSONALIZATION READINESS')).toBeVisible();
     expect(screen.getByText('Profile context needed')).toBeVisible();
-    expect(screen.getByText(/role, industry, organization stage/i)).toBeVisible();
+    expect(screen.getByText(/角色, 领域, 当前阶段/)).toBeVisible();
     expect(screen.getByText(/0 of 3 comparable accepted outcomes/i)).toBeVisible();
     expect(screen.getByText(/not yet a learned personal method/i)).toBeVisible();
   });
@@ -417,7 +510,7 @@ describe('PersonalGrowthCockpit', () => {
     render(<PersonalGrowthCockpit projectId="default" onClose={vi.fn()} runtimeAccessKey="session-key" />);
 
     expect(await screen.findByText('让 PBOS 开始学习你的工作方式')).toBeVisible();
-    expect(screen.getByText('仍需填写：role、industry、organization stage。')).toBeVisible();
+    expect(screen.getByText('仍需填写：角色、领域、当前阶段。')).toBeVisible();
     expect(screen.getByText('1 条结果等待你确认。')).toBeVisible();
     expect(screen.getByText('0 / 3 条已接受的可比结果；达到门槛后才评估个人策略升级。')).toBeVisible();
 

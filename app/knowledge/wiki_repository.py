@@ -26,6 +26,7 @@ from app.knowledge.wiki_contracts import (
     WikiProposal,
 )
 from app.knowledge.information_intelligence_contracts import SourceRegistryEntry
+from app.knowledge.ecosystem_release_gate import ReleaseEvidence
 from app.repositories.base_repository import BaseRepository
 
 
@@ -112,6 +113,61 @@ class WikiRepository(BaseRepository):
     def list_vaults(self) -> list[dict]:
         rows = self._execute("SELECT * FROM knowledge_vaults ORDER BY project_id").fetchall()
         return [self._decode(row, ("metadata_json",)) or {} for row in rows]
+
+    def append_release_evidence(
+        self,
+        project_id: str,
+        evidence: ReleaseEvidence,
+        *,
+        recorded_by: str,
+    ) -> dict[str, Any]:
+        """Append one metadata-only release-evidence revision for a project."""
+        existing = self.get_latest_release_evidence(project_id, evidence.evidence_id)
+        revision = int((existing or {}).get("revision") or 0) + 1
+        now = self._now()
+        record_id = hashlib.sha256(
+            f"release-evidence|{project_id}|{evidence.evidence_id}|{revision}|{now}".encode("utf-8")
+        ).hexdigest()[:24]
+        self._execute(
+            "INSERT INTO knowledge_release_evidence "
+            "(id,project_id,evidence_id,revision,state,proof_class,observed_at,durable_ids_json,detail_code,recorded_by,created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                record_id,
+                project_id,
+                evidence.evidence_id,
+                revision,
+                evidence.state,
+                evidence.proof_class,
+                evidence.observed_at,
+                self._json_dumps(list(evidence.durable_ids)),
+                evidence.detail_code,
+                recorded_by,
+                now,
+            ),
+        )
+        self._commit()
+        return self.get_latest_release_evidence(project_id, evidence.evidence_id) or {}
+
+    def get_latest_release_evidence(self, project_id: str, evidence_id: str) -> dict[str, Any] | None:
+        row = self._execute(
+            "SELECT * FROM knowledge_release_evidence WHERE project_id=? AND evidence_id=? "
+            "ORDER BY revision DESC LIMIT 1",
+            (project_id, evidence_id),
+        ).fetchone()
+        return self._decode(row, ("durable_ids_json",))
+
+    def list_current_release_evidence(self, project_id: str) -> list[dict[str, Any]]:
+        """Return only the latest revision for each release-evidence category."""
+        rows = self._execute(
+            "SELECT current.* FROM knowledge_release_evidence AS current "
+            "JOIN (SELECT evidence_id,MAX(revision) AS revision FROM knowledge_release_evidence "
+            "WHERE project_id=? GROUP BY evidence_id) AS latest "
+            "ON current.evidence_id=latest.evidence_id AND current.revision=latest.revision "
+            "WHERE current.project_id=? ORDER BY current.evidence_id ASC",
+            (project_id, project_id),
+        ).fetchall()
+        return [self._decode(row, ("durable_ids_json",)) or {} for row in rows]
 
     def create_source(self, source: SourceRecord) -> dict:
         self._execute(

@@ -38,6 +38,8 @@ def _accepted_outcome(
     comparison_key: str = "personal_ai_project_delivery",
     comparison_context: str = "solo-ai-runtime",
     baseline_quality: float | None = None,
+    execution_attribution: str = "owner",
+    owner_contribution: str = "",
 ):
     record = service.record_execution(
         mission_id,
@@ -46,6 +48,8 @@ def _accepted_outcome(
             "actions": ["Delivered one reviewable slice."],
             "tool_receipts": [{"kind": "test", "passed": True, "command": "pytest focused", "verified": True}],
             "reflection": {"completed": "Observed the result and recorded the next adjustment."},
+            "execution_attribution": execution_attribution,
+            "owner_contribution": owner_contribution,
         },
     )
     metrics = {"comparison_context": comparison_context}
@@ -76,6 +80,162 @@ def test_pbos_promotes_only_after_three_comparable_complete_outcomes_with_a_base
     assert result["state"] == "promote"
     assert store.get_by_type(ArtifactType.SOP_VERSION)[0].promotion_state == "promote"
     assert store.get_by_type(ArtifactType.CAPABILITY)[0].name == "AI project delivery"
+
+
+def test_pbos_does_not_promote_agent_only_deliveries_into_personal_capability(tmp_path):
+    store = ArtifactGraphStore(str(tmp_path), project_id="personal")
+    _mission(store, "mission-1")
+    service = PBOSService(store, "personal")
+    for score in (70, 80, 90):
+        _accepted_outcome(
+            service,
+            "mission-1",
+            score=score,
+            baseline_quality=60,
+            execution_attribution="agent",
+        )
+
+    result = service.evolve()
+
+    assert result["state"] == "insufficient_evidence"
+    assert result["complete_records"] == 0
+    assert not store.get_by_type(ArtifactType.SOP_VERSION)
+    assert not store.get_by_type(ArtifactType.CAPABILITY)
+
+
+def test_pbos_requires_owner_contribution_for_mixed_execution_before_learning(tmp_path):
+    store = ArtifactGraphStore(str(tmp_path), project_id="personal")
+    _mission(store)
+    service = PBOSService(store, "personal")
+    record = service.record_execution(
+        "mission",
+        "",
+        {
+            "actions": ["Completed a reviewed delivery slice."],
+            "tool_receipts": [{"kind": "test", "verified": True}],
+            "reflection": {"completed": "The delivery evidence is ready for review."},
+            "execution_attribution": "mixed",
+        },
+    )
+    outcome = service.record_outcome(
+        record.artifact_id,
+        {
+            "acceptance_status": "accepted",
+            "quality_score": 85,
+            "outcome_summary": "The mixed delivery passed the attached verification.",
+            "baseline_quality": 70,
+        },
+    )
+
+    incomplete = service._outcome_observation(outcome)
+
+    assert incomplete["eligible_for_evolution"] is False
+    assert "owner_contribution" in incomplete["missing_requirements"]
+
+    attributed_record = service.record_execution(
+        "mission",
+        "",
+        {
+            "actions": ["Completed a co-authored delivery slice."],
+            "tool_receipts": [{"kind": "test", "verified": True}],
+            "reflection": {"completed": "The delivery evidence is ready for review."},
+            "execution_attribution": "mixed",
+            "owner_contribution": "I defined the acceptance boundary and reviewed the implementation decision.",
+        },
+    )
+    attributed_outcome = service.record_outcome(
+        attributed_record.artifact_id,
+        {
+            "acceptance_status": "accepted",
+            "quality_score": 85,
+            "outcome_summary": "The co-authored delivery passed the attached verification.",
+            "baseline_quality": 70,
+        },
+    )
+
+    assert service._outcome_observation(attributed_outcome)["eligible_for_evolution"] is True
+
+
+def test_pbos_keeps_legacy_unattributed_execution_auditable_but_non_promotable(tmp_path):
+    store = ArtifactGraphStore(str(tmp_path), project_id="personal")
+    _mission(store)
+    service = PBOSService(store, "personal")
+    record = service.record_execution(
+        "mission",
+        "",
+        {
+            "actions": ["Captured an older evidence-backed delivery."],
+            "tool_receipts": [{"kind": "test", "verified": True}],
+            "reflection": {"completed": "This historical record predates attribution."},
+        },
+    )
+    outcome = service.record_outcome(
+        record.artifact_id,
+        {
+            "acceptance_status": "accepted",
+            "quality_score": 88,
+            "outcome_summary": "Historical delivery evidence remains reviewable.",
+            "baseline_quality": 70,
+        },
+    )
+
+    cockpit = service.cockpit()
+    observation = service._outcome_observation(outcome)
+
+    assert record.execution_attribution == "unattributed"
+    assert observation["eligible_for_evolution"] is False
+    assert "execution_attribution" in observation["missing_requirements"]
+    assert cockpit["executions"][0]["execution_attribution"] == "unattributed"
+
+
+def test_pbos_owner_can_explicitly_review_legacy_execution_attribution_once(tmp_path):
+    store = ArtifactGraphStore(str(tmp_path), project_id="personal")
+    _mission(store)
+    service = PBOSService(store, "personal")
+    record = service.record_execution(
+        "mission",
+        "",
+        {
+            "actions": ["Reviewed a prior delivery with attached evidence."],
+            "tool_receipts": [{"kind": "test", "verified": True}],
+            "reflection": {"completed": "The prior delivery result is available for review."},
+        },
+    )
+    outcome = service.record_outcome(
+        record.artifact_id,
+        {
+            "acceptance_status": "accepted",
+            "quality_score": 86,
+            "outcome_summary": "The historical delivery passed its explicit outcome review.",
+            "baseline_quality": 70,
+        },
+    )
+
+    reviewed = service.review_execution_attribution(
+        record.artifact_id,
+        {
+            "execution_attribution": "mixed",
+            "owner_contribution": "I defined the acceptance criteria and reviewed the implementation outcome.",
+            "review_note": "Explicit owner attribution review of this legacy record.",
+        },
+    )
+
+    assert reviewed.execution_attribution == "mixed"
+    assert reviewed.owner_contribution.startswith("I defined")
+    assert reviewed.attribution_review_history == [{
+        "previous_execution_attribution": "unattributed",
+        "execution_attribution": "mixed",
+        "owner_contribution": "I defined the acceptance criteria and reviewed the implementation outcome.",
+        "review_note": "Explicit owner attribution review of this legacy record.",
+        "source": "explicit_owner_attribution_review",
+        "reviewed_at": reviewed.attribution_reviewed_at,
+    }]
+    assert service._outcome_observation(outcome)["eligible_for_evolution"] is True
+    with pytest.raises(ValueError, match="only be reviewed while unattributed"):
+        service.review_execution_attribution(
+            record.artifact_id,
+            {"execution_attribution": "owner", "review_note": "Attempt to rewrite attribution."},
+        )
 
 
 def test_pbos_evolution_requires_a_real_baseline_and_does_not_mix_contexts(tmp_path):
@@ -274,6 +434,9 @@ def test_cockpit_exposes_reviewable_execution_receipts_without_promoting_persona
         "receipt_count": 1,
         "verified_receipt_count": 1,
         "reflection_recorded": True,
+        "execution_attribution": "unattributed",
+        "owner_contribution_recorded": False,
+        "attribution_reviewable": True,
         "outcome_state": "awaiting_outcome",
         "created_at": str(record.created_at),
     }]
@@ -355,6 +518,7 @@ def test_outcome_review_accepts_a_pending_result_with_a_score_and_audit_history(
             "actions": ["Validated the governed delivery slice."],
             "tool_receipts": [{"kind": "test", "verified": True}],
             "reflection": {"completed": "The result is ready for an explicit review."},
+            "execution_attribution": "owner",
         },
     )
     outcome = service.record_outcome(record.artifact_id, {"acceptance_status": "unverified"})
@@ -426,6 +590,7 @@ def test_outcome_review_requires_an_observed_delivery_result_for_personal_learni
             "actions": ["Delivered one bounded engineering slice."],
             "tool_receipts": [{"kind": "test", "verified": True}],
             "reflection": {"completed": "The evidence is ready for a human review."},
+            "execution_attribution": "owner",
         },
     )
     outcome = service.record_outcome(record.artifact_id, {"acceptance_status": "unverified"})
@@ -468,6 +633,7 @@ def test_pbos_outcome_review_draft_is_bounded_to_recorded_execution_and_reflecti
                 "changed": "The result is ready for owner review.",
                 "next_action": "Review the delivery outcome.",
             },
+            "execution_attribution": "owner",
         },
     )
     outcome = service.record_outcome(record.artifact_id, {"acceptance_status": "unverified"})

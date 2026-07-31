@@ -1,7 +1,7 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import ReactFlow, { Background, Controls, type Edge, type Node } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { AlertTriangle, BrainCircuit, CircleCheckBig, FileCheck2, KeyRound, RefreshCw, ShieldCheck, X } from 'lucide-react';
+import { AlertTriangle, BrainCircuit, CircleCheckBig, FileCheck2, KeyRound, RefreshCw, ShieldCheck, Workflow, X } from 'lucide-react';
 import {
   capturePbosWorkspaceExecution,
   compilePbosPlan,
@@ -10,6 +10,7 @@ import {
   recordPbosExecution,
   recordPbosFeedback,
   recordPbosOutcome,
+  reviewPbosExecutionAttribution,
   reviewPbosOutcome,
   savePbosProfile,
   type PbosCockpit,
@@ -22,6 +23,8 @@ type Props = {
   onClose: () => void;
   runtimeAccessKey?: string;
   onConfigureAccess?: () => void;
+  initialMissionId?: string;
+  onStartMission?: () => void;
 };
 
 function isAccessFailure(reason: unknown): boolean {
@@ -62,8 +65,23 @@ type OutcomeReviewDraft = {
   reviewNote: string;
 };
 
+type ExecutionAttribution = 'owner' | 'agent' | 'mixed';
+
+type AttributionReviewDraft = {
+  executionAttribution: ExecutionAttribution;
+  ownerContribution: string;
+  reviewNote: string;
+};
+
 function readableRequirement(value: string): string {
   return value.replace(/_/g, ' ');
+}
+
+function executionAttributionLabel(value: string): string {
+  if (value === 'owner') return 'Owner work';
+  if (value === 'mixed') return 'Co-authored work';
+  if (value === 'agent') return 'Agent work';
+  return 'Attribution required';
 }
 
 function planGenerationStatus(plan: Record<string, unknown> | null | undefined): {
@@ -92,7 +110,7 @@ function planGenerationStatus(plan: Record<string, unknown> | null | undefined):
   return { label: 'Contextual deterministic', detail: 'no model result recorded', tone: 'is-pending' };
 }
 
-export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '', onConfigureAccess }: Props) {
+export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '', onConfigureAccess, initialMissionId = '', onStartMission }: Props) {
   const [data, setData] = useState<PbosCockpit | null>(null);
   const [profile, setProfile] = useState<PbosProfile | null>(null);
   const [error, setError] = useState('');
@@ -114,10 +132,14 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
   const [blocker, setBlocker] = useState('');
   const [feedbackDraft, setFeedbackDraft] = useState('');
   const [evidencePaths, setEvidencePaths] = useState('');
+  const [executionAttribution, setExecutionAttribution] = useState<ExecutionAttribution>('owner');
+  const [ownerContribution, setOwnerContribution] = useState('');
   const [acceptanceConfirmed, setAcceptanceConfirmed] = useState(false);
   const [qualityScore, setQualityScore] = useState('');
   const [reviewDrafts, setReviewDrafts] = useState<Record<string, OutcomeReviewDraft>>({});
   const [reviewingOutcomeId, setReviewingOutcomeId] = useState('');
+  const [attributionReviewDrafts, setAttributionReviewDrafts] = useState<Record<string, AttributionReviewDraft>>({});
+  const [reviewingAttributionExecutionId, setReviewingAttributionExecutionId] = useState('');
   const [creatingOutcomeExecutionId, setCreatingOutcomeExecutionId] = useState('');
   const load = useCallback(async () => {
     if (!runtimeAccessKey.trim()) {
@@ -126,7 +148,7 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
     }
     try {
       setError(''); setAccessState(null);
-      const [cockpit, profileResult] = await Promise.all([fetchPbosCockpit(projectId), fetchPbosProfile(projectId)]);
+      const [cockpit, profileResult] = await Promise.all([fetchPbosCockpit(projectId, initialMissionId), fetchPbosProfile(projectId)]);
       setData(cockpit);
       const nextProfile = profileResult.profile ?? cockpit.profile;
       setProfile(nextProfile);
@@ -146,7 +168,7 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
       }
       setError(reason instanceof Error ? reason.message : 'Unable to load PBOS');
     }
-  }, [projectId, runtimeAccessKey]);
+  }, [initialMissionId, projectId, runtimeAccessKey]);
   useEffect(() => { void load(); }, [load]);
   const capabilities = data?.capabilities ?? [];
   const executions = data?.executions ?? [];
@@ -157,11 +179,15 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
   const failurePatterns = data?.failure_patterns ?? [];
   const projectHealth = data?.project_health ?? {};
   const todayAction = planObject(data?.today_action);
+  const scope = planObject(data?.scope);
+  const scopedMissionId = String(scope.mission_id || initialMissionId || '').trim();
+  const scopedMissionTitle = String(scope.title || '').trim();
   const generation = planGenerationStatus(data?.today);
   const acceptedOutcomes = outcomes.filter((item) => item.acceptance_status === 'accepted').length;
   const qualitySeries = outcomes.filter((item) => item.acceptance_status === 'accepted' && typeof item.quality_score === 'number').slice().reverse();
   const pendingReviewOutcomes = outcomes.filter((item) => String(item.acceptance_status || '') === 'unverified');
   const awaitingOutcomeExecutions = executions.filter((item) => item.outcome_state === 'awaiting_outcome');
+  const unattributedExecutions = executions.filter((item) => item.attribution_reviewable || item.execution_attribution === 'unattributed');
   const contextReferences = stringRefs(data?.today?.knowledge_context_refs);
   const strategyReferences = stringRefs(data?.today?.strategy_refs);
   const appliedStrategies = strategies.filter((item) => strategyReferences.includes(String(item.artifact_id || '')));
@@ -183,7 +209,12 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
       : readinessState === 'promotion_evaluation_required'
         ? 'Promotion evaluation ready'
         : 'Learning evidence needed';
-  const readinessMissing = (personalizationReadiness.missing_profile_fields ?? []).map((field) => field === 'organization_stage' ? 'organization stage' : field.replace(/_/g, ' '));
+  const readinessMissing = (personalizationReadiness.missing_profile_fields ?? []).map((field) => {
+    if (field === 'role') return '角色';
+    if (field === 'industry') return '领域';
+    if (field === 'organization_stage') return '当前阶段';
+    return field.replace(/_/g, ' ');
+  });
   const profileSetupComplete = readinessMissing.length === 0;
   const outcomeReviewComplete = pendingReviewOutcomes.length === 0 && awaitingOutcomeExecutions.length === 0;
   const comparableOutcomeCount = Number(personalizationReadiness.accepted_outcome_count ?? 0);
@@ -224,9 +255,9 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
     finally { setSaving(false); }
   };
   const recompileCurrentPlan = async () => {
-    const missionId = String(data?.today?.mission_id || '');
+    const missionId = String(data?.today?.mission_id || scopedMissionId || '');
     if (!missionId) {
-      setError('PBOS needs a current Mission before it can compile an updated plan.');
+      setError('PBOS needs a selected Mission before it can compile a personal execution plan.');
       return;
     }
     setRecompiling(true);
@@ -260,12 +291,18 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
       setError('Confirm acceptance before recording a quality score.');
       return;
     }
+    if (executionAttribution === 'mixed' && !ownerContribution.trim()) {
+      setError('Describe your contribution before a co-authored execution can support personal learning.');
+      return;
+    }
     setSaving(true);
     try {
       const executionPayload = {
         plan_id: planId,
         actions: [reflection.trim()],
         reflection: { completed: reflection.trim(), blocker: blocker.trim() },
+        execution_attribution: executionAttribution,
+        owner_contribution: ownerContribution.trim(),
       };
       const execution = paths.length
         ? await capturePbosWorkspaceExecution(projectId, missionId, { ...executionPayload, paths })
@@ -278,7 +315,7 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
         metrics: { reflection_recorded: true, evidence_capture: paths.length ? 'bsc_workspace' : 'none' },
       });
       if (feedbackDraft.trim()) await recordPbosFeedback(projectId, String(outcome.outcome.artifact_id || ''), feedbackDraft.trim());
-      setReflection(''); setOutcomeSummary(''); setObservedImpacts(''); setBlocker(''); setFeedbackDraft(''); setEvidencePaths(''); setAcceptanceConfirmed(false); setQualityScore(''); await load();
+      setReflection(''); setOutcomeSummary(''); setObservedImpacts(''); setBlocker(''); setFeedbackDraft(''); setEvidencePaths(''); setExecutionAttribution('owner'); setOwnerContribution(''); setAcceptanceConfirmed(false); setQualityScore(''); await load();
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to record reflection'); }
     finally { setSaving(false); }
   };
@@ -317,6 +354,32 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
       await load();
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to review outcome'); }
     finally { setReviewingOutcomeId(''); }
+  };
+  const reviewLegacyExecutionAttribution = async (executionId: string) => {
+    const draft = attributionReviewDrafts[executionId] ?? { executionAttribution: 'owner', ownerContribution: '', reviewNote: '' };
+    if (draft.executionAttribution === 'mixed' && !draft.ownerContribution.trim()) {
+      setError('Describe your contribution before confirming a co-authored historical execution.');
+      return;
+    }
+    if (!draft.reviewNote.trim()) {
+      setError('Add an attribution review note before changing a historical execution.');
+      return;
+    }
+    setReviewingAttributionExecutionId(executionId);
+    try {
+      await reviewPbosExecutionAttribution(projectId, executionId, {
+        execution_attribution: draft.executionAttribution,
+        owner_contribution: draft.ownerContribution.trim(),
+        review_note: draft.reviewNote.trim(),
+      });
+      setAttributionReviewDrafts((current) => {
+        const next = { ...current };
+        delete next[executionId];
+        return next;
+      });
+      await load();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to review execution attribution'); }
+    finally { setReviewingAttributionExecutionId(''); }
   };
   const createOutcomeForExecution = async (executionId: string) => {
     setCreatingOutcomeExecutionId(executionId);
@@ -365,7 +428,7 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
     }],
   };
   return <section className="pbos-cockpit" aria-label="Personal Growth Cockpit">
-    <header><div><p>PERSONAL LOOP ENGINEERING</p><h2>Personal Growth Cockpit</h2></div><div><button type="button" aria-label="Refresh PBOS evidence" title="Refresh evidence" onClick={() => void load()}><RefreshCw size={17} /></button><button type="button" aria-label="Close Personal Growth Cockpit" title="Close" onClick={onClose}><X size={18} /></button></div></header>
+    <header><div><p>PERSONAL LOOP ENGINEERING</p><h2>Personal Growth Cockpit</h2></div><div>{onStartMission && <button type="button" aria-label="Start a new Mission" title="Start a new Mission" onClick={onStartMission}><Workflow size={17} /></button>}<button type="button" aria-label="Refresh PBOS evidence" title="Refresh evidence" onClick={() => void load()}><RefreshCw size={17} /></button><button type="button" aria-label="Close Personal Growth Cockpit" title="Close" onClick={onClose}><X size={18} /></button></div></header>
     {accessState && <section className="pbos-access-state" role="status">
       <div><KeyRound size={21} aria-hidden="true" /><div><p className="pbos-label">STUDIO ACCESS</p><h3>{accessState === 'required' ? 'Studio access is required' : 'Studio access was rejected'}</h3><p>{accessState === 'required' ? 'PBOS reads a project-scoped evidence ledger. Add a runtime access key before the cockpit requests any personal records.' : 'The runtime access key cannot read this project. Replace it in the control rail, then return to the cockpit.'}</p></div></div>
       <div className="pbos-access-state__actions">{accessState === 'rejected' && <button type="button" onClick={() => void load()}><RefreshCw size={15} />Retry</button>}<button type="button" className="pbos-primary-action" onClick={onConfigureAccess ?? onClose}><KeyRound size={15} />Open runtime access</button></div>
@@ -373,7 +436,7 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
     {error && <p className="pbos-error"><AlertTriangle size={16} />{error}</p>}
     {!data && !error && !accessState && <p className="pbos-empty">Loading verified personal evidence...</p>}
     {data && <div className="pbos-grid">
-      <section className="pbos-today"><div className="pbos-panel-heading"><p className="pbos-label">CURRENT LOOP</p><span className={knowledgeContextReady ? 'is-ready' : 'is-pending'}><ShieldCheck size={14} />{knowledgeContextReady ? 'Vault context connected' : 'Vault context needed'}</span></div><h3>{String(data.today?.title || todayAction.title || 'Capture a real execution receipt')}</h3><p>{todayGuidance}</p>{todayAction.success_check && <small>Success check: {String(todayAction.success_check)}</small>}<dl><div><dt>Accepted outcomes</dt><dd>{acceptedOutcomes}</dd></div><div><dt>Feedback inputs</dt><dd>{feedback.length}</dd></div><div><dt>Verified capabilities</dt><dd>{capabilities.length}</dd></div></dl></section>
+      <section className="pbos-today"><div className="pbos-panel-heading"><p className="pbos-label">CURRENT LOOP</p><span className={knowledgeContextReady ? 'is-ready' : 'is-pending'}><ShieldCheck size={14} />{knowledgeContextReady ? 'Vault context connected' : 'Vault context needed'}</span></div>{scopedMissionTitle && <small>Mission: {scopedMissionTitle}</small>}<h3>{String(data.today?.title || todayAction.title || 'Capture a real execution receipt')}</h3><p>{todayGuidance}</p>{todayAction.success_check && <small>Success check: {String(todayAction.success_check)}</small>}{scopedMissionId && !data.today && <button type="button" className="pbos-primary-action" disabled={recompiling} onClick={() => void recompileCurrentPlan()}>{recompiling ? 'Compiling personal plan...' : 'Compile personal plan'}</button>}<dl><div><dt>Accepted outcomes</dt><dd>{acceptedOutcomes}</dd></div><div><dt>Feedback inputs</dt><dd>{feedback.length}</dd></div><div><dt>Verified capabilities</dt><dd>{capabilities.length}</dd></div></dl></section>
       {!personalLearningReady && <section className="pbos-activation" aria-label="启动个人闭环">
         <div className="pbos-panel-heading"><p className="pbos-label">PERSONAL LOOP ACTIVATION</p><span className="is-pending">需要真实输入</span></div>
         <h3>让 PBOS 开始学习你的工作方式</h3>
@@ -390,10 +453,11 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
       <section className="pbos-readiness"><div className="pbos-panel-heading"><p className="pbos-label">PERSONALIZATION READINESS</p><span className={readinessState === 'personalized' ? 'is-ready' : 'is-pending'}>{readinessLabel}</span></div><dl><div><dt>Profile context</dt><dd>{personalizationReadiness.declared_profile_ready ? 'declared' : 'incomplete'}</dd></div><div><dt>Comparable outcomes</dt><dd>{personalizationReadiness.accepted_outcome_count} of {personalizationReadiness.required_comparable_outcomes} comparable accepted outcomes</dd></div></dl>{readinessMissing.length > 0 && <p>Missing personal context: {readinessMissing.join(', ')}.</p>}<p>{readinessState === 'personalized' ? 'This plan can reuse a verified personal strategy within its matching context.' : 'Vault context can guide this plan, but it is not yet a learned personal method.'}</p></section>
       {data.today && <section className="pbos-grounding"><div className="pbos-panel-heading"><p className="pbos-label">PLAN GROUNDING</p><span>{contextReferences.length} governed reference{contextReferences.length === 1 ? '' : 's'}</span></div><dl><div><dt>Plan engine</dt><dd><span className={`pbos-plan-generation ${generation.tone}`}>{generation.label}</span><small>{generation.detail}</small></dd></div><div><dt>Weekly handoff</dt><dd>{weeklyHandoffs.length} weekly handoff{weeklyHandoffs.length === 1 ? '' : 's'}</dd></div><div><dt>Feedback input</dt><dd>{feedbackReferences.length} feedback input{feedbackReferences.length === 1 ? '' : 's'}</dd></div><div><dt>Personal strategy</dt><dd>{appliedStrategies.length ? `${appliedStrategies.length} verified strategy applied` : 'not yet earned'}</dd></div></dl>{contextReferences.length ? <ul>{contextReferences.slice(0, 4).map((item) => <li key={item}><code>{visibleVaultRef(item)}</code></li>)}</ul> : <p className="pbos-grounding-empty">No governed context was selected for this plan.</p>}{appliedStrategies.length > 0 && <ul className="pbos-strategy-inputs">{appliedStrategies.map((item) => <li key={String(item.artifact_id)}><BrainCircuit size={13} /><span>{String(item.strategy_name || 'Personal strategy')} v{String(item.version || 1)}</span></li>)}</ul>}<p>These are planning inputs. They do not establish a personal capability without verified execution evidence.</p></section>}
       <section id="pbos-personal-context" className="pbos-profile"><p className="pbos-label">PERSONAL CONTEXT</p><form onSubmit={saveProfile}><label>Role<input value={role} onChange={(event) => setRole(event.target.value)} placeholder="Independent AI product builder" /></label><label>Industry or domain<input value={industry} onChange={(event) => setIndustry(event.target.value)} placeholder="AI productivity software" /></label><label>Working stage<input value={organizationStage} onChange={(event) => setOrganizationStage(event.target.value)} placeholder="Solo validation" /></label><label>Focus<input value={focus} onChange={(event) => setFocus(event.target.value)} placeholder="AI systems, knowledge engineering" /></label><label>Goals<input value={goals} onChange={(event) => setGoals(event.target.value)} placeholder="Ship a verified personal operating system" /></label><label>Work style<input value={workStyle} onChange={(event) => setWorkStyle(event.target.value)} placeholder="Architecture first, rapid validation" /></label><label>Decision style<input value={decisionStyle} onChange={(event) => setDecisionStyle(event.target.value)} placeholder="Evidence before expansion" /></label><label>Resources<input value={resources} onChange={(event) => setResources(event.target.value)} placeholder="Obsidian, BSC" /></label><label>Constraints<input value={constraints} onChange={(event) => setConstraints(event.target.value)} placeholder="Solo delivery, limited time" /></label><button type="submit" disabled={saving} title="Save personal context">Save personal context</button>{data?.today && <button type="button" disabled={recompiling} title="Compile the current Mission with saved personal context" onClick={() => void recompileCurrentPlan()}>{recompiling ? 'Compiling plan...' : 'Recompile current plan'}</button>}</form><p>{profile ? 'This is declared context. Capability claims still require execution evidence.' : 'Add your real operating context before PBOS personalizes a plan.'}</p></section>
-      {data.today && <section id="pbos-three-minute-reflection" className="pbos-reflection"><p className="pbos-label">THREE-MINUTE REFLECTION</p><form onSubmit={submitReflection}><label>What changed?<textarea value={reflection} onChange={(event) => setReflection(event.target.value)} required placeholder="Completed, decision made, or blocker resolved" /></label><label>Observed delivery result<textarea value={outcomeSummary} onChange={(event) => setOutcomeSummary(event.target.value)} required placeholder="What was delivered and what was actually observed" /></label><label>Observed impact<input value={observedImpacts} onChange={(event) => setObservedImpacts(event.target.value)} placeholder="Optional, comma-separated metric or impact" /></label><label>What blocked you?<input value={blocker} onChange={(event) => setBlocker(event.target.value)} placeholder="Optional blocker" /></label><label>Evidence files in this BSC workspace<input value={evidencePaths} onChange={(event) => setEvidencePaths(event.target.value)} placeholder="app/pbos/service.py, app/knowledge/wiki_sync.py" /></label><small>Only approved project paths are hashed. File contents and credentials are never sent to the PBOS ledger.</small><label className="pbos-reflection__acceptance"><input type="checkbox" checked={acceptanceConfirmed} onChange={(event) => setAcceptanceConfirmed(event.target.checked)} />I accept this result based on the attached evidence</label><label>Quality score (0-100)<input type="number" min="0" max="100" step="1" value={qualityScore} onChange={(event) => setQualityScore(event.target.value)} disabled={!acceptanceConfirmed} placeholder="82" /></label><label>What should change next time?<input value={feedbackDraft} onChange={(event) => setFeedbackDraft(event.target.value)} placeholder="Optional feedback for the next plan" /></label><button type="submit" disabled={saving || !reflection.trim() || !outcomeSummary.trim()} title="Record evidence-backed reflection">Record reflection</button></form><p>Without an observed delivery result, attached receipt, and explicit acceptance, PBOS keeps the result unverified and does not learn a personal method from it.</p></section>}
+      {data.today && <section id="pbos-three-minute-reflection" className="pbos-reflection"><p className="pbos-label">THREE-MINUTE REFLECTION</p><form onSubmit={submitReflection}><label>What changed?<textarea value={reflection} onChange={(event) => setReflection(event.target.value)} required placeholder="Completed, decision made, or blocker resolved" /></label><label>Observed delivery result<textarea value={outcomeSummary} onChange={(event) => setOutcomeSummary(event.target.value)} required placeholder="What was delivered and what was actually observed" /></label><label>Observed impact<input value={observedImpacts} onChange={(event) => setObservedImpacts(event.target.value)} placeholder="Optional, comma-separated metric or impact" /></label><label>What blocked you?<input value={blocker} onChange={(event) => setBlocker(event.target.value)} placeholder="Optional blocker" /></label><label>Evidence files in this BSC workspace<input value={evidencePaths} onChange={(event) => setEvidencePaths(event.target.value)} placeholder="app/pbos/service.py, app/knowledge/wiki_sync.py" /></label><small>Only approved project paths are hashed. File contents and credentials are never sent to the PBOS ledger.</small><label>Who performed this work?<select value={executionAttribution} onChange={(event) => setExecutionAttribution(event.target.value as ExecutionAttribution)}><option value="owner">I performed the work</option><option value="mixed">I co-authored the work with an agent</option><option value="agent">Agent performed the work</option></select></label>{executionAttribution === 'mixed' && <label>My contribution<textarea value={ownerContribution} onChange={(event) => setOwnerContribution(event.target.value)} placeholder="Describe the decisions, work, or review you personally performed" /></label>}<small>Only owner work, or co-authored work with a recorded personal contribution, can become evidence for your capability. Agent-only work remains auditable but cannot be promoted as your skill.</small><label className="pbos-reflection__acceptance"><input type="checkbox" checked={acceptanceConfirmed} onChange={(event) => setAcceptanceConfirmed(event.target.checked)} />I accept this result based on the attached evidence</label><label>Quality score (0-100)<input type="number" min="0" max="100" step="1" value={qualityScore} onChange={(event) => setQualityScore(event.target.value)} disabled={!acceptanceConfirmed} placeholder="82" /></label><label>What should change next time?<input value={feedbackDraft} onChange={(event) => setFeedbackDraft(event.target.value)} placeholder="Optional feedback for the next plan" /></label><button type="submit" disabled={saving || !reflection.trim() || !outcomeSummary.trim()} title="Record evidence-backed reflection">Record reflection</button></form><p>Without an observed delivery result, attached receipt, explicit attribution, and explicit acceptance, PBOS keeps the result unverified and does not learn a personal method from it.</p></section>}
+      {unattributedExecutions.length > 0 && <section id="pbos-attribution-review" className="pbos-review-queue"><div className="pbos-panel-heading"><p className="pbos-label">EXECUTION ATTRIBUTION REVIEW</p><span>{unattributedExecutions.length} historical record{unattributedExecutions.length === 1 ? '' : 's'}</span></div><p>These records predate execution attribution. Review each one once before it can be considered for personal learning; this preserves the original receipts and records your decision.</p><div className="pbos-review-list">{unattributedExecutions.map((execution) => { const executionId = String(execution.artifact_id || ''); const draft = attributionReviewDrafts[executionId] ?? { executionAttribution: 'owner', ownerContribution: '', reviewNote: '' }; const reviewing = reviewingAttributionExecutionId === executionId; return <article key={executionId} className="pbos-review-card"><div><strong>{executionId}</strong><small>{execution.verified_receipt_count} verified receipt{execution.verified_receipt_count === 1 ? '' : 's'} / attribution required</small></div><label>Attribution for {executionId}<select value={draft.executionAttribution} disabled={reviewing} onChange={(event) => setAttributionReviewDrafts((current) => ({ ...current, [executionId]: { ...draft, executionAttribution: event.target.value as ExecutionAttribution } }))}><option value="owner">I performed the work</option><option value="mixed">I co-authored the work with an agent</option><option value="agent">Agent performed the work</option></select></label>{draft.executionAttribution === 'mixed' && <label>My contribution for {executionId}<textarea value={draft.ownerContribution} disabled={reviewing} onChange={(event) => setAttributionReviewDrafts((current) => ({ ...current, [executionId]: { ...draft, ownerContribution: event.target.value } }))} placeholder="Describe the work, decision, or review you personally performed" /></label>}<label>Attribution review note for {executionId}<input value={draft.reviewNote} disabled={reviewing} onChange={(event) => setAttributionReviewDrafts((current) => ({ ...current, [executionId]: { ...draft, reviewNote: event.target.value } }))} placeholder="Why this attribution is accurate" /></label><button type="button" className="pbos-primary-action" disabled={reviewing} onClick={() => void reviewLegacyExecutionAttribution(executionId)}>{reviewing ? 'Saving attribution...' : 'Confirm attribution'}</button></article>; })}</div></section>}
       {awaitingOutcomeExecutions.length > 0 && <section className="pbos-outcome-intake"><div className="pbos-panel-heading"><p className="pbos-label">OUTCOMES TO RECORD</p><span>{awaitingOutcomeExecutions.length} reviewable execution{awaitingOutcomeExecutions.length === 1 ? '' : 's'}</span></div><p>These executions already have server-verified receipts and a reflection. Create one unverified result, then explicitly accept or reject it in the review queue.</p><div className="pbos-review-list">{awaitingOutcomeExecutions.map((execution) => { const creating = creatingOutcomeExecutionId === execution.artifact_id; return <article key={execution.artifact_id} className="pbos-review-card"><div><strong>Ready for outcome review</strong><small>{execution.verified_receipt_count} verified receipt{execution.verified_receipt_count === 1 ? '' : 's'} / reflection recorded</small></div><button type="button" className="pbos-primary-action" aria-label={`Create reviewable outcome for ${execution.artifact_id}`} disabled={Boolean(creatingOutcomeExecutionId)} onClick={() => void createOutcomeForExecution(execution.artifact_id)}>{creating ? 'Creating outcome...' : 'Create reviewable outcome'}</button></article>; })}</div></section>}
       {pendingReviewOutcomes.length > 0 && <section id="pbos-outcome-review" className="pbos-review-queue"><div className="pbos-panel-heading"><p className="pbos-label">REVIEW PENDING OUTCOMES</p><span>{pendingReviewOutcomes.length} explicit review{pendingReviewOutcomes.length === 1 ? '' : 's'}</span></div><div className="pbos-review-list">{pendingReviewOutcomes.map((outcome) => { const outcomeId = String(outcome.artifact_id || ''); const observation = outcomeObservations.find((item) => item.artifact_id === outcomeId); const missingRequirements = observation?.missing_requirements ?? ['accepted_outcome', 'quality_score', 'outcome_summary']; const unresolvedEvidence = missingRequirements.filter((item) => item !== 'accepted_outcome' && item !== 'quality_score' && item !== 'outcome_summary'); const canAccept = unresolvedEvidence.length === 0; const executionId = String(outcome.execution_record_id || ''); const execution = executions.find((item) => item.artifact_id === executionId); const persistedSummary = String(outcome.outcome_summary || '').trim(); const suggestedSummary = String(observation?.outcome_summary_draft || '').trim(); const draft = reviewDrafts[outcomeId] ?? { qualityScore: '', outcomeSummary: persistedSummary || suggestedSummary, observedImpacts: stringRefs(outcome.observed_impacts).join(', '), reviewNote: '' }; const parsedQuality = Number(draft.qualityScore); const validQuality = draft.qualityScore.trim() !== '' && Number.isFinite(parsedQuality) && parsedQuality >= 0 && parsedQuality <= 100; const validSummary = Boolean(draft.outcomeSummary.trim()); const updating = reviewingOutcomeId === outcomeId; return <article key={outcomeId} className="pbos-review-card"><div><strong>{outcomeId}</strong><small>{executionId || 'Execution record unavailable'}{execution ? ` / ${execution.verified_receipt_count} verified receipt${execution.verified_receipt_count === 1 ? '' : 's'}` : ''}</small>{unresolvedEvidence.length > 0 && <em>Evidence gap: {unresolvedEvidence.map(readableRequirement).join(', ')}</em>}</div><label>Observed delivery result for {outcomeId}<textarea value={draft.outcomeSummary} onChange={(event) => setReviewDrafts((current) => ({ ...current, [outcomeId]: { ...draft, outcomeSummary: event.target.value } }))} disabled={updating} placeholder="What was delivered and what actually changed" /></label>{!persistedSummary && suggestedSummary && <small>Draft source: {Number(observation?.outcome_summary_draft_receipts ?? 0)} verified execution receipt{Number(observation?.outcome_summary_draft_receipts ?? 0) === 1 ? '' : 's'} and recorded reflection.</small>}<label>Observed impact for {outcomeId}<input value={draft.observedImpacts} onChange={(event) => setReviewDrafts((current) => ({ ...current, [outcomeId]: { ...draft, observedImpacts: event.target.value } }))} disabled={updating} placeholder="Optional, comma-separated metric or impact" /></label><label>Quality score for {outcomeId}<input type="number" min="0" max="100" step="1" value={draft.qualityScore} onChange={(event) => setReviewDrafts((current) => ({ ...current, [outcomeId]: { ...draft, qualityScore: event.target.value } }))} disabled={updating || !canAccept} placeholder="82" /></label><label>Review note for {outcomeId}<input value={draft.reviewNote} onChange={(event) => setReviewDrafts((current) => ({ ...current, [outcomeId]: { ...draft, reviewNote: event.target.value } }))} disabled={updating} placeholder="Optional audit note" /></label><div className="pbos-review-actions"><button type="button" className="pbos-primary-action" disabled={updating || !canAccept || !validQuality || !validSummary} onClick={() => void reviewPendingOutcome(outcomeId, 'accepted')}>Accept result</button><button type="button" disabled={updating} onClick={() => void reviewPendingOutcome(outcomeId, 'rejected')}>Reject result</button></div></article>; })}</div></section>}
-      <section className="pbos-executions"><div className="pbos-panel-heading"><p className="pbos-label">RECENT EXECUTION RECEIPTS</p><span>{executions.length} reviewable record{executions.length === 1 ? '' : 's'}</span></div><div className="pbos-outcomes">{executions.length ? executions.map((execution) => <p key={execution.artifact_id}><FileCheck2 size={15} /><span><strong>{execution.artifact_id.slice(0, 16)}</strong><small>{execution.verified_receipt_count} verified receipt{execution.verified_receipt_count === 1 ? '' : 's'} / {execution.receipt_count} captured / {execution.reflection_recorded ? 'reflection recorded' : 'reflection missing'}</small></span><em>{execution.outcome_state === 'awaiting_outcome' ? 'Awaiting explicit outcome' : execution.outcome_state === 'learning_eligible' ? 'Learning eligible' : execution.outcome_state.replace(/_/g, ' ')}</em></p>) : <p>No execution receipt has been recorded yet.</p>}</div><p>Receipt metadata proves a reviewable execution. A quality-scored, explicitly accepted outcome is still required before PBOS learns a personal method.</p></section>
+      <section className="pbos-executions"><div className="pbos-panel-heading"><p className="pbos-label">RECENT EXECUTION RECEIPTS</p><span>{executions.length} reviewable record{executions.length === 1 ? '' : 's'}</span></div><div className="pbos-outcomes">{executions.length ? executions.map((execution) => <p key={execution.artifact_id}><FileCheck2 size={15} /><span><strong>{execution.artifact_id.slice(0, 16)}</strong><small>{execution.verified_receipt_count} verified receipt{execution.verified_receipt_count === 1 ? '' : 's'} / {execution.receipt_count} captured / {execution.reflection_recorded ? 'reflection recorded' : 'reflection missing'} / {executionAttributionLabel(String(execution.execution_attribution || 'unattributed'))}</small></span><em>{execution.outcome_state === 'awaiting_outcome' ? 'Awaiting explicit outcome' : execution.outcome_state === 'learning_eligible' ? 'Learning eligible' : execution.outcome_state.replace(/_/g, ' ')}</em></p>) : <p>No execution receipt has been recorded yet.</p>}</div><p>Receipt metadata proves a reviewable execution. A quality-scored, explicitly accepted, owner-attributed outcome is still required before PBOS learns a personal method.</p></section>
       <section className="pbos-chart"><div className="pbos-panel-heading"><p className="pbos-label">OUTCOME QUALITY</p><span>{qualitySeries.length ? `${qualitySeries.length} scored result${qualitySeries.length === 1 ? '' : 's'}` : 'awaiting score'}</span></div>{qualitySeries.length ? <RegisteredECharts option={qualityChart} style={{ height: 210 }} notMerge /> : <p className="pbos-empty-panel">No scored outcome has been recorded.</p>}</section>
       <section className="pbos-lineage"><p className="pbos-label">PERSONAL WORKFLOW LINEAGE</p><ReactFlow nodes={nodes} edges={edges} fitView fitViewOptions={{ padding: 0.12 }} minZoom={0.25} nodesDraggable={false} nodesConnectable={false}><Background /><Controls /></ReactFlow></section>
       <section><p className="pbos-label">STRATEGY ASSETS</p><div className="pbos-outcomes">{strategies.length ? strategies.map((item) => { const genome = item.genome as Record<string, unknown> | undefined; return <p key={String(item.artifact_id)}><CircleCheckBig size={15} /><span><strong>{String(item.strategy_name || 'Strategy')} v{String(item.version || 1)}</strong><small>{String(item.status || 'draft')} / {String(genome?.comparison_context || 'unclassified context')} / median {String(genome?.median_quality ?? 'unverified')}</small></span></p>; }) : <p>No Strategy Genome has passed the evidence gate yet.</p>}</div></section>

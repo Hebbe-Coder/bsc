@@ -6,6 +6,8 @@ from app.api import knowledge_workspace_api
 from app.api.knowledge_workspace_api import get_wiki_repository
 from app.core.config import settings
 from app.main import app
+from app.middleware import auth
+from app.middleware.auth import AuthPrincipal
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.source_triage import SourceTriageService, TriageEvaluation, source_admission_reason
@@ -137,6 +139,39 @@ def test_workspace_scheduler_availability_is_cached_only_for_read_responses(monk
         assert probes == ["broker", "broker"]
     finally:
         knowledge_workspace_api._reset_scheduler_availability_cache()
+
+
+def test_workspace_local_rest_probe_is_cached_only_for_enabled_read_responses(monkeypatch):
+    probes: list[str] = []
+
+    class Probe:
+        def probe(self):
+            probes.append("probe")
+            return {
+                "state": "unavailable",
+                "detail_code": "request_timeout",
+                "transport": "docker_host_tls",
+                "plugin_id": "obsidian-local-rest-api",
+                "plugin_version": "",
+                "configuration_source": "plugin_config",
+            }
+
+    monkeypatch.setattr(settings, "OBSIDIAN_LOCAL_REST_ENABLED", True)
+    monkeypatch.setattr(settings, "OBSIDIAN_LOCAL_REST_URL", "")
+    monkeypatch.setattr(settings, "OBSIDIAN_LOCAL_REST_API_KEY", "cache-token")
+    monkeypatch.setattr(settings, "OBSIDIAN_VAULT_ROOT", "C:/workspace-cache")
+    monkeypatch.setattr(knowledge_workspace_api.ObsidianLocalRestProbe, "from_settings", lambda _settings: Probe())
+    knowledge_workspace_api._reset_local_rest_probe_cache()
+    try:
+        assert knowledge_workspace_api._local_rest_status()["detail_code"] == "request_timeout"
+        assert knowledge_workspace_api._local_rest_status()["detail_code"] == "request_timeout"
+        assert probes == ["probe"]
+
+        monkeypatch.setattr(settings, "OBSIDIAN_LOCAL_REST_URL", "https://host.docker.internal:27124")
+        assert knowledge_workspace_api._local_rest_status()["detail_code"] == "request_timeout"
+        assert probes == ["probe", "probe"]
+    finally:
+        knowledge_workspace_api._reset_local_rest_probe_cache()
 
 
 def test_workspace_semantic_triage_is_review_only_and_queryable(tmp_path, monkeypatch):
@@ -285,6 +320,195 @@ def test_workspace_capture_web_creates_reviewable_primary_evidence_linked_to_a_h
     finally:
         settings.API_KEY = previous_key
         settings.OBSIDIAN_VAULT_ROOT = previous_root
+        app.dependency_overrides.clear()
+        repo.close()
+
+
+def test_workspace_status_exposes_an_honest_release_gate_without_source_bodies_or_secrets(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "workspace-release-gate.db"))
+    previous_key = settings.API_KEY
+    previous_enabled = settings.KNOWLEDGE_WIKI_ENABLED
+    settings.API_KEY = "workspace-admin"
+    settings.KNOWLEDGE_WIKI_ENABLED = True
+    app.dependency_overrides[get_wiki_repository] = lambda: repo
+    client = TestClient(app)
+    try:
+        response = client.get(
+            "/knowledge/workspaces/project-a",
+            headers={"Authorization": "Bearer workspace-admin"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()["data"]
+        gate = data["release_gate"]
+        assert gate["status"] == "implemented_with_operational_proof_pending"
+        assert gate["contract_revision"] == "e1-knowledge-ecosystem-v1"
+        assert set(gate["missing_evidence"]) == {
+            "o1_secure_boundary_restart",
+            "o2_metadata_views",
+            "o3_real_plugin_exports",
+            "o4_extraction_reference",
+            "o5_visualization_inspection",
+            "o6_feedback_cycle",
+            "compose_recovery",
+            "authorization_isolation",
+            "browser_desktop_mobile",
+        }
+        assert "raw_content" not in str(data)
+        assert "api_key" not in str(data)
+        assert "Authorization" not in str(data)
+    finally:
+        settings.API_KEY = previous_key
+        settings.KNOWLEDGE_WIKI_ENABLED = previous_enabled
+        app.dependency_overrides.clear()
+        repo.close()
+
+
+def test_workspace_release_evidence_requires_admin_review_and_changes_only_the_project_gate(tmp_path, monkeypatch):
+    repo = WikiRepository(db_path=str(tmp_path / "workspace-release-evidence.db"))
+    previous_key = settings.API_KEY
+    settings.API_KEY = "workspace-admin"
+    app.dependency_overrides[get_wiki_repository] = lambda: repo
+    client = TestClient(app)
+    evidence_id = "o1_secure_boundary_restart"
+    pending = {
+        "evidence": {
+            "evidence_id": evidence_id,
+            "state": "pending",
+            "proof_class": "none",
+            "observed_at": "",
+            "durable_ids": [],
+            "detail_code": "awaiting_observation",
+        }
+    }
+    verified = {
+        "evidence": {
+            "evidence_id": evidence_id,
+            "state": "verified",
+            "proof_class": "real",
+            "observed_at": "2026-08-01T00:00:00+00:00",
+            "durable_ids": ["run:obsidian-restart-1"],
+            "detail_code": "restart_verified",
+        }
+    }
+    try:
+        submitted = client.post(
+            "/knowledge/workspaces/project-a/release-evidence",
+            headers={"Authorization": "Bearer workspace-admin"},
+            json=pending,
+        )
+        assert submitted.status_code == 200
+        assert submitted.json()["data"]["evidence"]["state"] == "pending"
+        assert submitted.json()["data"]["evidence"]["revision"] == 1
+
+        status = client.get("/knowledge/workspaces/project-a", headers={"Authorization": "Bearer workspace-admin"})
+        assert status.status_code == 200
+        gate = status.json()["data"]["release_gate"]
+        assert evidence_id in gate["pending_evidence"]
+        assert gate["status"] == "implemented_with_operational_proof_pending"
+
+        with monkeypatch.context() as auth_patch:
+            auth_patch.setattr(
+                auth,
+                "_principal_from_bearer",
+                lambda key: AuthPrincipal("project_admin", "default", "project-a", "project-key", "") if key == "project-key" else None,
+            )
+            forbidden = client.post(
+                f"/knowledge/workspaces/project-a/release-evidence/{evidence_id}/verify",
+                headers={"Authorization": "Bearer project-key"},
+                json=verified,
+            )
+            assert forbidden.status_code == 403
+
+            wrong_project = client.get(
+                "/knowledge/workspaces/project-b/release-evidence",
+                headers={"Authorization": "Bearer project-key"},
+            )
+            assert wrong_project.status_code == 403
+
+        reviewed = client.post(
+            f"/knowledge/workspaces/project-a/release-evidence/{evidence_id}/verify",
+            headers={"Authorization": "Bearer workspace-admin"},
+            json=verified,
+        )
+        assert reviewed.status_code == 200
+        assert reviewed.json()["data"]["evidence"] == {
+            "evidence_id": evidence_id,
+            "state": "verified",
+            "proof_class": "real",
+            "observed_at": "2026-08-01T00:00:00+00:00",
+            "durable_ids": ["run:obsidian-restart-1"],
+            "detail_code": "restart_verified",
+            "revision": 2,
+            "recorded_by": "admin",
+        }
+
+        evidence_list = client.get(
+            "/knowledge/workspaces/project-a/release-evidence",
+            headers={"Authorization": "Bearer workspace-admin"},
+        )
+        assert evidence_list.status_code == 200
+        assert evidence_list.json()["data"]["evidence"] == [reviewed.json()["data"]["evidence"]]
+        assert "raw_content" not in evidence_list.text
+        assert "api_key" not in evidence_list.text
+    finally:
+        settings.API_KEY = previous_key
+        app.dependency_overrides.clear()
+        repo.close()
+
+
+def test_workspace_release_evidence_rejects_unreviewed_verified_claims_and_source_bodies(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "workspace-release-evidence-input.db"))
+    previous_key = settings.API_KEY
+    settings.API_KEY = "workspace-admin"
+    app.dependency_overrides[get_wiki_repository] = lambda: repo
+    client = TestClient(app)
+    try:
+        verified_submission = client.post(
+            "/knowledge/workspaces/project-a/release-evidence",
+            headers={"Authorization": "Bearer workspace-admin"},
+            json={
+                "evidence": {
+                    "evidence_id": "o1_secure_boundary_restart",
+                    "state": "verified",
+                    "proof_class": "real",
+                    "observed_at": "2026-08-01T00:00:00+00:00",
+                    "durable_ids": ["run:unreviewed"],
+                    "detail_code": "claimed",
+                }
+            },
+        )
+        assert verified_submission.status_code == 400
+
+        body_attempt = client.post(
+            "/knowledge/workspaces/project-a/release-evidence",
+            headers={"Authorization": "Bearer workspace-admin"},
+            json={
+                "evidence": {
+                    "evidence_id": "o1_secure_boundary_restart",
+                    "state": "pending",
+                    "proof_class": "none",
+                    "raw_content": "must not enter the release ledger",
+                }
+            },
+        )
+        assert body_attempt.status_code == 422
+
+        forbidden_metadata_attempt = client.post(
+            "/knowledge/workspaces/project-a/release-evidence",
+            headers={"Authorization": "Bearer workspace-admin"},
+            json={
+                "evidence": {
+                    "evidence_id": "o1_secure_boundary_restart",
+                    "state": "pending",
+                    "proof_class": "none",
+                    "source_url": "https://must-not-be-stored.example",
+                }
+            },
+        )
+        assert forbidden_metadata_attempt.status_code == 422
+    finally:
+        settings.API_KEY = previous_key
         app.dependency_overrides.clear()
         repo.close()
 
@@ -521,9 +745,11 @@ def test_workspace_status_exposes_a_redacted_local_rest_plugin_probe(tmp_path, m
                 "transport": "loopback_tls",
                 "plugin_id": "obsidian-local-rest-api",
                 "plugin_version": "5.0.2",
+                "configuration_source": "runtime_env",
             }
 
     monkeypatch.setattr(knowledge_workspace_api.ObsidianLocalRestProbe, "from_settings", lambda _settings: Probe())
+    knowledge_workspace_api._reset_local_rest_probe_cache()
     client = TestClient(app)
     try:
         response = client.get("/knowledge/workspaces/project-a", headers={"Authorization": "Bearer workspace-admin"})
@@ -535,9 +761,11 @@ def test_workspace_status_exposes_a_redacted_local_rest_plugin_probe(tmp_path, m
             "transport": "loopback_tls",
             "plugin_id": "obsidian-local-rest-api",
             "plugin_version": "5.0.2",
+            "configuration_source": "runtime_env",
         }
         assert "api_key" not in str(response.json()).lower()
     finally:
+        knowledge_workspace_api._reset_local_rest_probe_cache()
         settings.API_KEY = previous_key
         app.dependency_overrides.clear()
         repo.close()

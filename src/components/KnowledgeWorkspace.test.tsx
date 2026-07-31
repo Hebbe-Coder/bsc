@@ -9,14 +9,13 @@ import {
   EvidenceRecord,
   KNOWLEDGE_JOB_OPTIONS,
   OBSIDIAN_PLUGIN_PRESETS,
-  describeLocalRestConnection,
   projectOptions,
   ProposalReview,
   selectKnowledgeGraphFocus,
   SourceInspector,
   WikiReader,
 } from './KnowledgeWorkspace';
-import { describeKnowledgeSource, selectDefaultKnowledgePage } from './knowledgePresentation';
+import { describeKnowledgeReleaseGate, describeKnowledgeSource, describeLocalRestConnection, selectDefaultKnowledgePage } from './knowledgePresentation';
 
 const proposal: KnowledgeProposal = {
   id: 'proposal-a',
@@ -154,11 +153,23 @@ describe('KnowledgeWorkspace focused components', () => {
   it('explains the optional Local REST connector without treating it as a source bridge', () => {
     expect(describeLocalRestConnection(undefined)).toMatch(/not configured/i);
     expect(describeLocalRestConnection({
-      state: 'connected', detail_code: 'authenticated_manifest_verified', transport: 'loopback_tls', plugin_id: 'obsidian-local-rest-api', plugin_version: '5.0.2',
-    })).toBe('Authenticated obsidian-local-rest-api 5.0.2 via loopback_tls');
+      state: 'connected', detail_code: 'authenticated_manifest_verified', transport: 'loopback_tls', plugin_id: 'obsidian-local-rest-api', plugin_version: '5.0.2', configuration_source: 'plugin_config',
+    })).toBe('Authenticated obsidian-local-rest-api 5.0.2 via loopback_tls, using installed plugin configuration');
     expect(describeLocalRestConnection({
-      state: 'authentication_failed', detail_code: 'authorization_rejected', transport: 'loopback_tls', plugin_id: 'obsidian-local-rest-api', plugin_version: '',
+      state: 'authentication_failed', detail_code: 'authorization_rejected', transport: 'loopback_tls', plugin_id: 'obsidian-local-rest-api', plugin_version: '', configuration_source: 'runtime_env',
     })).toMatch(/rejected/i);
+  });
+
+  it('keeps operational proof pending until durable evidence is explicitly registered', () => {
+    expect(describeKnowledgeReleaseGate(undefined)).toMatch(/not been evaluated/i);
+    expect(describeKnowledgeReleaseGate({
+      status: 'implemented_with_operational_proof_pending', contract_revision: 'e1-knowledge-ecosystem-v1',
+      missing_evidence: ['o3_real_plugin_exports'], pending_evidence: ['o6_feedback_cycle'], failed_evidence: [], blocking_reasons: ['missing_evidence'],
+    })).toBe('2 required evidence checks still need durable operational proof');
+    expect(describeKnowledgeReleaseGate({
+      status: 'not_release_ready', contract_revision: 'e1-knowledge-ecosystem-v1',
+      missing_evidence: [], pending_evidence: [], failed_evidence: ['compose_recovery'], blocking_reasons: ['failed_evidence'],
+    })).toBe('Release is blocked by 1 failed evidence check');
   });
 
   it('keeps a compact graph focused on the most connected reviewable records', () => {

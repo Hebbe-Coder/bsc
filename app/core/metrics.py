@@ -33,6 +33,7 @@ except ImportError:
     _PSUTIL_AVAILABLE = False
 
 _thread_local = threading.local()
+_PERSISTENCE_RETRY_SECONDS = 60.0
 
 
 class MetricsStore:
@@ -69,6 +70,21 @@ class MetricsStore:
         
         self._db_backend = None
         self._last_daily_stats_update = None
+        # Metrics persistence is best effort. A missing or temporarily broken
+        # metrics schema must not add a database failure to every API request.
+        self._persistence_retry_after = 0.0
+
+    def _persistence_available(self) -> bool:
+        return time.monotonic() >= self._persistence_retry_after
+
+    def _defer_persistence(self, operation: str, error: Exception) -> None:
+        self._persistence_retry_after = time.monotonic() + _PERSISTENCE_RETRY_SECONDS
+        logger.warning(
+            "Metrics persistence %s failed; retrying after %.0fs: %s",
+            operation,
+            _PERSISTENCE_RETRY_SECONDS,
+            error,
+        )
     
     def _get_db_backend(self):
         """获取数据库后端（懒加载）"""
@@ -83,6 +99,8 @@ class MetricsStore:
         try:
             backend = self._get_db_backend()
             with self._db_lock:
+                if not self._persistence_available():
+                    return
                 backend.execute(
                     """
                     INSERT INTO api_usage_log 
@@ -104,7 +122,7 @@ class MetricsStore:
                 )
                 backend.commit()
         except Exception as e:
-            logger.warning(f"保存API使用日志失败: {e}")
+            self._defer_persistence("API usage logging", e)
     
     def _update_daily_stats(self):
         """更新每日统计数据"""
@@ -112,10 +130,14 @@ class MetricsStore:
         
         if self._last_daily_stats_update == now:
             return
+        if not self._persistence_available():
+            return
         
         try:
             backend = self._get_db_backend()
             with self._db_lock:
+                if not self._persistence_available():
+                    return
                 metrics = self.get_metrics()
                 
                 avg_response = metrics.get("endpoints", {}).get("/bsc/compile", {}).get("avg", 0)
@@ -152,7 +174,7 @@ class MetricsStore:
                 
                 self._last_daily_stats_update = now
         except Exception as e:
-            logger.warning(f"更新每日统计数据失败: {e}")
+            self._defer_persistence("daily statistics update", e)
     
     def record_request(self, endpoint: str, duration_ms: float, status_code: int, 
                       http_method: str = "POST", error_type: str = ""):

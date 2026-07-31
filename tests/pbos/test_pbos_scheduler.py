@@ -120,17 +120,12 @@ def test_due_pbos_schedule_claims_and_dispatches_through_the_knowledge_queue(tmp
 
 
 def test_direct_pbos_tasks_keep_daily_and_monthly_reports_out_of_weekly_distillation(tmp_path, monkeypatch):
-    class FrozenDate:
-        @classmethod
-        def today(cls):
-            return date(2026, 7, 30)
-
     root = tmp_path / "vault"
     project_root = root / "projects" / "project-a"
     project_root.mkdir(parents=True)
     monkeypatch.setattr(settings, "OBSIDIAN_VAULT_ROOT", str(root))
     monkeypatch.setattr(dbos_api, "DBOS_DATA_ROOT", tmp_path / "dbos")
-    monkeypatch.setattr(pbos_tasks, "date", FrozenDate)
+    monkeypatch.setattr(pbos_tasks, "_shanghai_date", lambda _now=None: date(2026, 7, 30))
 
     daily = pbos_tasks.pbos_daily_review_task.run("project-a")
     monthly = pbos_tasks.pbos_monthly_review_task.run("project-a")
@@ -144,3 +139,9 @@ def test_direct_pbos_tasks_keep_daily_and_monthly_reports_out_of_weekly_distilla
         "path": "pbos/reviews/monthly/2026-07/capability-report.md",
     }
     assert not (project_root / "distillations" / "每周蒸馏" / "daily-2026-07-30").exists()
+
+
+def test_direct_pbos_reports_use_shanghai_calendar_dates():
+    utc_evening = datetime(2026, 7, 31, 16, 30, tzinfo=timezone.utc)
+
+    assert pbos_tasks._shanghai_date(utc_evening) == date(2026, 8, 1)

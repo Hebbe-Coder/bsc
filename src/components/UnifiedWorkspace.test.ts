@@ -1,10 +1,15 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { createElement } from 'react';
+import { createElement, StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useGrowthWorkspaceStore, useKnowledgeWorkspaceStore } from '../store/knowledgeWorkspaceStore';
+import { fetchKnowledgeWorkspaceProjects } from '../api/knowledgeWorkspaceApi';
 import { detectMode, formatRuntimeError, isLocalProxySession, syncGrowthProjectContext, syncKnowledgeProjectContext, UnifiedWorkspace } from './UnifiedWorkspace';
+
+vi.mock('../api/knowledgeWorkspaceApi', () => ({
+  fetchKnowledgeWorkspaceProjects: vi.fn(),
+}));
 
 vi.mock('./KnowledgeWorkspace', () => ({
   KnowledgeWorkspace: ({ onProjectChange }: { onProjectChange: (projectId: string) => void }) => createElement(
@@ -41,6 +46,7 @@ vi.mock('./dbos/BusinessControlCenter', () => ({
 }));
 
 beforeEach(() => {
+  vi.mocked(fetchKnowledgeWorkspaceProjects).mockReset();
   Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
     configurable: true,
     value: vi.fn(),
@@ -121,6 +127,26 @@ describe('syncKnowledgeProjectContext', () => {
 });
 
 describe('workspace navigation', () => {
+  it('discovers authorized projects and opens PBOS in the selected project instead of an unscoped workspace', async () => {
+    vi.mocked(fetchKnowledgeWorkspaceProjects).mockResolvedValue({
+      projects: [
+        { id: 'proj_b8a285642094', name: 'Personal Knowledge Intelligence', created_at: '2026-07-27T18:57:22' },
+        { id: 'default', name: 'Obsidian Knowledge Vault', created_at: '2026-07-21T21:16:47' },
+      ],
+      count: 2,
+    });
+    render(createElement(StrictMode, null, createElement(UnifiedWorkspace)));
+
+    fireEvent.change(screen.getByLabelText('Runtime access key'), { target: { value: 'test-runtime-key' } });
+    expect(await screen.findByRole('option', { name: /Personal Knowledge Intelligence/ })).toBeVisible();
+    fireEvent.change(screen.getByLabelText('Project knowledge context ID'), { target: { value: 'proj_b8a285642094' } });
+
+    expect(screen.getByLabelText('Project knowledge context ID')).toHaveValue('proj_b8a285642094');
+    expect(screen.getByText('mapped')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'PBOS' }));
+    expect(await screen.findByRole('dialog', { name: 'Personal Growth Cockpit' })).toBeVisible();
+  });
+
   it('moves the selected Knowledge project into a visible Growth workspace without leaving Knowledge over it', async () => {
     render(createElement(UnifiedWorkspace));
 

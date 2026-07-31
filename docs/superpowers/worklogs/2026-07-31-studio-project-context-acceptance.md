@@ -421,6 +421,10 @@ metadata-only, authorized boundary.
 - `npm run build` passed with the existing ECharts vendor chunk advisory
   (`598.72 kB` minified); `docker compose --profile full config --quiet`
   passed; `git diff --check` passed with only CRLF normalization warnings.
+- Full frontend regression `npm run test:frontend` passed with `23` files and
+  `200` tests. `npm run lint` passed with `0` errors and `214` existing
+  warnings after moving the pure Local REST display formatter out of the
+  component module; `npm run check` remained green.
 
 ## Full Regression And Runtime Recheck
 
@@ -452,3 +456,234 @@ after the durable manual-dispatch audit regression was repaired.
 - This check neither reads nor writes source bodies, Vault files, external
   credentials, or Obsidian plugin data. It confirms local service liveness,
   not a new external capture or authenticated browser-session proof.
+
+## E1 Metadata-Only Release Gate
+
+Date: 2026-07-31
+Scope: make the personal knowledge ecosystem consolidation decision executable
+without allowing fixtures, paths, URLs, credentials, or source bodies into the
+release packet.
+
+### Implementation
+
+- Added `app/knowledge/ecosystem_release_gate.py` with the frozen
+  `e1-knowledge-ecosystem-v1` contract and nine required O1-O6/integration
+  evidence IDs.
+- The packet schema rejects unknown fields, duplicate IDs, unsafe durable IDs,
+  non-timezoned timestamps, and any attempted `raw_content` field.
+- The decision has exactly the E1 states: `release_ready`,
+  `implemented_with_operational_proof_pending`, and `not_release_ready`.
+  Missing or pending evidence remains pending; failed evidence and fixture
+  substitution are hard blockers.
+- The output matrix contains only evidence ID, state, proof class, bounded ID
+  count, and safe detail code. It never emits packet values such as paths,
+  URLs, credentials, prompts, provider payloads, or source content.
+
+### Test-First Evidence
+
+- The new regression initially failed during collection because the gate module
+  did not exist (`ModuleNotFoundError`), then passed after implementation.
+- `./.venv/Scripts/python.exe -m pytest
+  tests/knowledge/test_ecosystem_release_gate.py -q`
+  - Passed: 7 tests covering missing/pending evidence, fixture substitution,
+    failed evidence, complete real metadata, source-body rejection, unsafe
+    identifiers, timestamps, and duplicate packet IDs.
+
+### Boundary And Status
+
+- No Vault, source, Wiki, output, plugin, credential, or external service was
+  read or written. All release packets in tests are synthetic metadata-only
+  fixtures and are explicitly not operational proof.
+- The evaluator is now capable of producing `release_ready` only for a fully
+  populated real-evidence packet, but no such packet was supplied or fabricated
+  in this increment. The overall E1 status remains
+  `implemented_with_operational_proof_pending`.
+- Post-gate `npm run build` passed; the existing ECharts chunk-size advisory
+  remains the only build warning.
+
+## E1 Workspace Release Projection
+
+Date: 2026-07-31
+Scope: expose the E1 consolidation decision in the authorized Knowledge
+Workspace without treating configured services, UI state, or source records as
+release evidence.
+
+### Test-First Evidence
+
+- The new workspace API regression first failed with `KeyError: 'release_gate'`.
+  This proved that the evaluator existed only in its unit tests and the Studio
+  could not display the current release boundary.
+- `GET /knowledge/workspaces/{project_id}` now returns the one metadata-only
+  `_workspace_release_gate()` decision. It starts from an empty packet, so it
+  is deterministically `implemented_with_operational_proof_pending` until a
+  separate durable-evidence workflow supplies the required handoff.
+- The typed Studio contract displays the gate in both the connection path and
+  status strip. It distinguishes `Ready`, `Pending`, and `Blocked`; it does
+  not turn a successful Local REST probe, mapped Vault, plugin folder, or
+  published page into a release claim.
+- Frontend presentation regression covers unevaluated, pending, and blocked
+  messages. Backend regression covers all nine missing evidence IDs and
+  asserts that source-body and credential field names are absent from the
+  response.
+
+### Automated Verification
+
+- `./.venv/Scripts/python.exe -m pytest
+  tests/api/test_knowledge_workspace_api.py::test_workspace_status_exposes_an_honest_release_gate_without_source_bodies_or_secrets
+  tests/knowledge/test_ecosystem_release_gate.py -q`
+  - Passed: 8 tests. The only warning is FastAPI's upstream TestClient
+    deprecation warning.
+- `npm run test:frontend -- src/components/KnowledgeWorkspace.test.tsx`
+  - Passed: 1 file, 15 tests.
+- `npm run check`
+  - Passed.
+- `git diff --check`
+  - Passed. Git reported existing CRLF normalization advisories only.
+- `./.venv/Scripts/python.exe -m pytest
+  tests/api/test_knowledge_workspace_api.py
+  tests/knowledge/test_obsidian_local_rest.py
+  tests/knowledge/test_ecosystem_release_gate.py -q`
+  - Passed: 42 tests. This combined rerun includes the workspace projection,
+    Local REST redaction/fail-closed behavior, and E1 gate invariants.
+- `npm run test:frontend -- src/components/KnowledgeWorkspace.test.tsx`,
+  `npm run check`, and `npm run build`
+  - Passed on 2026-08-01. The production build retains the existing ECharts
+    vendor-chunk advisory at 598.72 kB minified; it is not hidden or counted
+    as a completed performance optimization.
+
+### Boundary And Status
+
+- No Obsidian Vault body, source body, Wiki/output body, plugin code, token,
+  external endpoint, or original user file was read or written in this
+  increment. The endpoint computes a fixed metadata-only missing-evidence
+  decision and does not call a network client.
+- The visible E1 status is intentionally not `release_ready`. All nine
+  operational proof categories remain missing until separately collected,
+  durable, project-authorized evidence is reviewed. No fixture or UI state is
+  used to reduce that gap.
+
+### Runtime Reverification (2026-08-01)
+
+- Rebuilt the BSC API image and verified API, PostgreSQL, Redis, Celery Worker,
+  Celery Beat, and n8n are running; the API health endpoint reports all
+  declared dependencies as available.
+- The first Local REST container probe correctly returned
+  `unavailable/transport_unavailable`. Diagnosis showed Docker host routing was
+  resolvable but the installed plugin service had no running Obsidian process
+  or listening local port. BSC did not retry indefinitely, relax TLS, or claim
+  a connection.
+- Started the locally installed Obsidian application. After its plugin service
+  initialized, three independent container probes and one authorized Workspace
+  API request all returned `connected/authenticated_manifest_verified` for
+  `obsidian-local-rest-api` version `5.0.2` via `docker_host_tls`.
+- The project metadata read found two ready Vaults. One already contains two
+  captured `obsidian-excalidraw-plugin` source exports and one registered
+  `codex-agent` output; every other registered route reports its honest
+  `awaiting_export` or `awaiting_output` state. This check only read status
+  counters and plugin identifiers, never note bodies or output content.
+- The Workspace E1 response remained
+  `implemented_with_operational_proof_pending` with nine missing evidence
+  categories. A stable connector, live services, captured plugin exports, and
+  registered output are useful operational facts, but they are not silently
+  reclassified as the complete reviewed evidence packet.
+
+## Durable Release Evidence Activation (2026-08-01)
+
+### Implementation
+
+- Added the project-scoped `knowledge_release_evidence` ledger with immutable
+  revisions, safe durable identifiers, and no body, URL, prompt, credential,
+  or provider-payload column.
+- `GET /knowledge/workspaces/{project_id}` now evaluates the latest ledger
+  revision per evidence category. Separate REST endpoints list, submit pending
+  evidence, and let only a tenant administrator review it as verified real
+  evidence. Project-scoped keys cannot review evidence or read another
+  project's ledger.
+- Added typed Studio API methods for the ledger. The Workspace retains its
+  read-only release-proof status metric; it no longer assumes an empty packet
+  when durable reviewed evidence exists.
+
+### Test And Runtime Evidence
+
+- The first full repository regression exposed the missing ledger REST routes:
+  two workspace tests received `404` instead of their required review-gated
+  responses. This was fixed rather than suppressed.
+- Focused regression after the implementation passed: `44 passed` for the
+  Workspace API, Local REST, and E1 evaluator contracts. Frontend API and
+  Workspace tests passed `24`; `npm run check` and `npm run build` passed.
+- A live authorized API run found a project with persisted
+  `obsidian-excalidraw-plugin` captures. It submitted a pending
+  `o3_real_plugin_exports` record and then performed the administrator review
+  using three existing immutable `source:<id>` references. The resulting
+  verified record is revision `2`; no source body was read or copied.
+- The reviewed project now reports eight missing release-evidence categories.
+  A separate authorized project remains at nine missing categories with an
+  empty ledger, proving that the review did not cross a project boundary.
+- A Compose recreation initially inherited a higher-priority process setting
+  of `OBSIDIAN_LOCAL_REST_ENABLED=false`; BSC truthfully reported
+  `unconfigured`. Recreating with the explicit enabled setting restored the
+  connected runtime probe. A fresh process with URL and key removed also
+  authenticated through the mounted plugin configuration, proving both
+  supported paths without printing either secret.
+
+### Current Boundary
+
+- The system has real, reviewed proof for plugin-origin evidence capture only.
+  Eight required E1 categories, including feedback-cycle and browser proof,
+  remain pending and the release gate remains
+  `implemented_with_operational_proof_pending`. The ledger does not equate
+  connected services or generated UI state with the remaining operational
+  evidence.
+
+## E1 Metadata Ledger Regression And Studio Review Surface
+
+Date: 2026-08-01
+Scope: make the existing metadata-only E1 release ledger inspectable and
+reviewable in Studio while preserving the no-body, no-provider, no-Vault-write
+boundary.
+
+### Implementation
+
+- Added `ReleaseEvidenceLedger` to the Knowledge Workspace inspector. It
+  displays only evidence ID, state, proof class, timestamp, durable IDs,
+  detail code, revision, and recorded role.
+- Project administrators can append only `pending`, `unavailable`, or
+  `failed` observations. There is no control for editing `release_ready` or
+  for submitting a verified claim.
+- The administrator review form is visible only to the tenant `admin`; it
+  remains disabled until the reviewer supplies a timestamp, one or more
+  durable IDs, and a safe review code. The backend remains the authority for
+  project scope and review acceptance.
+- Expanded the frozen release-evidence contract regression to reject Vault
+  paths, source URLs, API keys, provider payloads, prompts, and source bodies.
+  The MCP project-scope assertion now matches the established Chinese access
+  error rather than weakening the permission check.
+
+### Verification
+
+- `./.venv/Scripts/python.exe -m pytest
+  tests/knowledge/test_ecosystem_release_gate.py
+  tests/api/test_knowledge_workspace_api.py::test_workspace_status_exposes_an_honest_release_gate_without_source_bodies_or_secrets
+  tests/api/test_knowledge_workspace_api.py::test_workspace_release_evidence_requires_admin_review_and_changes_only_the_project_gate
+  tests/api/test_knowledge_workspace_api.py::test_workspace_release_evidence_rejects_unreviewed_verified_claims_and_source_bodies
+  tests/mcp/test_wiki_tools.py::test_mcp_release_evidence_is_read_only_project_scoped_and_redacted -q`
+  passed: `16 passed`.
+- `npm run test:frontend -- src/components/KnowledgeWorkspace.test.tsx
+  src/components/knowledge/ReleaseEvidenceLedger.test.tsx
+  src/api/knowledgeWorkspaceApi.test.ts` passed: `27 passed`.
+- `npm run check` and `npm run build` passed. The existing ECharts vendor
+  chunk advisory remains `598.72 kB` minified.
+- `npm run lint` completed with `0` errors and `214` existing warnings; no
+  new lint error was introduced by the release-evidence surface.
+- `git diff --check` found no whitespace errors; only repository-wide CRLF
+  normalization advisories were emitted.
+
+### Boundary And Status
+
+- This increment did not read any Obsidian/Vault/source/Wiki/output body,
+  did not call an external service, and did not write back to any original
+  file. Tests used isolated temporary databases and mocked browser requests.
+- The UI does not convert observations, connector status, or a visible table
+  into release proof. E1 remains `implemented_with_operational_proof_pending`
+  until the remaining project-authorized external evidence is separately
+  observed and reviewed.

@@ -10,6 +10,15 @@ def test_celery_services_disable_the_http_healthcheck():
     assert compose["services"]["celery-beat"]["healthcheck"] == {"disable": True}
 
 
+def test_local_rest_uses_an_optional_ignored_runtime_file_without_host_interpolation():
+    compose = yaml.safe_load(Path("docker-compose.yml").read_text(encoding="utf-8"))
+    api_service = compose["services"]["bsc-backend"]
+
+    assert api_service["env_file"] == [{"path": "./.env.runtime", "required": False}]
+    environment = set(api_service["environment"])
+    assert not any(item.startswith("OBSIDIAN_LOCAL_REST_") for item in environment)
+
+
 def test_deepseek_configuration_reaches_api_and_worker_only():
     compose = yaml.safe_load(Path("docker-compose.yml").read_text(encoding="utf-8"))
     required = {
@@ -157,9 +166,10 @@ def test_durable_services_share_postgresql_and_redis_runtime_dependencies():
     assert "RATE_LIMIT_BACKEND=redis" in set(compose["services"]["bsc-backend"]["environment"])
 
 
-def test_dbos_artifact_ledger_is_mounted_on_the_durable_api_volume():
+def test_api_and_worker_share_the_durable_dbos_artifact_ledger():
     compose = yaml.safe_load(Path("docker-compose.yml").read_text(encoding="utf-8"))
 
-    api = compose["services"]["bsc-backend"]
-    assert "DBOS_DATA_ROOT=/data/dbos" in set(api["environment"])
-    assert "bsc-data:/data" in api["volumes"]
+    for service_name in ("bsc-backend", "celery-worker"):
+        service = compose["services"][service_name]
+        assert "DBOS_DATA_ROOT=/data/dbos" in set(service["environment"])
+        assert "bsc-data:/data" in service["volumes"]

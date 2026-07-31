@@ -8,8 +8,9 @@ or exposes the configured endpoint or token in a response.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -18,6 +19,7 @@ import httpx
 
 _ALLOWED_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "host.docker.internal"})
 _MAX_RESPONSE_BYTES = 16 * 1024
+_PLUGIN_SETTINGS_RELATIVE_PATH = Path(".obsidian/plugins/obsidian-local-rest-api/data.json")
 
 
 @dataclass(frozen=True)
@@ -26,18 +28,79 @@ class ObsidianLocalRestConfiguration:
 
     enabled: bool = False
     base_url: str = ""
-    api_key: str = ""
+    api_key: str = field(default="", repr=False)
     timeout_seconds: float = 3.0
     allow_insecure_tls: bool = False
+    configuration_source: str = "not_configured"
+    configuration_error: str = ""
 
     @classmethod
     def from_settings(cls, settings: Any) -> "ObsidianLocalRestConfiguration":
+        enabled = bool(getattr(settings, "OBSIDIAN_LOCAL_REST_ENABLED", False))
+        base_url = str(getattr(settings, "OBSIDIAN_LOCAL_REST_URL", "") or "")
+        api_key = str(getattr(settings, "OBSIDIAN_LOCAL_REST_API_KEY", "") or "")
+        timeout_seconds = float(getattr(settings, "OBSIDIAN_LOCAL_REST_TIMEOUT_SECONDS", 3.0) or 3.0)
+        allow_insecure_tls = bool(getattr(settings, "OBSIDIAN_LOCAL_REST_ALLOW_INSECURE_TLS", False))
+        if not enabled:
+            return cls(
+                enabled=False,
+                base_url=base_url,
+                api_key=api_key,
+                timeout_seconds=timeout_seconds,
+                allow_insecure_tls=allow_insecure_tls,
+            )
+        if base_url.strip() or api_key.strip():
+            return cls(
+                enabled=True,
+                base_url=base_url,
+                api_key=api_key,
+                timeout_seconds=timeout_seconds,
+                allow_insecure_tls=allow_insecure_tls,
+                configuration_source="runtime_env",
+            )
+        return cls._from_local_plugin_settings(settings, timeout_seconds)
+
+    @classmethod
+    def _from_local_plugin_settings(cls, settings: Any, timeout_seconds: float) -> "ObsidianLocalRestConfiguration":
+        """Read only the configured plugin's local transport settings.
+
+        This fallback is active only after an operator enables Local REST and
+        supplies no separate runtime token. It does not scan Vault content or
+        import plugin code. The bounded plugin settings file is already
+        required by Obsidian to run the explicitly installed local service.
+        """
+        root_value = str(getattr(settings, "OBSIDIAN_VAULT_ROOT", "") or "").strip()
+        if not root_value:
+            return cls(enabled=True, timeout_seconds=timeout_seconds, configuration_source="plugin_config", configuration_error="plugin_vault_unavailable")
+        try:
+            root = Path(root_value).expanduser().resolve()
+            candidate = (root / _PLUGIN_SETTINGS_RELATIVE_PATH).resolve()
+            candidate.relative_to(root)
+            if not candidate.is_file():
+                return cls(enabled=True, timeout_seconds=timeout_seconds, configuration_source="plugin_config", configuration_error="plugin_settings_missing")
+            payload = json.loads(candidate.read_text(encoding="utf-8"))
+        except (OSError, ValueError, json.JSONDecodeError):
+            return cls(enabled=True, timeout_seconds=timeout_seconds, configuration_source="plugin_config", configuration_error="plugin_settings_invalid")
+        if not isinstance(payload, dict):
+            return cls(enabled=True, timeout_seconds=timeout_seconds, configuration_source="plugin_config", configuration_error="plugin_settings_invalid")
+        token = str(payload.get("apiKey") or "").strip()
+        try:
+            port = int(payload.get("port") or 0)
+        except (TypeError, ValueError):
+            port = 0
+        if not token or not 1 <= port <= 65535:
+            return cls(enabled=True, timeout_seconds=timeout_seconds, configuration_source="plugin_config", configuration_error="plugin_settings_incomplete")
+        if payload.get("enableSecureServer") is not True:
+            return cls(enabled=True, timeout_seconds=timeout_seconds, configuration_source="plugin_config", configuration_error="plugin_secure_server_disabled")
         return cls(
-            enabled=bool(getattr(settings, "OBSIDIAN_LOCAL_REST_ENABLED", False)),
-            base_url=str(getattr(settings, "OBSIDIAN_LOCAL_REST_URL", "") or ""),
-            api_key=str(getattr(settings, "OBSIDIAN_LOCAL_REST_API_KEY", "") or ""),
-            timeout_seconds=float(getattr(settings, "OBSIDIAN_LOCAL_REST_TIMEOUT_SECONDS", 3.0) or 3.0),
-            allow_insecure_tls=bool(getattr(settings, "OBSIDIAN_LOCAL_REST_ALLOW_INSECURE_TLS", False)),
+            enabled=True,
+            base_url=f"https://host.docker.internal:{port}",
+            api_key=token,
+            timeout_seconds=timeout_seconds,
+            # Obsidian Local REST uses a local self-signed certificate. The
+            # endpoint guard still permits only an explicit local HTTPS host.
+            allow_insecure_tls=True,
+            configuration_source="plugin_config",
         )
 
 
@@ -102,6 +165,8 @@ class ObsidianLocalRestProbe:
         )
 
     def _endpoint(self) -> tuple[str, str | None, str | None]:
+        if self.configuration.configuration_error:
+            return self.configuration.configuration_error, None, None
         if not self.configuration.enabled:
             return "disabled", None, None
         if not self.configuration.api_key.strip():
@@ -133,8 +198,8 @@ class ObsidianLocalRestProbe:
                 raise ValueError("response exceeds bounded health payload")
         return bytes(content)
 
-    @staticmethod
     def _result(
+        self,
         state: str,
         detail_code: str,
         *,
@@ -147,4 +212,5 @@ class ObsidianLocalRestProbe:
             "transport": transport,
             "plugin_id": "obsidian-local-rest-api",
             "plugin_version": plugin_version,
+            "configuration_source": self.configuration.configuration_source,
         }

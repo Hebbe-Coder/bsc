@@ -13,6 +13,18 @@ class RecordingBackend:
         self.commits += 1
 
 
+class UnavailableBackend:
+    def __init__(self):
+        self.calls = 0
+
+    def execute(self, sql, params=()):
+        self.calls += 1
+        raise RuntimeError("no such table: api_usage_log")
+
+    def commit(self):
+        raise AssertionError("commit must not run after a failed execute")
+
+
 def test_daily_metrics_use_cross_database_upsert():
     backend = RecordingBackend()
     store = MetricsStore()
@@ -29,3 +41,23 @@ def test_daily_metrics_use_cross_database_upsert():
     assert "total_requests=excluded.total_requests" in sql
     assert params[2] == 2
     assert backend.commits == 1
+
+
+def test_metrics_persistence_failure_is_rate_limited(monkeypatch, caplog):
+    backend = UnavailableBackend()
+    store = MetricsStore()
+    store._db_backend = backend
+    now = [100.0]
+    monkeypatch.setattr("app.core.metrics.time.monotonic", lambda: now[0])
+
+    store.record_request("GET /assets", 25.0, 200, "GET")
+    store.record_request("GET /assets", 25.0, 200, "GET")
+
+    assert backend.calls == 1
+    assert store.request_counts["GET /assets"] == 2
+    assert caplog.text.count("Metrics persistence API usage logging failed") == 1
+
+    now[0] += 61.0
+    store.record_request("GET /assets", 25.0, 200, "GET")
+
+    assert backend.calls == 2

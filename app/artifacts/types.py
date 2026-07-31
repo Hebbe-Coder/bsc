@@ -30,7 +30,7 @@ from __future__ import annotations
 import uuid
 import time
 from enum import StrEnum
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -731,6 +731,13 @@ class WorkExecutionRecordArtifact(BaseArtifact):
     tool_receipts: list[dict[str, Any]] = Field(default_factory=list)
     reflection: dict[str, str] = Field(default_factory=dict)
     observed_at: str = ""
+    # Older persisted records intentionally deserialize as unattributed. They
+    # remain auditable, but cannot become evidence of the owner's capability.
+    execution_attribution: Literal["unattributed", "owner", "agent", "mixed"] = "unattributed"
+    owner_contribution: str = Field(default="", max_length=1000)
+    attribution_reviewed_at: str = ""
+    attribution_review_note: str = Field(default="", max_length=2000)
+    attribution_review_history: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class WorkOutcomeArtifact(BaseArtifact):

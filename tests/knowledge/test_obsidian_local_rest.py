@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 import httpx
@@ -21,6 +22,7 @@ def test_unconfigured_local_rest_does_not_make_a_network_request():
         "transport": "not_configured",
         "plugin_id": "obsidian-local-rest-api",
         "plugin_version": "",
+        "configuration_source": "not_configured",
     }
 
 
@@ -45,6 +47,7 @@ def test_loopback_manifest_probe_is_authenticated_without_exposing_runtime_token
         "transport": "loopback_tls",
         "plugin_id": "obsidian-local-rest-api",
         "plugin_version": "5.0.2",
+        "configuration_source": "not_configured",
     }
     assert token not in str(result)
 
@@ -77,6 +80,7 @@ def test_configuration_reads_runtime_only_settings():
         OBSIDIAN_LOCAL_REST_API_KEY="runtime-only",
         OBSIDIAN_LOCAL_REST_TIMEOUT_SECONDS=4.5,
         OBSIDIAN_LOCAL_REST_ALLOW_INSECURE_TLS=True,
+        OBSIDIAN_VAULT_ROOT="",
     )
 
     configuration = ObsidianLocalRestConfiguration.from_settings(settings)
@@ -85,3 +89,65 @@ def test_configuration_reads_runtime_only_settings():
     assert configuration.base_url == "https://host.docker.internal:27124"
     assert configuration.timeout_seconds == 4.5
     assert configuration.allow_insecure_tls is True
+    assert configuration.configuration_source == "runtime_env"
+
+
+def test_enabled_probe_recovers_only_local_rest_transport_settings_from_the_mounted_vault(tmp_path):
+    settings_path = tmp_path / ".obsidian" / "plugins" / "obsidian-local-rest-api" / "data.json"
+    settings_path.parent.mkdir(parents=True)
+    token = "plugin-only-secret"
+    settings_path.write_text(json.dumps({
+        "apiKey": token,
+        "port": 27124,
+        "enableSecureServer": True,
+    }), encoding="utf-8")
+    (tmp_path / "notes.md").write_text("This note must never be read by the Local REST probe.", encoding="utf-8")
+    settings = SimpleNamespace(
+        OBSIDIAN_LOCAL_REST_ENABLED=True,
+        OBSIDIAN_LOCAL_REST_URL="",
+        OBSIDIAN_LOCAL_REST_API_KEY="",
+        OBSIDIAN_LOCAL_REST_TIMEOUT_SECONDS=4.5,
+        OBSIDIAN_LOCAL_REST_ALLOW_INSECURE_TLS=False,
+        OBSIDIAN_VAULT_ROOT=str(tmp_path),
+    )
+    configuration = ObsidianLocalRestConfiguration.from_settings(settings)
+
+    assert configuration.configuration_source == "plugin_config"
+    assert configuration.base_url == "https://host.docker.internal:27124"
+    assert configuration.allow_insecure_tls is True
+    assert token not in repr(configuration)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url == httpx.URL("https://host.docker.internal:27124/")
+        assert request.headers["authorization"] == f"Bearer {token}"
+        return httpx.Response(200, json={
+            "authenticated": True,
+            "manifest": {"id": "obsidian-local-rest-api", "version": "5.0.2"},
+        })
+
+    result = _probe(configuration, handler).probe()
+
+    assert result["state"] == "connected"
+    assert result["configuration_source"] == "plugin_config"
+    assert token not in str(result)
+
+
+def test_enabled_plugin_fallback_rejects_an_insecure_or_incomplete_plugin_configuration_without_requesting_it(tmp_path):
+    settings_path = tmp_path / ".obsidian" / "plugins" / "obsidian-local-rest-api" / "data.json"
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(json.dumps({"apiKey": "secret", "port": 27124, "enableSecureServer": False}), encoding="utf-8")
+    settings = SimpleNamespace(
+        OBSIDIAN_LOCAL_REST_ENABLED=True,
+        OBSIDIAN_LOCAL_REST_URL="",
+        OBSIDIAN_LOCAL_REST_API_KEY="",
+        OBSIDIAN_LOCAL_REST_TIMEOUT_SECONDS=3,
+        OBSIDIAN_LOCAL_REST_ALLOW_INSECURE_TLS=False,
+        OBSIDIAN_VAULT_ROOT=str(tmp_path),
+    )
+    configuration = ObsidianLocalRestConfiguration.from_settings(settings)
+
+    result = _probe(configuration, lambda _request: (_ for _ in ()).throw(AssertionError("invalid plugin config must not request a service"))).probe()
+
+    assert result["state"] == "configuration_invalid"
+    assert result["detail_code"] == "plugin_secure_server_disabled"
+    assert result["configuration_source"] == "plugin_config"

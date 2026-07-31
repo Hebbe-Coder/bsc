@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactFlow, { Background, Controls, type Edge, type Node } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { AlertTriangle, CheckCircle2, CircleStop, ClipboardCheck, Network, Play, RefreshCw, Send, ShieldCheck, Undo2, X } from 'lucide-react';
+import { AlertTriangle, BrainCircuit, CheckCircle2, CircleStop, ClipboardCheck, Network, Play, RefreshCw, Send, ShieldCheck, Undo2, X } from 'lucide-react';
 
 import {
   confirmDBOSMission,
@@ -30,6 +30,7 @@ type Props = {
   initialRequestText?: string;
   autoStartIntake?: boolean;
   initialData?: DBOSControlCenter;
+  onOpenPbos?: (missionId: string) => void;
 };
 
 type MissionDraft = {
@@ -81,7 +82,7 @@ function evidenceList(value: string): Array<{ source: string; finding: string; s
   ));
 }
 
-export function BusinessControlCenter({ onClose, initialProjectId = 'default', initialMissionId = '', initialArtifactId = '', initialRequestText = '', autoStartIntake = false, initialData }: Props) {
+export function BusinessControlCenter({ onClose, initialProjectId = 'default', initialMissionId = '', initialArtifactId = '', initialRequestText = '', autoStartIntake = false, initialData, onOpenPbos }: Props) {
   const [projectId, setProjectId] = useState(initialProjectId);
   const [missionId, setMissionId] = useState(initialData?.mission.artifact_id ?? initialMissionId);
   const [focusedArtifactId, setFocusedArtifactId] = useState(initialArtifactId);
@@ -299,6 +300,7 @@ export function BusinessControlCenter({ onClose, initialProjectId = 'default', i
           setProjectId(nextProjectId);
         }} disabled={busy} /></label>
         {missions.length > 0 && <label>Mission<select aria-label="DBOS mission" value={missionId} onChange={(event) => selectMission(event.target.value)} disabled={busy}><option value="">New mission</option>{missions.map((mission) => <option key={mission.artifact_id} value={mission.artifact_id}>{mission.title}</option>)}</select></label>}
+        {onOpenPbos && missionId && <button type="button" className="dbos-icon-button" aria-label="Open PBOS plan for this Mission" title="Open PBOS plan for this Mission" onClick={() => onOpenPbos(missionId)} disabled={busy}><BrainCircuit size={16} /></button>}
         <button type="button" className="dbos-icon-button" aria-label="Refresh DBOS control center" title="Refresh" onClick={() => void refresh()} disabled={busy}><RefreshCw size={16} /></button>
         <button type="button" className="dbos-icon-button" aria-label="Close Business Control Center" title="Close" onClick={onClose}><X size={17} /></button>
       </div>

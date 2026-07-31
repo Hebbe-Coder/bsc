@@ -273,6 +273,13 @@ _WIKI_SCHEMA = [
         revision TEXT NOT NULL DEFAULT '', input_hash TEXT NOT NULL, content_hash TEXT NOT NULL,
         content TEXT NOT NULL, metadata_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL,
         UNIQUE(project_id,source_id,kind,provider,model,revision,input_hash,content_hash))""",
+    """CREATE TABLE IF NOT EXISTS knowledge_release_evidence (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL, evidence_id TEXT NOT NULL,
+        revision INTEGER NOT NULL, state TEXT NOT NULL, proof_class TEXT NOT NULL,
+        observed_at TEXT NOT NULL DEFAULT '', durable_ids_json TEXT NOT NULL DEFAULT '[]',
+        detail_code TEXT NOT NULL DEFAULT '', recorded_by TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        UNIQUE(project_id,evidence_id,revision))""",
 ]
 
 
@@ -444,6 +451,7 @@ def _ensure_schema_unlocked(repo: Any, dialect: str) -> None:
         "CREATE INDEX IF NOT EXISTS idx_kw_signal_receipts_project_created ON knowledge_signal_receipts(project_id,created_at)",
         "CREATE INDEX IF NOT EXISTS idx_kw_signal_receipts_project_source ON knowledge_signal_receipts(project_id,source_id)",
         "CREATE INDEX IF NOT EXISTS idx_kw_signal_derivatives_project_source ON knowledge_signal_derivatives(project_id,source_id,created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_kw_release_evidence_project_current ON knowledge_release_evidence(project_id,evidence_id,revision)",
     ):
         repo._execute(idx_sql)
 

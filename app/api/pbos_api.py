@@ -44,12 +44,16 @@ class ExecutionRequest(PBOSRequest):
     tool_receipts: list[dict[str, Any]] = Field(default_factory=list)
     reflection: dict[str, str] = Field(default_factory=dict)
     observed_at: str = ""
+    execution_attribution: Literal["unattributed", "owner", "agent", "mixed"] = "unattributed"
+    owner_contribution: str = Field(default="", max_length=1000)
 
 
 class LocalCaptureRequest(PBOSRequest):
     plan_id: str = ""
     root: str
     paths: list[str] = Field(default_factory=list)
+    execution_attribution: Literal["unattributed", "owner", "agent", "mixed"] = "unattributed"
+    owner_contribution: str = Field(default="", max_length=1000)
 
 
 class BscWorkspaceCaptureRequest(PBOSRequest):
@@ -58,6 +62,14 @@ class BscWorkspaceCaptureRequest(PBOSRequest):
     actions: list[str] = Field(default_factory=list, max_length=24)
     reflection: dict[str, str] = Field(default_factory=dict)
     observed_at: str = ""
+    execution_attribution: Literal["unattributed", "owner", "agent", "mixed"] = "unattributed"
+    owner_contribution: str = Field(default="", max_length=1000)
+
+
+class ExecutionAttributionReviewRequest(PBOSRequest):
+    execution_attribution: Literal["owner", "agent", "mixed"]
+    owner_contribution: str = Field(default="", max_length=1000)
+    review_note: str = Field(min_length=1, max_length=2000)
 
 
 class OutcomeRequest(PBOSRequest):
@@ -151,7 +163,14 @@ def record_execution(project_id: str, mission_id: str, payload: ExecutionRequest
 @router.post("/projects/{project_id}/missions/{mission_id}/capture-local")
 def capture_local(project_id: str, mission_id: str, payload: LocalCaptureRequest, request: Request):
     try:
-        record = _pbos(request, project_id, write=True).capture_local_execution(mission_id, payload.plan_id, payload.root, payload.paths)
+        record = _pbos(request, project_id, write=True).capture_local_execution(
+            mission_id,
+            payload.plan_id,
+            payload.root,
+            payload.paths,
+            execution_attribution=payload.execution_attribution,
+            owner_contribution=payload.owner_contribution,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"execution": record.model_dump(mode="json"), "vault": _sync(project_id, record)}
@@ -167,11 +186,31 @@ def capture_bsc_workspace(project_id: str, mission_id: str, payload: BscWorkspac
             actions=payload.actions,
             reflection=payload.reflection,
             observed_at=payload.observed_at,
+            execution_attribution=payload.execution_attribution,
+            owner_contribution=payload.owner_contribution,
         )
     except ValueError as exc:
         status = 422 if "BSC workspace evidence" in str(exc) or "approved" in str(exc) or "Select at least" in str(exc) or "unavailable" in str(exc) else 404
         raise HTTPException(status_code=status, detail=str(exc)) from exc
     return {"execution": record.model_dump(mode="json"), "vault": _sync(project_id, record)}
+
+
+@router.post("/projects/{project_id}/executions/{execution_id}/attribution-review")
+def review_execution_attribution(
+    project_id: str,
+    execution_id: str,
+    payload: ExecutionAttributionReviewRequest,
+    request: Request,
+):
+    try:
+        execution = _pbos(request, project_id, write=True).review_execution_attribution(
+            execution_id,
+            payload.model_dump(),
+        )
+    except ValueError as exc:
+        status = 404 if "execution record not found" in str(exc) else 422
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
+    return {"execution": execution.model_dump(mode="json"), "vault": _sync(project_id, execution)}
 
 
 @router.post("/projects/{project_id}/executions/{execution_id}/outcomes")
@@ -215,14 +254,20 @@ def reconcile(
 
 
 @router.get("/projects/{project_id}/cockpit")
-def cockpit(project_id: str, request: Request):
-    return _pbos(request, project_id, write=False).cockpit()
+def cockpit(project_id: str, request: Request, mission_id: str = Query(default="", max_length=128)):
+    try:
+        return _pbos(request, project_id, write=False).cockpit(mission_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/projects/{project_id}/today-action")
-def today_action(project_id: str, request: Request):
+def today_action(project_id: str, request: Request, mission_id: str = Query(default="", max_length=128)):
     """Read the current action without creating a plan or causing side effects."""
-    return _pbos(request, project_id, write=False).today_action()
+    try:
+        return _pbos(request, project_id, write=False).today_action(mission_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/projects/{project_id}/reports/weekly")

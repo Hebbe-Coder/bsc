@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from hashlib import sha256
 import json
 from pathlib import Path
 import re
@@ -38,6 +39,12 @@ from app.knowledge.wiki_source_capture import InvalidSourceTransition, SourceCap
 from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
 from app.knowledge.obsidian_local_rest import ObsidianLocalRestProbe
+from app.knowledge.ecosystem_release_gate import (
+    RELEASE_GATE_CONTRACT_REVISION,
+    ReleaseEvidence,
+    ReleaseEvidencePacket,
+    evaluate_release_evidence,
+)
 from app.knowledge.horizon_run_store import resolve_horizon_run_store_location
 from app.knowledge.wiki_service import WikiService
 from app.core.celery_app import is_celery_broker_available, is_celery_real
@@ -46,6 +53,9 @@ from app.core.celery_app import is_celery_broker_available, is_celery_real
 SCHEDULER_AVAILABILITY_CACHE_TTL_SECONDS = 30.0
 _scheduler_availability_lock = Lock()
 _scheduler_availability_cache: tuple[tuple[object, ...], float, bool] | None = None
+LOCAL_REST_PROBE_CACHE_TTL_SECONDS = 5.0
+_local_rest_probe_lock = Lock()
+_local_rest_probe_cache: tuple[tuple[object, ...], float, dict[str, Any]] | None = None
 
 
 def require_knowledge_wiki_enabled() -> None:
@@ -107,6 +117,73 @@ def _scheduler_available() -> bool:
         return available
 
 
+def _local_rest_probe_context() -> tuple[object, ...]:
+    """Key the short read cache without retaining the connector secret."""
+    token = str(settings.OBSIDIAN_LOCAL_REST_API_KEY or "")
+    return (
+        bool(settings.OBSIDIAN_LOCAL_REST_ENABLED),
+        str(settings.OBSIDIAN_LOCAL_REST_URL or ""),
+        sha256(token.encode("utf-8")).hexdigest(),
+        str(settings.OBSIDIAN_VAULT_ROOT or ""),
+        id(ObsidianLocalRestProbe.from_settings),
+    )
+
+
+def _reset_local_rest_probe_cache() -> None:
+    global _local_rest_probe_cache
+    with _local_rest_probe_lock:
+        _local_rest_probe_cache = None
+
+
+def _local_rest_status() -> dict[str, Any]:
+    """Return a bounded Local REST status without blocking every workspace read."""
+    global _local_rest_probe_cache
+    if not settings.OBSIDIAN_LOCAL_REST_ENABLED:
+        _reset_local_rest_probe_cache()
+        return ObsidianLocalRestProbe.from_settings(settings).probe()
+    context = _local_rest_probe_context()
+    now = monotonic()
+    with _local_rest_probe_lock:
+        cached = _local_rest_probe_cache
+        if cached and cached[0] == context and now - cached[1] < LOCAL_REST_PROBE_CACHE_TTL_SECONDS:
+            return dict(cached[2])
+        result = ObsidianLocalRestProbe.from_settings(settings).probe()
+        _local_rest_probe_cache = (context, now, dict(result))
+        return dict(result)
+
+
+def _release_evidence_view(record: dict[str, Any]) -> dict[str, Any]:
+    """Bound the release ledger's public view to safe metadata fields."""
+    return {
+        "evidence_id": str(record.get("evidence_id") or ""),
+        "state": str(record.get("state") or ""),
+        "proof_class": str(record.get("proof_class") or ""),
+        "observed_at": str(record.get("observed_at") or ""),
+        "durable_ids": list(record.get("durable_ids") or []),
+        "detail_code": str(record.get("detail_code") or ""),
+        "revision": int(record.get("revision") or 0),
+        "recorded_by": str(record.get("recorded_by") or ""),
+    }
+
+
+def _workspace_release_gate(repo: WikiRepository, project_id: str) -> dict[str, Any]:
+    """Evaluate current durable metadata; configured services never count as proof."""
+    evidence = tuple(
+        ReleaseEvidence(
+            evidence_id=str(record.get("evidence_id") or ""),
+            state=str(record.get("state") or "pending"),
+            proof_class=str(record.get("proof_class") or "none"),
+            observed_at=str(record.get("observed_at") or ""),
+            durable_ids=tuple(str(item) for item in (record.get("durable_ids") or [])),
+            detail_code=str(record.get("detail_code") or ""),
+        )
+        for record in repo.list_current_release_evidence(project_id)
+    )
+    return evaluate_release_evidence(
+        ReleaseEvidencePacket(contract_revision=RELEASE_GATE_CONTRACT_REVISION, evidence=evidence)
+    ).model_dump(mode="json")
+
+
 class SourceStatusRequest(BaseModel):
     project_id: str = Field(min_length=1)
     status: SourceStatus
@@ -142,6 +219,14 @@ class PluginTrustRequest(BaseModel):
     plugin_ids: list[str] = Field(min_length=1, max_length=64)
     trusted: bool = True
     reason: str = Field(default="", max_length=512)
+
+
+class ReleaseEvidenceSubmissionRequest(BaseModel):
+    evidence: ReleaseEvidence
+
+
+class ReleaseEvidenceReviewRequest(BaseModel):
+    evidence: ReleaseEvidence
 
 
 class ScheduleStateRequest(BaseModel):
@@ -385,7 +470,7 @@ def workspace_status(request: Request, project_id: str, repo: WikiRepository = D
         project_root=project_root,
         vault_root=Path(settings.OBSIDIAN_VAULT_ROOT) if settings.OBSIDIAN_VAULT_ROOT else None,
     )
-    local_rest = ObsidianLocalRestProbe.from_settings(settings).probe()
+    local_rest = _local_rest_status()
     role = str(getattr(request.state, "knowledge_role", ""))
     sync_run = repo.latest_run_for_type(project_id, "source_sync")
     horizon_run = repo.latest_run_for_type(project_id, "horizon_capture")
@@ -406,6 +491,7 @@ def workspace_status(request: Request, project_id: str, repo: WikiRepository = D
             },
             "plugins": plugins,
             "local_rest": local_rest,
+            "release_gate": _workspace_release_gate(repo, project_id),
             "sources": len(sources),
             "runs": len(repo.list_runs(project_id)),
             "schedules": len(repo.list_schedules(project_id)),
@@ -799,6 +885,7 @@ def _build_triage_approval(
         ),
         None,
     )
+
     if decision is None or str(decision.get("source_id") or "") != str(source.get("id") or ""):
         raise ValueError("triage_id does not belong to this source in the selected project")
     if int(decision.get("profile_revision", -1)) != profile_revision:
@@ -815,6 +902,74 @@ def _build_triage_approval(
         "actor_id": "http",
         **({"note": approval_note.strip()} if approval_note.strip() else {}),
     }
+
+
+@router.get("/workspaces/{project_id}/release-evidence")
+def list_workspace_release_evidence(
+    request: Request,
+    project_id: str,
+    repo: WikiRepository = Depends(get_wiki_repository),
+):
+    project_id = _enforce_project_access(request, project_id)
+    evidence = [_release_evidence_view(record) for record in repo.list_current_release_evidence(project_id)]
+    return ApiResponse.ok({"evidence": evidence, "count": len(evidence)})
+
+
+@router.post("/workspaces/{project_id}/release-evidence")
+def submit_workspace_release_evidence(
+    payload: ReleaseEvidenceSubmissionRequest,
+    request: Request,
+    project_id: str,
+    repo: WikiRepository = Depends(get_wiki_repository),
+):
+    project_id = _enforce_project_access(request, project_id, write=True)
+    if payload.evidence.state == "verified":
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "release_evidence_review_required",
+                "message": "Verified release evidence requires tenant-admin review.",
+            },
+        )
+    record = repo.append_release_evidence(
+        project_id,
+        payload.evidence,
+        recorded_by=str(getattr(request.state, "knowledge_role", "") or "http"),
+    )
+    return ApiResponse.ok({"evidence": _release_evidence_view(record)})
+
+
+@router.post("/workspaces/{project_id}/release-evidence/{evidence_id}/verify")
+def verify_workspace_release_evidence(
+    evidence_id: str,
+    payload: ReleaseEvidenceReviewRequest,
+    request: Request,
+    project_id: str,
+    repo: WikiRepository = Depends(get_wiki_repository),
+):
+    project_id = _enforce_project_access(request, project_id, write=True)
+    if str(getattr(request.state, "knowledge_role", "")) != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "release_evidence_admin_required", "message": "Release evidence review requires a tenant administrator."},
+        )
+    if payload.evidence.evidence_id != evidence_id:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "release_evidence_id_mismatch", "message": "Evidence path and payload IDs must match."},
+        )
+    if payload.evidence.state != "verified" or payload.evidence.proof_class != "real":
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "release_evidence_invalid_review", "message": "Review requires verified real evidence."},
+        )
+    if not repo.get_latest_release_evidence(project_id, evidence_id):
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "release_evidence_not_submitted", "message": "Submit evidence before review."},
+        )
+    record = repo.append_release_evidence(project_id, payload.evidence, recorded_by="admin")
+    return ApiResponse.ok({"evidence": _release_evidence_view(record)})
 
 
 @router.get("/runs")

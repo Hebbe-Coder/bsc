@@ -167,8 +167,9 @@ class Settings(BaseSettings):
     DYNAMIC_BUSINESS_OS_ENABLED: bool = True
     DBOS_BLINDSPOT_INTAKE_ENABLED: bool = True
     OBSIDIAN_VAULT_ROOT: str = ""
-    # Optional, read-only local plugin probe. Keep the Local REST token in the
-    # runtime environment only; BSC never imports it from `.obsidian` files.
+    # Optional, read-only local plugin probe. When explicitly enabled without
+    # a separate token, Docker may use the installed Local REST plugin's own
+    # bounded configuration below the mounted Vault. It never reads notes.
     OBSIDIAN_LOCAL_REST_ENABLED: bool = False
     OBSIDIAN_LOCAL_REST_URL: str = ""
     OBSIDIAN_LOCAL_REST_API_KEY: str = ""

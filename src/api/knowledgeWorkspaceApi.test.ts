@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { captureKnowledgePrimaryWebSource, configureKnowledgePlugins, configureKnowledgeVault, fetchKnowledgeWorkspace, fetchKnowledgeWorkspaceProjects, fetchWeeklyDistillations, importFeishuKnowledgeExport, initializeKnowledgeWorkspace, KnowledgeRequestError, saveKnowledgeEvaluationCase, setKnowledgePluginTrust } from './knowledgeWorkspaceApi';
+import { captureKnowledgePrimaryWebSource, configureKnowledgePlugins, configureKnowledgeVault, fetchKnowledgeReleaseEvidence, fetchKnowledgeWorkspace, fetchKnowledgeWorkspaceProjects, fetchWeeklyDistillations, importFeishuKnowledgeExport, initializeKnowledgeWorkspace, KnowledgeRequestError, saveKnowledgeEvaluationCase, setKnowledgePluginTrust, submitKnowledgeReleaseEvidence, verifyKnowledgeReleaseEvidence } from './knowledgeWorkspaceApi';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -111,6 +111,29 @@ describe('knowledge workspace API', () => {
         source_url: 'https://example.feishu.cn/minutes/doccnA1', title: 'Weekly review', content: 'Decision: keep citations.',
       } }),
     });
+  });
+
+  it('uses scoped release-evidence endpoints for read, submission, and tenant-admin review', async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({
+      success: true,
+      data: { evidence: [], count: 0 },
+    }), { status: 200, headers: { 'content-type': 'application/json' } })));
+    vi.stubGlobal('fetch', fetchMock);
+    const evidence = {
+      evidence_id: 'o1_secure_boundary_restart', state: 'pending' as const, proof_class: 'none' as const,
+      observed_at: '', durable_ids: [], detail_code: 'awaiting_observation',
+    };
+
+    await fetchKnowledgeReleaseEvidence('project a');
+    await submitKnowledgeReleaseEvidence('project a', evidence);
+    await verifyKnowledgeReleaseEvidence('project a', evidence.evidence_id, {
+      ...evidence, state: 'verified', proof_class: 'real', observed_at: '2026-08-01T00:00:00+00:00', durable_ids: ['run:restart-1'],
+    });
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/knowledge/workspaces/project%20a/release-evidence');
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: 'POST', body: JSON.stringify({ evidence }) });
+    expect(String(fetchMock.mock.calls[2][0])).toContain('/release-evidence/o1_secure_boundary_restart/verify');
+    expect(fetchMock.mock.calls[2][1]).toMatchObject({ method: 'POST' });
   });
 
   it('captures a primary page only when the selected Horizon signal is explicitly supplied', async () => {

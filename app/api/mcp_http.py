@@ -27,6 +27,7 @@ _TOOL_HANDLERS = {
     "wiki_graph": server.wiki_graph,
     "wiki_evidence": server.wiki_evidence,
     "wiki_evidence_record": server.wiki_evidence_record,
+    "wiki_release_evidence": server.wiki_release_evidence,
     "wiki_read": server.wiki_read,
     "wiki_propose_update": server.wiki_propose_update,
     "wiki_lint": server.wiki_lint,
@@ -77,7 +78,7 @@ _TOOL_HANDLERS = {
     "analyze_domain": server.analyze_domain,
 }
 
-_WIKI_READ_TOOLS = {"wiki_guide", "wiki_search", "wiki_graph", "wiki_evidence", "wiki_evidence_record", "wiki_read"}
+_WIKI_READ_TOOLS = {"wiki_guide", "wiki_search", "wiki_graph", "wiki_evidence", "wiki_evidence_record", "wiki_release_evidence", "wiki_read"}
 _WIKI_WRITE_TOOLS = {"wiki_propose_update", "wiki_lint", "wiki_apply_update", "wiki_distill", "wiki_schedule"}
 _GROWTH_TOOLS = {
     "knowledge_growth_profile",
@@ -453,6 +454,11 @@ _TOOL_SPECS = {
         "description": "Read one project-scoped evidence record without its source or derivative body.",
         "properties": {"project_id": {"type": "string"}, "record_type": {"type": "string", "enum": ["source", "asset", "extraction", "table", "reference"]}, "record_id": {"type": "string"}},
         "required": ["project_id", "record_type", "record_id"],
+    },
+    "wiki_release_evidence": {
+        "description": "Read the project-scoped metadata-only E1 release decision and evidence ledger.",
+        "properties": {"project_id": {"type": "string"}},
+        "required": ["project_id"],
     },
     "knowledge_operations_graph": {
         "description": "Read a bounded lifecycle graph projection for one authorized project.",

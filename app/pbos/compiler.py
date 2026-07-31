@@ -218,16 +218,19 @@ class PBOSPlanCompiler:
             if isinstance(compiler_metadata, dict)
             else ""
         )
-        finalized["phases"], language_replacements = self._apply_mission_language_guard(
+        finalized["phases"], language_replacements, localized_phase_contracts = self._apply_mission_language_guard(
             phases,
             mission,
             force_chinese=response_language == "Chinese",
         )
-        if language_replacements:
-            finalized.setdefault("compiler_metadata", {})["language_guard"] = {
+        if language_replacements or localized_phase_contracts:
+            language_guard = {
                 "mission_language": "zh",
                 "replacement_phases": language_replacements,
             }
+            if localized_phase_contracts:
+                language_guard["localized_phase_contracts"] = localized_phase_contracts
+            finalized.setdefault("compiler_metadata", {})["language_guard"] = language_guard
         return finalized
 
     @classmethod
@@ -478,18 +481,20 @@ class PBOSPlanCompiler:
         mission: MissionArtifact,
         *,
         force_chinese: bool = False,
-    ) -> tuple[list[dict[str, Any]], list[dict[str, int]]]:
-        """Keep an LLM's user-facing next actions in the Mission's language.
+    ) -> tuple[list[dict[str, Any]], list[dict[str, int]], list[dict[str, Any]]]:
+        """Keep an LLM's user-facing phase contract in the Mission's language.
 
         Technical identifiers such as ``pytest`` remain valid, but a complete
-        English instruction is a poor result for a Chinese Mission. This is a
+        English phase is a poor result for a Chinese Mission. This is a
         presentation guard, not translation: it replaces only fully English
-        sentence-like actions with a bounded Mission-specific fallback.
+        display fields with a bounded Mission-specific fallback.
         """
         if not force_chinese and not cls._uses_chinese(mission.title, mission.intent):
-            return phases, []
+            return phases, [], []
         replacements: list[dict[str, Any]] = []
         fallback_actions = cls._chinese_fallback_actions(mission)
+        fallback_contracts = cls._chinese_fallback_phase_contracts(mission)
+        localized_contracts: list[dict[str, Any]] = []
         for index, phase in enumerate(phases):
             if not isinstance(phase, dict):
                 continue
@@ -503,9 +508,30 @@ class PBOSPlanCompiler:
             if changed:
                 phase["actions"] = list(dict.fromkeys(actions))[:2]
                 replacements.append({"phase_index": index + 1, "action_count": len(actions)})
-        if replacements:
-            return phases, replacements
-        return phases, []
+            fallback = fallback_contracts[min(index, len(fallback_contracts) - 1)]
+            replaced_fields: list[str] = []
+            if cls._is_english_display_text(str(phase.get("title") or "")):
+                phase["title"] = fallback["title"]
+                replaced_fields.append("title")
+            for field in ("why_now", "inputs", "outputs", "checks"):
+                replacement = cls._localize_phase_field(phase.get(field), fallback[field])
+                if replacement is not None:
+                    phase[field] = replacement
+                    replaced_fields.append(field)
+            decision = phase.get("decision_point")
+            if isinstance(decision, dict):
+                localized_decision = dict(decision)
+                decision_changed = False
+                for key, fallback_value in fallback["decision_point"].items():
+                    if cls._is_english_display_text(str(localized_decision.get(key) or "")):
+                        localized_decision[key] = fallback_value
+                        decision_changed = True
+                if decision_changed:
+                    phase["decision_point"] = localized_decision
+                    replaced_fields.append("decision_point")
+            if replaced_fields:
+                localized_contracts.append({"phase_index": index + 1, "fields": replaced_fields})
+        return phases, replacements, localized_contracts
 
     @staticmethod
     def _uses_chinese(*values: str) -> bool:
@@ -529,6 +555,81 @@ class PBOSPlanCompiler:
             return False
         latin_words = [word for word in value.replace("/", " ").split() if any(character.isalpha() for character in word)]
         return len(latin_words) >= 3
+
+    @staticmethod
+    def _is_english_display_text(value: str) -> bool:
+        """Identify fully English user-facing labels, including short titles."""
+        return bool(value.strip()) and not any(
+            "\u4e00" <= character <= "\u9fff" for character in value
+        ) and any(character.isascii() and character.isalpha() for character in value)
+
+    @classmethod
+    def _localize_phase_field(cls, value: Any, fallback: Any) -> Any | None:
+        if isinstance(value, str):
+            return fallback if cls._is_english_display_text(value) else None
+        if not isinstance(value, list):
+            return None
+        items = [str(item).strip() for item in value if str(item).strip()]
+        if not items:
+            return None
+        fallback_items = fallback if isinstance(fallback, list) else [str(fallback)]
+        localized = [
+            fallback_items[min(index, len(fallback_items) - 1)]
+            if cls._is_english_display_text(item)
+            else item
+            for index, item in enumerate(items)
+        ]
+        return localized if localized != items else None
+
+    @classmethod
+    def _chinese_fallback_phase_contracts(cls, mission: MissionArtifact) -> list[dict[str, Any]]:
+        """Return compact Chinese contracts when a model ignores the requested language."""
+        mission_context = mission.context if isinstance(mission.context, dict) else {}
+        objective = str(mission_context.get("goal") or mission.intent or mission.title).strip()[:120]
+        kind = cls._task_kind(f"{mission.title} {mission.intent}".lower())
+        if kind == "knowledge_delivery":
+            return [
+                {
+                    "title": "\u8bc1\u636e\u7b5b\u9009\u4e0e\u4efb\u52a1\u8fb9\u754c",
+                    "why_now": f"\u5148\u56f4\u7ed5\u201c{objective}\u201d\u9501\u5b9a\u672c\u5468\u552f\u4e00\u53ef\u9a8c\u6536\u4ea4\u4ed8\uff0c\u907f\u514d\u5728\u8bc1\u636e\u4e0d\u8db3\u65f6\u6269\u5c55\u8303\u56f4\u3002",
+                    "inputs": ["\u4efb\u52a1\u76ee\u6807\u4e0e\u58f0\u660e\u7ea6\u675f", "\u5df2\u6cbb\u7406\u7684 Vault \u6216 Wiki \u5f15\u7528", "\u9879\u76ee\u51b3\u7b56\u8d23\u4efb\u4eba"],
+                    "outputs": ["\u884c\u52a8\u8bc1\u636e\u5361\uff1a\u4e8b\u5b9e\u3001\u7f3a\u53e3\u548c\u8d23\u4efb\u4eba"],
+                    "checks": ["\u6bcf\u9879\u77e5\u8bc6\u53d8\u66f4\u90fd\u5fc5\u987b\u6709\u6765\u6e90\u5f15\u7528\u6216\u660e\u786e\u7f3a\u53e3"],
+                    "decision_point": {"question": "\u8bc1\u636e\u4e0e\u9a8c\u6536\u8fb9\u754c\u662f\u5426\u5145\u8db3\uff1f", "proceed_when": "\u4e8b\u5b9e\u3001\u6307\u6807\u4e0e\u51b3\u7b56\u8d23\u4efb\u4eba\u5df2\u5199\u6e05\u3002", "adapt_when": "\u5148\u8bb0\u5f55\u7f3a\u53e3\uff0c\u4e0d\u6269\u5c55\u4ea4\u4ed8\u8303\u56f4\u3002"},
+                },
+                {
+                    "title": "\u4e13\u5c5e\u4e0a\u4e0b\u6587\u5305\u4e0e\u6267\u884c\u65b9\u6848",
+                    "why_now": "\u5df2\u7ecf\u9501\u5b9a\u4ea4\u4ed8\u8fb9\u754c\u540e\uff0c\u518d\u4ece\u5df2\u53d1\u5e03\u77e5\u8bc6\u4e2d\u7f16\u8bd1\u9879\u76ee\u4e13\u5c5e\u65b9\u6848\u3002",
+                    "inputs": ["\u5df2\u5f15\u7528\u7684\u77e5\u8bc6\u8bc1\u636e", "\u4efb\u52a1\u7ea6\u675f\u548c\u9a8c\u6536\u76ee\u6807"],
+                    "outputs": ["\u5305\u542b\u8f93\u5165\u3001\u6b65\u9aa4\u3001\u51b3\u7b56\u70b9\u548c\u9a8c\u6536\u95e8\u7981\u7684\u4e13\u5c5e\u6267\u884c\u65b9\u6848"],
+                    "checks": ["\u65b9\u6848\u5df2\u8bf4\u660e\u9879\u76ee\u8fb9\u754c\u3001\u8bc1\u636e\u8f93\u5165\u548c\u5ba1\u6279\u95e8\u7981"],
+                    "decision_point": {"question": "\u65b9\u6848\u662f\u5426\u670d\u52a1\u5f53\u524d\u4efb\u52a1\u800c\u975e\u5957\u7528\u6a21\u677f\uff1f", "proceed_when": "\u6bcf\u4e2a\u6b65\u9aa4\u90fd\u80fd\u56de\u6307\u4efb\u52a1\u7ea6\u675f\u6216\u5df2\u6cbb\u7406\u8bc1\u636e\u3002", "adapt_when": "\u5220\u9664\u65e0\u5173\u6b65\u9aa4\uff0c\u8865\u5145\u9700\u8981\u7684\u8bc1\u636e\u7f3a\u53e3\u3002"},
+                },
+                {
+                    "title": "\u4ea4\u4ed8\u9a8c\u8bc1\u4e0e\u4e0b\u8f6e\u590d\u76d8",
+                    "why_now": "\u4ea4\u4ed8\u53ea\u5728\u6709\u56de\u6267\u3001\u7ed3\u679c\u5ba1\u9605\u548c\u590d\u76d8\u65f6\u624d\u80fd\u8fdb\u5165\u4e2a\u4eba\u5b66\u4e60\u5019\u9009\u3002",
+                    "inputs": ["\u6267\u884c\u56de\u6267\u4e0e\u53cd\u601d", "\u5b9e\u9645\u4ea4\u4ed8\u7ed3\u679c"],
+                    "outputs": ["\u5f85\u5ba1\u9605\u7684\u7ed3\u679c\u8bb0\u5f55\u4e0e\u4e0b\u4e00\u6b65\u8c03\u6574\u5efa\u8bae"],
+                    "checks": ["\u4efb\u52a1\u3001\u8ba1\u5212\u3001\u56de\u6267\u3001\u7ed3\u679c\u548c\u53cd\u9988\u4fdd\u6301\u53ef\u8ffd\u6eaf\u3002"],
+                    "decision_point": {"question": "\u672c\u6b21\u7ed3\u679c\u662f\u5426\u8db3\u4ee5\u7528\u4e8e\u5b66\u4e60\uff1f", "proceed_when": "\u5df2\u8bb0\u5f55\u56de\u6267\u3001\u53cd\u601d\u548c\u4eba\u5de5\u5ba1\u9605\u7ed3\u679c\u3002", "adapt_when": "\u4fdd\u6301\u5f85\u5ba1\u9605\u72b6\u6001\uff0c\u5b89\u6392\u4e0b\u4e00\u6b21\u8bc1\u636e\u91c7\u96c6\u3002"},
+                },
+            ]
+        generic = [
+            ("\u5f53\u524d\u8fb9\u754c\u4e0e\u8bc1\u636e\u68c0\u67e5", "\u5148\u786e\u8ba4\u4efb\u52a1\u4e8b\u5b9e\u3001\u7ea6\u675f\u548c\u9a8c\u6536\u8fb9\u754c\u3002"),
+            ("\u53d7\u7ea6\u675f\u7684\u6700\u5c0f\u6267\u884c", "\u53ea\u6267\u884c\u80fd\u4ea7\u751f\u53ef\u5ba1\u67e5\u56de\u6267\u7684\u6700\u5c0f\u6b65\u9aa4\u3002"),
+            ("\u7ed3\u679c\u590d\u76d8\u4e0e\u4e0b\u4e00\u52a8\u4f5c", "\u8bb0\u5f55\u7ed3\u679c\u4e0e\u5931\u8d25\u8fb9\u754c\uff0c\u518d\u51b3\u5b9a\u4e0b\u4e00\u6b65\u3002"),
+        ]
+        return [
+            {
+                "title": title,
+                "why_now": why_now,
+                "inputs": ["\u4efb\u52a1\u76ee\u6807\u4e0e\u58f0\u660e\u7ea6\u675f"],
+                "outputs": ["\u53ef\u5ba1\u67e5\u7684\u9636\u6bb5\u4ea7\u7269"],
+                "checks": ["\u9636\u6bb5\u4ea7\u7269\u80fd\u56de\u6307\u4efb\u52a1\u8bc1\u636e\u6216\u7f3a\u53e3"],
+                "decision_point": {"question": "\u662f\u5426\u6ee1\u8db3\u8fdb\u5165\u4e0b\u4e00\u6b65\u7684\u6761\u4ef6\uff1f", "proceed_when": "\u8bc1\u636e\u548c\u9a8c\u6536\u6761\u4ef6\u5df2\u660e\u786e\u3002", "adapt_when": "\u8865\u5145\u7f3a\u53e3\u6216\u7f29\u5c0f\u8303\u56f4\u3002"},
+            }
+            for title, why_now in generic
+        ]
 
     @staticmethod
     def _chinese_fallback_actions(mission: MissionArtifact) -> list[str]:
@@ -1053,13 +1154,18 @@ class PBOSPlanCompiler:
         ]
         key = explicit_key or ":".join(part.lower().replace(" ", "-") for part in key_parts if part) or "personal_ai_project_delivery"
         explicit_context = str(mission_context.get("comparison_context") or "").strip()
-        context_parts = [
-            explicit_context,
-            str(personal_context.get("role") or "").strip(),
-            str(personal_context.get("industry") or "").strip(),
-            str(personal_context.get("organization_stage") or "").strip(),
-        ]
-        context = " / ".join(part for part in context_parts if part) or task_kind
+        # An owner-declared comparison context is a stable grouping contract
+        # for future outcomes. Appending profile fields changes that contract
+        # and can split identical deliveries into different strategy cohorts.
+        context = explicit_context or " / ".join(
+            part
+            for part in (
+                str(personal_context.get("role") or "").strip(),
+                str(personal_context.get("industry") or "").strip(),
+                str(personal_context.get("organization_stage") or "").strip(),
+            )
+            if part
+        ) or task_kind
         fingerprint_payload = {
             "key": key,
             "context": context,

@@ -30,6 +30,7 @@ class PBOSService:
         "requirements-production.txt",
         "requirements.txt",
     }
+    _EXECUTION_ATTRIBUTIONS = {"unattributed", "owner", "agent", "mixed"}
 
     def __init__(
         self,
@@ -68,9 +69,20 @@ class PBOSService:
             raise ValueError("PBOS execution requires an existing project Mission")
         if plan_id and not isinstance(self.store.get(plan_id), PersonalExecutionPlanArtifact):
             raise ValueError("PBOS execution requires an existing personal execution plan")
-        artifact = WorkExecutionRecordArtifact(project_id=self.project_id, mission_id=mission_id, plan_id=plan_id, parent_ids=[plan_id] if plan_id else [], **payload)
+        values = self._normalized_execution_payload(payload)
+        artifact = WorkExecutionRecordArtifact(project_id=self.project_id, mission_id=mission_id, plan_id=plan_id, parent_ids=[plan_id] if plan_id else [], **values)
         self.store.add(artifact)
         return artifact
+
+    @classmethod
+    def _normalized_execution_payload(cls, payload: dict[str, Any]) -> dict[str, Any]:
+        values = dict(payload)
+        attribution = str(values.get("execution_attribution") or "unattributed").strip().lower()
+        if attribution not in cls._EXECUTION_ATTRIBUTIONS:
+            raise ValueError("PBOS execution attribution must be owner, agent, mixed, or unattributed")
+        values["execution_attribution"] = attribution
+        values["owner_contribution"] = str(values.get("owner_contribution") or "").strip()[:1000]
+        return values
 
     def record_manual_execution(self, mission_id: str, plan_id: str, payload: dict[str, Any]) -> WorkExecutionRecordArtifact:
         """Persist user-supplied notes without letting them self-certify receipts."""
@@ -83,8 +95,67 @@ class PBOSService:
         ]
         return self.record_execution(mission_id, plan_id, values)
 
-    def capture_local_execution(self, mission_id: str, plan_id: str, root: str, paths: list[str]) -> WorkExecutionRecordArtifact:
-        return self.record_execution(mission_id, plan_id, {"actions": ["Captured local evidence"], "tool_receipts": local_receipts(root, paths)})
+    def review_execution_attribution(
+        self,
+        execution_id: str,
+        payload: dict[str, Any],
+    ) -> WorkExecutionRecordArtifact:
+        """Apply one explicit owner review to a legacy unattributed record.
+
+        The original receipt/action record is retained. This review only adds
+        attribution provenance and can never rewrite a prior attribution.
+        """
+        execution = self.store.get(execution_id)
+        if not isinstance(execution, WorkExecutionRecordArtifact):
+            raise ValueError("execution record not found")
+        if execution.execution_attribution != "unattributed":
+            raise ValueError("PBOS execution attribution can only be reviewed while unattributed")
+        values = self._normalized_execution_payload(payload)
+        attribution = values["execution_attribution"]
+        if attribution == "unattributed":
+            raise ValueError("PBOS attribution review must identify owner, agent, or mixed work")
+        owner_contribution = values["owner_contribution"]
+        if attribution == "mixed" and not owner_contribution:
+            raise ValueError("Mixed PBOS attribution review requires an explicit owner contribution")
+        review_note = str(payload.get("review_note") or "").strip()[:2000]
+        if not review_note:
+            raise ValueError("PBOS attribution review requires an explicit review note")
+        reviewed_at = time.strftime("%Y-%m-%dT%H:%M:%S")
+        execution.attribution_review_history.append({
+            "previous_execution_attribution": execution.execution_attribution,
+            "execution_attribution": attribution,
+            "owner_contribution": owner_contribution,
+            "review_note": review_note,
+            "source": "explicit_owner_attribution_review",
+            "reviewed_at": reviewed_at,
+        })
+        execution.execution_attribution = attribution
+        execution.owner_contribution = owner_contribution
+        execution.attribution_reviewed_at = reviewed_at
+        execution.attribution_review_note = review_note
+        self.store.update(execution)
+        return execution
+
+    def capture_local_execution(
+        self,
+        mission_id: str,
+        plan_id: str,
+        root: str,
+        paths: list[str],
+        *,
+        execution_attribution: str = "unattributed",
+        owner_contribution: str = "",
+    ) -> WorkExecutionRecordArtifact:
+        return self.record_execution(
+            mission_id,
+            plan_id,
+            {
+                "actions": ["Captured local evidence"],
+                "tool_receipts": local_receipts(root, paths),
+                "execution_attribution": execution_attribution,
+                "owner_contribution": owner_contribution,
+            },
+        )
 
     def capture_bsc_workspace_execution(
         self,
@@ -96,6 +167,8 @@ class PBOSService:
         reflection: dict[str, str] | None = None,
         observed_at: str = "",
         workspace_root: Path | str | None = None,
+        execution_attribution: str = "unattributed",
+        owner_contribution: str = "",
     ) -> WorkExecutionRecordArtifact:
         """Attach only declared, non-secret BSC workspace receipts to one execution."""
         root = Path(workspace_root).resolve() if workspace_root else self._bsc_workspace_root()
@@ -119,6 +192,8 @@ class PBOSService:
                 "tool_receipts": receipts,
                 "reflection": reflection or {},
                 "observed_at": observed_at,
+                "execution_attribution": execution_attribution,
+                "owner_contribution": owner_contribution,
             },
         )
 
@@ -296,13 +371,23 @@ class PBOSService:
             if isinstance(item, SOPVersionArtifact) and item.status == ArtifactStatus.ACTIVE
         ])
         feedback = self._recent_feedback()
-        parents = [value for value in (mission_id, diagnosis_id, profile.artifact_id if profile else "", *(item.artifact_id for item in feedback)) if value]
         mission = self.store.get(mission_id)
         if not isinstance(mission, MissionArtifact):
             raise ValueError("PBOS plan requires an existing project Mission")
         diagnosis = self.store.get(diagnosis_id) if diagnosis_id else None
+        if not diagnosis_id:
+            diagnosis = next(
+                (
+                    item
+                    for item in self._latest(self.store.get_by_type(ArtifactType.DIAGNOSIS))
+                    if isinstance(item, DiagnosisArtifact) and item.mission_id == mission_id
+                ),
+                None,
+            )
+            diagnosis_id = diagnosis.artifact_id if isinstance(diagnosis, DiagnosisArtifact) else ""
         if diagnosis_id and not isinstance(diagnosis, DiagnosisArtifact):
             raise ValueError("PBOS plan requires a project-scoped Diagnosis")
+        parents = [value for value in (mission_id, diagnosis_id, profile.artifact_id if profile else "", *(item.artifact_id for item in feedback)) if value]
         knowledge_context = self._build_knowledge_context(mission)
         if not isinstance(knowledge_context, dict):
             knowledge_context = {"availability": "unavailable", "documents": [], "refs": []}
@@ -348,11 +433,17 @@ class PBOSService:
             return self.context_provider(task_constraints=task_constraints)
         return self.context_provider()
 
-    def _recent_feedback(self, limit: int = 3) -> list[WorkFeedbackArtifact]:
+    def _recent_feedback(
+        self,
+        limit: int = 3,
+        outcome_ids: set[str] | None = None,
+    ) -> list[WorkFeedbackArtifact]:
         """Return the bounded feedback context without promoting it to evidence."""
         feedback = self._latest([
             item for item in self.store.get_by_type(ArtifactType.WORK_FEEDBACK)
-            if isinstance(item, WorkFeedbackArtifact) and item.outcome_id
+            if isinstance(item, WorkFeedbackArtifact)
+            and item.outcome_id
+            and (outcome_ids is None or item.outcome_id in outcome_ids)
         ])
         return feedback[:limit]
 
@@ -405,7 +496,7 @@ class PBOSService:
             }
         return self._promote(active, complete, key, context, baseline, median_quality, hard_failure_resolved, summary)
 
-    def today_action(self) -> dict[str, Any]:
+    def today_action(self, mission_id: str = "") -> dict[str, Any]:
         """Select the first unfinished, reviewable action from the active personal plan.
 
         Plans are ordered by their compiler-produced phases. This deliberately
@@ -415,8 +506,25 @@ class PBOSService:
         plans = self._latest([
             item for item in self.store.get_by_type(ArtifactType.PERSONAL_EXECUTION_PLAN)
             if isinstance(item, PersonalExecutionPlanArtifact)
+            and (not mission_id or item.mission_id == mission_id)
         ])
         if not plans:
+            if mission_id:
+                mission = self._mission_or_raise(mission_id)
+                return {
+                    "state": "plan_required",
+                    "title": f"Compile a personal execution plan for {mission.title or mission_id}.",
+                    "rationale": [
+                        "This Mission has a governed diagnosis but no Personal Execution Plan yet.",
+                        "Compiling a plan is planning-only and does not grant or execute any capability.",
+                    ],
+                    "success_check": "The plan cites governed project context and names one reviewable first action.",
+                    "knowledge_context_refs": [],
+                    "plan_id": "",
+                    "mission_id": mission_id,
+                    "phase_title": "Personal plan compilation",
+                    "selection_basis": "selected_mission_has_no_plan",
+                }
             return {
                 "state": "capture_required",
                 "title": "Capture a bounded Mission and one governed project context.",
@@ -468,22 +576,27 @@ class PBOSService:
             "selection_basis": "first_unfinished_compiler_phase_action",
         }
 
-    def cockpit(self) -> dict[str, Any]:
+    def cockpit(self, mission_id: str = "") -> dict[str, Any]:
+        scope = self._mission_scope(mission_id)
         profile = self.profile()
         capabilities = self._latest_capabilities()
         plans = self._latest([
             item for item in self.store.get_by_type(ArtifactType.PERSONAL_EXECUTION_PLAN)
             if isinstance(item, PersonalExecutionPlanArtifact)
+            and (not mission_id or item.mission_id == mission_id)
         ])
         outcomes = self._latest([
             item for item in self.store.get_by_type(ArtifactType.WORK_OUTCOME)
             if isinstance(item, WorkOutcomeArtifact)
+            and (not mission_id or item.mission_id == mission_id)
         ])
         executions = self._latest([
             item for item in self.store.get_by_type(ArtifactType.WORK_EXECUTION_RECORD)
             if isinstance(item, WorkExecutionRecordArtifact)
+            and (not mission_id or item.mission_id == mission_id)
         ])
-        feedback = self._recent_feedback()
+        scoped_outcome_ids = {item.artifact_id for item in outcomes} if mission_id else None
+        feedback = self._recent_feedback(outcome_ids=scoped_outcome_ids)
         strategies = self._latest([
             item for item in self.store.get_by_type(ArtifactType.SOP_VERSION)
             if isinstance(item, SOPVersionArtifact)
@@ -512,9 +625,10 @@ class PBOSService:
             for item in executions[:6]
         ]
         return {
+            "scope": scope,
             "profile": profile.model_dump(mode="json") if profile else None,
             "today": plans[0].model_dump(mode="json") if plans else None,
-            "today_action": self.today_action(),
+            "today_action": self.today_action(mission_id),
             "capabilities": [item.model_dump(mode="json") for item in capabilities],
             "outcomes": [item.model_dump(mode="json") for item in outcomes],
             "outcome_observations": outcome_observations,
@@ -539,6 +653,23 @@ class PBOSService:
             },
             "personalization_readiness": personalization_readiness,
             "connectors": {"github": "awaiting_authorization", "feishu": "awaiting_authorization"},
+        }
+
+    def _mission_or_raise(self, mission_id: str) -> MissionArtifact:
+        mission = self.store.get(mission_id)
+        if not isinstance(mission, MissionArtifact):
+            raise ValueError("PBOS Mission was not found in this project")
+        return mission
+
+    def _mission_scope(self, mission_id: str) -> dict[str, str]:
+        if not mission_id:
+            return {"mission_id": "", "title": "", "intent": "", "status": "project"}
+        mission = self._mission_or_raise(mission_id)
+        return {
+            "mission_id": mission.artifact_id,
+            "title": mission.title,
+            "intent": mission.intent,
+            "status": str(getattr(mission, "mission_status", "") or mission.status),
         }
 
     def _personalization_readiness(
@@ -615,6 +746,9 @@ class PBOSService:
             "receipt_count": len(execution.tool_receipts),
             "verified_receipt_count": verified_receipt_count,
             "reflection_recorded": any(str(value).strip() for value in execution.reflection.values()),
+            "execution_attribution": execution.execution_attribution,
+            "owner_contribution_recorded": bool(execution.owner_contribution.strip()),
+            "attribution_reviewable": execution.execution_attribution == "unattributed",
             "outcome_state": outcome_state,
             "created_at": str(execution.created_at),
         }
@@ -656,6 +790,10 @@ class PBOSService:
                 missing.append("verified_tool_receipt")
             if not any(str(value).strip() for value in execution.reflection.values()):
                 missing.append("reflection")
+            if execution.execution_attribution not in {"owner", "mixed"}:
+                missing.append("execution_attribution")
+            elif execution.execution_attribution == "mixed" and not execution.owner_contribution.strip():
+                missing.append("owner_contribution")
             if not outcome.outcome_summary.strip():
                 outcome_summary_draft = self._outcome_summary_draft(execution)
                 outcome_summary_draft_receipts = sum(
@@ -758,7 +896,10 @@ class PBOSService:
         if not isinstance(execution, WorkExecutionRecordArtifact):
             return False
         has_reflection = any(str(value).strip() for value in execution.reflection.values())
-        return bool(execution.actions and self._has_verified_receipt(execution) and has_reflection)
+        owner_eligible = execution.execution_attribution == "owner" or (
+            execution.execution_attribution == "mixed" and bool(execution.owner_contribution.strip())
+        )
+        return bool(execution.actions and self._has_verified_receipt(execution) and has_reflection and owner_eligible)
 
     @staticmethod
     def _has_verified_receipt(execution: WorkExecutionRecordArtifact) -> bool:

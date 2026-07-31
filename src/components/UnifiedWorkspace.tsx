@@ -11,6 +11,7 @@ import {
 import { runAnalysis } from '../api/agentOsApi';
 import type { AgentContextManifest, KnowledgeContextMetadata, KnowledgeOutputRegistration } from '../api/generated/agentOsContracts';
 import { fetchWrapper } from '../api/fetchWrapper';
+import { fetchKnowledgeWorkspaceProjects, type KnowledgeWorkspaceProject } from '../api/knowledgeWorkspaceApi';
 import { adaptAgentOsToDashboard } from '../utils/agentOsAdapter';
 import { fetchCompilerDashboard, type DashboardData } from '../api/compilerDashboardApi';
 import { RiskPanel } from './RiskPanel';
@@ -182,6 +183,7 @@ export function UnifiedWorkspace() {
   const [dbosOpen, setDbosOpen] = useState(false);
   const [pbosOpen, setPbosOpen] = useState(false);
   const [dbosMissionId, setDbosMissionId] = useState('');
+  const [pbosMissionId, setPbosMissionId] = useState('');
   const [dbosArtifactId, setDbosArtifactId] = useState('');
   const [dbosInitialRequest, setDbosInitialRequest] = useState('');
   const [runtimeAccessKey, setRuntimeAccessKey] = useState(LOCAL_PROXY_SENTINEL);
@@ -192,6 +194,7 @@ export function UnifiedWorkspace() {
   const logEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const runtimeAccessRef = useRef<HTMLInputElement>(null);
+  const projectDiscoveryAccessKeyRef = useRef('');
 
   // Workspace store
   const beginSession = useWorkspace((s) => s.beginSession);
@@ -204,10 +207,15 @@ export function UnifiedWorkspace() {
   const workspaceIdea = useWorkspace((s) => s.idea);
   const storeKnowledgeProjectId = useKnowledgeWorkspaceStore((s) => s.projectId);
   const [knowledgeProjectId, setKnowledgeProjectId] = useState(storeKnowledgeProjectId);
+  const currentKnowledgeProjectIdRef = useRef(knowledgeProjectId);
+  const [knowledgeProjects, setKnowledgeProjects] = useState<KnowledgeWorkspaceProject[]>([]);
+  const [knowledgeProjectDiscovery, setKnowledgeProjectDiscovery] = useState<'idle' | 'loading' | 'ready' | 'unavailable'>('idle');
   const activateKnowledgeProject = useCallback((projectId: string) => {
     const normalized = projectId.trim();
     setKnowledgeProjectId(normalized);
     syncKnowledgeProjectContext(normalized);
+    setKnowledgeContext(null);
+    setKnowledgeOutputRegistration(null);
   }, []);
   const closePrimaryWorkspaces = () => {
     setKnowledgeOpen(false);
@@ -230,7 +238,8 @@ export function UnifiedWorkspace() {
     closePrimaryWorkspaces();
     setOperationsOpen(true);
   };
-  const openPbosWorkspace = () => {
+  const openPbosWorkspace = (missionId = '') => {
+    setPbosMissionId(missionId);
     closePrimaryWorkspaces();
     setPbosOpen(true);
   };
@@ -259,6 +268,60 @@ export function UnifiedWorkspace() {
   useEffect(() => {
     fetchWrapper.setAuthToken(runtimeAccessKey.trim() || undefined);
   }, [runtimeAccessKey]);
+
+  useEffect(() => {
+    currentKnowledgeProjectIdRef.current = knowledgeProjectId;
+  }, [knowledgeProjectId]);
+
+  useEffect(() => {
+    const accessKey = runtimeAccessKey.trim();
+    if (!accessKey) {
+      projectDiscoveryAccessKeyRef.current = '';
+      setKnowledgeProjects([]);
+      setKnowledgeProjectDiscovery('idle');
+      return undefined;
+    }
+    if (projectDiscoveryAccessKeyRef.current === accessKey) return undefined;
+    projectDiscoveryAccessKeyRef.current = accessKey;
+    let active = true;
+    setKnowledgeProjectDiscovery('loading');
+    void fetchKnowledgeWorkspaceProjects()
+      .then((response) => {
+        if (!active) return;
+        const projects = response.projects;
+        setKnowledgeProjects(projects);
+        setKnowledgeProjectDiscovery('ready');
+        if (!currentKnowledgeProjectIdRef.current.trim() && projects.length === 1) activateKnowledgeProject(projects[0].id);
+      })
+      .catch(() => {
+        if (!active) return;
+        setKnowledgeProjects([]);
+        setKnowledgeProjectDiscovery('unavailable');
+      });
+    return () => {
+      active = false;
+      // React development Strict Mode deliberately replays effects. Release
+      // the attempted key so the replay can issue the real discovery request.
+      if (projectDiscoveryAccessKeyRef.current === accessKey) projectDiscoveryAccessKeyRef.current = '';
+    };
+  }, [activateKnowledgeProject, runtimeAccessKey]);
+
+  const knowledgeProjectOptions = knowledgeProjects.some((project) => project.id === knowledgeProjectId)
+    ? knowledgeProjects
+    : knowledgeProjectId
+      ? [...knowledgeProjects, { id: knowledgeProjectId, name: knowledgeProjectId, created_at: '' }]
+      : knowledgeProjects;
+  const knowledgeProjectStatus = knowledgeContext
+    ? (knowledgeContext.knowledge_context_used ? 'used' : knowledgeContext.availability)
+    : knowledgeProjectDiscovery === 'loading'
+      ? 'checking projects'
+      : knowledgeProjectDiscovery === 'unavailable'
+        ? 'project list unavailable'
+        : knowledgeProjectId
+          ? 'mapped'
+          : knowledgeProjectDiscovery === 'ready'
+            ? 'select project'
+            : 'not checked';
 
   // Keyboard shortcut
   useEffect(() => {
@@ -462,7 +525,7 @@ export function UnifiedWorkspace() {
           <button type="button" className="skill-trigger" onClick={openOperationsWorkspace}>
             <BarChart3 size={15} aria-hidden="true" /> Operate
           </button>
-          <button type="button" className="skill-trigger" onClick={openPbosWorkspace} disabled={!knowledgeProjectId.trim()} title={knowledgeProjectId.trim() ? 'Open the active project personal operating loop' : 'Select an authorized knowledge project first'}>
+          <button type="button" className="skill-trigger" onClick={() => openPbosWorkspace()} disabled={!knowledgeProjectId.trim()} title={knowledgeProjectId.trim() ? 'Open the active project personal operating loop' : 'Select an authorized knowledge project first'}>
             <BrainCircuit size={15} aria-hidden="true" /> PBOS
           </button>
           <button type="button" className="skill-trigger" onClick={() => openDbosWorkspace()} disabled={!knowledgeProjectId.trim()} title={knowledgeProjectId.trim() ? 'Open a mission for the active project' : 'Select an authorized knowledge project first'}>
@@ -514,20 +577,21 @@ export function UnifiedWorkspace() {
           </section>
 
           <section className="rail-section runtime-access knowledge-context-control">
-            <div className="rail-section__heading"><p className="rail-label">PROJECT KNOWLEDGE</p><span>{knowledgeContext ? (knowledgeContext.knowledge_context_used ? 'used' : knowledgeContext.availability) : 'not checked'}</span></div>
+            <div className="rail-section__heading"><p className="rail-label">PROJECT KNOWLEDGE</p><span>{knowledgeProjectStatus}</span></div>
             <label className="runtime-access__field">
-              <span>Project ID</span>
-              <input
-                type="text"
+              <span>Knowledge project</span>
+              <select
                 value={knowledgeProjectId}
                 onChange={(event) => activateKnowledgeProject(event.target.value)}
-                placeholder="Mapped knowledge project"
                 aria-label="Project knowledge context ID"
-                autoComplete="off"
                 disabled={loading}
-              />
+              >
+                <option value="">Select a mapped knowledge project</option>
+                {knowledgeProjectOptions.map((project) => <option key={project.id} value={project.id}>{project.name} ({project.id})</option>)}
+              </select>
             </label>
-            <p className="rail-note">A run verifies the mapped Vault, pages, methods and prior outputs before it reports that knowledge was used.</p>
+            <p className="rail-note">Choose the project that owns this Mission. A run verifies its mapped Vault, pages, methods and prior outputs before it reports that knowledge was used.</p>
+            {knowledgeProjectDiscovery === 'unavailable' && <p className="knowledge-context-status is-unavailable">Project discovery needs authorized BSC access. Restore runtime access, then reopen this workspace.</p>}
             {knowledgeContext && <p className={'knowledge-context-status ' + (knowledgeContext.knowledge_context_used ? 'is-used' : 'is-unavailable')}>
               {knowledgeContext.knowledge_context_used
                 ? `${knowledgeContext.page_ids.length} pages, ${knowledgeContext.source_ids.length} sources, ${knowledgeContext.method_revision_ids.length} methods, ${knowledgeContext.output_ids.length} prior outputs`
@@ -652,8 +716,8 @@ export function UnifiedWorkspace() {
       {knowledgeOpen && <Suspense fallback={<section className="knowledge-workspace" aria-label="Knowledge workspace"><div className="knowledge-loading" role="status">Loading knowledge workspace...</div></section>}><KnowledgeWorkspace onClose={() => setKnowledgeOpen(false)} runtimeAccessKey={runtimeAccessKey} activeProjectId={knowledgeProjectId} onProjectChange={activateKnowledgeProject} /></Suspense>}
       {growthOpen && <Suspense fallback={<section className="growth-workspace" aria-label="Knowledge growth workspace"><div className="growth-state" role="status">Loading growth workspace...</div></section>}><GrowthWorkspace onClose={() => setGrowthOpen(false)} runtimeAccessKey={runtimeAccessKey} /></Suspense>}
       {operationsOpen && <Suspense fallback={<section className="operations-cockpit" aria-label="Knowledge operations cockpit"><div className="operations-loading" role="status">Loading knowledge operations...</div></section>}><KnowledgeOperationsCockpit onClose={() => setOperationsOpen(false)} initialProjectId={knowledgeProjectId} onOpenKnowledge={(projectId, entityId) => { useKnowledgeWorkspaceStore.getState().setNavigationTarget(entityId); openKnowledgeWorkspace(projectId); }} onOpenGrowth={(projectId, entityId) => { activateKnowledgeProject(projectId); openGrowthWorkspace(projectId); const growthStore = useGrowthWorkspaceStore.getState(); growthStore.setStage('review'); growthStore.setCenterView('assets'); growthStore.setSelectedId(entityId); }} onOpenDbos={(projectId, missionId, artifactId) => { activateKnowledgeProject(projectId); openDbosWorkspace(missionId, artifactId); }} /></Suspense>}
-      {pbosOpen && Boolean(knowledgeProjectId.trim()) && <Suspense fallback={<section className="pbos-cockpit" aria-label="Personal Growth Cockpit"><p className="pbos-empty">Loading personal growth evidence...</p></section>}><PersonalGrowthCockpit projectId={knowledgeProjectId} runtimeAccessKey={runtimeAccessKey} onClose={() => setPbosOpen(false)} onConfigureAccess={() => { setPbosOpen(false); window.requestAnimationFrame(() => runtimeAccessRef.current?.focus()); }} /></Suspense>}
-      {dbosOpen && Boolean(knowledgeProjectId.trim()) && <Suspense fallback={<section className="dbos-control-center" aria-label="Business Control Center"><div className="dbos-message" role="status">Loading mission control center...</div></section>}><BusinessControlCenter onClose={() => setDbosOpen(false)} initialProjectId={knowledgeProjectId} initialMissionId={dbosMissionId} initialArtifactId={dbosArtifactId} initialRequestText={dbosInitialRequest} autoStartIntake={Boolean(dbosInitialRequest)} /></Suspense>}
+      {pbosOpen && Boolean(knowledgeProjectId.trim()) && <Suspense fallback={<section className="pbos-cockpit" aria-label="Personal Growth Cockpit"><p className="pbos-empty">Loading personal growth evidence...</p></section>}><PersonalGrowthCockpit projectId={knowledgeProjectId} runtimeAccessKey={runtimeAccessKey} initialMissionId={pbosMissionId} onClose={() => setPbosOpen(false)} onStartMission={() => openDbosWorkspace()} onConfigureAccess={() => { setPbosOpen(false); window.requestAnimationFrame(() => runtimeAccessRef.current?.focus()); }} /></Suspense>}
+      {dbosOpen && Boolean(knowledgeProjectId.trim()) && <Suspense fallback={<section className="dbos-control-center" aria-label="Business Control Center"><div className="dbos-message" role="status">Loading mission control center...</div></section>}><BusinessControlCenter onClose={() => setDbosOpen(false)} initialProjectId={knowledgeProjectId} initialMissionId={dbosMissionId} initialArtifactId={dbosArtifactId} initialRequestText={dbosInitialRequest} autoStartIntake={Boolean(dbosInitialRequest)} onOpenPbos={(missionId) => openPbosWorkspace(missionId)} /></Suspense>}
     </div>
   );
 }

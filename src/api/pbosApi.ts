@@ -1,6 +1,12 @@
 import { fetchWrapper } from './fetchWrapper';
 
 export interface PbosCockpit {
+  scope?: {
+    mission_id?: string;
+    title?: string;
+    intent?: string;
+    status?: string;
+  };
   profile: PbosProfile | null;
   today: Record<string, unknown> | null;
   today_action?: Record<string, unknown>;
@@ -14,6 +20,9 @@ export interface PbosCockpit {
     receipt_count: number;
     verified_receipt_count: number;
     reflection_recorded: boolean;
+    execution_attribution?: 'owner' | 'agent' | 'mixed' | 'unattributed';
+    owner_contribution_recorded?: boolean;
+    attribution_reviewable?: boolean;
     outcome_state: 'awaiting_outcome' | 'unverified_outcome' | 'rejected_outcome' | 'accepted_incomplete' | 'learning_eligible' | string;
     created_at: string;
   }>;
@@ -57,6 +66,7 @@ export interface PbosOutcomeObservation {
   quality_score: number | null;
   eligible_for_evolution: boolean;
   missing_requirements: string[];
+  execution_attribution?: 'owner' | 'agent' | 'mixed' | 'unattributed';
   outcome_summary_draft?: string;
   outcome_summary_draft_receipts?: number;
 }
@@ -67,6 +77,12 @@ export interface PbosOutcomeReviewPayload {
   observed_impacts?: string[];
   quality_score?: number;
   review_note?: string;
+}
+
+export interface PbosExecutionAttributionReviewPayload {
+  execution_attribution: 'owner' | 'agent' | 'mixed';
+  owner_contribution?: string;
+  review_note: string;
 }
 
 export interface PbosProfile {
@@ -87,6 +103,8 @@ export interface PbosExecutionPayload {
     actions: string[];
     tool_receipts?: Array<Record<string, unknown>>;
     reflection: Record<string, string>;
+    execution_attribution: 'owner' | 'agent' | 'mixed' | 'unattributed';
+    owner_contribution?: string;
 }
 
 export interface PbosWorkspaceCapturePayload {
@@ -95,10 +113,13 @@ export interface PbosWorkspaceCapturePayload {
   actions: string[];
   reflection: Record<string, string>;
   observed_at?: string;
+  execution_attribution: 'owner' | 'agent' | 'mixed' | 'unattributed';
+  owner_contribution?: string;
 }
 
-export function fetchPbosCockpit(projectId: string): Promise<PbosCockpit> {
-  return fetchWrapper.fetch<PbosCockpit>(`/api/pbos/projects/${encodeURIComponent(projectId)}/cockpit`);
+export function fetchPbosCockpit(projectId: string, missionId = ''): Promise<PbosCockpit> {
+  const query = missionId.trim() ? `?mission_id=${encodeURIComponent(missionId.trim())}` : '';
+  return fetchWrapper.fetch<PbosCockpit>(`/api/pbos/projects/${encodeURIComponent(projectId)}/cockpit${query}`);
 }
 
 export function fetchPbosProfile(projectId: string): Promise<{ profile: PbosProfile | null }> {
@@ -120,6 +141,12 @@ export function compilePbosPlan(projectId: string, missionId: string, diagnosisI
 
 export function recordPbosExecution(projectId: string, missionId: string, payload: PbosExecutionPayload): Promise<{ execution: Record<string, unknown> }> {
   return fetchWrapper.fetch<{ execution: Record<string, unknown> }>(`/api/pbos/projects/${encodeURIComponent(projectId)}/missions/${encodeURIComponent(missionId)}/executions`, {
+    method: 'POST', body: JSON.stringify(payload),
+  });
+}
+
+export function reviewPbosExecutionAttribution(projectId: string, executionId: string, payload: PbosExecutionAttributionReviewPayload): Promise<{ execution: Record<string, unknown> }> {
+  return fetchWrapper.fetch<{ execution: Record<string, unknown> }>(`/api/pbos/projects/${encodeURIComponent(projectId)}/executions/${encodeURIComponent(executionId)}/attribution-review`, {
     method: 'POST', body: JSON.stringify(payload),
   });
 }

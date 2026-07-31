@@ -492,6 +492,13 @@ def wiki_evidence_record(project_id: str, record_type: str, record_id: str, api_
 
 
 @mcp.tool()
+def wiki_release_evidence(project_id: str, api_key: str = "") -> dict:
+    """Read a project's metadata-only E1 release decision and evidence ledger."""
+    _authorize_wiki_project(project_id, api_key)
+    return wiki_tools.wiki_release_evidence(project_id)
+
+
+@mcp.tool()
 def wiki_read(project_id: str, page_id: str, api_key: str = "") -> dict:
     """Read a published, project-scoped Wiki page and its traceable citations."""
     _authorize_wiki_project(project_id, api_key)

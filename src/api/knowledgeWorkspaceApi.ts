@@ -48,7 +48,15 @@ export type KnowledgeWorkspaceData = {
     };
   };
   plugins: { configured: boolean; supported_adapters: string[]; plugins: Array<{ id: string; name: string; adapter: 'filesystem_drop' | 'filesystem_output' | 'filesystem_context'; input_paths: string[]; trust_state: 'trusted' | 'untrusted' | 'configuration_changed' | 'unavailable'; trusted_at: string; trust_actor: string; path_status: 'ready' | 'missing' | 'unavailable' | 'unverified'; runtime_configuration?: { state: 'configured' | 'interactive_destination' | 'agent_workspace' | 'declared_only' | 'mismatch' | 'unavailable' | 'unverified'; detail_code: string }; status: 'awaiting_export' | 'captured' | 'awaiting_output' | 'registered_output' | 'awaiting_trust' | 'trust_stale' | 'trust_unavailable'; capture_state?: 'awaiting_trust' | 'trust_stale' | 'trust_unavailable' | 'captured' | 'registered_output' | 'ready_for_first_export' | 'ready_for_first_output' | 'files_detected_pending_capture' | 'files_detected_pending_registration' | 'route_unavailable'; export_observation?: { state: 'empty' | 'files_detected' | 'file_limit_reached' | 'unavailable'; file_count: number; latest_modified_at: string }; captured_sources: number; registered_outputs: number; last_captured_at: string; last_registered_at: string }>; errors: string[] };
-  local_rest?: { state: 'unconfigured' | 'configuration_invalid' | 'connected' | 'authentication_failed' | 'unavailable'; detail_code: string; transport: 'not_configured' | 'loopback_tls' | 'docker_host_tls'; plugin_id: 'obsidian-local-rest-api'; plugin_version: string };
+  local_rest?: { state: 'unconfigured' | 'configuration_invalid' | 'connected' | 'authentication_failed' | 'unavailable'; detail_code: string; transport: 'not_configured' | 'loopback_tls' | 'docker_host_tls'; plugin_id: 'obsidian-local-rest-api'; plugin_version: string; configuration_source: 'not_configured' | 'runtime_env' | 'plugin_config' };
+  release_gate?: {
+    status: 'release_ready' | 'implemented_with_operational_proof_pending' | 'not_release_ready';
+    contract_revision: string;
+    missing_evidence: string[];
+    pending_evidence: string[];
+    failed_evidence: string[];
+    blocking_reasons: string[];
+  };
   sources: number;
   runs: number;
   schedules: number;
@@ -94,6 +102,17 @@ export type KnowledgeWorkspaceData = {
   };
   scheduler: { available: boolean; mode: 'celery' | 'manual' };
 };
+export type KnowledgeReleaseEvidence = {
+  evidence_id: string;
+  state: 'verified' | 'pending' | 'unavailable' | 'failed';
+  proof_class: 'real' | 'fixture' | 'none';
+  observed_at: string;
+  durable_ids: string[];
+  detail_code: string;
+  revision: number;
+  recorded_by: string;
+};
+export type KnowledgeReleaseEvidenceInput = Omit<KnowledgeReleaseEvidence, 'revision' | 'recorded_by'>;
 export type KnowledgePluginBridge = { id: string; name: string; adapter?: 'filesystem_drop' | 'filesystem_output' | 'filesystem_context'; input_paths: string[] };
 export type KnowledgeWorkspaceProject = { id: string; name: string; created_at: string };
 export type FeishuKnowledgeExport = {
@@ -370,6 +389,9 @@ export function setKnowledgeWorkspaceAccessKey(value: string) {
 
 export const fetchKnowledgeWorkspace = (projectId: string) => request<KnowledgeWorkspaceData>(`/knowledge/workspaces/${encodeURIComponent(projectId)}`);
 export const fetchKnowledgeWorkspaceProjects = () => request<{ projects: KnowledgeWorkspaceProject[]; count: number }>('/knowledge/workspaces');
+export const fetchKnowledgeReleaseEvidence = (projectId: string) => request<{ evidence: KnowledgeReleaseEvidence[]; count: number }>(`/knowledge/workspaces/${encodeURIComponent(projectId)}/release-evidence`);
+export const submitKnowledgeReleaseEvidence = (projectId: string, evidence: KnowledgeReleaseEvidenceInput) => post<{ evidence: KnowledgeReleaseEvidence }>(`/knowledge/workspaces/${encodeURIComponent(projectId)}/release-evidence`, { evidence });
+export const verifyKnowledgeReleaseEvidence = (projectId: string, evidenceId: string, evidence: KnowledgeReleaseEvidenceInput) => post<{ evidence: KnowledgeReleaseEvidence }>(`/knowledge/workspaces/${encodeURIComponent(projectId)}/release-evidence/${encodeURIComponent(evidenceId)}/verify`, { evidence });
 export const fetchKnowledgeEvidence = (projectId: string, limit = 100) => request<KnowledgeEvidenceData>(`/knowledge/evidence/projects/${encodeURIComponent(projectId)}?limit=${Math.max(1, Math.min(limit, 200))}`);
 export const fetchKnowledgeEvidenceRecord = (projectId: string, recordType: string, recordId: string) => request<{ record: KnowledgeEvidenceRecord }>(`/knowledge/evidence/projects/${encodeURIComponent(projectId)}/records/${encodeURIComponent(recordType)}/${encodeURIComponent(recordId)}`);
 export const fetchKnowledgeTablePreview = (projectId: string, tableId: string, page = 1, pageSize = 25) => request<KnowledgeTablePreview>(`/knowledge/evidence/projects/${encodeURIComponent(projectId)}/tables/${encodeURIComponent(tableId)}/preview?page=${Math.max(1, page)}&page_size=${Math.max(1, Math.min(pageSize, 100))}`);

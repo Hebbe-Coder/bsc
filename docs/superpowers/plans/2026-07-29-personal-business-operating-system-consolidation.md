@@ -773,3 +773,330 @@ npm run build
   gate. The PBOS personal-model boundary is unchanged: no capability or
   Strategy Genome is promoted until declared profile context and three
   comparable, owner-accepted, receipt-backed Outcomes exist.
+
+## 2026-08-01 Runtime And Studio Readiness Closure
+
+### Resolved Runtime Integration
+
+- The active project `proj_b8a285642094` is now verified against the real
+  Obsidian Local REST plugin: `connected`, authenticated manifest, Docker-host
+  TLS transport, and plugin version `5.0.2`. This fixes an environment
+  precedence issue in which a stale process value disabled an otherwise
+  configured connection. The resolution recreated only the API service and
+  preserved Postgres, Redis, Vault, Artifact Graph, source, and schedule
+  history.
+- Studio now discovers authorized knowledge projects and uses their names in a
+  project selector. This prevents first-use PBOS/DBOS/Growth navigation from
+  opening with `PROJECT: UNSCOPED`; changing the selection clears old project
+  context before any new request can consume it. The current catalog includes
+  `Personal Knowledge Intelligence` and `Obsidian Knowledge Vault`.
+
+### Fresh Verification
+
+- Live REST readback confirmed the scoped Mission, Personal Execution Plan,
+  and today action share the same Mission ID and use eight governed Vault
+  references. The project has 39 sources, 16 captured Horizon sources, trusted
+  bridge routes, enabled daily/weekly/monthly PBOS schedules, and a completed
+  source synchronization and weekly growth run.
+- Browser acceptance selected `Personal Knowledge Intelligence` in the actual
+  local Studio and opened its PBOS cockpit. Desktop `1440x980` and mobile
+  `390x844` had no console errors or horizontal overflow. The new activation
+  path clearly exposes personal profile, result review, and comparable-evidence
+  gates instead of presenting template SOP output as personal learning.
+- The current final command surface passed: PBOS REST/MCP/integration `78`;
+  Artifact/runtime/wiki/growth/Local REST/workspace API `140 passed, 1
+  skipped`; frontend `205`; TypeScript check, Vite build, and Compose config
+  passed. The Vite build reports only the existing non-blocking ECharts chunk
+  advisory.
+
+### Remaining Product Evidence
+
+- This closure does not convert technical validation into personal history.
+  The project still has one unverified delivery and no eligible accepted
+  outcomes, Capabilities, Experiences, or Strategy Genomes. The owner must
+  declare role/industry/organization stage, review the observed result, and
+  complete two further comparable receipt-backed reflected deliveries before
+  promotion can be evaluated.
+- Obsidian Clipper, Xiaohongshu Importer, Zotero, Copilot, and Real Claudian
+  routes remain correctly waiting for their first real export/output. GitHub
+  and Feishu are still read-only `awaiting_authorization`. These states are not
+  release-complete and must not be represented as synchronized external data.
+
+## 2026-08-01 First Owner-Authorized Personal Loop Evidence
+
+### Implemented And Observed
+
+- The production project now has an owner-declared Personal Profile, a
+  context-complete Mission `art_29b5a8e637fb`, its Diagnosis
+  `art_6de5aedb6273`, a passed DBOS routing evaluation, and immutable PBOS
+  plans. The latest plan is `art_2f590ef620e0`; it was compiled through the
+  configured DeepSeek contextual path with 12 governed Vault/Wiki references.
+- The Mission is intentionally narrow: it can create a reviewable action
+  evidence card for the current personal AI-delivery project but cannot publish
+  knowledge, alter raw sources, call external connectors, or execute an
+  unconfirmed capability. That is the v1 no-side-effect gate in real state,
+  not a fixture.
+- A real PBOS execution `art_9fe97c4566a8` has five server-verified BSC
+  workspace receipts plus reflection. Its linked outcome `art_42228bf60845`
+  is deliberately `unverified`; its feedback `art_ebd452a0b116` is stored as
+  unverified next-plan direction. The evidence graph therefore contains the
+  full first loop without falsely declaring a capability, Experience, or
+  Strategy Genome.
+
+### Corrected Deviation
+
+- `PBOSPlanCompiler._comparison_identity` previously appended profile fields
+  after an explicit owner-declared `comparison_context`. The resulting context
+  duplicated the same dimensions and would have fragmented comparable
+  outcomes. An explicit context is now the canonical cohort contract; profile
+  values remain part of its fingerprint.
+- A contextual model could return English phase titles and contracts for a
+  Chinese Mission. The language guard now replaces fully English title,
+  rationale, input, output, check, and decision display fields with bounded
+  Chinese phase contracts while preserving technical identifiers where they
+  are embedded in a Chinese field. UTF-8 live API inspection verified Chinese
+  content in all user-facing fields for all three latest phases.
+
+### Acceptance Evidence
+
+- Focused regression:
+  `python -m pytest tests/pbos tests/api/test_pbos_api.py tests/mcp/test_pbos_http_contract.py tests/integration/test_pbos_e2e.py -q`
+  passed `79`.
+- Live Docker validation rebuilt only `bsc-backend`, waited for a healthy
+  container, compiled the latest plan through DeepSeek, and read the Cockpit
+  back through the authenticated API. It reported contextual mode, 12
+  references, the canonical cohort, five verified receipts, one unverified
+  Outcome, and `learning_evidence_required`.
+- Browser-control initialization failed with a local kernel-assets path error,
+  so this consolidation does not claim a new screenshot run for the revised
+  live data. Earlier desktop/mobile layout acceptance applies only to the
+  unchanged layout; current content correctness is proven by API and component
+  regression evidence.
+
+### Remaining Product Gate
+
+- PBOS is now usable for the first real personal loop and the generic-plan
+  configuration failure is closed. It has not yet earned a personal method:
+  the pending Outcome needs an owner acceptance decision with a real score,
+  followed by two further comparable receipt-backed, reflected, accepted
+  personal AI-project deliveries. Until then, Capabilities, Experiences, and
+  Strategy Genomes must stay empty and the Cockpit must continue to state that
+  honestly.
+- Rollback: revert the comparison-context and Chinese-contract guard changes,
+  rebuild `bsc-backend`, and leave all Artifact Graph and Vault history in
+  place. Rejecting the pending Outcome is a separate audited review decision.
+
+## 2026-08-01 Attribution Integrity Closure
+
+### Implemented Deviation Repair
+
+- The original PBOS artifacts tracked execution receipts but not the actor.
+  The implementation now adds `execution_attribution` and
+  `owner_contribution` to `WorkExecutionRecordArtifact`; this is additive to
+  Artifact Graph and does not alter DBOS Mission, MCP transport, source, or
+  existing knowledge-growth semantics.
+- The allowed values are `owner`, `mixed`, `agent`, and `unattributed`.
+  Records written before this contract resolve to `unattributed` and remain
+  readable. A one-time owner attribution review records an accurate decision
+  without replacing the original receipt; only then can a historical delivery
+  satisfy the ordinary learning gates. Evolution accepts only `owner` work or `mixed` work with an
+  explicit personal contribution, in addition to the existing verified
+  receipt, reflection, explicit outcome review, score, comparable-context,
+  baseline/improvement, and rollback gates.
+- API requests, BSC workspace capture, manual records, Vault L3 projection,
+  Cockpit execution metadata, and the three-minute reflection form use the
+  same attribution contract. The UI makes Agent work visible as such and does
+  not provide a path to silently submit it as owner learning evidence.
+
+### Actual Evidence
+
+- Docker image and `bsc-backend` container were rebuilt after the change; the
+  container became healthy and `/ready` reported healthy database and Redis.
+- Authenticated live Cockpit inspection of `proj_b8a285642094` reported two
+  existing executions as `unattributed`, `0` accepted Outcomes, `0`
+  learning-eligible Outcomes, `0` Capabilities, `0` Strategy Genomes, and
+  `learning_evidence_required`. This verifies that legacy BSC/Agent work did
+  not get retroactively converted into an owner Capability claim.
+- `pytest tests/pbos tests/api/test_pbos_api.py tests/mcp/test_pbos_http_contract.py tests/integration/test_pbos_e2e.py -q`:
+  `83 passed`.
+- `pytest tests/test_artifact_store_durability.py tests/test_agent_runtime_convergence.py tests/knowledge/test_wiki_sync.py tests/knowledge/test_growth_distillation.py -q`:
+  `103 passed, 1 skipped`.
+- `npm run test:frontend`: `206 passed`; `npm run check`: passed. The
+  in-app browser runtime could not initialize because of its local kernel
+  assets path error, so no new browser screenshot is claimed for this update.
+
+### Remaining User-Owned Evidence
+
+- The application is now technically able to make an evidence-backed
+  personal method claim, but no such claim has been earned in the live
+  project. The owner must create and explicitly review three comparable
+  personal AI-project delivery loops. Each must have a server-verified receipt,
+  a reflection, an `owner` attribution or an explicitly described `mixed`
+  contribution, an observed outcome, and an accepted quality score.
+- GitHub and Feishu remain read-only `awaiting_authorization`; Obsidian is
+  connected but content-producing plugins remain `awaiting_export` or
+  `awaiting_output` until they write real files. None is reported as synced.
+- Rollback point: revert the attribution artifact/API/service/UI changes and
+  rebuild `bsc-backend`. Existing records, including legacy unattributed ones,
+  remain audited rather than deleted.
+
+### Legacy Attribution Review
+
+- `POST /api/pbos/projects/{project_id}/executions/{execution_id}/attribution-review`
+  is the sole migration path for old executions. It accepts an explicit
+  `owner`, `mixed`, or `agent` selection and non-empty review note; `mixed`
+  additionally needs an owner contribution. It can only transition an
+  `unattributed` execution once. The resulting audit history retains prior
+  attribution, new attribution, contribution, note, timestamp, and source.
+- The Cockpit exposes this only as `EXECUTION ATTRIBUTION REVIEW` for records
+  where `attribution_reviewable=true`. After a user decides accurately, all
+  existing receipt/outcome/quality/comparability gates still apply. The review
+  cannot manufacture an accepted Outcome or a Capability.
+- Final live readback after the rebuilt container: two existing executions
+  are `unattributed` and `attribution_reviewable=true`; zero learning-eligible
+  Outcomes, Capabilities, and Strategy Genomes exist. No review action was
+  performed for the owner. Focused service/API/integration verification passed
+  `50`; Cockpit verification passed `18`; TypeScript check passed.
+- Final release commands: PBOS REST/MCP/integration `85 passed`; Artifact,
+  Runtime, Wiki, and growth coverage `103 passed, 1 skipped`; frontend `207
+  passed`; TypeScript check, production build, and Compose config passed. The
+  production bundle retains only the existing ECharts chunk-size advisory.
+
+## 2026-08-01 Worker Artifact-Graph Parity Repair
+
+### Observed Runtime Deviation
+
+The API correctly read the active project plan `art_2f590ef620e0`, including
+its twelve governed Vault/Wiki references, but the deployed Celery Worker
+returned `capture_required` for the same project. As a result, a real queued
+daily report was written as a generic recommendation rather than the active
+context-grounded plan. This was a deployment defect, not missing personal
+evidence and not an acceptable PBOS fallback.
+
+### Root Cause And Repair
+
+`bsc-backend` explicitly set `DBOS_DATA_ROOT=/data/dbos`; `celery-worker`
+mounted the durable volume but omitted that setting and therefore fell back to
+its image-local `data/dbos`. Added the same explicit environment setting to
+the Worker and extended `tests/test_docker_compose_contract.py` so the API
+and Worker must both point at `/data/dbos` on `bsc-data:/data`. Recreated only
+the Worker. No Artifact was migrated, rewritten, accepted, or promoted.
+
+### Live Evidence
+
+- The rebuilt Worker reports `DBOS_DATA_ROOT=/data/dbos` and responds to
+  Celery `inspect ping`.
+- A real queued `pbos.daily_review` completed through
+  `bsc_docker_knowledge` and refreshed
+  `pbos/reviews/daily/2026-07-31/daily-action.md`. The conflict-safe managed
+  report now has an integrity footer, a next action, the personal-learning
+  gate, and all `12` current governed context references.
+- A real queued `pbos.weekly_report` completed through the same Worker and
+  refreshed
+  `distillations/每周蒸馏/2026-W31/pbos/personal-growth.md` with the same
+  managed integrity footer, next action, learning gate, and `12` governed
+  context references.
+- The durable project schedules remain enabled for `17:00 Asia/Shanghai`:
+  daily, Friday weekly, and the first day monthly. Worker and API now read
+  the same Artifact Graph when those schedules execute.
+
+### Verification And Remaining Gate
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/pbos tests/api/test_pbos_api.py tests/mcp/test_pbos_http_contract.py tests/integration/test_pbos_e2e.py -q
+# 85 passed
+.\.venv\Scripts\python.exe -m pytest tests/test_artifact_store_durability.py tests/test_agent_runtime_convergence.py tests/knowledge/test_wiki_sync.py tests/knowledge/test_growth_distillation.py -q
+# 103 passed, 1 skipped
+npm run test:frontend
+# 207 passed
+npm run check
+npm run build
+docker compose config --quiet
+# passed; build retains only the existing ECharts chunk-size advisory
+```
+
+This repair establishes that scheduled PBOS reports use the active knowledge
+context rather than a template-like empty-store fallback. It does not make the
+current plan personalized: the live project still has no accepted,
+owner-attributed, learning-eligible Outcome and therefore no Capability,
+Experience, or Strategy Genome. Rollback is to remove the Worker
+`DBOS_DATA_ROOT` setting and recreate that service; persisted Artifacts and
+managed reports remain auditable.
+
+## 2026-08-01 Shanghai-Time Report Verification
+
+The direct Celery compatibility tasks originally used the Worker container's
+UTC date, which could diverge from the `Asia/Shanghai` schedule contract near
+the local date boundary. `app/tasks/pbos_tasks.py` now derives daily and
+monthly periods with an explicit Shanghai-zone helper; a cross-day regression
+proves that `2026-07-31 16:30 UTC` maps to `2026-08-01`.
+
+After rebuilding only the Worker, two real queued tasks wrote the expected
+project artifacts:
+
+- `pbos/reviews/daily/2026-08-01/daily-action.md`
+- `pbos/reviews/monthly/2026-08/capability-report.md`
+
+Each file has a conflict-safe managed integrity marker and twelve active
+Vault/Wiki references from the persisted personal plan. The task executions
+did not create or accept an Outcome, and therefore do not weaken the
+owner-attribution or three-comparable-delivery promotion gates. Focused
+scheduler coverage passed `6`; the full PBOS REST/MCP/integration surface
+passed `86`; TypeScript check passed. Rollback is to revert the timezone
+helper and rebuild `celery-worker`; already written reports remain auditable.
+
+## 2026-08-01 Live Personal Context And Evidence-Loop Acceptance
+
+### Implemented And Proven
+
+- The live UTF-8 activation path now has a corrected owner-declared Profile
+  (`art_57b589d3bb7b`) and governed project Brief in
+  `03_Projects/active/PBOS-v1-personal-delivery-brief.md`. The prior
+  question-mark artifacts were retained as audit history instead of being
+  rewritten.
+- Mission `art_055276148486` was diagnostically compiled without confirmation
+  into `art_54959f6b2f08`. The live DeepSeek response passed the structured
+  compiler path (`llm_contextual`), cited the Brief among twelve governed
+  references, emitted three bounded phases, and retained the reflection and
+  external-side-effect boundaries.
+- A real server-captured execution (`art_94d464e16716`) bound the current plan
+  to four reviewed source/test files plus the Git receipt. The agent-attributed
+  technical result (`art_f36b0dd50df1`) remains explicitly unverified and
+  non-promotable. An HTTP `409` live request proved that the unconfirmed
+  Mission cannot run an external capability and does not add an execution.
+- After a normal Worker restart, Celery task
+  `d31563c7-360e-47ea-8767-41ff5b2ffcde` wrote the daily PBOS report for the
+  corrected plan. The report's next action is `读取交付简报，冻结验收条件`, it
+  contains twelve governed references including the owner Brief, its managed
+  SHA-256 footer validates, and it retains the non-promotable agent outcome.
+- The Knowledge Workspace release ledger UI is present, project-scoped,
+  metadata-only, and permission-aware: readers cannot submit, project admins
+  can record non-verified observations, and only tenant admins can verify real
+  proof with timestamp, durable IDs, and detail code.
+
+### Current Evidence
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/pbos tests/api/test_pbos_api.py tests/mcp/test_pbos_http_contract.py tests/integration/test_pbos_e2e.py -q
+# 86 passed
+.\.venv\Scripts\python.exe -m pytest tests/test_artifact_store_durability.py tests/test_agent_runtime_convergence.py tests/knowledge/test_wiki_sync.py tests/knowledge/test_growth_distillation.py -q
+# 103 passed, 1 skipped
+npm run test:frontend
+# 24 suites, 210 passed
+npm run check
+npm run build
+docker compose config --quiet
+# passed; build retains only the existing ECharts chunk-size advisory
+```
+
+### Non-Completion That Must Remain Visible
+
+The live project has no accepted owner-attributed outcome and therefore has
+no verified Capability or active Strategy Genome. This is the intended
+evidence gate, not a product failure masked by synthetic data. Three
+comparable owner or accurately-described mixed AI-project deliveries, each
+with a server receipt, reflection, observed outcome, and explicit acceptance,
+are still required before PBOS can claim personal learning. GitHub and Feishu
+remain `awaiting_authorization`; configured Obsidian plugin bridges remain
+`awaiting_export` or `awaiting_output` until a real plugin-produced file is
+captured.

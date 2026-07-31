@@ -923,6 +923,13 @@ def test_knowledge_delivery_localizes_the_fallback_from_a_chinese_profile(tmp_pa
         for phase in plan.phases
         for action in phase["actions"]
     )
+    assert all(
+        any("\u4e00" <= character <= "\u9fff" for character in phase["title"])
+        for phase in plan.phases
+    )
+    localized_contracts = plan.compiler_metadata["language_guard"]["localized_phase_contracts"]
+    assert [item["phase_index"] for item in localized_contracts] == [1, 2, 3]
+    assert all("title" in item["fields"] for item in localized_contracts)
 
 
 def test_chinese_mission_replaces_complete_english_llm_actions_with_localized_mission_actions(tmp_path):
@@ -1223,3 +1230,24 @@ def test_declared_personal_profile_context_makes_an_empty_diagnosis_specific_wit
     assert plan.compiler_metadata["effective_personal_context_sources"]["role"] == "declared_profile"
     assert plan.compilation_state == "capture_required"
     assert not plan.strategy_refs
+
+
+def test_explicit_comparison_context_is_the_canonical_personal_learning_scope(tmp_path):
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    mission = _mission(store, "mission", "AI delivery", "Deliver an evidence-backed AI feature")
+    mission.context["comparison_context"] = "owner-declared-ai-delivery-loop"
+    store.update(mission)
+    service = PBOSService(
+        store,
+        "personal",
+        context_provider=lambda: {"availability": "available", "documents": [], "refs": []},
+    )
+    service.save_profile({
+        "role": "Independent AI product builder",
+        "industry": "AI productivity software",
+        "organization_stage": "solo validation",
+    })
+
+    plan = service.compile_plan("mission")
+
+    assert plan.comparison_context == "owner-declared-ai-delivery-loop"

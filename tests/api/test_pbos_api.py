@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.api import dbos_api
-from app.artifacts import MissionArtifact, WorkOutcomeArtifact
+from app.artifacts import DiagnosisArtifact, MissionArtifact, WorkOutcomeArtifact
 from app.core.config import settings
 from app.main import app
 
@@ -81,6 +81,63 @@ def test_pbos_plan_api_uses_project_vault_context(monkeypatch, tmp_path):
     assert readiness["state"] == "learning_evidence_required"
 
 
+def test_pbos_scopes_the_cockpit_to_a_selected_mission_and_infers_its_diagnosis(monkeypatch, tmp_path):
+    monkeypatch.setattr(dbos_api, "DBOS_DATA_ROOT", tmp_path / "dbos")
+    monkeypatch.setattr(settings, "SOP_LLM_PROVIDER", "mock")
+    store = dbos_api.dbos_service_for("personal").store
+    first = MissionArtifact(
+        artifact_id="mission-first",
+        mission_id="mission-first",
+        project_id="personal",
+        label="First delivery",
+        title="First delivery",
+        intent="Deliver the first bounded AI project slice",
+    )
+    second = MissionArtifact(
+        artifact_id="mission-second",
+        mission_id="mission-second",
+        project_id="personal",
+        label="Second delivery",
+        title="Second delivery",
+        intent="Deliver a separate project slice",
+    )
+    store.add(first)
+    store.add(second)
+    store.add(DiagnosisArtifact(
+        artifact_id="diagnosis-first",
+        project_id="personal",
+        mission_id=first.artifact_id,
+        role="independent AI project builder",
+        industry="AI systems",
+        organization_stage="solo validation",
+        goal="Ship one testable delivery slice",
+    ))
+    store.add(DiagnosisArtifact(
+        artifact_id="diagnosis-second",
+        project_id="personal",
+        mission_id=second.artifact_id,
+        role="independent AI project builder",
+        industry="AI systems",
+        organization_stage="solo validation",
+        goal="Ship a separate testable delivery slice",
+    ))
+    client = TestClient(app)
+
+    first_plan = client.post("/api/pbos/projects/personal/missions/mission-first/plans")
+    second_plan = client.post("/api/pbos/projects/personal/missions/mission-second/plans")
+    scoped_cockpit = client.get("/api/pbos/projects/personal/cockpit?mission_id=mission-first")
+    scoped_action = client.get("/api/pbos/projects/personal/today-action?mission_id=mission-first")
+
+    assert first_plan.status_code == 200
+    assert first_plan.json()["plan"]["diagnosis_id"] == "diagnosis-first"
+    assert second_plan.status_code == 200
+    assert scoped_cockpit.status_code == 200
+    assert scoped_cockpit.json()["scope"]["mission_id"] == "mission-first"
+    assert scoped_cockpit.json()["today"]["mission_id"] == "mission-first"
+    assert scoped_action.status_code == 200
+    assert scoped_action.json()["mission_id"] == "mission-first"
+
+
 def test_pbos_workspace_capture_records_one_execution_with_safe_receipt_and_reflection(monkeypatch, tmp_path):
     monkeypatch.setattr(dbos_api, "DBOS_DATA_ROOT", tmp_path / "dbos")
     store = dbos_api.dbos_service_for("personal").store
@@ -130,6 +187,100 @@ def test_pbos_workspace_capture_records_one_execution_with_safe_receipt_and_refl
     assert manual.json()["execution"]["tool_receipts"][0]["verified"] is False
 
 
+def test_pbos_api_keeps_agent_work_auditable_but_rejects_it_as_personal_learning(monkeypatch, tmp_path):
+    monkeypatch.setattr(dbos_api, "DBOS_DATA_ROOT", tmp_path / "dbos")
+    store = dbos_api.dbos_service_for("personal").store
+    store.add(
+        MissionArtifact(
+            artifact_id="mission-attribution",
+            mission_id="mission-attribution",
+            project_id="personal",
+            label="Attribution evidence",
+            title="Attribution evidence",
+        )
+    )
+    client = TestClient(app)
+
+    captured = client.post(
+        "/api/pbos/projects/personal/missions/mission-attribution/capture-bsc-workspace",
+        json={
+            "paths": ["tests/api/test_pbos_api.py"],
+            "actions": ["Agent completed the bounded implementation."],
+            "reflection": {"completed": "The receipt is reviewable, but the agent performed the work."},
+            "execution_attribution": "agent",
+        },
+    )
+
+    assert captured.status_code == 200
+    execution = captured.json()["execution"]
+    assert execution["execution_attribution"] == "agent"
+    pending = client.post(
+        f"/api/pbos/projects/personal/executions/{execution['artifact_id']}/outcomes",
+        json={"acceptance_status": "unverified"},
+    )
+    rejected = client.post(
+        f"/api/pbos/projects/personal/outcomes/{pending.json()['outcome']['artifact_id']}/review",
+        json={
+            "decision": "accepted",
+            "quality_score": 86,
+            "outcome_summary": "The agent delivery passed the technical check.",
+        },
+    )
+
+    assert pending.status_code == 200
+    assert rejected.status_code == 422
+    assert "execution_attribution" in rejected.json()["message"]
+
+
+def test_pbos_api_allows_one_explicit_attribution_review_for_a_legacy_execution(monkeypatch, tmp_path):
+    monkeypatch.setattr(dbos_api, "DBOS_DATA_ROOT", tmp_path / "dbos")
+    store = dbos_api.dbos_service_for("personal").store
+    store.add(
+        MissionArtifact(
+            artifact_id="mission-legacy-attribution",
+            mission_id="mission-legacy-attribution",
+            project_id="personal",
+            label="Legacy attribution",
+            title="Legacy attribution",
+        )
+    )
+    from app.pbos import PBOSService
+
+    record = PBOSService(store, "personal").record_execution(
+        "mission-legacy-attribution",
+        "",
+        {
+            "actions": ["Captured an older reviewable result."],
+            "tool_receipts": [{"kind": "test", "verified": True}],
+            "reflection": {"completed": "Historical receipt is ready for attribution review."},
+        },
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        f"/api/pbos/projects/personal/executions/{record.artifact_id}/attribution-review",
+        json={
+            "execution_attribution": "mixed",
+            "owner_contribution": "I chose the acceptance criteria and reviewed the outcome.",
+            "review_note": "Reviewed this historical execution before using it as personal evidence.",
+        },
+    )
+    repeat = client.post(
+        f"/api/pbos/projects/personal/executions/{record.artifact_id}/attribution-review",
+        json={
+            "execution_attribution": "owner",
+            "review_note": "This second rewrite must be rejected.",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["execution"]["execution_attribution"] == "mixed"
+    assert response.json()["execution"]["owner_contribution"].startswith("I chose")
+    assert len(response.json()["execution"]["attribution_review_history"]) == 1
+    assert repeat.status_code == 422
+    assert "only be reviewed while unattributed" in repeat.json()["message"]
+
+
 def test_pbos_outcome_review_updates_the_existing_pending_outcome(monkeypatch, tmp_path):
     monkeypatch.setattr(dbos_api, "DBOS_DATA_ROOT", tmp_path / "dbos")
     store = dbos_api.dbos_service_for("personal").store
@@ -152,6 +303,7 @@ def test_pbos_outcome_review_updates_the_existing_pending_outcome(monkeypatch, t
             "actions": ["Captured a reviewable result."],
             "tool_receipts": [{"kind": "test", "verified": True}],
             "reflection": {"completed": "Ready for explicit review."},
+            "execution_attribution": "owner",
         },
     )
     outcome = service.record_outcome(record.artifact_id, {"acceptance_status": "unverified"})

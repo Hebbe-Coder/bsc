@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from app.api.dbos_api import dbos_service_for
 from app.core.celery_app import get_celery_app
@@ -11,6 +12,15 @@ from app.core.config import settings
 from app.pbos import PBOSReportService, PBOSService
 
 celery_app = get_celery_app()
+_PBOS_TIMEZONE = ZoneInfo("Asia/Shanghai")
+
+
+def _shanghai_date(now: datetime | None = None) -> date:
+    """Keep direct PBOS report tasks aligned with the configured user cadence."""
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    return current.astimezone(_PBOS_TIMEZONE).date()
 
 
 def run_pbos_periodic_report(
@@ -35,11 +45,11 @@ def pbos_weekly_report_task(project_id: str, week: str = "") -> dict[str, str]:
 
 @celery_app.task(name="pbos.daily_review")
 def pbos_daily_review_task(project_id: str) -> dict[str, str]:
-    period = date.today().isoformat()
+    period = _shanghai_date().isoformat()
     return run_pbos_periodic_report(project_id, "pbos_daily", period)
 
 
 @celery_app.task(name="pbos.monthly_review")
 def pbos_monthly_review_task(project_id: str) -> dict[str, str]:
-    period = date.today().strftime("%Y-%m")
+    period = _shanghai_date().strftime("%Y-%m")
     return run_pbos_periodic_report(project_id, "pbos_monthly", period)

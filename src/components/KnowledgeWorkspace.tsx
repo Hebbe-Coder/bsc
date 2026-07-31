@@ -21,8 +21,9 @@ import {
 import { useKnowledgeWorkspaceStore, type KnowledgeProposalBaselines } from '../store/knowledgeWorkspaceStore';
 import { EvidenceWorkspace } from './knowledge/EvidenceWorkspace';
 import { InformationOperationsPanel } from './knowledge/InformationOperationsPanel';
+import { ReleaseEvidenceLedger } from './knowledge/ReleaseEvidenceLedger';
 import { resolveStudioAccessStatus } from './knowledgeWorkspaceAccess';
-import { describeKnowledgeSource, selectDefaultKnowledgePage } from './knowledgePresentation';
+import { describeKnowledgeReleaseGate, describeKnowledgeSource, describeLocalRestConnection, selectDefaultKnowledgePage } from './knowledgePresentation';
 
 type Props = {
   onClose: () => void;
@@ -61,14 +62,6 @@ export const OBSIDIAN_PLUGIN_PRESETS = [
   { id: 'project-raw', name: 'Legacy raw/ export', adapter: 'filesystem_drop', input_paths: ['raw/custom'] },
   { id: 'project-inbox', name: 'Legacy inbox/ export', adapter: 'filesystem_drop', input_paths: ['inbox/custom'] },
 ] as const;
-
-export function describeLocalRestConnection(localRest: KnowledgeWorkspaceData['local_rest'] | undefined): string {
-  if (!localRest || localRest.state === 'unconfigured') return 'Optional Local REST connector is not configured';
-  if (localRest.state === 'connected') return `Authenticated ${localRest.plugin_id} ${localRest.plugin_version || 'service'} via ${localRest.transport}`;
-  if (localRest.state === 'authentication_failed') return 'Local REST service rejected the configured runtime token';
-  if (localRest.state === 'configuration_invalid') return 'Local REST configuration must use an explicit local HTTPS endpoint';
-  return 'Local REST service is unavailable; filesystem Vault sync remains active';
-}
 
 const VAULT_CONNECTION_LABELS: Record<NonNullable<KnowledgeWorkspaceData['vault']['connection']>['state'], string> = {
   unconfigured: 'No project Vault mapped',
@@ -591,6 +584,13 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '', activeProje
   const horizon = workspace?.horizon;
   const localRest = workspace?.local_rest;
   const localRestDetail = describeLocalRestConnection(localRest);
+  const releaseGate = workspace?.release_gate;
+  const releaseGateDetail = describeKnowledgeReleaseGate(releaseGate);
+  const releaseGateLabel = releaseGate?.status === 'release_ready'
+    ? 'Ready'
+    : releaseGate?.status === 'not_release_ready'
+      ? 'Blocked'
+      : 'Pending';
   const horizonDetail = !horizon?.enabled
     ? 'Horizon producer is not configured for this runtime'
     : !horizon.last_run
@@ -659,12 +659,14 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '', activeProje
         <ConnectionStep label="Plugin bridges" detail={pluginCount ? (connectedPluginCount ? `${capturedPluginSources} evidence source${capturedPluginSources === 1 ? '' : 's'}, ${registeredPluginOutputs} pending output${registeredPluginOutputs === 1 ? '' : 's'}` : pluginRoutesVerified ? `${readyPluginRouteCount}/${pluginCount} routes verified; no external plugin export captured yet` : readyPluginRouteCount ? `${readyPluginRouteCount}/${pluginCount} export folders ready; remaining routes need setup` : 'Export folder setup is incomplete') : 'No plugin bridge registered'} ready={pluginRoutesVerified} />
         <ConnectionStep label="Growth cycle" detail={growthCycleDetail} ready={growth?.status === 'completed'} />
         <ConnectionStep label="Governed use" detail={pages.length ? `${pages.length} published Wiki page${pages.length === 1 ? '' : 's'}` : 'No published knowledge context'} ready={pages.length > 0} />
+        <ConnectionStep label="Release proof" detail={releaseGateDetail} ready={releaseGate?.status === 'release_ready'} />
       </section>
       <div className="knowledge-status-strip">
         <StatusMetric icon={<Database size={16} />} label="Evidence" value={workspace?.sources ?? 0} detail={workspace?.vault.configured ? `${vaultConnectionLabel} / direct sync ${workspace.sync.status} / growth ${growth?.status ?? 'not_run'}` : 'Vault unconfigured'} />
         <StatusMetric icon={<GitPullRequest size={16} />} label="Proposals" value={proposals.length} detail={`${health?.pending_proposal_ids.length ?? 0} awaiting review`} />
         <StatusMetric icon={<Network size={16} />} label="Relations" value={graph.count} detail={graphEdgeType || 'all edge types'} />
         <StatusMetric icon={<ShieldCheck size={16} />} label="Citation coverage" value={health?.citation_coverage == null ? 'N/A' : `${Math.round(health.citation_coverage * 100)}%`} detail={evaluationDetail} />
+        <StatusMetric icon={<ShieldCheck size={16} />} label="Release proof" value={releaseGateLabel} detail={releaseGateDetail} />
       </div>
       {projectId && <EvidenceWorkspace projectId={projectId} refreshVersion={evidenceRefreshVersion} />}
       <nav className="knowledge-mobile-tabs" aria-label="Knowledge mobile panes">
@@ -727,6 +729,8 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '', activeProje
         </main>
 
         <aside className="knowledge-pane knowledge-pane--inspector" aria-label="Evidence and health inspector">
+          <PaneHeader title="Release evidence" detail={releaseGateLabel} />
+          <ReleaseEvidenceLedger projectId={projectId} role={workspace?.access.role || ''} canWrite={canWrite} onChanged={load} />
           <PaneHeader title="Source inspector" detail={selectedSource?.status || 'select evidence'} />
           {selectedSource ? <SourceInspector source={selectedSource} triage={selectedSourceTriage} busy={actionBusy} canWrite={canWrite} onApprove={promoteSource} onAnalyze={analyzeSource} onCapturePrimary={capturePrimarySource} /> : <Empty text="Select evidence to inspect immutable provenance, policy state, and capture metadata." />}
           <PaneHeader title="Automation" detail={`${schedules.length} schedules`} />

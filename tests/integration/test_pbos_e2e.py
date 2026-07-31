@@ -55,6 +55,7 @@ def test_personal_ai_delivery_loop_retains_evidence_gates(monkeypatch, tmp_path)
             "paths": ["tests/integration/test_pbos_e2e.py"],
             "actions": ["Ran the focused PBOS regression suite."],
             "reflection": {"completed": "The contract was validated.", "blocker": "Need an accepted delivery review."},
+            "execution_attribution": "owner",
         },
     )
     assert execution.status_code == 200

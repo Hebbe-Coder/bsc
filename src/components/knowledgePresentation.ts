@@ -1,4 +1,4 @@
-import type { KnowledgePage, KnowledgeSource } from '../api/knowledgeWorkspaceApi';
+import type { KnowledgePage, KnowledgeSource, KnowledgeWorkspaceData } from '../api/knowledgeWorkspaceApi';
 
 export type SourcePresentation = {
   headline: string;
@@ -7,6 +7,27 @@ export type SourcePresentation = {
   score: string;
   typeLabel: string;
 };
+
+export function describeLocalRestConnection(localRest: KnowledgeWorkspaceData['local_rest'] | undefined): string {
+  if (!localRest || localRest.state === 'unconfigured') return 'Optional Local REST connector is not configured';
+  if (localRest.state === 'connected') {
+    const source = localRest.configuration_source === 'plugin_config' ? 'using installed plugin configuration' : 'using explicit runtime configuration';
+    return `Authenticated ${localRest.plugin_id} ${localRest.plugin_version || 'service'} via ${localRest.transport}, ${source}`;
+  }
+  if (localRest.state === 'authentication_failed') return 'Local REST service rejected the configured runtime token';
+  if (localRest.state === 'configuration_invalid') return localRest.configuration_source === 'plugin_config'
+    ? 'Installed Local REST plugin configuration is incomplete or secure TLS is disabled'
+    : 'Local REST configuration must use an explicit local HTTPS endpoint';
+  return 'Local REST service is unavailable; filesystem Vault sync remains active';
+}
+
+export function describeKnowledgeReleaseGate(gate: KnowledgeWorkspaceData['release_gate']): string {
+  if (!gate) return 'Operational release evidence has not been evaluated';
+  if (gate.status === 'release_ready') return 'All required operational evidence is verified';
+  if (gate.status === 'not_release_ready') return `Release is blocked by ${gate.failed_evidence.length} failed evidence check${gate.failed_evidence.length === 1 ? '' : 's'}`;
+  const pending = gate.missing_evidence.length + gate.pending_evidence.length;
+  return `${pending} required evidence check${pending === 1 ? '' : 's'} still need durable operational proof`;
+}
 
 const SOURCE_TYPE_LABELS: Record<string, string> = {
   horizon_signal: 'Horizon radar',
