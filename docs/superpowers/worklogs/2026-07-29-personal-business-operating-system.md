@@ -1183,6 +1183,42 @@
   human evaluation. It has not been accepted, filed, executed, published, or
   fed back into the knowledge base.
 
+## 2026-08-01 Live Wiki Provider Revalidation After Credit Replenishment
+
+- **Runtime recovery:** Docker Desktop had been stopped locally. It was started,
+  then the API, Celery Worker, Celery Beat, PostgreSQL, Redis, and n8n all
+  returned to healthy/running state. `GET /live` and `GET /health` returned
+  `200`; the live configuration reports the real `deepseek` Wiki provider,
+  `deepseek-v4-pro`, a configured provider key, and auto-publication disabled.
+  No credential value was read, printed, persisted, or copied.
+- **Real governed retry:** `POST /knowledge/runs` created run
+  `82a944f841cf` for `wiki_maintenance`, explicitly scoped to the existing
+  trusted, eligible project PRD source `650666057e01`. The normal Celery
+  pipeline reached `completed` after 53 seconds and recorded compiler run
+  `cd527e437b2a` and proposal `5976c104eb36`. This is a fresh runtime result,
+  not a fixture or a replay of the earlier `payment_required` failures.
+- **Proposal gate:** `5976c104eb36` is a `draft` with one immutable source,
+  four operations over four paths, and citations on every operation. Its
+  persisted run events show queued, assigned, running, proposal-created, and
+  completed states. The subsequent governed lint endpoint returned
+  `valid=true` with no findings. Publication stayed `review_required`; no Wiki
+  page was automatically published or changed.
+- **Honest remaining boundary:** current workspace reads still report
+  Obsidian Clipper, Xiaohongshu Importer, and Zotero as `awaiting_export`, and
+  Copilot as `awaiting_output` with zero registered outputs. PBOS has a
+  complete declared profile but `learning_evidence_required`: three execution
+  records and three outcomes exist, zero have been explicitly accepted, and
+  zero Capability or Strategy Genome assets have been promoted. GitHub and
+  Feishu remain `awaiting_authorization`.
+- **Studio and visual evidence:** the authorized Studio was restarted at
+  `http://127.0.0.1:5174` against the restored API. The browser-control bridge
+  could not initialize because its kernel-assets directory is unavailable, so
+  visual acceptance remains pending; the successful local HTTP readiness check
+  is not substituted for a browser screenshot.
+- **Operator rollback:** reject proposal `5976c104eb36` through the normal
+  Studio review flow if it is not suitable. It remains an auditable draft; no
+  raw source and no published Wiki revision need to be reverted.
+
 ## 2026-07-31 Personal Context Closure And Runtime Readback
 
 - **Observed gap:** the active personal project had a saved profile with
