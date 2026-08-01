@@ -137,6 +137,75 @@ note bodies, credentials, provider payloads, or personal feedback.
   or credential was copied into this record. The scheduled producer uses
   source signals for discovery only; model enrichment remains disabled.
 
+## 2026-08-02 Wiki Evidence Repair And Extraction-Reference Deployment
+
+- **Evidence repair:** a live Wiki maintenance run previously failed when the
+  provider returned the literal source placeholder `<id>`. The compiler now
+  makes one bounded repair request only after immutable-evidence validation
+  fails. It gives the provider the validation reason and the original
+  project-scoped source list, then re-applies the full schema, source-ID, and
+  citation checks. It never substitutes a source or publishes a repair.
+- **Reference projection:** multimodal extraction now persists typed
+  `has_extraction` and `has_table` links from a source to its derivative
+  records. The metadata-only backfill runs with governed source sync and
+  cannot read a Vault note, source body, or extraction body.
+- **Regression evidence:** backend coverage passed `75 passed, 1 warning`.
+  TypeScript checking, `222` frontend tests, and the production frontend
+  build all exited `0`; `git diff --check` also exited `0`. The warning is
+  the pre-existing Starlette TestClient deprecation.
+- **Deployment:** API, Celery Worker, and Celery Beat were rebuilt and all
+  returned healthy. `GET /ready` reported both PostgreSQL and Redis as `ok`.
+- **Live Wiki proof:** Celery run `3ca7435a28d9` compiled one source-scoped
+  maintenance request using source `650666057e01`. It completed and created
+  proposal `1c384125d17b`; its source list contains only that ID. The proposal
+  lint is valid with zero findings and its publication result is explicitly
+  `review_required`. It remains `draft`; no Wiki page was automatically
+  published.
+- **Runtime evaluation:** governed run `72a9c76bf883` completed with a valid
+  lint report and a passed evaluation (`score=1.0`, `coverage=1.0`, no
+  findings). Publication reconciliation reported `already_materialized` and
+  made no filesystem change.
+- **Copilot boundary:** Obsidian Copilot remains the project AI authoring
+  bridge. Its archive route and reviewed-output route are configured and
+  trusted; BSC's server-side distillation provider remains separately
+  configured. A desktop Copilot chat is not represented as a server-side API
+  call, so it must create a reviewed output before it can enter the governed
+  output lifecycle.
+
+## 2026-08-02 PBOS Release Matrix And Mobile Acceptance
+
+- **Documentation contract corrected:** the PBOS PRD, execution index, and all
+  eight plan files now specify dependencies, ownership boundaries,
+  prohibitions, test-first tasks, exact verification commands, rollback, and
+  handoff. They align to the deployed `/api/pbos/projects/{project_id}` domain,
+  Artifact Graph authority, Obsidian L1/L2/L3 roles, and honest external
+  authorization states.
+- **Full PBOS regression:** `92 passed, 1 warning` across PBOS service,
+  contextual compiler, migration, scheduler, REST API, MCP HTTP contract, and
+  PBOS end-to-end coverage. Artifact/runtime/knowledge regression passed with
+  `113 passed, 1 skipped, 1 warning`.
+- **Frontend release verification:** all frontend suites passed with `24` files
+  and `222` tests. `npm run check`, `npm run build`, and `docker compose
+  config --quiet` passed. The build emitted only Vite's chunk-size advisory;
+  it did not fail the build.
+- **Real mobile inspection:** the selected project PBOS Cockpit was inspected
+  at a `390x844` viewport. The rendered document measured `384` client width
+  and `384` scroll width, so it had no horizontal overflow; no browser console
+  errors were observed. The viewport was restored after inspection.
+- **Release evidence:** `browser_desktop_mobile` was submitted as pending and
+  tenant-admin reviewed to `verified/real`, revision `2`, with durable ID
+  `browser:studio-pbos-mobile-20260802` and detail
+  `pbos_mobile_390_no_horizontal_overflow`. The current gate remains
+  `implemented_with_operational_proof_pending` only for
+  `o4_extraction_reference` and `o6_feedback_cycle`.
+- **Honest remaining boundary:** the previously user-provided example image is
+  no longer present at its transient source path, and the active Vault has no
+  project-owned PDF/image/spreadsheet/canvas/audio/video asset. O4 therefore
+  remains missing rather than being satisfied with a synthetic file. O6 still
+  requires a real reviewed delivery result and user feedback that alters a
+  later action; neither an unreviewed Copilot archive nor agent validation is
+  substituted for that proof.
+
 ## Handoff
 
 1. Add one project-owned multimodal source through a declared import route,
