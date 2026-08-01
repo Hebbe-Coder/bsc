@@ -37,6 +37,7 @@ from app.knowledge.growth_contracts import (
     is_verified_output_status,
 )
 from app.knowledge.candidate_extraction import CANDIDATE_EXTRACTION_RUN_TYPE, SourceCandidateExtractionService
+from app.knowledge.copilot_transcript_import import CopilotTranscriptImportError, CopilotTranscriptImportService
 from app.knowledge.growth_distillation import GrowthDistillationService
 from app.knowledge.growth_distillation_revisions import growth_distillation_revision_metadata
 from app.knowledge.growth_repository import GrowthRepository
@@ -967,6 +968,38 @@ def generate_project_sop(
         {
             "run": _public_record(result["run"]),
             "output": _public_record(result["output"]),
+            "idempotent": bool(result["idempotent"]),
+        },
+    )
+
+
+@project_router.post("/outputs/import-copilot-transcript", status_code=201)
+def import_copilot_transcript(
+    project_id: str,
+    request: Request,
+    repo: GrowthRepository = Depends(get_growth_repository),
+):
+    """Import the latest completed Copilot reply as a registered review draft.
+
+    This is deliberately distinct from the native filesystem-output bridge:
+    the result retains archive provenance and remains blocked from PBOS learning
+    until normal output review and owner-attributed outcome gates complete.
+    """
+    project_id = _enforce_growth_access(request, project_id, write=True)
+    try:
+        result = CopilotTranscriptImportService(repo, _vault_root()).import_latest(
+            project_id=project_id,
+            actor_id=_actor(request),
+        )
+    except CopilotTranscriptImportError as exc:
+        raise _http_error(409, str(exc), "Copilot transcript import is not ready") from exc
+    return _ok(
+        request,
+        repo,
+        project_id,
+        {
+            "output": _public_record(result["output"]),
+            "transcript": result["transcript"],
             "idempotent": bool(result["idempotent"]),
         },
     )

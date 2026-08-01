@@ -359,6 +359,19 @@ export type ProjectSopGenerationResult = {
   idempotent: boolean;
 };
 
+export type CopilotTranscriptImportResult = {
+  output: GrowthRecord;
+  transcript: {
+    original_path: string;
+    title: string;
+    model: string;
+    provider: string;
+    transcript_sha256: string;
+    response_sha256: string;
+  };
+  idempotent: boolean;
+};
+
 export type GrowthMethodReviewInput = {
   comparable_uses?: number;
   average_quality?: number;
@@ -675,6 +688,14 @@ export async function fetchGrowthStage(projectId: string, stage: GrowthStage, li
       ? (payload.candidates?.length ?? 0) >= boundedLimit || (payload.feedback?.length ?? 0) >= boundedLimit || (payload.proposals?.length ?? 0) >= boundedLimit || Boolean(distillations?.truncated)
       : records.length >= boundedLimit;
   return { project_id: payload.project_id, stage, records, limit: boundedLimit, truncated };
+}
+
+export async function importLatestCopilotTranscript(projectId: string): Promise<CopilotTranscriptImportResult> {
+  return request<CopilotTranscriptImportResult>(
+    `/knowledge/growth/${encoded(projectId)}/outputs/import-copilot-transcript`,
+    undefined,
+    { method: 'POST' },
+  );
 }
 
 export async function fetchGrowthLineage(projectId: string, relation = '', limit = 200, signal?: AbortSignal): Promise<GrowthLineage> {

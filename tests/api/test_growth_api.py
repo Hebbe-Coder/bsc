@@ -24,6 +24,7 @@ from app.knowledge.growth_contracts import (
     OutputFeedback,
 )
 from app.knowledge.growth_repository import GrowthRepository
+from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
 from app.knowledge.output_registry import OutputRegistry
 from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus, SourceRecord, SourceStatus
@@ -190,6 +191,76 @@ def test_project_sop_generation_endpoint_requires_writer_and_returns_durable_res
     assert created.json()["data"]["output"]["status"] == "registered"
     assert calls[0][0] == "project-a"
     assert calls[0][1].prd_source_id == "prd-source"
+
+
+def test_copilot_transcript_import_api_preserves_provenance_and_requires_writer(growth_api):
+    client, repo = growth_api
+    project_root = Path(settings.OBSIDIAN_VAULT_ROOT) / "projects" / "project-a"
+    archive = project_root / "copilot" / "copilot-conversations"
+    archive.mkdir(parents=True)
+    (project_root / "04_Outputs" / "copilot").mkdir(parents=True)
+    (project_root / "bsc-plugins.json").write_text(
+        '{"plugins":[{"id":"copilot","name":"Copilot","adapter":"filesystem_output","input_paths":["04_Outputs/copilot"]}]}',
+        encoding="utf-8",
+    )
+    settings_path = Path(settings.OBSIDIAN_VAULT_ROOT) / ".obsidian" / "plugins" / "copilot" / "data.json"
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(
+        '{"defaultSaveFolder":"projects/project-a/copilot/copilot-conversations"}',
+        encoding="utf-8",
+    )
+    ObsidianPluginManifest.load(project_root).set_trust(
+        project_root,
+        plugin_ids=["copilot"],
+        trusted=True,
+        actor_id="test-owner",
+        reason="fixture",
+    )
+    archive.joinpath("PBOS_v1_Execution_Plan.md").write_text(
+        "---\nmodelKey: \"deepseek-v4-flash|deepseek\"\ntopic: \"PBOS v1 Execution Plan\"\n---\n\n"
+        "**user**: Produce a plan without external side effects.\n"
+        "[Context: Notes: projects/project-a/03_Projects/active/brief.md]\n\n"
+        "**ai**: **Facts**: The active brief is the evidence boundary.\n\n"
+        "**Plan**: Freeze the acceptance card before implementation.\n\n"
+        "**Gap**: No owner outcome exists yet.\n"
+        "[Timestamp: 2026/08/01 13:10:12]\n",
+        encoding="utf-8",
+    )
+    repo.configure_vault("project-a", "projects/project-a", "test-owner")
+
+    denied = client.post(
+        "/knowledge/projects/project-a/outputs/import-copilot-transcript",
+        headers=_headers("growth-reader-key"),
+    )
+    created = client.post(
+        "/knowledge/projects/project-a/outputs/import-copilot-transcript",
+        headers=_headers(),
+    )
+    repeated = client.post(
+        "/knowledge/projects/project-a/outputs/import-copilot-transcript",
+        headers=_headers(),
+    )
+
+    assert denied.status_code == 403
+    assert created.status_code == 201, created.text
+    payload = created.json()["data"]
+    assert payload["idempotent"] is False
+    assert payload["output"]["status"] == "registered"
+    assert payload["output"]["metadata"]["origin"] == "copilot_transcript_import"
+    assert payload["output"]["metadata"]["original_path"].startswith("copilot/copilot-conversations/")
+    assert "content" not in payload["output"]
+    assert repeated.status_code == 201
+    assert repeated.json()["data"]["idempotent"] is True
+    assert repeated.json()["data"]["output"]["id"] == payload["output"]["id"]
+
+    content = client.get(
+        f"/knowledge/projects/project-a/outputs/{payload['output']['id']}/content",
+        headers=_headers(),
+    )
+    assert content.status_code == 200
+    imported_content = content.json()["data"]["content"]["content"]
+    assert "Freeze the acceptance card before implementation." in imported_content
+    assert "Produce a plan without external side effects." not in imported_content
 
 
 def test_managed_sop_recovery_endpoint_requires_writer_and_restores_only_governed_artifacts(growth_api):

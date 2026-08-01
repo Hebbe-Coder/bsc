@@ -1380,3 +1380,35 @@ external service, or writing to a Vault/original file.
   acceptance remains pending because the Codex browser runtime remains unable
   to initialize its local kernel assets; this worklog does not claim a visual
   inspection.
+
+## Reauthorized Zotero Review and Growth Cycle (2026-08-02)
+
+- The project owner again authorized governed review and a Growth cycle for
+  source `f4278140ca7f` in `proj_b8a285642094`. The protected semantic-review
+  endpoint returned the existing immutable decision
+  `d34911d25290828395e1a792` (`semantic-source-triage-v3`), so no duplicate
+  provider call or lifecycle mutation was performed. Its completed result is
+  still `ignore` with `reliability_pass=false`; the source remains
+  `validated/untrusted` and requires explicit approval before any authoring
+  eligibility can be considered.
+- A new protected daily Growth run `5e0a06e0b4fe` completed through the live
+  Celery Worker with eight durable events: queued, execution assigned,
+  dispatched, started, Obsidian sync completed, model completed, distillation
+  completed, and terminal completion. It had no run error.
+- The run's bounded immutable manifest contains `177` input-ledger records.
+  It includes the authorized source only as an auditable input, places it in
+  `daily_excluded_source_ids`, and omits it from both selected context sources
+  and citation sources. The source therefore did not contribute a claim,
+  citation, Wiki update, method, or output in this cycle.
+- The governed sync recorded `47` triage evaluations, `6` eligible sources,
+  and `41` sources still pending review. These are lifecycle counts, not a
+  quality pass rate or a claim that the untrusted Zotero export is usable.
+- Regression verification after the live run passed:
+  `./.venv/Scripts/python.exe -m pytest tests/api/test_knowledge_workspace_api.py::test_workspace_semantic_triage_is_review_only_and_queryable tests/knowledge/test_source_triage.py::test_semantic_triage_is_audited_and_never_auto_admits_a_source tests/api/test_growth_api.py::test_sources_triage_methods_outputs_feedback_and_review_are_project_scoped -q`
+  returned `3 passed, 1 warning`. The warning is the pre-existing Starlette
+  TestClient deprecation; there were no test failures.
+- The bounded-growth-context regression suite also passed:
+  `./.venv/Scripts/python.exe -m pytest tests/knowledge/test_growth_context.py -q`
+  returned `19 passed, 1 warning`, including the requirement that a governed
+  Horizon signal is excluded until current project triage exists. The warning
+  is the same pre-existing Starlette TestClient deprecation.
