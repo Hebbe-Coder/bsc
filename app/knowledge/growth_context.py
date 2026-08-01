@@ -706,13 +706,6 @@ class GrowthContextService:
                     required_order.get(str(source.get("id") or ""), self.MAX_RECORDS),
                 )
             )
-        # Explicit operator-selected evidence is part of this request's
-        # contract. Keep it ahead of the ordinary candidate cap so a large
-        # project inventory cannot silently omit it before budget selection.
-        sources.sort(key=lambda source: (
-            not bool(source.get("context_required")),
-            str(source.get("id") or ""),
-        ))
         sources = sources[: self.MAX_RECORDS]
         project_contexts = project_contexts[: self.MAX_RECORDS]
         methods, candidate_method_ids, omitted_method_ids = self._routed_methods(project_id, task)
