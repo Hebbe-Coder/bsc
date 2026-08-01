@@ -1043,3 +1043,66 @@ external service, or writing to a Vault/original file.
   bridge failed before tab connection because its kernel-assets path was
   unavailable. This record intentionally leaves visual confirmation pending
   instead of treating the HTTP response as a visual acceptance claim.
+
+## User-Assisted Zotero Export Probe (2026-08-01)
+
+- The active personal knowledge project is `proj_b8a285642094`; the historical
+  `default` project is not the current plugin target. The installed Zotero
+  Desktop Connector configuration points to the active project's declared
+  route `projects/proj_b8a285642094/01_Sources/zotero`.
+- A user-triggered Zotero import created the real file
+  `projects/proj_b8a285642094/01_Sources/zotero/Li2023.md`, but the file size
+  is `0` bytes. This proves an export attempt, not a usable source capture.
+  No source sync was started, and no file body was read.
+- The empty export is excluded from E1 operational proof. The next operator
+  action is to import a Zotero item that contains a real note (or a genuinely
+  authored literature note), then recheck that the generated file is
+  non-empty before running the governed BSC `Sync` action.
+- A subsequent user-triggered import updated the same file but yielded only
+  `3` bytes. It remains a contentless export attempt and is still excluded
+  from capture. The user must select an actual Zotero child note with
+  substantive authored content, rather than only its parent bibliographic
+  record, before a governed sync can be attempted.
+- Configuration readback clarified that the Zotero `noteImportFolder` is
+  already the correct active-project route, while the UI field labelled
+  `Output Path` controls the per-note filename template. It had been changed
+  to the old `default` directory. The required value for that field is
+  `{{citekey}}.md`; the folder must remain the active-project route. This
+  correction is operator-guided and no plugin configuration was changed by
+  the backend.
+- User correction was verified from bounded configuration metadata: the
+  active-project import folder remains
+  `projects/proj_b8a285642094/01_Sources/zotero`, the output template is
+  restored to `{{citekey}}.md`, and the user-exported `Li2023.md` is now
+  `3715` bytes. This is a valid pre-capture condition, not a captured BSC
+  source or release proof. A governed source sync still needs explicit
+  authorization because it will read the newly exported file body.
+- Subsequent bounded readback showed that the governed sync did run after the
+  user export: source `f4278140ca7f` now represents the Zotero file with
+  `validated` status and `untrusted` trust level. This is real A-layer
+  capture, not trust promotion. The source body was not printed or copied
+  into this record; a source review/admission decision is still required
+  before it can support Wiki claims.
+
+## Authorized Zotero Source Sync (2026-08-01)
+
+- After the user explicitly authorized the current project's governed source
+  sync, the local protected API queued run `ff9bf33ed83d` for
+  `proj_b8a285642094`. The Celery worker completed it at
+  `2026-08-01T03:58:13Z`; no external URL or provider was invoked.
+- Durable run output reported `scanned=5`, `created=3`, `duplicates=2`,
+  `rejected=0`, `deleted=0`, `skipped=0`, and `blocked=0`. Its bounded
+  multimodal extractor summary was `attempted=3`, `complete=3`, and
+  `partial=0`. The evidence mirror completed with `adopted=1`, `created=0`,
+  `updated=0`, `unchanged=39`, `conflicts=0`; output-feedback registration
+  remained truthfully `0`.
+- The trusted Zotero connector now reports `captured` with one captured source.
+  Its source record is `f4278140ca7f`, has plugin provenance
+  `obsidian_plugin:obsidian-zotero-desktop-connector`, and belongs to
+  `proj_b8a285642094`. A project-scoped source read returned 47 records and
+  every returned record had that same project ID. No source body was exposed
+  by the verification reads and no original Obsidian export was modified.
+- This completes real A-layer capture for this export. It does not approve a
+  source, publish Wiki knowledge, create a method or output, or satisfy the
+  remaining E1 evidence gates. Those actions require their own governed
+  review and authorization.
