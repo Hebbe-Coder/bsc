@@ -1188,3 +1188,28 @@ Live Horizon endpoint/API credentials and a real Wiki-maintenance LLM provider r
   and their expected linked primary source IDs. There are still five Wiki pages
   and zero pending proposals, proving that source discovery and semantic review
   did not create an unauthorized publication path.
+
+## 2026-08-01 Copilot Replacement And Wiki Compiler Recovery
+
+- The active Obsidian AI producer is now Copilot. Claudian is not used by the
+  current project route. Copilot's governed destination remains
+  `projects/proj_b8a285642094/04_Outputs/copilot`, and that directory is still
+  empty until the user intentionally saves a reviewed Markdown deliverable.
+- After the operator reported that the provider account had been funded, a
+  real source-scoped `wiki_maintenance` run was retried against source
+  `650666057e01`. Run `2a6f0e58acef` completed successfully instead of the
+  previous `payment_required` failure.
+- The run created draft proposal `e8b312da5579` from one eligible source with
+  four proposed operations. The proposal remains `draft`; its real lint pass
+  returned `valid=true` with zero findings. No Wiki page was published or
+  overwritten. Human review and the existing publish gate remain required.
+- The frontend correction from `ec972c8` was rebuilt into the Docker API
+  image. Only `bsc-backend` was recreated; API, Worker, Beat, PostgreSQL,
+  Redis, and n8n are running, with API/PostgreSQL/Redis/n8n healthy. The
+  production `8002` bundle contains the unreadable-history quarantine, and a
+  protected PBOS read still reports three unverified outcomes, one feedback
+  record, Vault context ready, and personal learning false.
+- This closes the provider payment boundary for this controlled Wiki run, but
+  does not close Copilot D-layer proof. A user-reviewed Copilot Markdown file,
+  capture, evaluation, and feedback are still required before the personal
+  knowledge loop can claim full operational closure.
