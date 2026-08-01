@@ -649,3 +649,28 @@ note bodies, credentials, provider payloads, or personal feedback.
   evidence and quality review before it can influence knowledge, methods, or
   PBOS learning. Reverting this record does not change the immutable run
   ledger or either user-owned Vault directory.
+
+## 2026-08-02 Copilot Configuration And Dispatch Recheck
+
+- **Configuration evidence:** the configured project Vault is reachable and
+  complete. The running BSC container authenticated the installed Obsidian
+  Local REST plugin as `connected/authenticated_manifest_verified` over the
+  local TLS transport. Copilot has a persisted default-model selection,
+  automatic conversation archiving, and Vault index synchronization enabled.
+  No provider key, model configuration value, endpoint, conversation body, or
+  Vault note body was read, copied, or recorded.
+- **Live bridge evidence:** the protected BSC command discovery endpoint
+  reported all five allowlisted Copilot commands as available in the running
+  Obsidian process. An authorized invocation of the evidence-plan command
+  completed with run `2f8bbf93895b` and state `invoked`.
+- **Honest output result:** after a bounded 45-second observation period, the
+  separate Copilot conversation archive still contained its prior two files
+  and the trusted `04_Outputs/copilot` route remained empty. The dispatch is
+  therefore not represented as a completed model response, native Copilot
+  delivery, accepted output, Experience, Capability, or Strategy Genome.
+  The plugin bridge correctly remains `awaiting_output`.
+- **Boundary and rollback:** BSC can open only the fixed visible Copilot
+  commands; it cannot send arbitrary prompts, force a desktop response, or
+  fabricate a Copilot-authored file. This entry is operational evidence only;
+  reverting it does not alter plugin settings, credentials, the immutable run
+  ledger, or user-owned Vault content.
