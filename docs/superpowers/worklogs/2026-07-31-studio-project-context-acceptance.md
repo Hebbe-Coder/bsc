@@ -1083,6 +1083,13 @@ external service, or writing to a Vault/original file.
   capture, not trust promotion. The source body was not printed or copied
   into this record; a source review/admission decision is still required
   before it can support Wiki claims.
+- A live semantic triage was then executed for `f4278140ca7f`. The evaluator
+  returned disposition `ignore` with priority `30`, while the API explicitly
+  returned `explicit_approval_required` and kept the source at `validated`.
+  No automatic admission or Wiki publication occurred. This confirms the
+  source trust gate is operational, including the negative recommendation
+  path; human override is the only remaining route if this source is truly
+  needed for the project.
 
 ## Authorized Zotero Source Sync (2026-08-01)
 
