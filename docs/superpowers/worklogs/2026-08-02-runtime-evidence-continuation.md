@@ -616,3 +616,36 @@ note bodies, credentials, provider payloads, or personal feedback.
   indexing behavior. Existing immutable evidence, extraction artifacts, and
   index documents stay auditable; a follow-up rebuild can recreate the search
   projection deterministically.
+
+## 2026-08-02 Active Obsidian Copilot Delivery Bridge
+
+- **Active integration:** the project bridge declaration and trust ledger
+  contain `copilot` as the only AI delivery route. The installed Claudian
+  plugin is not enabled in the Vault's community-plugin list and is not a
+  declared project bridge. The pre-existing `04_Outputs/claudian` directory
+  was left untouched and is not observed or imported by this route.
+- **Configuration and command discovery:** Copilot's conversation archive is
+  configured at `projects/proj_b8a285642094/copilot/copilot-conversations`;
+  its reviewed-output route remains separately governed at
+  `04_Outputs/copilot`. The Compose API verified the installed Obsidian Local
+  REST service as `connected/authenticated_manifest_verified` and discovered
+  the fixed allowlisted commands: evidence plan, three-minute reflection,
+  governed delivery, knowledge review, and project delivery. No credential,
+  endpoint, Vault note body, or plugin source was recorded.
+- **Real dispatch receipt:** an authorized call opened Copilot's governed
+  delivery command and created run `4200026c9f57`. Durable readback confirms
+  `obsidian_copilot_command` reached `completed` with the exact ledger:
+  `knowledge.run.running -> knowledge.obsidian_copilot_command.invoked ->
+  knowledge.run.completed`. This proves command dispatch only; it does not
+  assert that Copilot produced or that an owner accepted a deliverable.
+- **Verification:** the Copilot/Vault backend suite passed `108 passed, 1
+  skipped`; the extracted-evidence and PRD-to-SOP suite passed `95 passed, 1
+  skipped`; the focused frontend suite passed `62 passed`. `npm run check`,
+  `npm run build`, and `git diff --check` passed. The skips are the existing
+  Windows symlink-permission condition.
+- **Operational rule:** Copilot conversations remain in the separate archive.
+  A finished response must be explicitly imported into a BSC-owned D-layer
+  review draft or written to the trusted reviewed-output route, then pass
+  evidence and quality review before it can influence knowledge, methods, or
+  PBOS learning. Reverting this record does not change the immutable run
+  ledger or either user-owned Vault directory.
