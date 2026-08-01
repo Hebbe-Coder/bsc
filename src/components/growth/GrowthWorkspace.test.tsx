@@ -309,6 +309,32 @@ describe('GrowthWorkspace', () => {
     expect(screen.queryByText('ACCEPTED D')).not.toBeInTheDocument();
   });
 
+  it('does not show an evidence-link blocker when a registered output already has governed lineage', async () => {
+    const output = {
+      id: 'output-grounded', title: 'Grounded delivery', status: 'registered',
+      source_refs: ['source-a'], page_refs: ['page-a'], metadata: { origin: 'bsc_system_generated' },
+    };
+    mockedStage.mockImplementation(async (_projectId, currentStage, limit) => ({
+      project_id: 'default', stage: currentStage,
+      records: currentStage === 'A' ? [source] : currentStage === 'D' ? [output] : [],
+      limit, truncated: false,
+    }));
+    mockedDetail.mockImplementation(async (_projectId, currentStage) => currentStage === 'D'
+      ? {
+          kind: 'output', record: output, evidence: { source_ids: ['source-a'], page_ids: ['page-a'] },
+          evaluations: [], feedback: [], detailAvailability: 'metadata_only',
+        }
+      : { kind: 'source', record: source, detailAvailability: 'metadata_only' });
+    render(<GrowthWorkspace onClose={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole('tab', { name: /Outputs/i }));
+    fireEvent.click(await screen.findByRole('option', { name: /Grounded delivery/i }));
+
+    expect(await screen.findByRole('button', { name: 'Evaluate output' })).toBeEnabled();
+    expect(screen.queryByRole('heading', { name: 'Link registered evidence' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/No eligible A-layer sources are available/i)).not.toBeInTheDocument();
+  });
+
   it('persists a revisioned project profile and reloads the governed workspace state', async () => {
     render(<GrowthWorkspace onClose={vi.fn()} />);
 

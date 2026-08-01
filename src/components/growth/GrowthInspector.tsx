@@ -147,7 +147,10 @@ export function GrowthInspector(props: Props) {
   const hasEvidenceReferences = detail?.kind === 'output' && ((detail.evidence?.source_ids.length ?? ids(detail.record.source_refs).length) > 0 || (detail.evidence?.page_ids.length ?? ids(detail.record.page_refs).length) > 0);
   const evidenceRequired = detail?.kind === 'output' && requiresEvidence(detail);
   const hasEvaluation = Boolean(detail?.kind === 'output' && detail.evaluations?.some((evaluation) => evaluation.status === 'completed'));
-  const canAttachEvidence = detail?.kind === 'output' && outputStatus === 'registered';
+  const canAttachEvidence = detail?.kind === 'output'
+    && outputStatus === 'registered'
+    && evidenceRequired
+    && !hasEvidenceReferences;
   const canEvaluate = detail?.kind === 'output' && outputStatus === 'registered' && !hasEvaluation && (!evidenceRequired || hasEvidenceReferences);
   const sourceStatus = detail?.kind === 'source' ? String(detail.record.status || '') : '';
   const sourceMetadata = detail?.kind === 'source' && detail.record.metadata && typeof detail.record.metadata === 'object'
