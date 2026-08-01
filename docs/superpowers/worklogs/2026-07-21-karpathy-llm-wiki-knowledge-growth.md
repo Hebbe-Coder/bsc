@@ -1220,3 +1220,7 @@ Live Horizon endpoint/API credentials and a real Wiki-maintenance LLM provider r
   and two pending proposals. These are persisted ledger facts, not a claim
   that the pending proposals have been accepted or that Copilot has produced
   an output.
+- The two current draft proposals (`e8b312da5579` and `5976c104eb36`) were
+  each passed through the actual proposal lint endpoint. Both returned
+  `valid=true` with zero findings. They remain draft review items: lint is a
+  quality gate, not authorization to publish on behalf of the project owner.
