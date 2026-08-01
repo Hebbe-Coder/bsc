@@ -19,6 +19,23 @@ class FakeCompilerProvider:
         return self.response
 
 
+class EvidenceRepairingCompilerProvider(FakeCompilerProvider):
+    def __init__(self, response, repaired_response):
+        super().__init__(response)
+        self.repaired_response = repaired_response
+        self.repairs = []
+
+    def repair_wiki(self, prompt, *, project_id, validation_error):
+        self.repairs.append(
+            {
+                "prompt": prompt,
+                "project_id": project_id,
+                "validation_error": validation_error,
+            }
+        )
+        return self.repaired_response
+
+
 def _eligible_source(repo):
     return SourceCaptureService(repo).capture(
         CapturedSourceInput(
@@ -227,6 +244,47 @@ def test_compiler_prompt_names_only_selected_evidence_as_citable(tmp_path):
 
         assert f"only allowed immutable source IDs for inline citations and source_ids are: {source['id']}" in provider.prompts[0]
         assert "Existing Wiki page citations are navigation context" in provider.prompts[0]
+    finally:
+        repo.close()
+
+
+def test_compiler_repairs_placeholder_source_ids_without_inferring_evidence(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "compiler-evidence-repair.db"))
+    source = _eligible_source(repo)
+    invalid = {
+        "operations": [
+            {
+                "operation": "create",
+                "path": "wiki/concepts/approval.md",
+                "content": "Approval is required. [source:<id>]",
+                "source_ids": ["<id>"],
+            }
+        ]
+    }
+    repaired = {
+        "operations": [
+            {
+                "operation": "create",
+                "path": "wiki/concepts/approval.md",
+                "content": f"Approval is required. [source:{source['id']}]",
+                "source_ids": [source["id"]],
+            }
+        ]
+    }
+    provider = EvidenceRepairingCompilerProvider(invalid, repaired)
+    try:
+        result = WikiCompiler(repo, provider).compile_maintenance(
+            project_id="project-a",
+            source_ids=[source["id"]],
+            trigger="manual",
+            rules_text=build_default_agents_rules("project-a"),
+        )
+
+        assert result.proposal["operations"][0]["source_ids"] == [source["id"]]
+        assert len(provider.repairs) == 1
+        assert provider.repairs[0]["project_id"] == "project-a"
+        assert "unknown source IDs: <id>" in provider.repairs[0]["validation_error"]
+        assert source["id"] in provider.repairs[0]["prompt"]
     finally:
         repo.close()
 

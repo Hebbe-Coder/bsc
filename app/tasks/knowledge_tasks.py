@@ -28,6 +28,7 @@ from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.obsidian_metadata import ObsidianMetadataService
 from app.knowledge.obsidian_output_sync import ObsidianOutputSyncService
 from app.knowledge.obsidian_source_projection import ObsidianSourceProjection
+from app.knowledge.extraction_reference_projection import ExtractionReferenceProjector
 from app.knowledge.multimodal_extraction import CURRENT_EXTRACTOR_REVISION, LocalMultimodalExtractor
 from app.knowledge.source_triage import source_admission_reason
 from app.knowledge.wiki_sync import ObsidianSyncService
@@ -422,6 +423,7 @@ def execute_knowledge_run(
             )
             report = ObsidianSyncService(repo, Path(settings.OBSIDIAN_VAULT_ROOT)).sync(project_id=project_id)
             report["multimodal_extraction"] = _extract_new_vault_assets(repo, project_id)
+            report["multimodal_references"] = ExtractionReferenceProjector(repo).backfill_project(project_id)
             report["evidence_mirror"] = _sync_evidence_mirror(repo, project_id)
             managed_vault = FilesystemWikiVault(Path(settings.OBSIDIAN_VAULT_ROOT), project_id, mapping["vault_path"])
             if managed_vault.project_root.is_dir():

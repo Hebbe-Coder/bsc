@@ -70,6 +70,73 @@ note bodies, credentials, provider payloads, or personal feedback.
   `1280`-pixel viewport without horizontal overflow and showed no application
   console error.
 
+## 2026-08-02 Extraction Reference Backfill
+
+- **Defect corrected:** local extraction persisted a `MediaAsset`,
+  `ExtractionArtifact`, and, where applicable, `TableArtifact`, but did not
+  create the explicit `ReferenceLink` required for an Evidence Atlas review
+  chain. The Atlas could infer a structural graph edge, but a reviewer could
+  not inspect an independently durable source-to-derivative reference.
+- **Implementation:** `ExtractionReferenceProjector` now creates the typed
+  `has_extraction` and `has_table` artifact anchors at extraction time and
+  backfills pre-existing derivatives during every governed `source_sync`.
+  It reads repository metadata only: it has no Vault path, source-body or
+  derivative-content accessor, network client, or source lifecycle mutation.
+- **Regression evidence:** focused multimodal, Celery source-sync, and
+  Evidence API coverage passed with `18 passed, 1 warning`. The tests prove
+  immediate links, historical backfill idempotence, redaction, project scope,
+  and that the backfill fails if it attempts to read derivative content. The
+  warning is the pre-existing Starlette TestClient deprecation.
+- **Live deployment:** API, Worker, and Beat were rebuilt from the current
+  workspace and became healthy. Protected `source_sync` run `cb79942850b9`
+  completed with `attempted=0`, `skipped_existing=21`, and created `21`
+  missing multimodal reference rows without changing an original file.
+- **Live readback:** the protected Evidence Atlas now reports `15` active
+  source-to-asset-to-extraction-to-explicit-reference triples, `15`
+  `has_extraction` graph edges, and no source or derivative body field in the
+  response. The remaining six backfilled references belong to inactive
+  historical sources and remain auditable but hidden from the active Atlas.
+- **Release boundary:** all current active triples are `utf8-text`
+  derivatives. This demonstrates the repaired runtime contract but does not
+  satisfy O4's required real PDF, image, spreadsheet, Canvas, audio, or video
+  proof. No text note or generated file was reclassified as a multimodal
+  artifact.
+- **Gate regression:** `./.venv/Scripts/python.exe -m pytest
+  tests/knowledge/test_ecosystem_release_gate.py
+  tests/api/test_knowledge_workspace_api.py -q` returned `42 passed, 1
+  warning`. The live release ledger still has exactly six verified-real rows;
+  it does not contain O4, O6, or mobile browser evidence. The warning is the
+  pre-existing Starlette TestClient deprecation.
+- **Mobile verification boundary:** the governed browser connection failed
+  before navigation because its local runtime assets are unavailable. No
+  screenshot, desktop observation, or simulated viewport was substituted for
+  the required `390x844` inspection.
+
+## 2026-08-02 Horizon Scheduled Producer And Governed Consumer
+
+- **Registration:** the prior task audit found no current Windows Scheduled
+  Task registration. Registered `BSC-Horizon-Daily-Radar` for the current
+  interactive user at 07:30 daily. Its action uses the dedicated Horizon
+  virtual environment, a 48-hour overlap window, `--no-enrich`, 300-second
+  stage bounds, a 480-second producer bound, two recovery retries, and
+  overlap prevention. No SYSTEM principal or extra provider credential was
+  used.
+- **Real producer run:** an immediate Task Scheduler invocation reached
+  `Ready` with result `0`. The native run `run-20260801T163310Z-7d54891d`
+  completed with `fetched=31`, `scored=31`, `kept=7`,
+  `ready_stage=filtered`, and zero degradation records. This proves the
+  scheduled execution context, not merely a shell invocation.
+- **BSC consumer run:** the protected Horizon capture created Celery run
+  `cb1818d6eaff` for that exact native run. It completed with
+  `items_observed=7`, `created=4`, `duplicates=3`, and `rejected=0`.
+  Workspace readback reports this run as the latest native run-store import
+  and `32` captured Horizon evidence records. Discovery records remain
+  governed evidence candidates; no automatic Wiki publication or quality
+  claim occurred.
+- **Evidence safety:** no raw feed item, source URL, provider payload, prompt,
+  or credential was copied into this record. The scheduled producer uses
+  source signals for discovery only; model enrichment remains disabled.
+
 ## Handoff
 
 1. Add one project-owned multimodal source through a declared import route,

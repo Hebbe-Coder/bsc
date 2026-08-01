@@ -140,6 +140,27 @@ class SOPWikiCompilerProvider:
                     f"{repair_error}"
                 ) from first_error
 
+    def repair_wiki(self, prompt: str, *, project_id: str, validation_error: str) -> dict[str, Any]:
+        """Repair a schema-valid proposal that failed immutable-evidence validation."""
+        safe_error = " ".join(str(validation_error).split())[:512]
+        try:
+            repaired = self._compile(
+                project_id=project_id,
+                revision="wiki-proposal-v1-evidence-repair",
+                system_prompt=(
+                    _WIKI_PROPOSAL_SCHEMA
+                    + "\nThe prior proposal passed JSON schema validation but failed immutable-evidence validation: "
+                    + safe_error
+                    + ". Return corrected JSON only. Use each source ID literally as supplied in the user prompt; "
+                    "never use placeholders such as <id>, source-id, or invented identifiers."
+                ),
+                user_prompt=prompt,
+                temperature=0.0,
+            )
+        except (SOPLLMError, PromptOpsError) as exc:
+            raise WikiLLMProviderError(str(getattr(exc, "category", "request_failed"))) from exc
+        return self._validate_wire_response(repaired)
+
     def _compile(
         self,
         *,

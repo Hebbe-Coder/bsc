@@ -1900,6 +1900,38 @@
   managed Vault sync also preserves one existing user-edited index conflict;
   BSC does not overwrite it.
 
+## 2026-08-02 Horizon Scheduled Producer And Consumer Proof
+
+- **Producer baseline:** the bounded native producer was run directly with
+  `--no-enrich`. Run `run-20260801T160955Z-21bd8705` fetched 33, scored 33,
+  and retained 6 in 249 seconds. `--no-enrich` is the daily radar policy, not
+  a degraded result: BSC imports the verifiable source signal and never treats
+  generated enrichment prose as primary evidence.
+- **Windows automation:** registered `BSC-Horizon-Daily-Radar` for 07:30
+  daily, using Horizon's own virtual environment, an eight-minute producer
+  cap, ten-minute Task Scheduler execution cap, two recovery retries,
+  start-when-available behavior, and overlap prevention. Windows denied a
+  SYSTEM principal from this non-elevated session, so the task is explicitly
+  registered for the current user (`34216`) with interactive logon. It is a
+  real operational limitation, not an unrecorded privileged installation.
+- **Task Scheduler proof:** triggered the registered task through Windows
+  Task Scheduler. It ended with `LastTaskResult=0` and produced
+  `run-20260801T161716Z-0f35924b` (`fetched=33`, `scored=33`, `kept=7`,
+  `ready_stage=filtered`, no degradation). This validates the scheduled
+  execution context rather than only the host shell command.
+- **Consumer automation:** BSC now persists enabled `horizon_capture` intent
+  at 08:10 daily in `Asia/Shanghai`, after the producer's normal bounded
+  window. The immediate production capture `dbcb224ffedd` consumed the task
+  artifact through the read-only run-store: `items_observed=7`, `accepted=7`,
+  `created=6`, `duplicates=1`, `rejected=0`. This demonstrates that a new
+  Horizon run does not bypass evidence governance and that duplicate material
+  is identified rather than silently multiplied.
+- **Observed source degradation:** GitHub, Hacker News, and RSS completed;
+  Reddit and Google News had connection failures and OSS Insight was empty.
+  Those outcomes remain per-source diagnostics and do not fabricate source
+  evidence. GitHub remains unauthenticated and can encounter public rate
+  limits.
+
 ## 2026-08-02 Explicit Copilot Transcript Review Import
 
 - **Implemented transition:** added and deployed the explicit

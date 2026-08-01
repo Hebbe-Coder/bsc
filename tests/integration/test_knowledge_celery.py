@@ -90,6 +90,7 @@ def test_source_sync_extracts_new_vault_assets_once_and_records_auditable_summar
         assert extraction["asset_id"] == asset["id"]
         assert extraction["status"] == "complete"
         assert repository.list_table_artifacts("project-a", extraction_id=extraction["id"])[0]["row_count"] == 2
+        assert first["sync"]["multimodal_references"] == {"created": 0, "existing": 2, "skipped": 0}
 
         repeat_run = KnowledgeRun(project_id="project-a", run_type="source_sync", trigger="manual")
         repository.create_run(repeat_run)
@@ -97,6 +98,7 @@ def test_source_sync_extracts_new_vault_assets_once_and_records_auditable_summar
         assert repeated["status"] == "completed"
         assert repeated["sync"]["multimodal_extraction"]["attempted"] == 0
         assert repeated["sync"]["multimodal_extraction"]["skipped_existing"] == 1
+        assert repeated["sync"]["multimodal_references"] == {"created": 0, "existing": 2, "skipped": 0}
         assert len(repository.list_extraction_artifacts("project-a", source_id=captured[0]["id"])) == 1
         events = repository.list_run_events(project_id="project-a", run_id=first_run.id)
         assert any(event["event_type"] == "knowledge.source.sync.completed" for event in events)

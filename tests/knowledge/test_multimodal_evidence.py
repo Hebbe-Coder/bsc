@@ -6,6 +6,7 @@ import pytest
 
 from app.knowledge import multimodal_extraction
 from app.knowledge.evidence_read import EvidenceReadService
+from app.knowledge.extraction_reference_projection import ExtractionReferenceProjector
 from app.knowledge.multimodal_extraction import CURRENT_EXTRACTOR_REVISION, LocalMultimodalExtractor
 from app.knowledge.wiki_contracts import (
     ExtractionArtifact,
@@ -81,6 +82,70 @@ def test_media_and_extraction_records_are_project_scoped_idempotent_and_redacted
                     relation="supports",
                 )
             )
+    finally:
+        repo.close()
+
+
+def test_extraction_reference_backfill_links_historical_derivatives_without_reading_content(tmp_path, monkeypatch):
+    repo = WikiRepository(db_path=str(tmp_path / "historical-extraction-reference.db"))
+    source = repo.create_source(_source("project-a", "source-historical"))
+    asset = repo.register_media_asset(
+        MediaAsset(
+            id="asset-historical",
+            project_id="project-a",
+            source_id=source["id"],
+            mime_type="text/csv",
+            byte_hash="a" * 64,
+            byte_size=12,
+            storage_ref="projects/project-a/01_Sources/historical.csv",
+        )
+    )
+    extraction = repo.create_extraction_artifact(
+        ExtractionArtifact(
+            id="extraction-historical",
+            project_id="project-a",
+            source_id=source["id"],
+            asset_id=asset["id"],
+            extractor="csv-table",
+            extractor_revision="local-v1",
+            input_hash="a" * 64,
+            content_hash="b" * 64,
+            content="PRIVATE DERIVATIVE BODY MUST NOT BE READ",
+            status=ExtractionStatus.COMPLETE,
+        )
+    )
+    table = repo.create_table_artifact(
+        TableArtifact(
+            id="table-historical",
+            project_id="project-a",
+            source_id=source["id"],
+            extraction_id=extraction["id"],
+            schema=["month", "revenue_usd"],
+            row_count=2,
+            content_hash="b" * 64,
+        )
+    )
+    monkeypatch.setattr(
+        repo,
+        "get_extraction_content",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("backfill must not read derivative content")),
+    )
+    try:
+        projector = ExtractionReferenceProjector(repo)
+        first = projector.backfill_project("project-a")
+        repeated = projector.backfill_project("project-a")
+        references = repo.list_reference_links("project-a", source_id=source["id"])
+
+        assert first == {"created": 2, "existing": 0, "skipped": 0}
+        assert repeated == {"created": 0, "existing": 2, "skipped": 0}
+        assert {
+            (item["target_type"], item["target_id"], item["relation"])
+            for item in references
+        } == {
+            ("extraction", extraction["id"], "has_extraction"),
+            ("table", table["id"], "has_table"),
+        }
+        assert "PRIVATE DERIVATIVE BODY" not in str(references)
     finally:
         repo.close()
 
@@ -218,6 +283,33 @@ def test_local_csv_extraction_is_versioned_and_creates_a_reviewable_table(tmp_pa
         assert tables[0]["row_count"] == 2
         assert tables[0]["schema"] == ["month", "revenue_usd"]
         assert "content" not in repo.get_extraction_artifact("project-a", first["id"])
+
+        first_table = tables[0]
+        automatic_references = {
+            (
+                item["target_type"],
+                item["target_id"],
+                item["anchor_type"],
+                item["anchor"],
+                item["relation"],
+            )
+            for item in repo.list_reference_links("project-a", source_id=source["id"])
+        }
+        assert {
+            ("extraction", first["id"], "artifact", "", "has_extraction"),
+            ("table", first_table["id"], "artifact", "", "has_table"),
+            ("extraction", revision["id"], "artifact", "", "has_extraction"),
+        } <= automatic_references
+
+        atlas = EvidenceReadService(repo).overview("project-a", limit=50)
+        assert any(
+            edge["source"] == source["id"] and edge["target"] == first["id"] and edge["relation"] == "has_extraction"
+            for edge in atlas["graph"]["edges"]
+        )
+        assert any(
+            edge["source"] == source["id"] and edge["target"] == first_table["id"] and edge["relation"] == "has_table"
+            for edge in atlas["graph"]["edges"]
+        )
     finally:
         repo.close()
 

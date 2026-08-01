@@ -145,3 +145,34 @@ def test_provider_uses_promptops_with_project_scope_and_versioned_revision():
     assert request.provider == "deepseek"
     assert request.timeout_seconds == 90.0
     assert request.max_attempts == 1
+
+
+def test_provider_repairs_evidence_validation_with_a_scoped_versioned_request():
+    valid = {
+        "rationale": "Use the supplied source in a governed review proposal.",
+        "operations": [
+            {
+                "operation": "create",
+                "path": "wiki/decisions/evidence-boundary.md",
+                "content": "---\\ntitle: Evidence boundary\\nkind: decision\\n---\\n\\nUse the exact source ID. [source:source-a]",
+                "source_ids": ["source-a"],
+            }
+        ],
+    }
+    promptops = RecordingPromptOps(valid)
+
+    result = SOPWikiCompilerProvider(provider="deepseek", promptops=promptops).repair_wiki(
+        "[source:source-a] Governed evidence is required.",
+        project_id="project-a",
+        validation_error="unknown source IDs: <id>",
+    )
+
+    assert result == valid
+    assert len(promptops.requests) == 1
+    request = promptops.requests[0]
+    assert request.project_id == "project-a"
+    assert request.revision == "wiki-proposal-v1-evidence-repair"
+    assert request.temperature == 0.0
+    assert "unknown source IDs: <id>" in request.system_prompt
+    assert "never use placeholders" in request.system_prompt
+    assert "source-a" in request.user_prompt

@@ -21,6 +21,10 @@ class WikiCompilerProvider(Protocol):
     def compile_wiki(self, prompt: str) -> dict[str, Any]: ...
 
 
+class WikiCompilerEvidenceRepairProvider(Protocol):
+    def repair_wiki(self, prompt: str, *, project_id: str, validation_error: str) -> dict[str, Any]: ...
+
+
 class WikiCompilationError(ValueError):
     """Raised when a provider output cannot become a safe, reviewable proposal."""
 
@@ -131,8 +135,14 @@ class WikiCompiler:
                 response = self.provider.compile_wiki(prompt, project_id=project_id)
             else:
                 response = self.provider.compile_wiki(prompt)
-            proposal = self._validate_response(
-                project_id, sources, response, context_pack, self._snapshot_revision(page_snapshots or []), contradictions
+            proposal = self._validate_with_evidence_repair(
+                project_id=project_id,
+                sources=sources,
+                response=response,
+                prompt=prompt,
+                context_pack=context_pack,
+                base_revision=self._snapshot_revision(page_snapshots or []),
+                contradictions=contradictions,
             )
             persisted_proposal = self.repository.create_proposal(proposal, actor_id=actor_id)
             completed_run = self.repository.update_run_status(
@@ -151,6 +161,51 @@ class WikiCompiler:
             if isinstance(exc, WikiCompilationError):
                 raise
             raise WikiCompilationError(str(exc)) from exc
+
+    def _validate_with_evidence_repair(
+        self,
+        *,
+        project_id: str,
+        sources: list[dict[str, Any]],
+        response: Any,
+        prompt: str,
+        context_pack: ContextPack,
+        base_revision: str,
+        contradictions: list[dict[str, str]],
+    ) -> WikiProposal:
+        try:
+            return self._validate_response(
+                project_id,
+                sources,
+                response,
+                context_pack,
+                base_revision,
+                contradictions,
+            )
+        except WikiCompilationError as initial_error:
+            repair = getattr(self.provider, "repair_wiki", None)
+            if not callable(repair):
+                raise
+            validation_error = str(initial_error)[:512]
+            try:
+                repaired = repair(
+                    prompt,
+                    project_id=project_id,
+                    validation_error=validation_error,
+                )
+                return self._validate_response(
+                    project_id,
+                    sources,
+                    repaired,
+                    context_pack,
+                    base_revision,
+                    contradictions,
+                )
+            except WikiCompilationError as repair_error:
+                raise WikiCompilationError(
+                    "Wiki LLM returned an invalid proposal after evidence repair: "
+                    f"{str(repair_error)[:512]}"
+                ) from initial_error
 
     def _select_sources(self, project_id: str, source_ids: list[str] | None, *, query: str = "") -> list[dict[str, Any]]:
         eligible = [

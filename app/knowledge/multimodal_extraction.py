@@ -13,6 +13,7 @@ import shutil
 import subprocess
 from typing import Any
 
+from app.knowledge.extraction_reference_projection import ExtractionReferenceProjector
 from app.knowledge.wiki_contracts import ExtractionArtifact, ExtractionStatus, TableArtifact
 from app.knowledge.wiki_repository import WikiRepository
 
@@ -128,6 +129,7 @@ class LocalMultimodalExtractor:
         self.vault_root = Path(vault_root).resolve()
         if not self.vault_root.is_dir():
             raise ValueError("Obsidian Vault root does not exist")
+        self.reference_projector = ExtractionReferenceProjector(repository)
 
     @staticmethod
     def capabilities() -> dict[str, dict[str, str]]:
@@ -723,13 +725,15 @@ class LocalMultimodalExtractor:
 
     def _record(self, **values: Any) -> dict[str, Any]:
         content = str(values.pop("content", ""))
-        return self.repository.create_extraction_artifact(
+        artifact = self.repository.create_extraction_artifact(
             ExtractionArtifact(
                 **values,
                 content=content,
                 content_hash=sha256(content.encode("utf-8")).hexdigest() if content else "",
             )
         )
+        self.reference_projector.project_extraction_id(str(artifact["project_id"]), str(artifact["id"]))
+        return artifact
 
     def _record_table(
         self,
@@ -744,7 +748,7 @@ class LocalMultimodalExtractor:
         content_hash = str(content.get("content_hash") or "") if content else ""
         if not content_hash:
             return
-        self.repository.create_table_artifact(
+        table = self.repository.create_table_artifact(
             TableArtifact(
                 project_id=project_id,
                 source_id=source_id,
@@ -756,6 +760,7 @@ class LocalMultimodalExtractor:
                 metadata={"extractor": artifact["extractor"], "extractor_revision": extractor_revision},
             )
         )
+        self.reference_projector.project_table_id(project_id, str(table["id"]))
 
     def _ocr(self, payload: bytes) -> str:
         binary = self._binary("tesseract")
