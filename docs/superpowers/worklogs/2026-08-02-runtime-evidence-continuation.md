@@ -578,6 +578,9 @@ note bodies, credentials, provider payloads, or personal feedback.
   `git diff --check` passed. Final runtime readback repeated the admitted PDF
   source/extraction proof and confirmed raw plugin/Copilot consumption stayed
   `false`.
+- **Commit:** implementation, tests, Studio wiring, consolidation evidence,
+  and this runtime record were committed as
+  `1080f7c feat(knowledge): ground PBOS plans in extracted evidence`.
 
 ## 2026-08-02 Extracted Evidence Retrieval Projection
 
