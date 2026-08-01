@@ -508,3 +508,13 @@
   screenshot or visual browser pass is claimed. The remaining visual check
   is to open PBOS in Studio and confirm the live warning in the browser after
   the browser bridge is available.
+
+## 2026-08-01 Copilot Operator Entry Points
+
+- Enabled the Obsidian Copilot context-menu entries for both governed prompts:
+  `BSC 知识审查与沉淀` and `BSC Project Delivery`. Slash-command entries remain
+  enabled. This changes only the user-facing command discoverability; no
+  provider credential, conversation, or note body was read or changed.
+- Both prompts still require an explicit user review and durable save under
+  `projects/proj_b8a285642094/04_Outputs/copilot/` before BSC can register an
+  output. The bridge remains truthfully `awaiting_output` until then.
