@@ -211,7 +211,56 @@ note bodies, credentials, provider payloads, or personal feedback.
 1. Add one project-owned multimodal source through a declared import route,
    then run its approved extraction and record its source, extraction, and
    reference IDs for O4 review.
-2. Perform a real mobile Studio inspection at `390x844`, then submit and
-   tenant-admin review the corresponding browser evidence.
+2. Mobile Studio inspection is complete and release evidence revision `2` is
+   verified; retain the browser receipt for later release review.
 3. Review a real governed output, submit typed feedback, execute the affected
    follow-up action, and record the before/after IDs for O6 review.
+
+## 2026-08-02 Reauthorized Zotero Review and Growth Cycle
+
+- **Authorization and scope:** the project owner authorized a governed review
+  and one Growth cycle for source `f4278140ca7f` in
+  `proj_b8a285642094`. The source was confirmed project-scoped with a mapped
+  Vault before execution. The operation did not modify its immutable Zotero
+  export, source lifecycle, or trust level.
+- **Review result:** the review-only semantic triage returned its durable
+  `semantic-source-triage-v3` decision `d34911d25290828395e1a792`:
+  `disposition=ignore`, `reliability_pass=false`. The source remains
+  `validated/untrusted`, has no admission approval, and cannot be used by a
+  Wiki proposal, method, citation, or factual generation context.
+- **Growth execution:** real Celery task
+  `79514c8a-b488-4b49-8d83-e125e5395f8e` completed daily Growth run
+  `b235d63009d7` without an error. Its durable event chain is queued,
+  execution assigned, dispatched, started, Obsidian sync completed, model
+  completed, distillation completed, and terminal completion. The generated
+  daily artifact is
+  `distillations/每周蒸馏/2026-W31/每日增量/2026-08-02.md`.
+- **Boundary readback:** the immutable manifest has `200` audit inputs. The
+  authorized source is represented only by its source input and the two
+  triage records; it is present in `daily_excluded_source_ids` and absent from
+  `source_ids`, `citation_source_ids`, and `daily_source_scope_ids`. This is
+  an executed, auditable exclusion, not an admission or a claim that the
+  source informed the generated content.
+
+## 2026-08-02 Copilot Output Route Repair
+
+- **Observed configuration:** the enabled Copilot plugin had a selected,
+  enabled `deepseek-v4-flash|deepseek` default model, `autosaveChat=true`,
+  project-scoped custom prompts, and an operating-system Keychain policy. No
+  secret was read or copied. Obsidian Local REST remains connected using its
+  separate runtime credential.
+- **Repair:** changed only Copilot's `defaultSaveFolder` from the obsolete
+  `projects/proj_b8a285642094/copilot/copilot-conversations` archive route to
+  `projects/proj_b8a285642094/04_Outputs/copilot`, the BSC-governed native
+  output route. The directory existed before the change. Copilot's exclusion
+  policy was intentionally retained to avoid recursive self-indexing.
+- **Verification:** the persisted setting, auto-save setting, chosen model,
+  prompt directory, and output directory were reread after the change. The
+  Obsidian process was already running, so it was not force-restarted: the
+  setting takes effect on the next plugin/app reload after the user has saved
+  active notes.
+- **Honest status:** this completes configuration alignment, not the native
+  plugin-export proof. `04_Outputs/copilot` remains empty until Copilot itself
+  saves a reviewed conversation there; only then may BSC register the file as
+  a D-layer candidate. Rollback is restoring the single `defaultSaveFolder`
+  setting to its prior archive path.

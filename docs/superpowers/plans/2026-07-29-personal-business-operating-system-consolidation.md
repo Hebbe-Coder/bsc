@@ -1508,3 +1508,71 @@ runtime facts, not completion labels.
 - Rollback is the importer commit plus an API rebuild. Preserve the imported
   package and source archive as auditable history; do not delete or reclassify
   either merely to reset the queue.
+
+## 2026-08-02 PBOS Release Audit Update
+
+### Documentation And Contract Alignment
+
+- Replaced the former one-paragraph PBOS PRD/index/plan summaries with
+  executable plan contracts. The PRD now defines the daily loop, L1/L2/L3
+  authority model, typed Artifact Graph, Strategy Genome rules, APIs/MCP,
+  Cockpit, security boundary, and acceptance criteria. Every sub-plan now
+  records dependency, file ownership, prohibited changes, test-first tasks,
+  exact commands, rollback, and handoff output.
+- The API contract was checked against the live service: PBOS is available at
+  `/api/pbos/projects/{project_id}/...`. The previous direct probe omitted
+  the required `projects` segment and was a query error, not a missing route.
+
+### Full Verification
+
+- `pytest tests/pbos tests/api/test_pbos_api.py
+  tests/mcp/test_pbos_http_contract.py tests/integration/test_pbos_e2e.py -q`
+  passed: `92 passed, 1 warning`.
+- `pytest tests/test_artifact_store_durability.py
+  tests/test_agent_runtime_convergence.py tests/knowledge/test_wiki_sync.py
+  tests/knowledge/test_growth_distillation.py -q` passed: `113 passed,
+  1 skipped, 1 warning`.
+- The complete frontend suite passed: `24` files and `222` tests. Type check,
+  production build, and `docker compose config --quiet` passed. The production
+  build only reported Vite's non-blocking large-chunk advisory.
+
+### Browser And Runtime Evidence
+
+- The selected live PBOS project rendered at a `390x844` browser viewport with
+  `384` client/scroll width, no horizontal overflow, and no console errors.
+  The viewport was restored after the test.
+- The evidence was submitted and admin-reviewed through the existing release
+  ledger: `browser_desktop_mobile`, revision `2`, `verified`, `real`, durable
+  ID `browser:studio-pbos-mobile-20260802`, detail
+  `pbos_mobile_390_no_horizontal_overflow`.
+- The release gate is deliberately **not** marked ready. Its only remaining
+  missing evidence is `o4_extraction_reference` (a real project-owned
+  multimodal asset through extraction/reference) and `o6_feedback_cycle` (a
+  real reviewed delivery outcome and user feedback that changes a later
+  action). GitHub and Feishu remain `awaiting_authorization`; the native
+  Copilot output route remains separate from the registered transcript draft.
+
+### Rollback And Next Iteration
+
+- Roll back documentation independently of runtime behavior. The mobile
+  evidence ledger is auditable and may be superseded by a later observation;
+  it should not be silently removed.
+- Next work, in order: import one real user-selected multimedia source;
+  complete a genuinely owner/mixed-attributed delivery and review it; then
+  repeat comparable deliveries until Strategy Genome promotion evidence exists.
+
+### Copilot Configuration Repair
+
+- Copilot configuration was inspected without reading credentials. It has an
+  enabled DeepSeek default model, auto-save enabled, project-scoped prompts,
+  and OS Keychain-only credential storage. Obsidian Local REST remains a
+  separate, authenticated BSC integration.
+- The persisted Copilot save path was corrected from the legacy conversation
+  archive to `projects/proj_b8a285642094/04_Outputs/copilot`, which is the
+  native BSC output-capture route. The route was verified to exist. The
+  plugin's self-index exclusion was kept unchanged.
+- This is a configuration completion only. Because the desktop plugin was
+  already running, it will load the corrected setting on its next safe reload.
+  No synthetic conversation was created and the empty native directory is not
+  labeled as a completed export. A real saved, reviewed Copilot conversation
+  remains required before its D-layer registration can be marked complete.
