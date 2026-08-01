@@ -15,6 +15,7 @@ from app.knowledge.context_pack import WikiContextProvider
 from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
 from app.knowledge.wiki_repository import WikiRepository
+from app.pbos.text_integrity import is_unreadable_legacy_text
 
 
 class PBOSVaultContextBuilder:
@@ -165,6 +166,7 @@ class PBOSGovernedContextProvider:
     MAX_WORKING_DOCUMENTS = 4
     MAX_VERIFIED_OUTPUTS = 2
     MIN_GOVERNED_DOCUMENTS = 2
+    MAX_PROCESSED_GROWTH_FEEDBACK = 3
 
     def __init__(
         self,
@@ -199,6 +201,7 @@ class PBOSGovernedContextProvider:
             governed = self._published_documents(repository, pack)
             operational_state = self._operational_state(repository)
             verified_outputs = self._verified_output_documents(repository)
+            growth_feedback = self._processed_growth_feedback(repository)
         finally:
             if owns_repository:
                 repository.close()
@@ -233,7 +236,49 @@ class PBOSGovernedContextProvider:
                 "source_ids": list(pack.source_ids) if pack is not None else [],
                 "retrieval_refs": list(pack.retrieval_refs) if pack is not None else [],
             },
+            "growth_feedback": growth_feedback,
             "operational_state": operational_state,
+        }
+
+    def _processed_growth_feedback(self, repository: WikiRepository) -> dict[str, Any]:
+        """Expose only directional output feedback after its governed route ran.
+
+        A registered plugin output remains excluded from planning context. Its
+        explicit feedback can guide a later PBOS plan only after the Growth
+        feedback router has durably processed it. This preserves the distinction
+        between an unreviewed model response, a user's direction, and verified
+        personal learning evidence.
+        """
+        growth = GrowthRepository.borrow(repository)
+        items: list[dict[str, str]] = []
+        for feedback in growth.list_feedback(self.project_id, limit=100):
+            if str(feedback.get("status") or "") != "processed":
+                continue
+            feedback_id = str(feedback.get("id") or "").strip()
+            output_id = str(feedback.get("output_id") or "").strip()
+            statement = str(feedback.get("correction") or feedback.get("comment") or "").strip()
+            feedback_type = str(feedback.get("feedback_type") or "").strip()
+            if (
+                not feedback_id
+                or not output_id
+                or not statement
+                or not feedback_type
+                or is_unreadable_legacy_text(statement)
+            ):
+                continue
+            items.append(
+                {
+                    "ref": f"growth-feedback:{feedback_id}",
+                    "output_ref": f"output:{output_id}",
+                    "source": f"growth_output_feedback:{feedback_type[:64]}",
+                    "statement": statement[:1_200],
+                }
+            )
+            if len(items) >= self.MAX_PROCESSED_GROWTH_FEEDBACK:
+                break
+        return {
+            "state": "processed_direction_available" if items else "none",
+            "items": items,
         }
 
     @classmethod

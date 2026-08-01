@@ -1,10 +1,11 @@
 import hashlib
 import json
 
-from app.artifacts import ArtifactGraphStore, ArtifactStatus, DiagnosisArtifact, MissionArtifact, SOPVersionArtifact
+from app.artifacts import ArtifactGraphStore, ArtifactStatus, ArtifactType, DiagnosisArtifact, MissionArtifact, SOPVersionArtifact
 from app.core.config import settings
 from app.knowledge.context_pack import WikiContextProvider
-from app.knowledge.growth_contracts import OutputAsset
+from app.knowledge.feedback_router import FeedbackRouter
+from app.knowledge.growth_contracts import FeedbackType, OutputAsset, OutputFeedback
 from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
 from app.knowledge.vault import FilesystemWikiVault
@@ -164,6 +165,97 @@ def test_governed_context_excludes_unreviewed_outputs_and_reads_only_hash_valid_
         assert "differs from its registered hash" not in serialized
     finally:
         repo.close()
+
+
+def test_processed_growth_feedback_becomes_a_bounded_direction_without_loading_output_content(tmp_path):
+    vault_root = tmp_path / "vault"
+    project_root = vault_root / "projects" / "project-a"
+    project_root.mkdir(parents=True)
+    repo = GrowthRepository(db_path=str(tmp_path / "growth-feedback-context.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    repo.register_output(OutputAsset(
+        id="copilot-output",
+        project_id="project-a",
+        kind="external_plugin_output",
+        title="Copilot delivery draft",
+        content_hash=hashlib.sha256(b"private output body").hexdigest(),
+        vault_path="outputs/2026/copilot-output/draft.md",
+        idempotency_key="copilot-output",
+    ))
+    feedback = repo.add_output_feedback(OutputFeedback(
+        id="feedback-direction",
+        project_id="project-a",
+        output_id="copilot-output",
+        feedback_type=FeedbackType.CORRECTED,
+        correction="Require explicit source references before the next delivery review.",
+    ))
+    routed = FeedbackRouter(repo).process("project-a", feedback["id"])
+    assert routed["route"] == "regression_case"
+
+    class NoGovernedContext:
+        def build_context(self, **_kwargs):
+            return None
+
+    provider = PBOSGovernedContextProvider(
+        project_root,
+        project_id="project-a",
+        vault_root=vault_root,
+        repository=repo,
+        wiki_context_provider=NoGovernedContext(),
+    )
+    try:
+        context = provider.build(task_constraints=["review one delivery"])
+
+        assert context["growth_feedback"] == {
+            "state": "processed_direction_available",
+            "items": [{
+                "ref": "growth-feedback:feedback-direction",
+                "output_ref": "output:copilot-output",
+                "source": "growth_output_feedback:corrected",
+                "statement": "Require explicit source references before the next delivery review.",
+            }],
+        }
+        serialized = json.dumps(context, ensure_ascii=False)
+        assert "private output body" not in serialized
+        assert "Copilot delivery draft" not in serialized
+    finally:
+        repo.close()
+
+
+def test_processed_growth_feedback_changes_a_plan_without_creating_personal_learning_claim(tmp_path):
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(store, "mission", "Delivery review", "Compile the next evidence-backed delivery action")
+    service = PBOSService(
+        store,
+        "personal",
+        context_provider=lambda: {
+            "availability": "no_governed_context",
+            "documents": [],
+            "refs": [],
+            "growth_feedback": {
+                "state": "processed_direction_available",
+                "items": [{
+                    "ref": "growth-feedback:feedback-direction",
+                    "output_ref": "output:copilot-output",
+                    "source": "growth_output_feedback:corrected",
+                    "statement": "Require explicit source references before the next delivery review.",
+                }],
+            },
+        },
+    )
+
+    plan = service.compile_plan("mission")
+
+    assert plan.feedback_refs == ["growth-feedback:feedback-direction"]
+    assert "growth-feedback:feedback-direction" not in plan.parent_ids
+    assert plan.compiler_metadata["processed_growth_feedback"] == {
+        "count": 1,
+        "refs": ["growth-feedback:feedback-direction"],
+        "state": "unverified_direction",
+    }
+    assert "Require explicit source references" in plan.model_dump_json()
+    assert not store.get_by_type(ArtifactType.CAPABILITY)
+    assert not plan.strategy_refs
 
 
 def test_compiler_rejects_raw_and_unreviewed_output_candidates_before_model_context(tmp_path):

@@ -391,10 +391,15 @@ class PBOSService:
             diagnosis_id = diagnosis.artifact_id if isinstance(diagnosis, DiagnosisArtifact) else ""
         if diagnosis_id and not isinstance(diagnosis, DiagnosisArtifact):
             raise ValueError("PBOS plan requires a project-scoped Diagnosis")
-        parents = [value for value in (mission_id, diagnosis_id, profile.artifact_id if profile else "", *(item.artifact_id for item in feedback)) if value]
         knowledge_context = self._build_knowledge_context(mission)
         if not isinstance(knowledge_context, dict):
             knowledge_context = {"availability": "unavailable", "documents": [], "refs": []}
+        growth_feedback = self._processed_growth_feedback(knowledge_context)
+        feedback_inputs = [
+            *growth_feedback,
+            *[{"statement": item.statement, "source": item.source} for item in feedback],
+        ]
+        parents = [value for value in (mission_id, diagnosis_id, profile.artifact_id if profile else "", *(item.artifact_id for item in feedback)) if value]
         plan_values = self.plan_compiler.compile(
             mission=mission,
             diagnosis=diagnosis if isinstance(diagnosis, DiagnosisArtifact) else None,
@@ -402,15 +407,23 @@ class PBOSService:
             capabilities=capabilities,
             experiences=experiences,
             strategies=strategies,
-            feedback=[{"statement": item.statement, "source": item.source} for item in feedback],
+            feedback=feedback_inputs,
             knowledge_context=knowledge_context,
         )
+        if growth_feedback:
+            compiler_metadata = dict(plan_values.get("compiler_metadata") or {})
+            compiler_metadata["processed_growth_feedback"] = {
+                "count": len(growth_feedback),
+                "refs": [item["ref"] for item in growth_feedback],
+                "state": "unverified_direction",
+            }
+            plan_values["compiler_metadata"] = compiler_metadata
         artifact = PersonalExecutionPlanArtifact(
             project_id=self.project_id,
             mission_id=mission_id,
             diagnosis_id=diagnosis_id,
             parent_ids=parents,
-            feedback_refs=[item.artifact_id for item in feedback],
+            feedback_refs=[item.artifact_id for item in feedback] + [item["ref"] for item in growth_feedback],
             **plan_values,
         )
         self.store.add(artifact)
@@ -450,6 +463,39 @@ class PBOSService:
             and (outcome_ids is None or item.outcome_id in outcome_ids)
         ])
         return feedback[:limit]
+
+    @staticmethod
+    def _processed_growth_feedback(knowledge_context: dict[str, Any]) -> list[dict[str, str]]:
+        """Accept a bounded, typed bridge record without creating graph parents.
+
+        Growth feedback lives in a separate authority. Its reference is kept in
+        the plan's audit metadata and feedback refs, while Artifact Graph parent
+        edges remain reserved for local PBOS artifacts.
+        """
+        bridge = knowledge_context.get("growth_feedback")
+        if not isinstance(bridge, dict) or str(bridge.get("state") or "") != "processed_direction_available":
+            return []
+        items = bridge.get("items")
+        if not isinstance(items, list):
+            return []
+        feedback: list[dict[str, str]] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            ref = str(item.get("ref") or "").strip()
+            source = str(item.get("source") or "").strip()
+            statement = str(item.get("statement") or "").strip()
+            if (
+                not ref.startswith("growth-feedback:")
+                or not source.startswith("growth_output_feedback:")
+                or not statement
+                or is_unreadable_legacy_text(statement)
+            ):
+                continue
+            feedback.append({"ref": ref[:160], "source": source[:128], "statement": statement[:1_200]})
+            if len(feedback) >= 3:
+                break
+        return feedback
 
     def evolve(self, comparison_key: str = "", comparison_context: str = "") -> dict[str, Any]:
         outcomes = self._latest([
