@@ -1219,6 +1219,21 @@
   Studio review flow if it is not suitable. It remains an auditable draft; no
   raw source and no published Wiki revision need to be reverted.
 
+## 2026-08-01 Copilot Configuration Boundary Recheck
+
+- The installed community-plugin inventory still contains `copilot` and does
+  not enable Claudian. Copilot's current default model key is
+  `deepseek-v4-flash|deepseek`, the model is enabled, and its default save
+  folder and custom prompt folder match the active project bridge.
+- The visible plugin settings contain no provider key value. This does not
+  prove that an Obsidian-managed keychain entry is absent, and no keychain or
+  credential store was inspected. The bridge therefore remains governed by
+  the observed fact that no authentic Copilot Markdown output has been saved.
+- A bounded Vault read still finds the two project prompts and the activation
+  note, but zero files under the Copilot output route. BSC continues to report
+  `awaiting_output` / `ready_for_first_output`; it will not register a model
+  proposal, generated file, or feedback record on the basis of settings alone.
+
 ## 2026-07-31 Personal Context Closure And Runtime Readback
 
 - **Observed gap:** the active personal project had a saved profile with
