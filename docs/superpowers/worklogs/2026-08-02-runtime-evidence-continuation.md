@@ -260,6 +260,41 @@ note bodies, credentials, provider payloads, or personal feedback.
   `conversation_archive_separated_from_reviewed_output`, `awaiting_output`,
   and `registered_outputs=0`.
 
+## 2026-08-02 Copilot Archive To Governed Review Proof
+
+- **Runtime configuration audit:** the Copilot plugin persists
+  `autosaveChat=true`, project-scoped custom prompts at
+  `projects/proj_b8a285642094/06_Skills/copilot-prompts`, default model
+  `deepseek-v4-flash|deepseek`, and the separated conversation archive route.
+  The prompt file `PBOS-一键受治理交付.md` is valid UTF-8, has no replacement
+  characters, and requires the project output contract for any explicit
+  durable write.
+- **Real producer artifact:** Local REST opened the allowlisted
+  `governed_delivery` command and a completed Copilot archive response was
+  detected at
+  `copilot/copilot-conversations/PBOS_One-Click_Governed_Delivery@20260802_012038.md`.
+  Its descriptor reports model `deepseek-v4-flash`, provider `deepseek`, a
+  `7,169`-byte assistant response, and a durable response SHA-256. No prompt
+  or response body is stored in this worklog.
+- **Explicit adoption proof:** the protected Growth API imported that exact
+  archive into BSC output `2e45b45b1fafcbbdc0bd8b0a`. The repeat request
+  returned `idempotent=true`; the output remains `registered` with origin
+  `copilot_transcript_import`, archive provenance, two bounded evidence links,
+  zero quality evaluations, and zero feedback records. The Growth D-stage API
+  returns the same registered record.
+- **Gate confirmation:** its gate is
+  `external_evidence_quality_owner_outcome_required`. Therefore this proves
+  the live path `Copilot command -> archive -> explicit review import -> D
+  layer`, while correctly proving neither acceptance, publication, personal
+  capability, nor Strategy Genome. An Obsidian Copilot reload remains the only
+  user-owned operation needed to apply the persisted save-route setting to an
+  already-running plugin process.
+- **Post-run route hygiene:** a final descriptor-only filesystem and Workspace
+  read found two conversation archives, no file in `04_Outputs/copilot`, and
+  Copilot state `awaiting_output` / `ready_for_first_output`. No duplicate
+  output required removal or movement; this was observed without reading a
+  conversation body or modifying a user file.
+
 ## 2026-08-02 Reauthorized Zotero Review and Growth Cycle
 
 - **Authorization and scope:** the project owner authorized a governed review
@@ -333,3 +368,35 @@ note bodies, credentials, provider payloads, or personal feedback.
   `source_ids`, `citation_source_ids`, and `daily_source_scope_ids`.
   Consequently the cycle proves a governed exclusion under owner authority,
   not a factual admission, citation, Wiki publication, or method promotion.
+
+## 2026-08-02 Copilot Configuration and Import Authority Correction
+
+- **Authoritative Copilot configuration:** automatic conversation archiving is
+  configured at `projects/proj_b8a285642094/copilot/copilot-conversations`.
+  It is deliberately separate from the trusted native D-layer producer route
+  `04_Outputs/copilot`. Earlier entries that described automatic save as being
+  redirected to `04_Outputs/copilot` were intermediate, incorrect repair
+  attempts and must not be treated as the final architecture.
+- **Live configuration proof:** the persisted default model is
+  `deepseek-v4-flash|deepseek`; the model credential remains in the configured
+  OS-backed secret path and was neither read nor copied. At verification time
+  the archive directory existed and `04_Outputs/copilot` contained zero files.
+  Obsidian was then restarted normally with the mapped Vault and without the
+  temporary remote-debugging port.
+- **Explicit review-draft transition:** a protected API request to
+  `POST /knowledge/projects/proj_b8a285642094/outputs/import-copilot-transcript`
+  registered `2e45b45b1fafcbbdc0bd8b0a` from
+  `copilot/copilot-conversations/PBOS_One-Click_Governed_Delivery@20260802_012038.md`.
+  It preserves transcript and response hashes, has
+  `origin=copilot_transcript_import`, `status=registered`, and no response body
+  in its public API payload. The existing imported record
+  `e8bfac705bad32e5a5e1458c` remains a separate, earlier archived reply.
+- **Learning boundary:** both imported records require external evidence,
+  quality review, and an owner-attributed observed outcome. Neither is a
+  native plugin output, accepted outcome, Capability, Experience, or Strategy
+  Genome. GitHub and Feishu remain `awaiting_authorization`; they were not
+  enabled or contacted by this operation.
+- **Rollback:** revert only the explicit importer deployment if necessary;
+  retain the immutable archive and the registered review packages for audit.
+  Do not move auto-saved conversations into `04_Outputs/copilot` or relabel
+  them as native Copilot deliveries.
