@@ -129,7 +129,18 @@ type PendingOutputReview = {
 
 function pendingOutputReviews(records: GrowthRecord[]): PendingOutputReview[] {
   return records
-    .filter((record) => String(record.status || '') === 'registered')
+    .filter((record) => {
+      if (String(record.status || '') !== 'registered') return false;
+      const metadata = planObject(record.metadata);
+      const pluginId = String(metadata.obsidian_plugin_id || metadata.plugin_id || '');
+      const legacyPlugin = String(metadata.obsidian_plugin || metadata.plugin_name || '');
+      const adapter = String(metadata.obsidian_adapter || '');
+      const origin = String(metadata.origin || record.origin || '').toLowerCase();
+      const originalPath = String(metadata.original_path || record.vault_path || '').replace(/\\/g, '/');
+      return origin === 'external'
+        || adapter === 'filesystem_output'
+        || Boolean(pluginId || legacyPlugin || originalPath);
+    })
     .map((record) => {
       const metadata = planObject(record.metadata);
       const pluginId = String(metadata.obsidian_plugin_id || metadata.plugin_id || '');

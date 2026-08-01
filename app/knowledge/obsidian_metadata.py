@@ -11,11 +11,14 @@ from pathlib import Path
 from typing import Any, Mapping
 from uuid import uuid4
 
+import yaml
+
 from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.wiki_repository import WikiRepository
 
 
 KNOWLEDGE_INDEX_ROOT = "Knowledge Index"
+KNOWLEDGE_BASES_FILENAME = "Knowledge Operations.base"
 MANAGED_INDEX_REVISION = "bsc-knowledge-index-v1"
 _METADATA_MENU_PATH = Path(".obsidian/plugins/metadata-menu/data.json")
 _DATE_OPTIONS = {
@@ -138,7 +141,7 @@ class ObsidianMetadataService:
         return {"status": "configured", "backup_created": True, "field_count": len(CANONICAL_METADATA_FIELDS)}
 
     def write_managed_indexes(self, *, project_id: str) -> dict[str, int]:
-        """Write missing index projections and preserve any user-edited conflict."""
+        """Write missing Dataview and Bases projections without replacing user edits."""
         if self.repository is None:
             raise ValueError("metadata index generation requires a Wiki repository")
         mapping = self.repository.get_vault(project_id)
@@ -150,7 +153,11 @@ class ObsidianMetadataService:
             raise ValueError("project Vault directory does not exist")
 
         report = {"created": 0, "updated": 0, "unchanged": 0, "conflicts": 0}
-        for relative, content in self._index_documents(project_id, str(mapping["vault_path"])).items():
+        documents = {
+            **self._index_documents(project_id, str(mapping["vault_path"])),
+            **self._base_documents(project_id, str(mapping["vault_path"])),
+        }
+        for relative, content in documents.items():
             target = self._safe_target(project_root, relative)
             if target.exists():
                 if not target.is_file() or target.is_symlink() or target.read_text(encoding="utf-8") != content:
@@ -169,7 +176,7 @@ class ObsidianMetadataService:
             "00-Home.md": (
                 "Knowledge Index",
                 "A read-only navigation surface for BSC-managed knowledge metadata.",
-                "- [[01-Inbox]]\n- [[02-Sources-Requiring-Review]]\n- [[03-Published-Wiki]]\n- [[04-Method-Candidates]]\n- [[05-Registered-Outputs]]\n- [[06-Feedback-Debt]]\n- [[07-Stale-References]]\n- [[08-Extraction-Failures]]\n- [[09-Evidence-Atlas]]\n- [[10-Reference-Network]]",
+                "- [[Knowledge Operations.base|Knowledge Operations]]\n- [[01-Inbox]]\n- [[02-Sources-Requiring-Review]]\n- [[03-Published-Wiki]]\n- [[04-Method-Candidates]]\n- [[05-Registered-Outputs]]\n- [[06-Feedback-Debt]]\n- [[07-Stale-References]]\n- [[08-Extraction-Failures]]\n- [[09-Evidence-Atlas]]\n- [[10-Reference-Network]]",
             ),
             "01-Inbox.md": ("Inbox", "Incoming material awaiting triage.", f"```dataview\nTABLE source_url, captured_at, trust_level, review_status\nFROM \"{base}/00_Inbox\"\nSORT captured_at DESC\n```"),
             "02-Sources-Requiring-Review.md": ("Sources Requiring Review", "Admitted or triaged sources that need a review decision.", f"```dataview\nTABLE source_url, trust_level, freshness, captured_at\nFROM \"{base}/01_Sources\"\nWHERE review_status != \"published\"\nSORT captured_at DESC\n```"),
@@ -186,6 +193,119 @@ class ObsidianMetadataService:
             f"{KNOWLEDGE_INDEX_ROOT}/{filename}": ObsidianMetadataService._render_index(project_id, filename, title, description, body)
             for filename, (title, description, body) in queries.items()
         }
+
+    @staticmethod
+    def _base_documents(project_id: str, vault_path: str) -> dict[str, str]:
+        """Render one native, read-only Obsidian Base from the canonical vocabulary.
+
+        Bases operate on local frontmatter and file paths, so they are useful
+        navigation when BSC is unavailable but are never a lifecycle or access
+        control boundary. The generated file deliberately contains no source
+        body, credential, API path, or user-specific plugin configuration.
+        """
+        base = vault_path.replace("\\", "/").strip("/")
+        source_roots = [
+            f'file.inFolder("{base}/00_Inbox")',
+            f'file.inFolder("{base}/01_Sources")',
+            f'file.inFolder("{base}/raw")',
+            f'file.inFolder("{base}/inbox")',
+            f'file.inFolder("{base}/02_Assets")',
+        ]
+        views = [
+            ObsidianMetadataService._base_view(
+                "Inbox",
+                [f'file.inFolder("{base}/00_Inbox")'],
+                ["file.name", "source_url", "captured_at", "trust_level", "review_status"],
+            ),
+            ObsidianMetadataService._base_view(
+                "Review Queue",
+                [f'file.inFolder("{base}/01_Sources")'],
+                ["file.name", "citation_key", "trust_level", "freshness", "review_status"],
+            ),
+            ObsidianMetadataService._base_view(
+                "Published Wiki",
+                [f'file.inFolder("{base}/wiki")', 'status == "published"'],
+                ["file.name", "freshness", "related_sources", "related_pages"],
+            ),
+            ObsidianMetadataService._base_view(
+                "Method Candidates",
+                [f'file.inFolder("{base}/06_Skills")'],
+                ["file.name", "review_status", "method_refs", "related_pages"],
+            ),
+            ObsidianMetadataService._base_view(
+                "Registered Outputs",
+                [f'file.inFolder("{base}/04_Outputs")'],
+                ["file.name", "feedback_status", "output_refs", "method_refs"],
+            ),
+            ObsidianMetadataService._base_view(
+                "Feedback Debt",
+                ['feedback_status == "pending"'],
+                ["file.name", "feedback_status", "output_refs", "related_pages"],
+            ),
+            ObsidianMetadataService._base_view(
+                "Stale References",
+                ['freshness == "stale"'],
+                ["file.name", "source_url", "freshness", "related_sources"],
+            ),
+            ObsidianMetadataService._base_view(
+                "Extraction Failures",
+                ['extraction_status == "failed" || extraction_status == "partial" || extraction_status == "needs_review"'],
+                ["file.name", "extraction_status", "source_url", "image_refs", "table_refs"],
+            ),
+            ObsidianMetadataService._base_view(
+                "Evidence Atlas",
+                [{"or": source_roots}],
+                ["file.name", "source_url", "citation_key", "trust_level", "extraction_status"],
+            ),
+            ObsidianMetadataService._base_view(
+                "Reference Network",
+                [],
+                ["file.name", "related_sources", "related_pages", "table_refs", "image_refs", "method_refs", "output_refs"],
+            ),
+        ]
+        definition = {
+            "filters": {
+                "and": [
+                    f'file.inFolder("{base}")',
+                    'file.ext == "md"',
+                ]
+            },
+            "properties": {
+                "file.name": {"displayName": "Name"},
+                "bsc_id": {"displayName": "BSC ID"},
+                "source_url": {"displayName": "Source URL"},
+                "citation_key": {"displayName": "Citation"},
+                "captured_at": {"displayName": "Captured"},
+                "trust_level": {"displayName": "Trust"},
+                "review_status": {"displayName": "Review"},
+                "freshness": {"displayName": "Freshness"},
+                "extraction_status": {"displayName": "Extraction"},
+                "feedback_status": {"displayName": "Feedback"},
+                "related_sources": {"displayName": "Sources"},
+                "related_pages": {"displayName": "Pages"},
+                "table_refs": {"displayName": "Tables"},
+                "image_refs": {"displayName": "Images"},
+                "method_refs": {"displayName": "Methods"},
+                "output_refs": {"displayName": "Outputs"},
+            },
+            "views": views,
+        }
+        content = yaml.safe_dump(
+            definition,
+            allow_unicode=False,
+            default_flow_style=False,
+            sort_keys=False,
+            width=120,
+        )
+        return {f"{KNOWLEDGE_INDEX_ROOT}/{KNOWLEDGE_BASES_FILENAME}": content}
+
+    @staticmethod
+    def _base_view(name: str, filters: list[Any], order: list[str]) -> dict[str, Any]:
+        view: dict[str, Any] = {"type": "table", "name": name}
+        if filters:
+            view["filters"] = {"and": filters}
+        view["order"] = order
+        return view
 
     @staticmethod
     def _render_index(project_id: str, filename: str, title: str, description: str, body: str) -> str:

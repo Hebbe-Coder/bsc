@@ -150,11 +150,15 @@ def test_source_sync_task_imports_only_non_managed_obsidian_notes(tmp_path, monk
         assert result["status"] == "completed"
         assert result["sync"]["scanned"] == 1
         assert result["sync"]["evidence_mirror"]["created"] == 1
+        assert result["sync"]["metadata_views"] == {
+            "status": "completed", "created": 12, "updated": 0, "unchanged": 0, "conflicts": 0
+        }
         assert result["sync"]["wiki_pages"] == 1
         assert result["sync"]["wiki_index"]["indexed"] == 1
         assert repo.get_run("project-a", run.id)["status"] == "completed"
         assert any(source["origin"] == "projects/project-a/01_Sources/research.md" for source in repo.list_sources("project-a"))
         assert (vault_root / "projects" / "project-a" / "01_Sources" / "bsc-evidence" / "horizon-test-1.md").is_file()
+        assert (vault_root / "projects" / "project-a" / "Knowledge Index" / "Knowledge Operations.base").is_file()
     finally:
         repo.close()
 

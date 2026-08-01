@@ -1785,3 +1785,58 @@
 - **Rollback:** rebuild the prior API/Worker/Beat image. No project notes,
   output archive, Artifact, connector authorization, schedule, or secret is
   removed by this correction.
+
+## 2026-08-01 Copilot Governed-Delivery Live Invocation
+
+- **One-click producer configuration:** added the project-local Copilot custom
+  command `PBOS-一键受治理交付`. Invoking it is explicit save authorization:
+  it requires the enabled `writeFile` tool to create exactly one
+  `04_Outputs/copilot` Markdown file with `bsc_output_contract: v1`, project
+  scope, evidence gaps, and a D-layer review warning. It refuses to save a
+  chat transcript or infer personal learning.
+- **Runtime discovery proof:** the authenticated Obsidian Local REST command
+  list contains `Copilot: PBOS-一键受治理交付`, alongside the existing PBOS
+  review and execution-plan commands. This proves the running Obsidian plugin
+  loaded the newly configured command, rather than merely observing a file in
+  the Vault.
+- **Real invocation result:** Local REST opened the project verification Brief
+  and invoked the advertised custom command with `204`. A bounded 120-second
+  observation found no `04_Outputs/copilot` file. The Brief was created solely
+  for this invocation and removed afterwards; no source, D-layer output,
+  Experience, Capability, Strategy Genome, or external side effect was
+  created.
+- **Observed boundary:** Obsidian Local REST can invoke the desktop command
+  but cannot submit Copilot's chat or confirm its model action. That is an
+  intentional producer-side interaction gate, not a missing BSC key, route,
+  model, tool, or permission. The authoritative runtime state remains
+  `trusted` / `awaiting_output` / `ready_for_first_output` with zero registered
+  Copilot outputs.
+- **Required human action:** in the opened Copilot chat, submit the invoked
+  `PBOS-一键受治理交付` command once and allow its visible `writeFile` action.
+  BSC will then capture the resulting contract-valid file and present it in
+  Growth D-layer review. This is the only remaining action that must originate
+  inside the third-party desktop plugin; BSC must not synthesize it.
+
+## 2026-08-01 Managed Obsidian Views And Copilot Review Integrity
+
+- **Implemented:** the governed Vault sync now writes a BSC-owned
+  `Knowledge Operations.base` plus the existing Dataview navigation files.
+  The Base is a local, read-only navigation projection over canonical
+  frontmatter. It does not import evidence, alter a source lifecycle, expose
+  credentials, or replace a user-edited managed file.
+- **Implemented:** the Studio D-layer queue now distinguishes real external
+  producer output from BSC-generated `project_sop` records. A registered SOP
+  can no longer appear as a pending Copilot review merely because it is an
+  output record.
+- **Verified:** backend scope passed `68 passed, 1 skipped` across metadata,
+  Vault sync, knowledge-task, and Celery growth tests. `npm run check` and
+  `PersonalGrowthCockpit.test.tsx` also passed (`21/21`).
+- **Runtime boundary:** direct host-side verification found no project mapping
+  because it correctly targets the host development database. The active
+  project mapping belongs to the Docker PostgreSQL runtime, so deployment and
+  live Vault projection must run inside the rebuilt containers rather than
+  writing to a similarly named local SQLite database.
+- **Rollback:** rebuild the preceding API/worker/beat image. Removing only
+  BSC-owned `Knowledge Index` files is sufficient to undo the Vault
+  navigation projection; evidence, user notes, and plugin configuration stay
+  untouched.

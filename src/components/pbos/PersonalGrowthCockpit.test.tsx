@@ -67,6 +67,27 @@ describe('PersonalGrowthCockpit', () => {
     expect(openOutputReview).toHaveBeenCalledWith('output-copilot-1');
   });
 
+  it('does not mislabel a BSC-generated SOP as an external D-layer review', async () => {
+    vi.mocked(fetchPbosCockpit).mockResolvedValue({
+      profile: null, today: null, today_action: { state: 'no_plan' },
+      capabilities: [], outcomes: [], feedback: [], strategies: [], failure_patterns: [], project_health: {}, connectors: {},
+    });
+    vi.mocked(fetchPbosProfile).mockResolvedValue({ profile: null });
+    vi.mocked(fetchGrowthStage).mockResolvedValue({
+      project_id: 'default', stage: 'D', limit: 100, truncated: false,
+      records: [{
+        id: 'bsc-project-sop-1', status: 'registered', title: 'BSC generated SOP',
+        metadata: { origin: 'bsc_system_generated', generator: 'project_sop_generation_service' },
+      }],
+    });
+
+    render(<PersonalGrowthCockpit projectId="default" onClose={vi.fn()} runtimeAccessKey="session-key" />);
+
+    expect(await screen.findByText('PENDING D-LAYER REVIEW')).toBeVisible();
+    expect(screen.getByText('No registered external D-layer output needs review.')).toBeVisible();
+    expect(screen.queryByText('bsc-project-sop-1')).not.toBeInTheDocument();
+  });
+
   it('does not issue a PBOS request without a Studio access session and provides a recovery action', async () => {
     const openAccess = vi.fn();
 

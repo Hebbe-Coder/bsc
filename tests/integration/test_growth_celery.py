@@ -217,6 +217,10 @@ def test_growth_daily_syncs_declared_obsidian_exports_before_distillation(tmp_pa
         assert result["sync"]["sources"]["created"] == 1
         assert result["sync"]["triage"] == {"evaluated": 3, "eligible": 1, "pending_review": 2}
         assert result["sync"]["outputs"]["registered"] == 1
+        assert result["sync"]["metadata_views"] == {
+            "status": "completed", "created": 12, "updated": 0, "unchanged": 0, "conflicts": 0
+        }
+        assert (project_root / "Knowledge Index" / "Knowledge Operations.base").is_file()
         plugin_source = next(
             source for source in repo.list_sources("project-a") if source["vault_path"].endswith("research.md")
         )

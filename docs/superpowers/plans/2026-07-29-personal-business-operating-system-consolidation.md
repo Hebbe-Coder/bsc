@@ -1400,3 +1400,21 @@ runtime facts, not completion labels.
 - Rollback: rebuild the three services from the preceding image. This changes
   only the live status projection; it does not alter records, Vault files,
   schedules, or credentials.
+
+### Copilot Producer Invocation
+
+- Added the project-local `PBOS-一键受治理交付` Copilot command. It treats its
+  invocation as explicit `writeFile` permission, writes one contract-valid
+  `personal_execution_plan` style D-layer file, and states that registration
+  still requires D-layer evidence and quality review.
+- The running Obsidian Local REST command list exposed that command, and an
+  actual invocation returned `204`. It deliberately did not produce a file
+  during a bounded 120-second observation because Local REST cannot submit the
+  Copilot desktop chat or approve the model action.
+- This is recorded as a producer-interaction boundary, not a successful
+  Copilot export. The temporary verification Brief was removed, no output was
+  registered, and the live status remains `awaiting_output`.
+- To complete the one real third-party step, submit the already-open
+  `PBOS-一键受治理交付` Copilot command once. Its visible `writeFile` action is
+  the authoritative producer event; BSC must not create a substitute file and
+  falsely attribute it to Copilot.

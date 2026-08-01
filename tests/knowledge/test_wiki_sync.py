@@ -771,10 +771,15 @@ def test_obsidian_sync_explicitly_excludes_managed_knowledge_index(tmp_path):
     root = tmp_path / "vault"
     project_root = root / "projects" / "project-a"
     index = project_root / "Knowledge Index" / "00-Home.md"
+    base = project_root / "Knowledge Index" / "Knowledge Operations.base"
     source = project_root / "01_Sources" / "manual.md"
     index.parent.mkdir(parents=True)
     source.parent.mkdir(parents=True)
     index.write_text("---\nmanaged_by_bsc: true\n---\nManaged navigation", encoding="utf-8")
+    base.write_text(
+        'filters:\n  and:\n    - \'file.inFolder("projects/project-a")\'\nviews:\n  - type: table\n    name: Sources\n',
+        encoding="utf-8",
+    )
     source.write_text("Real source", encoding="utf-8")
     repo = WikiRepository(db_path=str(tmp_path / "managed-index.db"))
     repo.configure_vault("project-a", "projects/project-a")

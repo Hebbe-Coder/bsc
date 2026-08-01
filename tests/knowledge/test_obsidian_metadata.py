@@ -1,7 +1,10 @@
 import json
 
+import yaml
+
 from app.knowledge.obsidian_metadata import (
     CANONICAL_METADATA_FIELDS,
+    KNOWLEDGE_BASES_FILENAME,
     KNOWLEDGE_INDEX_ROOT,
     ObsidianMetadataService,
     is_managed_index_path,
@@ -80,25 +83,50 @@ def test_managed_indexes_are_scoped_idempotent_and_preserve_user_conflicts(tmp_p
 
         first = service.write_managed_indexes(project_id="project-a")
         index = project_root / KNOWLEDGE_INDEX_ROOT / "00-Home.md"
+        base = project_root / KNOWLEDGE_INDEX_ROOT / KNOWLEDGE_BASES_FILENAME
 
-        assert first["created"] == 11
+        assert first["created"] == 12
         assert first["updated"] == 0
         assert first["conflicts"] == 0
         assert "managed_by_bsc: true" in index.read_text(encoding="utf-8")
+        assert "Knowledge Operations" in index.read_text(encoding="utf-8")
         assert "```dataview" in (project_root / KNOWLEDGE_INDEX_ROOT / "01-Inbox.md").read_text(encoding="utf-8")
         atlas = (project_root / KNOWLEDGE_INDEX_ROOT / "09-Evidence-Atlas.md").read_text(encoding="utf-8")
         network = (project_root / KNOWLEDGE_INDEX_ROOT / "10-Reference-Network.md").read_text(encoding="utf-8")
+        base_definition = yaml.safe_load(base.read_text(encoding="utf-8"))
         assert "extraction_status" in atlas
         assert "related_sources" in network
+        assert base_definition["filters"] == {
+            "and": [
+                'file.inFolder("projects/project-a")',
+                'file.ext == "md"',
+            ]
+        }
+        assert [view["name"] for view in base_definition["views"]] == [
+            "Inbox",
+            "Review Queue",
+            "Published Wiki",
+            "Method Candidates",
+            "Registered Outputs",
+            "Feedback Debt",
+            "Stale References",
+            "Extraction Failures",
+            "Evidence Atlas",
+            "Reference Network",
+        ]
+        assert all(view["type"] == "table" for view in base_definition["views"])
+        assert base_definition["properties"]["bsc_id"]["displayName"] == "BSC ID"
+        assert base_definition["properties"]["extraction_status"]["displayName"] == "Extraction"
         assert is_managed_index_path((KNOWLEDGE_INDEX_ROOT, "00-Home.md")) is True
+        assert is_managed_index_path((KNOWLEDGE_INDEX_ROOT, KNOWLEDGE_BASES_FILENAME)) is True
         assert is_managed_index_path(("wiki", "index.md")) is False
 
-        assert service.write_managed_indexes(project_id="project-a") == {"created": 0, "updated": 0, "unchanged": 11, "conflicts": 0}
+        assert service.write_managed_indexes(project_id="project-a") == {"created": 0, "updated": 0, "unchanged": 12, "conflicts": 0}
 
         index.write_text("User changed this file", encoding="utf-8")
         conflict = service.write_managed_indexes(project_id="project-a")
 
-        assert conflict == {"created": 0, "updated": 0, "unchanged": 10, "conflicts": 1}
+        assert conflict == {"created": 0, "updated": 0, "unchanged": 11, "conflicts": 1}
         assert index.read_text(encoding="utf-8") == "User changed this file"
     finally:
         repo.close()

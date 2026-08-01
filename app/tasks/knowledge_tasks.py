@@ -25,6 +25,7 @@ from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.scheduler import KnowledgeScheduler
 from app.knowledge.growth_scheduler import GrowthScheduleCoordinator
 from app.knowledge.growth_repository import GrowthRepository
+from app.knowledge.obsidian_metadata import ObsidianMetadataService
 from app.knowledge.obsidian_output_sync import ObsidianOutputSyncService
 from app.knowledge.obsidian_source_projection import ObsidianSourceProjection
 from app.knowledge.multimodal_extraction import CURRENT_EXTRACTOR_REVISION, LocalMultimodalExtractor
@@ -110,6 +111,24 @@ def _sync_evidence_mirror(repo: WikiRepository, project_id: str) -> dict:
         return {"status": "completed", **report}
     except (OSError, ValueError, ProposalGateError):
         return {"status": "failed", "reason": "vault_projection_failed"}
+
+
+def _sync_metadata_views(repo: WikiRepository, project_id: str) -> dict:
+    """Create only BSC-owned Dataview/Bases navigation after a governed sync.
+
+    These files are deliberately outside evidence capture and do not change
+    source lifecycle. A filesystem conflict remains visible in the run ledger
+    instead of replacing an edited local projection.
+    """
+    if not settings.OBSIDIAN_VAULT_ROOT or not repo.get_vault(project_id):
+        return {"status": "unavailable", "reason": "vault_not_configured"}
+    try:
+        report = ObsidianMetadataService(
+            Path(settings.OBSIDIAN_VAULT_ROOT), repository=repo
+        ).write_managed_indexes(project_id=project_id)
+        return {"status": "completed", **report}
+    except (OSError, ValueError):
+        return {"status": "failed", "reason": "metadata_view_projection_failed"}
 
 
 def _extract_new_vault_assets(repo: WikiRepository, project_id: str) -> dict[str, int]:
@@ -428,6 +447,7 @@ def execute_knowledge_run(
             report["output_feedback"] = ObsidianOutputSyncService(
                 growth_repo, Path(settings.OBSIDIAN_VAULT_ROOT)
             ).sync(project_id=project_id, run_id=run_id)
+            report["metadata_views"] = _sync_metadata_views(repo, project_id)
             repo.append_run_event(
                 project_id=project_id, run_id=run_id, event_type="knowledge.source.sync.completed", payload=report
             )

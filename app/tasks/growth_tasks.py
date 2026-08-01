@@ -14,6 +14,7 @@ from app.core.config import settings
 from app.knowledge.generation_provenance import redact_secrets
 from app.knowledge.growth_distillation import GrowthDistillationService
 from app.knowledge.growth_repository import GrowthRepository
+from app.knowledge.obsidian_metadata import ObsidianMetadataService
 from app.knowledge.obsidian_output_sync import ObsidianOutputSyncService
 from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
 from app.knowledge.source_triage import SourceTriageService
@@ -435,6 +436,7 @@ def _sync_declared_obsidian_exports(
             project_id=project_id,
             run_id=run_id,
         )
+        metadata_views = _sync_metadata_views(repository, vault_root, project_id)
         project_root = (vault_root / str(mapping["vault_path"])).resolve()
         manifest = ObsidianPluginManifest.load(project_root)
         triaged_statuses = [
@@ -453,6 +455,7 @@ def _sync_declared_obsidian_exports(
                 "pending_review": sum(status == SourceStatus.VALIDATED.value for status in triaged_statuses),
             },
             "outputs": outputs,
+            "metadata_views": metadata_views,
             "plugins": manifest.public_status(
                 repository.list_sources(project_id),
                 repository.list_outputs(project_id),
@@ -480,6 +483,17 @@ def _sync_declared_obsidian_exports(
             payload=report,
         )
         return report
+
+
+def _sync_metadata_views(repository: GrowthRepository, vault_root: Path, project_id: str) -> dict:
+    """Persist only managed navigation projections after a successful route sync."""
+    try:
+        report = ObsidianMetadataService(vault_root, repository=repository).write_managed_indexes(
+            project_id=project_id
+        )
+        return {"status": "completed", **report}
+    except (OSError, ValueError):
+        return {"status": "failed", "reason": "metadata_view_projection_failed"}
 
 
 def _parse_datetime(value: object) -> datetime | None:
