@@ -1899,3 +1899,35 @@
   represented as empty producer outcomes, not as successful evidence. The
   managed Vault sync also preserves one existing user-edited index conflict;
   BSC does not overwrite it.
+
+## 2026-08-02 Explicit Copilot Transcript Review Import
+
+- **Implemented transition:** added and deployed the explicit
+  `POST /knowledge/projects/{project_id}/outputs/import-copilot-transcript`
+  transition. It reads only the configured, project-scoped Copilot automatic
+  archive and creates a BSC-owned immutable review package; it does not
+  modify the archive or claim that Copilot natively exported a D-layer file.
+- **Live import:** the Studio action imported the latest completed response as
+  output `e8bfac705bad32e5a5e1458c`. PostgreSQL records it as
+  `personal_execution_plan`, `registered`, with origin
+  `copilot_transcript_import`, provider `deepseek`, model
+  `deepseek-v4-flash`, and the original archive path. The materialized Vault
+  package is under `outputs/2026/e8bfac705bad32e5a5e1458c/`; its index retains
+  both the immutable content hash and the original archive provenance.
+- **Governance proof:** the record has no source references or acceptance. Its
+  review gate is `external_evidence_quality_owner_outcome_required`; it has
+  not created an Outcome, Experience, Capability, or Strategy Genome.
+- **Browser acceptance:** after refreshing Studio following the API rebuild,
+  the selected project rendered `1 pending` Copilot D-layer item, `0` accepted
+  outcomes, `0` verified capabilities, and `0` active Strategy Genomes.
+  GitHub and Feishu remained `awaiting authorization`.
+- **Verification:** focused backend tests passed with `61 passed, 1 skipped`;
+  the Cockpit test passed with `22 passed`; `npm run check` passed. The rebuilt
+  Docker API returned `/ready` `200`, and the Studio proxy returned `200` for
+  the profile, summary, and registered-output descriptors.
+- **Deviation and rollback:** the first Cockpit request occurred while Studio
+  retained a stale view across the API rebuild and displayed a transient 500.
+  Reloading and reselecting the mapped project restored the healthy response;
+  no data was changed to work around it. Rollback is to revert the importer
+  code and rebuild the API. The registered review package and original Copilot
+  archive remain audit records and must not be silently deleted or accepted.

@@ -1456,3 +1456,55 @@ runtime facts, not completion labels.
   `PBOS-一键受治理交付` Copilot command once. Its visible `writeFile` action is
   the authoritative producer event; BSC must not create a substitute file and
   falsely attribute it to Copilot.
+
+## 2026-08-02 Explicit Copilot Transcript Import Evidence
+
+### What Changed
+
+- The automatic Copilot archive remains distinct from the native
+  `04_Outputs/copilot` producer route. An explicit owner-triggered importer
+  now allows a completed archived reply to enter the BSC D-layer as a
+  **registered review draft**, without relabeling it as a native plugin
+  delivery.
+- The deployed importer is
+  `app/knowledge/copilot_transcript_import.py`; it is exposed through
+  `POST /knowledge/projects/{project_id}/outputs/import-copilot-transcript`
+  and the Personal Growth Cockpit's `Import latest completed Copilot plan`
+  action. It accepts only the latest non-truncated AI reply from the trusted,
+  configured, project-scoped archive.
+
+### Runtime Evidence
+
+- Studio invoked the route successfully and the API returned `201`. The live
+  record is `e8bfac705bad32e5a5e1458c`, kind `personal_execution_plan`, status
+  `registered`, and origin `copilot_transcript_import`.
+- Its persisted index and database metadata retain the original archive path,
+  transcript and response hashes, provider/model metadata, and the review
+  gate `external_evidence_quality_owner_outcome_required`. The original
+  Copilot conversation was not modified.
+- Browser verification on the mapped PBOS project rendered `1 pending` D-layer
+  item. It simultaneously rendered `0` accepted outcomes, `0` verified
+  capabilities, and `0` active Strategy Genomes. This is the required
+  no-false-learning proof.
+- GitHub and Feishu still render `awaiting authorization`; neither connector
+  was enabled or contacted by this transition.
+
+### Verification, Risks, And Rollback
+
+- `./.venv/Scripts/python.exe -m pytest
+  tests/knowledge/test_copilot_transcript_import.py
+  tests/knowledge/test_obsidian_output_sync.py tests/knowledge/test_wiki_sync.py
+  tests/api/test_growth_api.py -q` passed: `61 passed, 1 skipped`.
+- `npm run test:frontend --
+  src/components/pbos/PersonalGrowthCockpit.test.tsx` passed: `22 passed`;
+  `npm run check` passed. Docker was rebuilt and `/ready` returned `200`.
+- A stale Studio view briefly showed a 500 while the backend image restarted.
+  Reloading and reselecting the project restored API-backed data; no database
+  write or direct filesystem mutation was used to bypass the UI flow.
+- The imported plan cannot be auto-accepted. It needs eligible external
+  evidence, owner-attributed observed outcome, and quality review before any
+  Experience, Capability, or Strategy Genome promotion. Native Copilot export
+  to `04_Outputs/copilot` remains a separate future path.
+- Rollback is the importer commit plus an API rebuild. Preserve the imported
+  package and source archive as auditable history; do not delete or reclassify
+  either merely to reset the queue.
