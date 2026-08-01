@@ -1576,3 +1576,27 @@ runtime facts, not completion labels.
   No synthetic conversation was created and the empty native directory is not
   labeled as a completed export. A real saved, reviewed Copilot conversation
   remains required before its D-layer registration can be marked complete.
+
+### 2026-08-02 Copilot Final-State Correction
+
+- The preceding "Copilot Configuration Repair" subsection records an
+  intermediate route change and is superseded by this final-state correction.
+  Automatic Copilot conversation save is correctly set to
+  `projects/proj_b8a285642094/copilot/copilot-conversations`, not
+  `04_Outputs/copilot`. The latter remains the separate, empty, trusted native
+  producer route for an explicit Copilot `writeFile` delivery.
+- Copilot is configured with `deepseek-v4-flash|deepseek`; its credential was
+  verified only by configuration presence and a completed live response, never
+  read, logged, or copied. Obsidian was normally restarted against the mapped
+  Vault with the temporary remote-debugging port removed.
+- The explicit importer now provides the governed alternative for archived
+  replies: protected API import registered
+  `2e45b45b1fafcbbdc0bd8b0a` from the `PBOS_One-Click_Governed_Delivery`
+  archive, in addition to the prior imported reply
+  `e8bfac705bad32e5a5e1458c`. Both remain `registered` review drafts with
+  archive provenance and the gate
+  `external_evidence_quality_owner_outcome_required`.
+- These drafts do not satisfy a native plugin-export proof and cannot create a
+  Capability, Experience, or Strategy Genome. GitHub and Feishu remain
+  `awaiting_authorization`. Rollback is limited to the importer deployment;
+  audit records and original chat archives must be preserved.

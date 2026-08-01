@@ -744,7 +744,6 @@ def invoke_workspace_copilot_command(
     governed output until the separate trusted output-sync path evaluates it.
     """
     project_id = _enforce_project_access(request, project_id, write=True)
-    bridge = _project_copilot_command_bridge(project_id, repo)
     normalized_key = str(command_key or "").strip()
     run = KnowledgeRun(
         project_id=project_id,
@@ -759,6 +758,19 @@ def invoke_workspace_copilot_command(
         },
     )
     repo.create_run(run)
+    try:
+        bridge = _project_copilot_command_bridge(project_id, repo)
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, dict) else {}
+        detail_code = str(detail.get("code") or "command_preflight_rejected")
+        repo.update_run_status(
+            project_id,
+            run.id,
+            RunStatus.FAILED,
+            error=detail_code,
+            output_refs={"state": "failed", "detail_code": detail_code, "command_key": normalized_key},
+        )
+        raise
     try:
         result = bridge.invoke(normalized_key)
     except Exception:

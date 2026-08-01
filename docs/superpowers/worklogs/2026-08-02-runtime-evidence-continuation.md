@@ -369,6 +369,42 @@ note bodies, credentials, provider payloads, or personal feedback.
   Consequently the cycle proves a governed exclusion under owner authority,
   not a factual admission, citation, Wiki publication, or method promotion.
 
+## 2026-08-02 Copilot Command Bridge Live Recheck
+
+- **Active route:** Copilot remains the only interactive Obsidian authoring
+  route. Claudian is excluded. The configured Copilot conversation archive is
+  intentionally separate from the managed `04_Outputs/copilot` bridge, so a
+  raw autosaved chat cannot silently become accepted knowledge.
+- **Live service proof:** from the BSC API container, the protected Copilot
+  command catalog returned all five allowlisted commands on eight consecutive
+  authenticated checks. Direct host probing of the Docker-only host alias is
+  not used as runtime evidence because it correctly times out outside the
+  container network.
+- **Live dispatch:** a protected BSC request invoked `governed_delivery` and
+  recorded command run `e71a682bb0f1`. The command returned `invoked`; the
+  later directory metadata check found no new Markdown in either the archive
+  or reviewed-output route. This is expected: opening a Copilot command is not
+  a model response, saved conversation, or D-layer registration.
+- **Current review state:** two Copilot transcript imports are registered as
+  review drafts. No Copilot output was accepted, published, treated as a
+  personal capability, or given synthetic feedback.
+- **Guidance correction:** the PBOS Cockpit now tells the user to finish and
+  review the response in Copilot, then explicitly import the completed archive
+  response as a BSC-owned D-layer review draft. The managed Vault activation
+  brief now documents the same archive-to-import-to-review sequence and the
+  five allowlisted commands.
+- **Verification:** backend Copilot/Workspace/Output/Method/Schedule coverage
+  passed `100 passed, 1 warning`; the PBOS Cockpit suite passed `23 passed`;
+  the full frontend suite passed `223 passed`; `npm run check`, production
+  build, and `git diff --check` passed. The only build output is Vite's
+  existing chunk-size advisory.
+- **Audit repair:** an invocation now creates its `obsidian_copilot_command`
+  run before Vault, trust, and runtime preflight. A rejected preflight records
+  only the stable failure code and requested allowlist key, then performs no
+  Local REST dispatch. Regression coverage includes untrusted and misaligned
+  Copilot routes; the final focused backend suite passed `101 passed, 1
+  warning`, application compilation and Compose validation passed.
+
 ## 2026-08-02 Copilot Configuration and Import Authority Correction
 
 - **Authoritative Copilot configuration:** automatic conversation archiving is
@@ -400,3 +436,27 @@ note bodies, credentials, provider payloads, or personal feedback.
   retain the immutable archive and the registered review packages for audit.
   Do not move auto-saved conversations into `04_Outputs/copilot` or relabel
   them as native Copilot deliveries.
+
+## 2026-08-02 Governed Zotero Review Readback and Method Routing Regression
+
+- **Runtime readback:** the protected source projection for
+  `f4278140ca7f` confirms `status=validated` and `trust_level=untrusted`.
+  Its active profile-aware triage is `71c541af88741f4dc87ed503`, with
+  `disposition=archive` and `reliability_pass=false`. The older
+  `d34911d25290828395e1a792` semantic decision remains part of the completed
+  run audit history but is not represented as the current project-profile
+  recommendation.
+- **Growth proof:** protected run-event readback for `4788a2a770a6` confirms
+  terminal `completed` status and generated daily artifact
+  `distillations/每周蒸馏/2026-W31/每日增量/2026-08-02.md`. Its immutable
+  manifest places `f4278140ca7f` in `daily_excluded_source_ids` and excludes
+  it from `source_ids`, `citation_source_ids`, and `daily_source_scope_ids`.
+  No second run was dispatched: the completed authorized run is the durable
+  execution record and the source is not eligible for authoring.
+- **Quality-gate correction:** strengthened method-routing validation so a
+  model-provided routing case must include a known type, non-empty `id`,
+  non-empty `prompt`, and a string `expected_method`. Type-complete but
+  unroutable cases are deterministically replaced before proposal evaluation.
+- **Verification:** `python -m pytest tests/knowledge/test_method_distillation.py -q`
+  passed `22`; the combined method-distillation, knowledge-task, and growth API
+  suite passed `76`. Existing FastAPI TestClient deprecation warning remains.

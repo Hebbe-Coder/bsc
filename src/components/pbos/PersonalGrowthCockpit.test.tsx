@@ -133,7 +133,7 @@ describe('PersonalGrowthCockpit', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Open Copilot delivery' }));
     await waitFor(() => expect(invokeKnowledgeCopilotCommand).toHaveBeenCalledWith('default', 'governed_delivery'));
-    expect(screen.getByText(/Copilot delivery command was invoked in Obsidian/i)).toBeVisible();
+    expect(screen.getByText(/Copilot delivery opened in Obsidian/i)).toBeVisible();
     expect(fetchGrowthStage).toHaveBeenCalledTimes(1);
     expect(screen.getByText('No registered external D-layer output needs review.')).toBeVisible();
   });

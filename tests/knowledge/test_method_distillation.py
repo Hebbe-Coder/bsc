@@ -484,6 +484,33 @@ def test_source_distillation_replaces_shaped_but_self_contradictory_routing_case
         repo.close()
 
 
+def test_source_distillation_replaces_type_complete_but_unroutable_model_cases(tmp_path):
+    repo = GrowthRepository(db_path=str(tmp_path / "incomplete-route-case-fields.db"))
+    _source(repo)
+    response = _response()
+    candidate = response["candidates"][0]
+    candidate["manifest"]["eval_cases"] = [
+        {"description": "Capture a provenance-bearing source.", "type": "should_trigger"},
+        {"description": "Publish a citation-backed page.", "type": "should_trigger"},
+        {"description": "Feed reviewed output into the next loop.", "type": "should_trigger"},
+        {"description": "No source evidence is available.", "type": "should_not_trigger"},
+        {"description": "The claim is speculative.", "type": "should_not_trigger"},
+        {"description": "A duplicate source arrives.", "type": "edge_case"},
+    ]
+    response["candidates"] = [candidate]
+    try:
+        proposal = SourceMethodDistillationService(repo, provider=FakeDistillationProvider(response)).distill(
+            project_id="project-a", source_id="source-a", actor_id="owner"
+        )["proposals"][0]
+
+        cases = proposal["manifest"]["eval_cases"]
+        assert "eval_cases" in proposal["manifest"]["distillation"]["derived_execution_contract_fields"]
+        assert all(case["id"] and case["prompt"] and "expected_method" in case for case in cases)
+        assert MethodEvaluator(repo).evaluate(proposal)["eligible"] is True
+    finally:
+        repo.close()
+
+
 def test_source_distillation_replaces_model_method_names_with_slug_bound_routing_cases(tmp_path):
     repo = GrowthRepository(db_path=str(tmp_path / "named-route-cases.db"))
     _source(repo)

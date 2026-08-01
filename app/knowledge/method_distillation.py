@@ -762,7 +762,17 @@ class SourceMethodDistillationService:
     def _has_routing_case_shape(cases: list[Any]) -> bool:
         if not isinstance(cases, list):
             return False
-        types = [str(item.get("type") or "") for item in cases if isinstance(item, dict)]
+        required = {"should_trigger", "should_not_trigger", "edge_case"}
+        if not cases or any(
+            not isinstance(item, dict)
+            or str(item.get("type") or "") not in required
+            or not str(item.get("id") or "").strip()
+            or not str(item.get("prompt") or "").strip()
+            or not isinstance(item.get("expected_method"), str)
+            for item in cases
+        ):
+            return False
+        types = [str(item.get("type") or "") for item in cases]
         return types.count("should_trigger") >= 3 and types.count("should_not_trigger") >= 2 and "edge_case" in types
 
     @staticmethod

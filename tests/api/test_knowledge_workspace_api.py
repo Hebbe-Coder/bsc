@@ -912,6 +912,14 @@ def test_workspace_copilot_command_rejects_untrusted_or_misaligned_plugin_withou
         )
         assert untrusted.status_code == 409
         assert untrusted.json()["message"]["code"] == "copilot_bridge_not_trusted"
+        first_run = repo.list_runs("project-a")[0]
+        assert first_run["run_type"] == "obsidian_copilot_command"
+        assert first_run["status"] == "failed"
+        assert first_run["output_refs"] == {
+            "state": "failed",
+            "detail_code": "copilot_bridge_not_trusted",
+            "command_key": "governed_delivery",
+        }
         assert calls == []
 
         project_root = tmp_path / "projects" / "project-a"
@@ -927,6 +935,9 @@ def test_workspace_copilot_command_rejects_untrusted_or_misaligned_plugin_withou
         )
         assert mismatch.status_code == 409
         assert mismatch.json()["message"]["code"] == "copilot_runtime_not_configured"
+        second_run = repo.list_runs("project-a")[0]
+        assert second_run["status"] == "failed"
+        assert second_run["output_refs"]["detail_code"] == "copilot_runtime_not_configured"
         assert calls == []
     finally:
         app.dependency_overrides.clear()
