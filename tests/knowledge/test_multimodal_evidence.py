@@ -378,6 +378,53 @@ def test_source_sync_reextracts_a_local_v1_derivative_at_the_current_revision(mo
         repo.close()
 
 
+def test_source_sync_reflects_completed_local_asset_extraction_on_source_metadata(monkeypatch, tmp_path):
+    vault = tmp_path / "vault"
+    target = vault / "projects" / "project-a" / "01_Sources" / "metrics.csv"
+    target.parent.mkdir(parents=True)
+    target.write_text("metric,value\nquality,92\n", encoding="utf-8")
+    payload = target.read_bytes()
+    repo = WikiRepository(db_path=str(tmp_path / "metadata-reconciliation.db"))
+    source = repo.create_source(
+        SourceRecord(
+            id="source-manual-asset",
+            project_id="project-a",
+            source_type="manual_upload",
+            origin="projects/project-a/01_Sources/metrics.csv",
+            vault_path="projects/project-a/01_Sources/metrics.csv",
+            content_hash=sha256(payload).hexdigest(),
+            raw_content="Immutable manual asset descriptor",
+            trust_level="trusted",
+            status="eligible",
+            metadata={"sync": "obsidian", "extraction_status": "queued"},
+        )
+    )
+    repo.register_media_asset(
+        MediaAsset(
+            project_id="project-a",
+            source_id=source["id"],
+            mime_type="text/csv",
+            byte_hash=sha256(payload).hexdigest(),
+            byte_size=len(payload),
+            storage_ref="projects/project-a/01_Sources/metrics.csv",
+            metadata={"sync": "obsidian", "extension": ".csv"},
+        )
+    )
+    monkeypatch.setattr(settings, "OBSIDIAN_VAULT_ROOT", str(vault))
+    try:
+        from app.tasks.knowledge_tasks import _extract_new_vault_assets
+
+        summary = _extract_new_vault_assets(repo, "project-a")
+        reflected = repo.get_source("project-a", source["id"])
+
+        assert summary["complete"] == 1
+        assert reflected["metadata"]["extraction_status"] == "complete"
+        assert reflected["metadata"]["extraction_id"]
+        assert repo.list_reference_links("project-a", source_id=source["id"])
+    finally:
+        repo.close()
+
+
 def test_local_extractor_marks_missing_or_changed_originals_for_review(tmp_path):
     vault = tmp_path / "vault"
     target = vault / "projects" / "project-a" / "01_Sources" / "changed.canvas"

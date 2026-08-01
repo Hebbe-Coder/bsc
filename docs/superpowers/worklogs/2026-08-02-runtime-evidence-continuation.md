@@ -482,3 +482,35 @@ note bodies, credentials, provider payloads, or personal feedback.
 - **Verification:** `python -m pytest tests/knowledge/test_method_distillation.py -q`
   passed `22`; the combined method-distillation, knowledge-task, and growth API
   suite passed `76`. Existing FastAPI TestClient deprecation warning remains.
+
+## 2026-08-02 Manual Vault Asset Extraction Admission
+
+- **Problem addressed:** direct user-curated binary assets placed below a
+  project's `01_Sources/` lane had previously been preserved only as rejected
+  unsupported-file fingerprints. This prevented the local extraction pipeline
+  from offering a traceable derivative to the knowledge compiler.
+- **Implemented boundary:** direct `01_Sources/<file>` and
+  `01_Sources/manual/<file>` assets are now captured as trusted
+  `manual_upload` sources with extraction state `queued`. The source body and
+  content hash remain immutable. All other unsupported paths retain their
+  prior rejected-provenance behavior. A narrowly scoped repair reclassifies
+  only the corresponding legacy, rejected Obsidian records after confirming
+  the same project, origin, hash, and manual-lane policy.
+- **Context boundary:** when a local extraction reaches `complete` or
+  `partial`, the growth compiler uses its bounded derivative in memory with
+  source and extraction identifiers. It never overwrites the raw source,
+  treats the derivative as a published Wiki claim, or accepts the source
+  without the existing admission, citation, and review gates.
+- **Runtime state reflection:** the vault extraction task records the latest
+  extraction ID, revision, status, and bounded error metadata on its source so
+  Studio can distinguish queued, complete, partial, and unavailable work.
+  This is operational status, not a claim that an asset was understood or
+  published.
+- **Verification:** `git diff --check` and
+  `.\\.venv\\Scripts\\python.exe -m pytest tests/knowledge/test_wiki_sync.py tests/knowledge/test_multimodal_evidence.py tests/knowledge/test_growth_context.py -q`
+  passed with `61 passed, 1 skipped, 1 warning`. The skip and the FastAPI
+  TestClient deprecation warning are pre-existing test-environment conditions.
+- **Rollback:** revert this isolated admission/extraction commit. Existing
+  source records, file bytes, hashes, extraction artifacts, and audit history
+  remain retained; reverting only stops future direct manual binary assets
+  from entering the local extraction queue.

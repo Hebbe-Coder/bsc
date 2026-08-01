@@ -683,7 +683,7 @@ class GrowthContextService:
                 decision = current_decisions.get(str(source.get("id") or ""))
                 sources.append(
                     {
-                        **source,
+                        **self._with_completed_local_extraction(project_id, source),
                         "context_priority": int(decision.get("priority") or 0) if decision else 0,
                     }
                 )
@@ -712,6 +712,48 @@ class GrowthContextService:
             creation_run_id=creation_run_id,
             index_available=any(self.builder._is_navigation_index(page) for page in pages),
         )
+
+    def _with_completed_local_extraction(self, project_id: str, source: dict[str, Any]) -> dict[str, Any]:
+        """Use a bounded local derivative as generation context when it exists.
+
+        Binary A-layer files retain their immutable descriptor as ``raw_content``.
+        A completed derivative is a separate, project-scoped artifact, so this
+        method creates an in-memory context view instead of overwriting either
+        record. The embedded identifiers keep the compiler's source citation
+        traceable through the Evidence Atlas.
+        """
+        source_id = str(source.get("id") or "").strip()
+        if not source_id:
+            return source
+        candidates: list[tuple[str, str, str, str]] = []
+        for asset in self.repository.list_media_assets(project_id, source_id=source_id):
+            extraction = self.repository.latest_extraction_for_asset(project_id, str(asset.get("id") or ""))
+            if not extraction or str(extraction.get("status") or "") not in {"complete", "partial"}:
+                continue
+            derivative = self.repository.get_extraction_content(project_id, str(extraction.get("id") or ""))
+            content = str((derivative or {}).get("content") or "").strip()
+            if not content:
+                continue
+            candidates.append(
+                (
+                    str(extraction.get("created_at") or ""),
+                    str(extraction.get("id") or ""),
+                    str(extraction.get("status") or ""),
+                    content,
+                )
+            )
+        if not candidates:
+            return source
+        _, extraction_id, extraction_status, content = max(candidates, key=lambda item: (item[0], item[1]))
+        bounded = content[: self.MAX_FILE_BYTES]
+        return {
+            **source,
+            "raw_content": (
+                f"[LOCAL_EXTRACTION source={source_id} extraction={extraction_id} status={extraction_status}]\n"
+                f"{bounded}"
+            ),
+            "extraction_context_id": extraction_id,
+        }
 
     def _project_root(self, project_id: str) -> Path | None:
         mapping = self.repository.get_vault(project_id)

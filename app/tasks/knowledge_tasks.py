@@ -154,9 +154,11 @@ def _extract_new_vault_assets(repo: WikiRepository, project_id: str) -> dict[str
     for asset in repo.list_media_assets(project_id, limit=500):
         # A stable local extractor revision makes source-sync idempotent. A
         # deliberate extractor revision bump is the governed re-extraction path.
-        if repo.latest_extraction_for_asset(
+        existing = repo.latest_extraction_for_asset(
             project_id, str(asset["id"]), extractor_revision=CURRENT_EXTRACTOR_REVISION
-        ):
+        )
+        if existing:
+            _reflect_asset_extraction_on_source(repo, project_id, asset, existing)
             summary["skipped_existing"] += 1
             continue
         summary["attempted"] += 1
@@ -172,9 +174,38 @@ def _extract_new_vault_assets(repo: WikiRepository, project_id: str) -> dict[str
             # a later governed retry can create a new extractor revision.
             summary["unavailable"] += 1
             continue
+        _reflect_asset_extraction_on_source(repo, project_id, asset, result)
         status = str(result.get("status") or "unavailable")
         summary[status if status in summary else "unavailable"] += 1
     return summary
+
+
+def _reflect_asset_extraction_on_source(
+    repo: WikiRepository,
+    project_id: str,
+    asset: dict,
+    extraction: dict,
+) -> None:
+    """Expose current extraction state without changing immutable source bytes."""
+    source_id = str(asset.get("source_id") or "")
+    source = repo.get_source(project_id, source_id) if source_id else None
+    if not source:
+        return
+    metadata = dict(source.get("metadata") or {})
+    status = str(extraction.get("status") or "unavailable")
+    updated = {
+        **metadata,
+        "extraction_status": status,
+        "extraction_id": str(extraction.get("id") or ""),
+        "extraction_revision": str(extraction.get("extractor_revision") or ""),
+    }
+    error = str(extraction.get("error") or "").strip()
+    if error:
+        updated["extraction_error"] = error[:1_024]
+    else:
+        updated.pop("extraction_error", None)
+    if updated != metadata:
+        repo.update_source_metadata(project_id, source_id, updated)
 
 
 def _has_eligible_maintenance_source(repo: WikiRepository, project_id: str) -> bool:

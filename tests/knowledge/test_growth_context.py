@@ -1,7 +1,7 @@
 from app.knowledge.growth_context import GrowthContextBuilder, GrowthContextService
 from app.knowledge.growth_contracts import MethodAsset, MethodRevision, MethodStatus, ProjectKnowledgeProfile
 from app.knowledge.growth_repository import GrowthRepository
-from app.knowledge.wiki_contracts import SourceRecord, SourceStatus
+from app.knowledge.wiki_contracts import ExtractionArtifact, ExtractionStatus, MediaAsset, SourceRecord, SourceStatus
 from app.knowledge.wiki_rules import build_default_agents_rules
 from app.knowledge.wiki_source_capture import CapturedSourceInput, SourceCaptureService
 import pytest
@@ -425,6 +425,68 @@ def test_user_project_context_is_available_without_becoming_factual_evidence(tmp
         assert f"project_context:{context_source['id']}" in pack.provenance
         assert "PROJECT_CONTEXT_NOT_FACTUAL_EVIDENCE" in pack.rendered
         assert "Chinese-first research team" in pack.rendered
+    finally:
+        repository.close()
+
+
+def test_growth_context_uses_completed_local_extraction_for_an_admitted_manual_asset(tmp_path):
+    vault_root = tmp_path / "vault"
+    project_root = vault_root / "projects" / "project-a"
+    project_root.mkdir(parents=True)
+    (project_root / "AGENTS.md").write_text(
+        build_default_agents_rules("project-a"), encoding="utf-8"
+    )
+    repository = GrowthRepository(db_path=str(tmp_path / "growth-context-extraction.db"))
+    repository.configure_vault("project-a", "projects/project-a")
+    try:
+        source = repository.create_source(
+            SourceRecord(
+                id="manual-pdf-source",
+                project_id="project-a",
+                source_type="manual_upload",
+                origin="projects/project-a/01_Sources/research.pdf",
+                vault_path="projects/project-a/01_Sources/research.pdf",
+                content_hash="a" * 64,
+                raw_content="Unsupported format retained as provenance only.",
+                trust_level="trusted",
+                status=SourceStatus.ELIGIBLE,
+                metadata={"sync": "obsidian", "extraction_status": "complete"},
+            )
+        )
+        asset = repository.register_media_asset(
+            MediaAsset(
+                id="manual-pdf-asset",
+                project_id="project-a",
+                source_id=source["id"],
+                mime_type="application/pdf",
+                byte_hash="b" * 64,
+                byte_size=42,
+                storage_ref="projects/project-a/01_Sources/research.pdf",
+            )
+        )
+        extraction = repository.create_extraction_artifact(
+            ExtractionArtifact(
+                id="manual-pdf-extraction",
+                project_id="project-a",
+                source_id=source["id"],
+                asset_id=asset["id"],
+                extractor="pdf-text",
+                extractor_revision="local-v2",
+                input_hash="b" * 64,
+                content_hash="c" * 64,
+                content="MemGPT separates external archival memory from the prompt context.",
+                status=ExtractionStatus.COMPLETE,
+            )
+        )
+
+        pack = GrowthContextService(repository, vault_root).build_context(
+            project_id="project-a", task="Design a personal AI memory delivery loop"
+        )
+
+        assert pack.source_ids == (source["id"],)
+        assert "MemGPT separates external archival memory" in pack.rendered
+        assert f"extraction={extraction['id']}" in pack.rendered
+        assert "Unsupported format retained as provenance only." not in pack.rendered
     finally:
         repository.close()
 

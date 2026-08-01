@@ -1,4 +1,5 @@
 import os
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
@@ -745,6 +746,73 @@ def test_obsidian_sync_retains_unsupported_file_fingerprint_as_rejected_evidence
         assert asset["storage_ref"] == "research.pdf"
         assert asset["byte_hash"] == source["content_hash"]
         assert asset["mime_type"] == "application/pdf"
+    finally:
+        repo.close()
+
+
+def test_obsidian_sync_admits_direct_project_source_assets_for_local_extraction(tmp_path):
+    root = tmp_path / "vault"
+    project_root = root / "projects" / "project-a"
+    document = project_root / "01_Sources" / "research.pdf"
+    document.parent.mkdir(parents=True)
+    document.write_bytes(b"%PDF-project-source")
+    repo = WikiRepository(db_path=str(tmp_path / "sync-project-source-asset.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    try:
+        report = ObsidianSyncService(repo, root).sync(project_id="project-a")
+
+        assert report == {
+            "scanned": 0,
+            "created": 1,
+            "duplicates": 0,
+            "rejected": 0,
+            "deleted": 0,
+            "skipped": 0,
+            "blocked": 0,
+        }
+        source = repo.list_sources("project-a")[0]
+        assert source["source_type"] == "manual_upload"
+        assert source["status"] == "eligible"
+        assert source["metadata"]["extraction_status"] == "queued"
+        asset = repo.list_media_assets("project-a", source_id=source["id"])[0]
+        assert asset["storage_ref"] == "projects/project-a/01_Sources/research.pdf"
+    finally:
+        repo.close()
+
+
+def test_obsidian_sync_reclassifies_legacy_rejected_direct_project_asset(tmp_path):
+    root = tmp_path / "vault"
+    project_root = root / "projects" / "project-a"
+    document = project_root / "01_Sources" / "research.pdf"
+    document.parent.mkdir(parents=True)
+    payload = b"%PDF-legacy-project-source"
+    document.write_bytes(payload)
+    repo = WikiRepository(db_path=str(tmp_path / "sync-legacy-project-source.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    legacy = repo.create_source(
+        SourceRecord(
+            project_id="project-a",
+            source_type="obsidian_unsupported",
+            origin="projects/project-a/01_Sources/research.pdf",
+            vault_path="projects/project-a/01_Sources/research.pdf",
+            content_hash=sha256(payload).hexdigest(),
+            raw_content="Unsupported format retained as provenance only: projects/project-a/01_Sources/research.pdf",
+            trust_level="untrusted",
+            status=SourceStatus.REJECTED,
+            metadata={"sync": "obsidian", "extraction_status": "unsupported"},
+        )
+    )
+    try:
+        report = ObsidianSyncService(repo, root).sync(project_id="project-a")
+        corrected = repo.get_source("project-a", legacy["id"])
+
+        assert report["duplicates"] == 1
+        assert len(repo.list_sources("project-a")) == 1
+        assert corrected["source_type"] == "manual_upload"
+        assert corrected["trust_level"] == "trusted"
+        assert corrected["status"] == "eligible"
+        assert corrected["metadata"]["extraction_status"] == "queued"
+        assert corrected["metadata"]["manual_vault_reclassification"]["previous_status"] == "rejected"
     finally:
         repo.close()
 

@@ -198,6 +198,38 @@ class WikiRepository(BaseRepository):
         self._commit()
         return self.get_source(project_id, source_id) or {}
 
+    def reclassify_legacy_manual_vault_source(
+        self,
+        project_id: str,
+        source_id: str,
+        *,
+        metadata: dict[str, Any],
+    ) -> dict:
+        """Repair one legacy raw-Vault classification without changing its body.
+
+        Older syncs labelled direct files in a project's ``01_Sources`` lane as
+        permanently unsupported before a local extractor had a chance to run.
+        This narrow correction keeps the original hash/body and only permits the
+        known legacy rejected classification to become a user-curated intake.
+        """
+        self._execute(
+            "UPDATE knowledge_sources SET source_type=?,trust_level=?,status=?,metadata_json=?,updated_at=? "
+            "WHERE project_id=? AND id=? AND source_type=? AND status=?",
+            (
+                "manual_upload",
+                "trusted",
+                SourceStatus.ELIGIBLE.value,
+                self._json_dumps(metadata),
+                self._now(),
+                project_id,
+                source_id,
+                "obsidian_unsupported",
+                SourceStatus.REJECTED.value,
+            ),
+        )
+        self._commit()
+        return self.get_source(project_id, source_id) or {}
+
     def find_source_by_content_hash(self, project_id: str, content_hash: str) -> dict | None:
         row = self._execute(
             "SELECT * FROM knowledge_sources WHERE project_id=? AND content_hash=? ORDER BY captured_at DESC, id DESC LIMIT 1",

@@ -412,8 +412,9 @@ class SourceCaptureService:
         content_hash = payload.content_hash or sha256_content(payload.raw_content)
         existing = self.repository.find_source_by_content_hash(payload.project_id, content_hash)
         if existing:
-            self.reference_projector.project_source_id(payload.project_id, str(existing["id"]))
             assessment = self._assess(payload)
+            existing = self._reclassify_legacy_manual_vault_source(existing, payload, assessment)
+            self.reference_projector.project_source_id(payload.project_id, str(existing["id"]))
             self._record_attempt(
                 payload,
                 content_hash=content_hash,
@@ -479,6 +480,53 @@ class SourceCaptureService:
             projection=projection,
         )
         return CaptureResult(source=created, created=True)
+
+    def _reclassify_legacy_manual_vault_source(
+        self,
+        existing: dict[str, Any],
+        payload: CapturedSourceInput,
+        assessment: SourceTrustAssessment,
+    ) -> dict[str, Any]:
+        """Upgrade only the known pre-extraction manual-Vault false rejection."""
+        metadata = dict(existing.get("metadata") or {})
+        if not (
+            payload.source_type == "manual_upload"
+            and payload.metadata.get("manual_vault_source") is True
+            and assessment.status is SourceStatus.ELIGIBLE
+            and existing.get("source_type") == "obsidian_unsupported"
+            and existing.get("status") == SourceStatus.REJECTED.value
+            and metadata.get("sync") == "obsidian"
+            and str(existing.get("origin") or "") == payload.origin
+        ):
+            return existing
+        prior = {
+            "previous_source_type": str(existing.get("source_type") or ""),
+            "previous_trust_level": str(existing.get("trust_level") or ""),
+            "previous_status": str(existing.get("status") or ""),
+            "reason": "legacy_direct_project_source_asset_pre_extraction_rejection",
+            "reclassified_at": datetime.now(timezone.utc).isoformat(),
+        }
+        corrected = self.repository.reclassify_legacy_manual_vault_source(
+            payload.project_id,
+            str(existing["id"]),
+            metadata={
+                **metadata,
+                **payload.metadata,
+                "policy_assessment": assessment.metadata(),
+                "manual_vault_reclassification": prior,
+            },
+        )
+        if not corrected or corrected.get("status") != SourceStatus.ELIGIBLE.value:
+            return existing
+        try:
+            projection = self.search_index.project_source(corrected)
+        except Exception:
+            projection = {"status": "failed", "code": "index_backend_exception"}
+        return self.repository.update_source_metadata(
+            payload.project_id,
+            str(corrected["id"]),
+            {**(corrected.get("metadata") or {}), "projection": projection},
+        )
 
     def _assess(self, payload: CapturedSourceInput) -> SourceTrustAssessment:
         if not self._uses_project_profile_policy:

@@ -51,6 +51,9 @@ class ObsidianSyncService:
             if self._excluded(relative, project_root, managed_roots):
                 continue
             project_relative = "/".join(relative.parts[len(project_root):]) if project_root else ""
+            project_relative_parts = (
+                tuple(relative.parts[len(project_root):]) if project_root else tuple(relative.parts)
+            )
             declared_plugin = manifest.declared_plugin_for(project_relative) if project_relative else None
             plugin = manifest.plugin_for(project_relative) if project_relative else None
             if plugin and self._is_bsc_bridge_healthcheck(plugin.plugin_id, relative.parts[len(project_root):]):
@@ -64,14 +67,16 @@ class ObsidianSyncService:
                 report["blocked"] += 1
                 continue
             workspace_role = ObsidianPluginManifest.workspace_role_for(
-                tuple(relative.parts[len(project_root):]) if project_root else ()
+                project_relative_parts
             )
             extension = path.suffix.lower()
+            source_type = self._source_type(plugin, workspace_role, extension, project_relative_parts)
             if extension not in {".md", ".txt", ".json", ".canvas"}:
+                manual_vault_source = source_type == "manual_upload"
                 result = self.capture_service.capture(
                     CapturedSourceInput(
                         project_id=project_id,
-                        source_type="obsidian_unsupported",
+                        source_type=source_type,
                         origin=relative.as_posix(),
                         vault_path=relative.as_posix(),
                         raw_content=f"Unsupported format retained as provenance only: {relative.as_posix()}",
@@ -84,11 +89,12 @@ class ObsidianSyncService:
                             "modified_at": path.stat().st_mtime_ns,
                             "extension": extension,
                             "byte_size": path.stat().st_size,
-                            "extraction_status": "unsupported",
+                            "extraction_status": "queued" if manual_vault_source else "unsupported",
+                            **({"manual_vault_source": True} if manual_vault_source else {}),
                         },
                     )
                 )
-                report["rejected" if result.created else "duplicates"] += 1
+                self._count_capture(report, result)
                 self._reconcile_plugin_provenance(result.source, plugin, workspace_role)
                 self._mark_present(result.source)
                 self._register_media_asset(result.source, path, relative)
@@ -99,7 +105,7 @@ class ObsidianSyncService:
                 result = self.capture_service.capture(
                     CapturedSourceInput(
                         project_id=project_id,
-                        source_type="obsidian_file",
+                        source_type=source_type,
                         origin=relative.as_posix(),
                         vault_path=relative.as_posix(),
                         raw_content=f"UTF-8 extraction failed; immutable file fingerprint retained: {relative.as_posix()}",
@@ -115,7 +121,7 @@ class ObsidianSyncService:
                         },
                     )
                 )
-                report["rejected" if result.created else "duplicates"] += 1
+                self._count_capture(report, result)
                 self._reconcile_plugin_provenance(result.source, plugin, workspace_role)
                 self._mark_present(result.source)
                 self._register_media_asset(result.source, path, relative)
@@ -128,7 +134,7 @@ class ObsidianSyncService:
             result = self.capture_service.capture(
                 CapturedSourceInput(
                     project_id=project_id,
-                    source_type=self._source_type(plugin, workspace_role, extension),
+                    source_type=source_type,
                     origin=relative.as_posix(),
                     vault_path=relative.as_posix(),
                     raw_content=content,
@@ -172,6 +178,15 @@ class ObsidianSyncService:
             report["deleted"] += 1
         self.backfill_reference_metadata(project_id)
         return report
+
+    @staticmethod
+    def _count_capture(report: dict[str, int], result) -> None:
+        if not result.created:
+            report["duplicates"] += 1
+        elif result.source.get("status") == SourceStatus.REJECTED.value:
+            report["rejected"] += 1
+        else:
+            report["created"] += 1
 
     def _mark_present(self, source: dict) -> None:
         metadata = source.get("metadata") or {}
@@ -337,12 +352,28 @@ class ObsidianSyncService:
         return {"obsidian_workspace_role": workspace_role} if workspace_role else {}
 
     @staticmethod
-    def _source_type(plugin, workspace_role: str, extension: str) -> str:
+    def _source_type(
+        plugin,
+        workspace_role: str,
+        extension: str,
+        project_relative: tuple[str, ...] = (),
+    ) -> str:
         if plugin is not None:
             return f"obsidian_plugin:{plugin.plugin_id}"
+        if ObsidianSyncService._is_manual_project_source_lane(project_relative):
+            return "manual_upload"
         if workspace_role:
             return f"obsidian_{workspace_role}"
         return "obsidian_markdown" if extension == ".md" else "obsidian_file"
+
+    @staticmethod
+    def _is_manual_project_source_lane(project_relative: tuple[str, ...]) -> bool:
+        """Recognize user-placed direct and ``manual/`` A-layer files only."""
+        if not project_relative or project_relative[0] != "01_Sources":
+            return False
+        return len(project_relative) == 2 or (
+            len(project_relative) >= 3 and project_relative[1] == "manual"
+        )
 
     @staticmethod
     def _file_hash(path: Path) -> str:
