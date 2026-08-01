@@ -1022,3 +1022,24 @@ external service, or writing to a Vault/original file.
 - Focused ledger regression passed: `8` tests. `npm run check`, the complete
   frontend suite (`24` files, `215` tests), and `npm run build` passed. The
   existing ECharts vendor advisory remains unchanged.
+
+## PBOS Historical Text Quarantine (2026-08-01)
+
+- Copilot remains the only active Obsidian AI entry point for this project;
+  Claudian is disabled and does not participate in the workspace flow.
+- The authorized PBOS API read exposed three unverified outcomes and one
+  feedback record. One outcome and the feedback contained unreadable legacy
+  text. The backend record, receipt identifiers, and audit lineage were not
+  modified.
+- PBOS now quarantines that text at the presentation boundary: it does not
+  appear in the textarea or feedback list, the user sees an explicit
+  unreadable-history notice, and a pending result cannot be accepted from an
+  unreadable prefill. Readable historical summaries retain the previous
+  review behavior.
+- Tests and gates after the change: `24` frontend files and `216` tests,
+  `npm run check`, `npm run lint` (`0` errors, `214` existing warnings), and
+  `npm run build` all passed. Studio returned HTTP `200` on port `5180`.
+- Browser visual automation was attempted but the current in-app browser
+  bridge failed before tab connection because its kernel-assets path was
+  unavailable. This record intentionally leaves visual confirmation pending
+  instead of treating the HTTP response as a visual acceptance claim.

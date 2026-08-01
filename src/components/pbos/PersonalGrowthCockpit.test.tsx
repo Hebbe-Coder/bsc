@@ -352,6 +352,35 @@ describe('PersonalGrowthCockpit', () => {
     expect(reviewPbosOutcome).not.toHaveBeenCalled();
   });
 
+  it('quarantines unreadable historical outcome and feedback text without changing the audit state', async () => {
+    vi.mocked(fetchPbosCockpit).mockResolvedValue({
+      profile: null,
+      today: null,
+      today_action: { state: 'no_plan' },
+      capabilities: [],
+      outcomes: [{ artifact_id: 'outcome-corrupt-1', execution_record_id: 'execution-safe-1', acceptance_status: 'unverified', quality_score: null, outcome_summary: '???????? ???' }],
+      outcome_observations: [{ artifact_id: 'outcome-corrupt-1', acceptance_status: 'unverified', quality_score: null, eligible_for_evolution: false, missing_requirements: ['accepted_outcome', 'quality_score', 'outcome_summary'], outcome_summary_draft: '????????' }],
+      executions: [{
+        artifact_id: 'execution-safe-1', mission_id: 'mission-1', plan_id: 'plan-1',
+        actions_count: 1, receipt_count: 2, verified_receipt_count: 2,
+        reflection_recorded: true, outcome_state: 'unverified_outcome', created_at: '2026-07-30T15:00:00Z',
+      }],
+      feedback: [{ artifact_id: 'feedback-corrupt-1', statement: '????????????' }],
+      strategies: [], failure_patterns: [], project_health: { unverified_outcomes: 1 }, connectors: {},
+    });
+    vi.mocked(fetchPbosProfile).mockResolvedValue({ profile: null });
+
+    render(<PersonalGrowthCockpit projectId="default" onClose={vi.fn()} runtimeAccessKey="session-key" />);
+
+    await screen.findByText('REVIEW PENDING OUTCOMES');
+    expect(screen.getByText(/Historical outcome text is unreadable/i)).toBeVisible();
+    expect(screen.getByLabelText('Observed delivery result for outcome-corrupt-1')).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Accept result' })).toBeDisabled();
+    expect(screen.getByText(/historical feedback text record is unreadable/i)).toBeVisible();
+    expect(screen.queryByText('???????? ???')).not.toBeInTheDocument();
+    expect(screen.queryByText('????????????')).not.toBeInTheDocument();
+  });
+
   it('reviews an existing pending outcome without creating another execution or outcome', async () => {
     vi.mocked(fetchPbosCockpit).mockResolvedValue({
       profile: null,

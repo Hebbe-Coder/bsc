@@ -2150,6 +2150,7 @@ body .knowledge-connection-path small {
 .pbos-review-card strong { overflow-wrap: anywhere; color: #e0eeea; font: 10px var(--font-mono); }
 .pbos-review-card small { overflow-wrap: anywhere; color: #7f999e; font: 9px/1.35 var(--font-mono); }
 .pbos-review-card em { overflow-wrap: anywhere; color: #e1bd6d; font: 8px/1.35 var(--font-mono); font-style: normal; }
+.pbos-review-warning { overflow-wrap: anywhere; color: #e8c57a !important; }
 .pbos-review-card label { display: grid; min-width: 0; gap: 5px; color: #92a8ac; font: 9px var(--font-mono); }
 .pbos-review-card input { min-width: 0; border: 1px solid #38525a; border-radius: 3px; padding: 8px; color: #deebec; background: #091318; font: 10px/1.4 var(--font-mono); }
 .pbos-review-card input:focus { border-color: #73b8a6; outline: 0; box-shadow: 0 0 0 2px rgba(115, 184, 166, .13); }

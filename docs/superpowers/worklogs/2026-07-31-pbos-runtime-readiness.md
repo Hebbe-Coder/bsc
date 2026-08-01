@@ -477,3 +477,34 @@
   candidate extraction, and model-authored distillation can complete. The
   configured key was never written to Vault files, artifacts, logs, or this
   record.
+
+## 2026-08-01 Copilot PBOS Text Integrity Recheck
+
+- The active Obsidian AI route remains Copilot. Claudian is not in the enabled
+  plugin list and is not used by the current bridge. The Copilot destination
+  remains project-scoped at `04_Outputs/copilot`; no Copilot credential,
+  conversation, or output was read or fabricated.
+- A live PBOS cockpit read for the authorized project returned three
+  unverified outcomes and one feedback record. One outcome summary and the
+  feedback statement met the explicit unreadable-text detector (replacement
+  character or abnormal dense question marks). Vault context was `ready` and
+  personal learning remained `false`.
+- Added a display-layer quarantine in
+  `src/components/pbos/PersonalGrowthCockpit.tsx`. Unreadable historical
+  outcome text is never prefilled or shown; the audit ID and receipt metadata
+  remain visible, a real observed result is required, and the Accept action
+  stays disabled until the operator supplies it. Unreadable feedback is
+  excluded from next-plan display while its existence remains auditable.
+  Original artifacts and database records are untouched.
+- Added a regression fixture for unreadable outcome and feedback text in
+  `PersonalGrowthCockpit.test.tsx`, plus the warning style in `src/index.css`.
+  The existing readable pending-outcome acceptance path remains covered.
+- Verification: focused PBOS tests `19 passed`; complete frontend suite
+  `24 files / 216 tests passed`; `npm run check` passed; `npm run build`
+  passed; `npm run lint` passed with `0 errors / 214 existing warnings`.
+  Studio was started on `http://127.0.0.1:5180/` and returned HTTP `200`.
+- The in-app browser automation connection could not be established because
+  the current browser session reported a missing kernel-assets path. No
+  screenshot or visual browser pass is claimed. The remaining visual check
+  is to open PBOS in Studio and confirm the live warning in the browser after
+  the browser bridge is available.
