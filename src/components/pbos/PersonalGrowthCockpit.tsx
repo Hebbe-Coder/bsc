@@ -136,7 +136,7 @@ function pendingOutputReviews(records: GrowthRecord[]): PendingOutputReview[] {
       const legacyPlugin = String(metadata.obsidian_plugin || metadata.plugin_name || '');
       const adapter = String(metadata.obsidian_adapter || '');
       const origin = String(metadata.origin || record.origin || '').toLowerCase();
-      const originalPath = String(metadata.original_path || record.vault_path || '').replace(/\\/g, '/');
+      const originalPath = String(metadata.original_path || '').replace(/\\/g, '/');
       return origin === 'external'
         || adapter === 'filesystem_output'
         || Boolean(pluginId || legacyPlugin || originalPath);
@@ -145,7 +145,7 @@ function pendingOutputReviews(records: GrowthRecord[]): PendingOutputReview[] {
       const metadata = planObject(record.metadata);
       const pluginId = String(metadata.obsidian_plugin_id || metadata.plugin_id || '');
       const legacyPlugin = String(metadata.obsidian_plugin || metadata.plugin_name || '').toLowerCase();
-      const originalPath = String(metadata.original_path || record.vault_path || '').replace(/\\/g, '/').toLowerCase();
+      const originalPath = String(metadata.original_path || '').replace(/\\/g, '/').toLowerCase();
       const isCopilot = pluginId === 'copilot-agent'
         || legacyPlugin.includes('copilot')
         || /(?:^|\/)04_outputs\/copilot(?:\/|$)/.test(originalPath);

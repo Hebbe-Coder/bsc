@@ -563,6 +563,7 @@ def test_workspace_status_exposes_the_last_integrated_growth_cycle(tmp_path):
                 "sources": {"created": 2, "duplicates": 1},
                 "outputs": {"registered": 1, "duplicates": 0},
                 "triage": {"evaluated": 2, "eligible": 1, "pending_review": 1},
+                "metadata_views": {"status": "completed", "created": 2, "updated": 1, "unchanged": 9, "conflicts": 0},
             },
             "growth": {"status": "generated", "period": "2026-07-23"},
         },
@@ -583,6 +584,7 @@ def test_workspace_status_exposes_the_last_integrated_growth_cycle(tmp_path):
             "sources": {"created": 2, "duplicates": 1},
             "outputs": {"registered": 1, "duplicates": 0},
             "triage": {"evaluated": 2, "eligible": 1, "pending_review": 1},
+            "metadata_views": {"status": "completed", "created": 2, "updated": 1, "unchanged": 9, "conflicts": 0},
         }
     finally:
         settings.API_KEY = previous_key

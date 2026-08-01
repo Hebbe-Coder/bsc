@@ -77,6 +77,7 @@ describe('PersonalGrowthCockpit', () => {
       project_id: 'default', stage: 'D', limit: 100, truncated: false,
       records: [{
         id: 'bsc-project-sop-1', status: 'registered', title: 'BSC generated SOP',
+        vault_path: 'outputs/2026/bsc-project-sop-1/project-sop.md',
         metadata: { origin: 'bsc_system_generated', generator: 'project_sop_generation_service' },
       }],
     });

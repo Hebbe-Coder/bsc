@@ -55,7 +55,13 @@ export function describeGrowthCycleSync(growth: KnowledgeWorkspaceData['growth']
     return `${growth.status}: sync evidence was not recorded`;
   }
   const triage = sync.triage;
-  return `${growth.status}: ${sync.sources.created} evidence captured, ${sync.outputs.registered} outputs registered, ${triage.evaluated} evaluated, ${triage.eligible} eligible, ${triage.pending_review} awaiting review`;
+  const metadataViews = sync.metadata_views;
+  const metadataDetail = !metadataViews
+    ? ''
+    : metadataViews.status === 'completed'
+      ? `; Obsidian views: ${metadataViews.created + metadataViews.updated + metadataViews.unchanged} projected, ${metadataViews.conflicts ? `${metadataViews.conflicts} conflict${metadataViews.conflicts === 1 ? '' : 's'}` : 'no conflicts'}`
+      : `; Obsidian views: ${metadataViews.status}`;
+  return `${growth.status}: ${sync.sources.created} evidence captured, ${sync.outputs.registered} outputs registered, ${triage.evaluated} evaluated, ${triage.eligible} eligible, ${triage.pending_review} awaiting review${metadataDetail}`;
 }
 
 const TERMINAL_RUNS = new Set(['completed', 'failed', 'cancelled', 'unavailable']);

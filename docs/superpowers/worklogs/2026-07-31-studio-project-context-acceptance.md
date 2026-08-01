@@ -1294,3 +1294,89 @@ external service, or writing to a Vault/original file.
 - **Boundary:** the correction improves truthful operational visibility only.
   It does not turn eligible sources into approved claims, nor make an
   unreviewed Copilot output a verified learning artifact.
+
+## O2 Native Bases Runtime Evidence (2026-08-01)
+
+- The metadata projection was extended with one BSC-managed native Obsidian
+  Base, `Knowledge Index/Knowledge Operations.base`. It uses the documented
+  `.base` YAML surface only: a project-folder and Markdown global filter,
+  canonical property display names, and ten local navigation views for Inbox,
+  Review Queue, Published Wiki, Method Candidates, Registered Outputs,
+  Feedback Debt, Stale References, Extraction Failures, Evidence Atlas, and
+  Reference Network. The Base contains no source body, credential, endpoint,
+  lifecycle mutation, or access-control rule.
+- Test-first coverage was added for official Bases YAML shape, all ten view
+  names, table layout, idempotence, user-edit conflict preservation, and
+  managed-index capture exclusion. The focused command
+  `./.venv/Scripts/python.exe -m pytest tests/knowledge/test_obsidian_metadata.py tests/knowledge/test_wiki_sync.py tests/knowledge/test_knowledge_tasks.py::test_source_sync_task_imports_only_non_managed_obsidian_notes tests/integration/test_growth_celery.py::test_growth_daily_syncs_declared_obsidian_exports_before_distillation -q`
+  passed with `31 passed, 1 skipped, 1 warning`.
+- The generation is now attached to both ordinary `source_sync` and the
+  declared-export phase of `growth_daily`. Each run records a bounded
+  `metadata_views` result (`completed`, `created`, `updated`, `unchanged`,
+  `conflicts`) rather than treating a local view as hidden side effect.
+- Compose API, Worker and Beat were rebuilt from this version and returned to
+  healthy status. Real protected `source_sync` run `77976ae5996e` completed
+  with no run error and created `12` managed files: the Base plus eleven
+  Dataview index notes. A bounded YAML read verified the project scope filter,
+  all ten table views, and `16` display properties. Metadata Menu already had
+  all `20` canonical fields configured; no plugin configuration was changed.
+- The production post-run audit found one ordinary source captured during the
+  sync, but `0` records whose origin belongs to `Knowledge Index` and `0`
+  `.base` records. All returned evidence metadata remained project-scoped.
+  This confirms generated Bases/Dataview navigation cannot re-enter A-layer
+  capture. Obsidian Local REST also returned an authenticated manifest for
+  plugin version `5.0.2` through the bounded Docker-host TLS probe.
+- Desktop/mobile Studio visual proof remains pending: the Codex browser
+  runtime failed before connecting with a local kernel-assets path error.
+  This is recorded as an unavailable verification surface, not a claim that
+  the Obsidian Base or Studio was visually inspected.
+
+## O4 Zotero Reference Gap Diagnosis (2026-08-01)
+
+- The authorized source `f4278140ca7f` was inspected through bounded metadata
+  and frontmatter-key checks only. Its Zotero export has no YAML frontmatter
+  keys and no stored DOI, URL, citation key, or canonical URL metadata. The
+  metadata-only reference projector therefore correctly creates no link; this
+  is not a missing alias or parser defect.
+- The source remains `validated` / `untrusted` and excluded from Growth
+  context and citations. A later Zotero export that includes a legitimate DOI,
+  URL, or citation key is required to close its own traceability gap. BSC must
+  not infer a bibliography record from local filename, source body, or a
+  model-generated guess.
+
+## Authorized Zotero Review and Growth Proof (2026-08-01)
+
+- The project owner explicitly authorized governed semantic review and one
+  Growth cycle for source `f4278140ca7f`. The semantic review ran against the
+  immutable source through the configured DeepSeek provider and persisted
+  triage `d34911d25290828395e1a792` with evaluator revision
+  `semantic-source-triage-v3`. It completed with priority `30`, disposition
+  `ignore`, and `reliability_pass=false`; source status remains
+  `validated/untrusted` and no `admission_approval` was written. The later
+  Growth sync also recorded the current deterministic review
+  `71c541af88741f4dc87ed503` (`profile-aware-v2`, priority `58`,
+  `archive`, `reliability_pass=false`). The two reviewers differ only in
+  relevance scoring; neither can authorize use, so the source stays outside
+  factual context.
+- The protected daily Growth run `50ee4e03354f` completed through the real
+  Celery Worker. The run recorded dispatch, started, Obsidian sync, model,
+  distillation, and terminal events. Its model execution used the configured
+  project growth route; the distillation result was `preserved`, so an
+  existing artifact was not overwritten merely because a run occurred.
+- The persisted context manifest does not include `f4278140ca7f` in its
+  `source_ids`. The source remains represented only in the bounded audit/input
+  ledger, not as factual growth context, a citation, an eligible evidence
+  record, or a published Wiki claim.
+- The Growth sync phase completed with `41` triage evaluations and a native
+  Obsidian metadata projection of `created=0`, `updated=0`, `unchanged=12`,
+  `conflicts=0`. This was re-read from the protected workspace API after the
+  Compose API container was rebuilt.
+- The workspace API now exposes only the whitelisted metadata projection
+  status and counts in `growth.sync.metadata_views`; it never exposes Vault
+  paths, note bodies, credentials, or plugin settings. The Knowledge Workspace
+  shows the same durable state in its Growth-cycle connection step.
+- Verification passed: focused API pytest, `KnowledgeWorkspace` Vitest suite
+  (`17` tests), TypeScript check, and production Docker build. Browser visual
+  acceptance remains pending because the Codex browser runtime remains unable
+  to initialize its local kernel assets; this worklog does not claim a visual
+  inspection.

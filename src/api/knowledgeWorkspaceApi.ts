@@ -99,6 +99,7 @@ export type KnowledgeWorkspaceData = {
       sources: { created: number; duplicates: number };
       outputs: { registered: number; duplicates: number };
       triage: { evaluated: number; eligible: number; pending_review: number };
+      metadata_views?: { status: string; created: number; updated: number; unchanged: number; conflicts: number };
     } | null;
   };
   scheduler: { available: boolean; mode: 'celery' | 'manual' };

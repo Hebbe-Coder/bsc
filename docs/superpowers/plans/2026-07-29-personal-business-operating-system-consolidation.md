@@ -1401,6 +1401,44 @@ runtime facts, not completion labels.
   only the live status projection; it does not alter records, Vault files,
   schedules, or credentials.
 
+## 2026-08-01 Cockpit Classification Correction
+
+### Implemented
+
+- Corrected `PersonalGrowthCockpit` external-output detection so a normal
+  `vault_path` on a BSC-generated `project_sop` no longer causes it to appear
+  in the D-layer Copilot review queue. Only explicit external provenance,
+  plugin/adapter metadata, or an original filesystem path enters that queue.
+- Added a regression with a projected BSC SOP record to protect this boundary.
+  The Cockpit now truthfully renders no pending external D-layer review when
+  the only records are BSC-owned generated outputs.
+
+### Evidence
+
+- Focused knowledge-output tests passed: `32 passed, 1 skipped`.
+- The Cockpit frontend suite passed: `21 passed`; `npm run check` and
+  `git diff --check` passed.
+- A final `docker compose up -d --build bsc-backend` rebuilt the production
+  frontend and API. The health endpoint returned `200` after recreation.
+- The project `04_Outputs/copilot` directory was still empty after the build.
+  There is no actual Copilot write receipt, no registered output, and no
+  learning input created by this fix.
+- The browser opened the mapped project's Personal Growth Cockpit and rendered
+  `0 pending` external D-layer output, `0` accepted outcomes, `0` verified
+  capabilities, `0` active Strategy Genomes, and `awaiting authorization` for
+  both GitHub and Feishu.
+
+### Remaining Boundary And Rollback
+
+- Copilot remains correctly configured and trusted but `awaiting_output`.
+  Desktop Copilot chat submission and its visible `writeFile` approval are
+  third-party UI actions that BSC cannot truthfully substitute through Local
+  REST or a direct filesystem write.
+- GitHub and Feishu remain `awaiting_authorization`.
+- Rollback is limited to the Cockpit provenance predicate and its regression;
+  it does not affect Vault material, Artifact Graph history, external
+  authorization, schedules, or credentials.
+
 ### Copilot Producer Invocation
 
 - Added the project-local `PBOS-一键受治理交付` Copilot command. It treats its

@@ -1817,6 +1817,38 @@
   Growth D-layer review. This is the only remaining action that must originate
   inside the third-party desktop plugin; BSC must not synthesize it.
 
+## 2026-08-01 Cockpit External-Output Classification And Production Rebuild
+
+- **Defect corrected:** a BSC-generated `project_sop` could be displayed as a
+  pending external D-layer output when it had a normal `vault_path`. This was
+  a false positive: generated BSC artifacts have Vault projections but are not
+  Copilot or filesystem-producer exports requiring attribution review.
+- **Implementation:** `PersonalGrowthCockpit` now treats only explicit
+  external origin, filesystem-output adapter, plugin markers, or
+  `metadata.original_path` as external evidence. It deliberately does not use
+  the generic `record.vault_path` fallback. The focused frontend regression
+  gives a BSC-generated SOP a Vault path and verifies it remains outside the
+  pending-external-review queue.
+- **Verification:** `pytest tests/knowledge/test_obsidian_output_sync.py
+  tests/knowledge/test_wiki_sync.py -q` passed (`32 passed, 1 skipped`);
+  `npm run test:frontend -- src/components/pbos/PersonalGrowthCockpit.test.tsx`
+  passed (`21 passed`); `npm run check` and `git diff --check` passed.
+  `docker compose up -d --build bsc-backend` completed after the correction,
+  and `GET http://127.0.0.1:8002/ready` returned `200`.
+- **Producer truth check:** immediately before and after the rebuild,
+  `projects/proj_b8a285642094/04_Outputs/copilot/` contained no delivery
+  file. The configured Copilot command remains available, but no chat
+  submission or `writeFile` event was observed. This is still
+  `awaiting_output`, not a completed external export.
+- **Browser proof:** the mapped project was opened in the running Studio
+  Personal Growth Cockpit. It rendered `0 pending` and `No registered external
+  D-layer output needs review`, while retaining `0` accepted outcomes,
+  `0` verified capabilities, and `0` active Strategy Genomes. The configured
+  GitHub and Feishu connectors rendered `awaiting authorization`.
+- **Rollback:** restore the preceding `PersonalGrowthCockpit` bundle. The
+  change only affects review-queue classification and cannot create, accept,
+  or delete an output, Experience, Capability, or Strategy Genome.
+
 ## 2026-08-01 Managed Obsidian Views And Copilot Review Integrity
 
 - **Implemented:** the governed Vault sync now writes a BSC-owned
@@ -1840,3 +1872,30 @@
   BSC-owned `Knowledge Index` files is sufficient to undo the Vault
   navigation projection; evidence, user notes, and plugin configuration stay
   untouched.
+
+## 2026-08-01 Horizon Producer To Governed Intake
+
+- **Producer execution:** validated the local Horizon configuration with the
+  configured DeepSeek provider and then ran a live 48-hour collection across
+  GitHub, Hacker News, RSS, Reddit, OSS Insight, and Google News. The run
+  `run-20260801T154901Z-04e2a4c9` fetched 38 records, merged them to 37,
+  scored 37, retained 20 above the threshold, and selected 6 after topic
+  de-duplication and category balancing.
+- **Observed limitation:** the optional enrichment and summary phase exceeded
+  its ten-minute producer invocation limit. Its stage file was not written.
+  The verified `filtered_items.json` remains the explicit import stage; BSC
+  never labels it as enriched and the raw/scored/filtered artifacts remain
+  available for audit.
+- **BSC intake execution:** queued and completed capture run `4da80e723940`
+  through the production Celery worker. It consumed the fresh filtered
+  artifact from the read-only Horizon run-store and recorded `accepted=6`,
+  `created=6`, `duplicates=0`, `rejected=0`. Evidence mirroring created six
+  matching governed projections without changing raw producer artifacts.
+- **Deployment proof:** commit `b9170bf` was rebuilt into the API, worker, and
+  beat containers. The API health check confirmed PostgreSQL, Redis, Celery,
+  DeepSeek provider initialization, and document parser availability.
+- **Residual boundary:** GitHub collection is currently unauthenticated and
+  may be rate limited. The three sources returning empty in this run are
+  represented as empty producer outcomes, not as successful evidence. The
+  managed Vault sync also preserves one existing user-edited index conflict;
+  BSC does not overwrite it.

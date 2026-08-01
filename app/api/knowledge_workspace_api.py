@@ -354,12 +354,22 @@ def _growth_sync_summary(run: dict[str, Any] | None) -> dict[str, Any] | None:
         record = value if isinstance(value, dict) else {}
         return {field: int(record.get(field, 0) or 0) for field in fields}
 
-    return {
+    summary = {
         "status": str(raw.get("status") or "not_recorded"),
         "sources": counts(raw.get("sources"), ("created", "duplicates")),
         "outputs": counts(raw.get("outputs"), ("registered", "duplicates")),
         "triage": counts(raw.get("triage"), ("evaluated", "eligible", "pending_review")),
     }
+    metadata_views = raw.get("metadata_views")
+    if isinstance(metadata_views, dict):
+        # The workspace needs operational evidence that the local navigation
+        # projection ran, but never the Vault paths, note bodies, or plugin
+        # settings that produced it.
+        summary["metadata_views"] = {
+            "status": str(metadata_views.get("status") or "not_recorded"),
+            **counts(metadata_views, ("created", "updated", "unchanged", "conflicts")),
+        }
+    return summary
 
 
 def _horizon_run_summary(run: dict[str, Any] | None) -> dict[str, Any] | None:

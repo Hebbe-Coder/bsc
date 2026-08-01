@@ -163,6 +163,19 @@ describe('KnowledgeWorkspace focused components', () => {
     } as never)).toBe('completed: 1 evidence captured, 0 outputs registered, 4 evaluated, 5 eligible, 1 awaiting review');
   });
 
+  it('reports the persisted Obsidian metadata projection without exposing a Vault path', () => {
+    expect(describeGrowthCycleSync({
+      status: 'completed',
+      sync: {
+        status: 'completed',
+        sources: { created: 1, duplicates: 3 },
+        outputs: { registered: 0, duplicates: 2 },
+        triage: { evaluated: 4, eligible: 2, pending_review: 2 },
+        metadata_views: { status: 'completed', created: 2, updated: 1, unchanged: 9, conflicts: 0 },
+      },
+    } as never)).toBe('completed: 1 evidence captured, 0 outputs registered, 4 evaluated, 2 eligible, 2 awaiting review; Obsidian views: 12 projected, no conflicts');
+  });
+
   it('explains the optional Local REST connector without treating it as a source bridge', () => {
     expect(describeLocalRestConnection(undefined)).toMatch(/not configured/i);
     expect(describeLocalRestConnection({
