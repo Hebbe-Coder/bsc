@@ -650,6 +650,47 @@ note bodies, credentials, provider payloads, or personal feedback.
   PBOS learning. Reverting this record does not change the immutable run
   ledger or either user-owned Vault directory.
 
+## 2026-08-02 Selected Evidence And Copilot Runtime Revalidation
+
+- **Current deployment:** rebuilt API, Celery Worker, and Celery Beat from
+  the current committed source. SHA-256 comparison confirmed deployed
+  `context_pack.py`, `growth_context.py`, `prd_to_sop.py`, `wiki_index.py`,
+  `wiki_source_capture.py`, `wiki_sync.py`, `pbos/context.py`, and
+  `knowledge_tasks.py` match the host checkout. `/ready` returned `200` with
+  PostgreSQL and Redis both `ok`.
+- **Real project sync:** authenticated run `02cb3ea01e08` completed for
+  `proj_b8a285642094`. It scanned 8 existing project files, created or
+  rejected none, retained 26 existing local extraction artifacts and 26
+  evidence-reference anchors, refreshed 2 usable extraction projections, and
+  indexed 5 managed Wiki documents with no index failure. This is a real
+  idempotent source-sync receipt, not a fixture or synthetic source.
+- **Actual context consumption:** a metadata-only PBOS context readback
+  returned one `admitted_evidence` document with a retained extraction
+  reference, alongside published Wiki and declared project context. It
+  reported `raw_copilot_context_consumed=false`,
+  `raw_plugin_output_context_consumed=false`, and
+  `unreviewed_managed_output_consumed=false`.
+- **Copilot availability:** Obsidian Local REST was `connected`; the trusted
+  Copilot bridge was `ready` and listed exactly five allowlisted commands:
+  `evidence_plan`, `three_minute_reflection`, `governed_delivery`,
+  `knowledge_review`, and `project_delivery`. It remains `awaiting_output`;
+  reading command availability does not claim a new Copilot response.
+- **D-layer truth:** the project has 6 persisted outputs: 3 `registered` and
+  3 `rejected`, with zero `accepted` or `filed`. No outcome, capability,
+  experience, strategy, or release claim was promoted by this work.
+- **Verification:** `npm run check` and `npm run build` passed (Vite emitted
+  only its existing chunk-size advisory). Focused backend/API/Celery/PBOS
+  coverage passed `95`; focused frontend coverage passed `57`; full Python
+  suite passed `1696 passed, 14 skipped, 3 warnings`. Skips cover external or
+  platform-dependent integration paths; warnings are existing FastAPI
+  TestClient and Pydantic deprecations.
+- **Remaining owner evidence:** to close the feedback-loop gate, review one
+  registered Copilot D-layer draft in Studio, attach the actual eligible
+  evidence it used, record a truthful quality/evaluation and observed delivery
+  outcome, then process that feedback and recompile a later PBOS plan. This
+  action cannot be automated without fabricating user judgment or business
+  results.
+
 ## 2026-08-02 Copilot Configuration And Dispatch Recheck
 
 - **Configuration evidence:** the configured project Vault is reachable and
