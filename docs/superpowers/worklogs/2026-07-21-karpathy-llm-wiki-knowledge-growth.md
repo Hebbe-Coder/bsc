@@ -1224,3 +1224,96 @@ Live Horizon endpoint/API credentials and a real Wiki-maintenance LLM provider r
   each passed through the actual proposal lint endpoint. Both returned
   `valid=true` with zero findings. They remain draft review items: lint is a
   quality gate, not authorization to publish on behalf of the project owner.
+
+## 2026-08-01 Copilot First Real Output And D-Layer Registration
+
+- The active Copilot model was verified through the Obsidian UI without
+  reading or printing the Keychain credential. The first real request reached
+  the provider but exhausted the configured `6000` output-token limit before
+  producing a final answer; the resulting Markdown remains an auditable
+  failed-attempt record and was not treated as a successful plan.
+- The model setting was changed through Copilot's own Model Settings UI to a
+  `12000` output-token limit. A second request used the active
+  `PBOS-v1-personal-delivery-brief` note as context and returned a complete,
+  concise plan that distinguishes facts, inference, gaps, authorization,
+  bounded stages, evidence degradation, learning gates, and the three-minute
+  review entrypoint. It makes no capability, outcome, or external-sync claim.
+- Copilot automatically saved the real conversation to
+  `projects/proj_b8a285642094/04_Outputs/copilot/PBOS_v1_Execution_Plan@20260801_123122.md`.
+  The file is `4088` bytes at readback and contains the provider model key,
+  active Brief context, the failed attempt, and the complete second response.
+  No placeholder file was created and no Vault source note was modified.
+- The normal governed `source_sync` task was queued as run `60ae633c6ec4`
+  through the live Celery path and completed. Its output feedback observed one
+  Copilot file and found no rejected or blocked files. The Copilot D-layer
+  projection now has two immutable registered versions with distinct content
+  hashes; both preserve the original path and remain `registered`, not
+  accepted or reusable.
+- The live plugin projection is now `status=registered_output`,
+  `capture_state=registered_output`, `trust_state=trusted`,
+  `runtime_configuration=destination_matches_bridge`, and
+  `registered_outputs=2`. This closes the real Copilot output bridge only.
+  GitHub and Feishu remain `awaiting_authorization`; no connector credential
+  was read, stored, or inferred.
+- **Remaining gate:** the output needs owner review, an observed result and
+  quality decision, and two further comparable delivery loops before any
+  Capability or Strategy Genome promotion. The failed first attempt is not
+  eligible evidence for learning.
+
+## 2026-08-01 Copilot Provenance Parser Rollout
+
+- Added bounded parsing for the already configured, trusted Copilot export
+  format. A future real Markdown conversation records its declared provider,
+  model, topic-derived title, Markdown MIME type, prompt-revision marker, and
+  only same-project `[Context: Notes: ...]` paths. It never reads Keychain
+  credentials, retains prompts, creates source/page lineage, accepts an
+  output, or creates PBOS capability evidence.
+- A parser upgrade does not rewrite immutable D-layer registrations. Existing
+  Copilot versions therefore intentionally retain their historical
+  `external_plugin` / `unknown` provenance. The current real file was read by
+  the live container parser and safely yielded `deepseek`,
+  `deepseek-v4-flash`, and two paths below
+  `projects/proj_b8a285642094/`; a newly generated Copilot file is required
+  for that metadata to become a new immutable registration.
+- Live governed verification run `fa4da88cad62` completed after the rollout.
+  It scanned seven project assets with `created=0`, `duplicates=7`,
+  `rejected=0`, `blocked=0`; output feedback scanned the one Copilot file as
+  `duplicates=1`, `rejected=0`, `blocked=0`. No source, Wiki page, output
+  status, method, Strategy Genome, capability, or connector authorization was
+  changed by this verification.
+- Verification: the focused output-sync suite passed `6` tests and the
+  output-sync plus Compose contract group passed `20` tests. The complete PBOS
+  suite previously passed `91` tests; the knowledge/Artifact regression group
+  passed `152` tests with one documented skip; frontend tests passed `216`.
+- Rollback: redeploy the preceding application image. The output files and
+  registrations are untouched; no database migration or Vault content rewrite
+  is required.
+
+## 2026-08-01 Daily Distillation Publication Consistency Repair
+
+- A real same-day growth audit found that repeated daily runs must preserve
+  each historical artifact at an immutable path. The publisher now takes both
+  a Vault publication lock and a PostgreSQL/SQLite lifecycle transaction for
+  one `project_id`, kind, and period. The lock covers record lookup, archive,
+  canonical-file replacement, record relocation, and final commit.
+- When a previous daily artifact is available, its persisted `paths` and
+  manifest hash move with the file into
+  `revisions/<date>/<input_hash>.md`. A legacy record whose prior file cannot
+  be proven is retained as `superseded_artifact_missing` with no output path;
+  it is never represented as a valid document or used as a comparison input.
+- Regression coverage now verifies sequential revision readback, concurrent
+  publishing, recovery from a quarantined same-input record, user-edit
+  protection, and non-UTF-8 manifest rejection. The focused distillation and
+  Compose suites passed `76`; API, workspace, Celery, provider-config, and
+  PostgreSQL-contract suites passed `76` with one documented environment skip.
+- Runtime evidence: API, Worker, and Beat were rebuilt and restarted; API
+  readiness returned `200` and Worker ping returned `pong`. Four real
+  `2026-08-01` output records for `proj_b8a285642094` were revalidated against
+  their managed file hashes: one current LLM output and three immutable
+  revisions. The one existing missing-artifact audit row remains explicitly
+  non-output.
+- A real PostgreSQL two-connection verification used an isolated temporary
+  project and Vault directory, produced two concurrent daily revisions with
+  two distinct paths, and revalidated both records before deleting all
+  temporary rows and files. No Vault body, Copilot credential, or provider key
+  was logged or copied during this check.

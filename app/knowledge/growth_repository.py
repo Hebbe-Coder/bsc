@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
 from typing import Any
@@ -1306,6 +1307,19 @@ class GrowthRepository(WikiRepository):
             self._execute("BEGIN IMMEDIATE")
         return backend
 
+    @contextmanager
+    def growth_distillation_transaction(self, project_id: str, kind: str, period: str):
+        """Serialize one project's mutable distillation publication slot."""
+        backend = self._begin_lifecycle_transaction(
+            f"growth-distillation|{project_id}|{kind}|{period}"
+        )
+        try:
+            yield
+            self._commit()
+        except Exception:
+            backend.rollback()
+            raise
+
     def _record_lifecycle_audit(
         self,
         *,
@@ -1579,14 +1593,45 @@ class GrowthRepository(WikiRepository):
         ).fetchone()
         return self._decode_growth(row, ("paths_json", "manifest_json"))
 
-    def record_growth_distillation(self, *, project_id: str, period: str, kind: str, input_hash: str, paths: list[str], manifest: dict[str, Any], status: str = "generated") -> dict[str, Any]:
+    def record_growth_distillation(self, *, project_id: str, period: str, kind: str, input_hash: str, paths: list[str], manifest: dict[str, Any], status: str = "generated", commit: bool = True) -> dict[str, Any]:
         row_id = hashlib.sha256(f"{project_id}|{kind}|{period}|{input_hash}".encode()).hexdigest()[:24]
         self._execute(
             "INSERT INTO knowledge_growth_distillations (id,project_id,period,kind,input_hash,paths_json,manifest_json,status,created_at) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(project_id,kind,period,input_hash) DO NOTHING",
             (row_id, project_id, period, kind, input_hash, self._json_dumps(paths), self._json_dumps(manifest), status, self._now()),
         )
-        self._commit()
+        if commit:
+            self._commit()
         return self._decode_growth(self._execute("SELECT * FROM knowledge_growth_distillations WHERE id=?", (row_id,)).fetchone(), ("paths_json", "manifest_json")) or {}
+
+    def update_growth_distillation_output(
+        self,
+        *,
+        project_id: str,
+        period: str,
+        kind: str,
+        input_hash: str,
+        paths: list[str],
+        manifest: dict[str, Any],
+        status: str | None = None,
+        commit: bool = True,
+    ) -> dict[str, Any]:
+        """Move a persisted record when its managed file becomes immutable."""
+        assignments = "paths_json=?,manifest_json=?"
+        values: list[Any] = [self._json_dumps(paths), self._json_dumps(manifest)]
+        if status is not None:
+            assignments += ",status=?"
+            values.append(status)
+        values.extend((project_id, period, kind, input_hash))
+        cursor = self._execute(
+            f"UPDATE knowledge_growth_distillations SET {assignments} "
+            "WHERE project_id=? AND period=? AND kind=? AND input_hash=?",
+            tuple(values),
+        )
+        if cursor.rowcount != 1:
+            raise KeyError("growth distillation record not found")
+        if commit:
+            self._commit()
+        return self.get_growth_distillation(project_id, kind, period, input_hash) or {}
 
     def list_growth_distillations(self, project_id: str, kind: str = "", limit: int = 100) -> list[dict[str, Any]]:
         params: list[Any] = [project_id]

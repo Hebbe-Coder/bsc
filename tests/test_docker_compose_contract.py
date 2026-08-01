@@ -68,6 +68,16 @@ def test_growth_llm_model_reaches_only_the_api_and_worker():
     assert expected not in set(compose["services"]["celery-beat"]["environment"])
 
 
+def test_growth_llm_provider_reaches_only_the_api_and_worker():
+    compose = yaml.safe_load(Path("docker-compose.yml").read_text(encoding="utf-8"))
+    expected = "KNOWLEDGE_GROWTH_LLM_PROVIDER=${KNOWLEDGE_GROWTH_LLM_PROVIDER:-}"
+
+    for service_name in ("bsc-backend", "celery-worker"):
+        assert expected in set(compose["services"][service_name]["environment"])
+
+    assert expected not in set(compose["services"]["celery-beat"]["environment"])
+
+
 def test_pbos_compilation_timeout_reaches_only_the_api_and_worker():
     compose = yaml.safe_load(Path("docker-compose.yml").read_text(encoding="utf-8"))
     expected = {

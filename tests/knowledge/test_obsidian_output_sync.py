@@ -169,3 +169,86 @@ def test_claudian_output_contract_rejects_a_declared_cross_project_output(tmp_pa
         assert repo.list_outputs("project-a") == []
     finally:
         repo.close()
+
+
+def test_copilot_transcript_without_bsc_contract_is_rejected(tmp_path):
+    vault = tmp_path / "vault"
+    project_root = vault / "projects" / "project-a"
+    output_root = project_root / "04_Outputs" / "copilot"
+    output_root.mkdir(parents=True)
+    (project_root / "bsc-plugins.json").write_text(
+        '{"plugins":[{"id":"copilot","name":"Copilot","adapter":"filesystem_output","input_paths":["04_Outputs/copilot"]}]}',
+        encoding="utf-8",
+    )
+    ObsidianPluginManifest.load(project_root).set_trust(
+        project_root, plugin_ids=["copilot"], trusted=True, actor_id="test", reason="fixture"
+    )
+    (output_root / "plan.md").write_text(
+        "---\n"
+        "epoch: 1785558682253\n"
+        'modelKey: "deepseek-v4-flash|deepseek"\n'
+        'topic: "PBOS v1 Execution Plan"\n'
+        "---\n\n"
+        "**user**: Compile an evidence-aware plan.\n"
+        "[Context: Notes: projects/project-a/03_Projects/active/brief.md, "
+        "projects/project-a/wiki/overview.md, ../outside.md]\n\n"
+        "**ai**: Keep all unverified claims pending review.\n",
+        encoding="utf-8",
+    )
+    repo = GrowthRepository(db_path=str(tmp_path / "copilot-output.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    try:
+        report = ObsidianOutputSyncService(repo, vault).sync(project_id="project-a")
+
+        assert report == {"scanned": 1, "registered": 0, "duplicates": 0, "rejected": 1, "skipped": 0, "blocked": 0}
+        assert repo.list_outputs("project-a") == []
+        assert (output_root / "plan.md").is_file()
+    finally:
+        repo.close()
+
+
+def test_copilot_reviewed_output_with_contract_registers_once_and_is_idempotent(tmp_path):
+    vault = tmp_path / "vault"
+    project_root = vault / "projects" / "project-a"
+    output_root = project_root / "04_Outputs" / "copilot"
+    output_root.mkdir(parents=True)
+    (project_root / "bsc-plugins.json").write_text(
+        '{"plugins":[{"id":"copilot","name":"Copilot","adapter":"filesystem_output","input_paths":["04_Outputs/copilot"]}]}',
+        encoding="utf-8",
+    )
+    ObsidianPluginManifest.load(project_root).set_trust(
+        project_root, plugin_ids=["copilot"], trusted=True, actor_id="test", reason="fixture"
+    )
+    content = (
+        "---\n"
+        "bsc_output_contract: v1\n"
+        "project_id: project-a\n"
+        "title: PBOS v1 Execution Plan\n"
+        "output_kind: execution_plan\n"
+        "goal: Turn the approved brief into an executable plan\n"
+        "audience: Project owner\n"
+        "channel: internal\n"
+        'modelKey: "deepseek-v4-flash|deepseek"\n'
+        "---\n\n"
+        "# PBOS v1 Execution Plan\n\nA reviewed Copilot delivery.\n"
+    ).encode("utf-8")
+    original = output_root / "plan.md"
+    original.write_bytes(content)
+    repo = GrowthRepository(db_path=str(tmp_path / "copilot-legacy.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    try:
+        service = ObsidianOutputSyncService(repo, vault)
+        first = service.sync(project_id="project-a")
+        retry = service.sync(project_id="project-a")
+        output = repo.list_outputs("project-a")[0]
+
+        assert first == {"scanned": 1, "registered": 1, "duplicates": 0, "rejected": 0, "skipped": 0, "blocked": 0}
+        assert retry == {"scanned": 1, "registered": 0, "duplicates": 1, "rejected": 0, "skipped": 0, "blocked": 0}
+        assert output["title"] == "PBOS v1 Execution Plan"
+        assert output["kind"] == "execution_plan"
+        assert output["metadata"]["bsc_output_contract"] == "v1"
+        assert output["metadata"]["provider"] == "deepseek"
+        assert output["metadata"]["model"] == "deepseek-v4-flash"
+        assert output["metadata"]["prompt_revision"] == "vault_output_contract_v1"
+    finally:
+        repo.close()

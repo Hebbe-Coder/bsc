@@ -1126,6 +1126,42 @@ def test_growth_distillation_api_shows_current_revision_until_history_is_request
     assert current_detail.json()["data"]["distillation"]["current"] is True
 
 
+def test_growth_distillation_api_never_marks_missing_artifact_history_current(growth_api):
+    client, repo = growth_api
+    repo.configure_vault("project-a", "projects/project-a")
+    missing = repo.record_growth_distillation(
+        project_id="project-a",
+        period="2026-07-22",
+        kind="daily",
+        input_hash="c" * 64,
+        paths=[],
+        status="superseded_artifact_missing",
+        manifest={
+            "paths": [],
+            "file_hashes": {},
+            "publication": {
+                "status": "superseded_artifact_missing",
+                "reason": "historical_output_missing_or_mismatched",
+            },
+        },
+    )
+
+    listed = client.get("/knowledge/growth/project-a/distillations", headers=_headers())
+    history = client.get("/knowledge/growth/project-a/distillations?include_history=true", headers=_headers())
+    detail = client.get(f"/knowledge/growth/project-a/distillations/{missing['id']}", headers=_headers())
+
+    assert listed.status_code == 200
+    assert listed.json()["data"]["distillations"] == []
+    assert history.status_code == 200
+    item = history.json()["data"]["distillations"][0]
+    assert item["id"] == missing["id"]
+    assert item["status"] == "superseded_artifact_missing"
+    assert item["current"] is False
+    assert item["paths"] == []
+    assert detail.status_code == 200
+    assert detail.json()["data"]["distillation"]["current"] is False
+
+
 def test_idempotent_growth_run_persists_one_celery_assignment(monkeypatch, tmp_path):
     repo = GrowthRepository(db_path=str(tmp_path / "growth-idempotent-celery-assignment.db"))
     dispatched: list[list[str]] = []

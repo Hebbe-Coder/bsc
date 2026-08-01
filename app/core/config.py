@@ -206,6 +206,9 @@ class Settings(BaseSettings):
     # Compose can expose a local AI-project workspace as a read-only mount.
     # PBOS hashes only a narrow safe allowlist from it for execution receipts.
     PBOS_WORKSPACE_ROOT: str = ""
+    # Growth distillation owns its provider selection so it can be tuned
+    # independently from Wiki compilation and interactive SOP generation.
+    KNOWLEDGE_GROWTH_LLM_PROVIDER: str = ""
     KNOWLEDGE_GROWTH_LLM_MODEL: str = ""
     # Weekly distillation can legitimately need a longer provider read budget
     # than interactive chat while keeping the general LLM timeout unchanged.

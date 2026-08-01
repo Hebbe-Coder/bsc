@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import hashlib
 import mimetypes
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 from typing import Any
 
@@ -22,6 +22,9 @@ _OUTPUT_CONTRACT_TEXT_FIELDS = frozenset({"title", "goal", "audience", "channel"
 _OUTPUT_CONTRACT_REFERENCE_FIELDS = frozenset({"source_refs", "page_refs"})
 _OUTPUT_CONTRACT_KIND = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 _OUTPUT_CONTRACT_REFERENCE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+_COPILOT_METADATA_SCALAR = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
+_COPILOT_CONTEXT_NOTES = re.compile(r"(?m)^\[Context: Notes:\s*(?P<paths>[^\]\r\n]+)\]\s*$")
+_COPILOT_MAX_CONTEXT_PATHS = 16
 
 
 class ObsidianOutputSyncService:
@@ -79,6 +82,12 @@ class ObsidianOutputSyncService:
                             continue
                         report["scanned"] += 1
                         content = path.read_bytes()
+                        if self._requires_output_contract(plugin.plugin_id) and not self._output_contract(content, project_id):
+                            # Copilot's automatic save is a conversation archive, not
+                            # evidence of a reviewed delivery. Only an explicit BSC
+                            # contract may cross the external-plugin boundary.
+                            report["rejected"] += 1
+                            continue
                         output = self._asset(project_id, run_id, plugin.plugin_id, plugin.name, relative, content)
                         output_id = registry.deterministic_id(output)
                         existing = self.repository.get_output(project_id, output_id)
@@ -87,8 +96,16 @@ class ObsidianOutputSyncService:
                             # The original external file has one immutable
                             # registration. Later source-sync runs may observe
                             # it again, but must not claim they produced it or
-                            # turn a harmless retry into a conflict.
-                            output = output.model_copy(update={"run_id": str(existing.get("run_id") or "")})
+                            # turn a harmless retry into a conflict. This also
+                            # keeps registrations made before a parser upgrade
+                            # immutable; newer provenance is recorded only by
+                            # a newly generated external output.
+                            output = output.model_copy(
+                                update={
+                                    "run_id": str(existing.get("run_id") or ""),
+                                    "metadata": dict(existing.get("metadata") or output.metadata),
+                                }
+                            )
                         registry.register_content(output, content, original_path=relative)
                         report["duplicates" if existed else "registered"] += 1
                     except (OSError, ValueError):
@@ -103,6 +120,11 @@ class ObsidianOutputSyncService:
         return path.name.lower().endswith(_TEMPORARY_SUFFIXES)
 
     @staticmethod
+    def _requires_output_contract(plugin_id: str) -> bool:
+        """Keep automatic Copilot conversation archives out of the D-layer."""
+        return plugin_id == "copilot"
+
+    @staticmethod
     def _asset(
         project_id: str,
         run_id: str,
@@ -113,16 +135,27 @@ class ObsidianOutputSyncService:
     ) -> OutputAsset:
         content_hash = hashlib.sha256(content).hexdigest()
         filename = Path(original_path).name
-        mime_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        mime_type = "text/markdown" if filename.lower().endswith(".md") else mimetypes.guess_type(filename)[0] or "application/octet-stream"
         contract = ObsidianOutputSyncService._output_contract(content, project_id)
+        copilot = (
+            ObsidianOutputSyncService._copilot_conversation_metadata(content, project_id)
+            if plugin_id == "copilot"
+            else {}
+        )
         provenance = {
             "goal": str(contract.get("goal") or "not_provided_by_external_plugin"),
             "audience": str(contract.get("audience") or "not_provided_by_external_plugin"),
             "channel": str(contract.get("channel") or "obsidian_plugin"),
             "generator": f"obsidian_plugin:{plugin_id}",
-            "provider": "external_plugin",
-            "model": "unknown",
-            "prompt_revision": "vault_output_contract_v1" if contract else "unknown",
+            "provider": str(copilot.get("provider") or "external_plugin"),
+            "model": str(copilot.get("model") or "unknown"),
+            "prompt_revision": (
+                "vault_output_contract_v1"
+                if contract
+                else "obsidian_copilot_conversation_v1"
+                if copilot
+                else "unknown"
+            ),
         }
         provenance_gaps = [
             key
@@ -133,7 +166,7 @@ class ObsidianOutputSyncService:
         return OutputAsset(
             project_id=project_id,
             kind=str(contract.get("output_kind") or "external_plugin_output"),
-            title=str(contract.get("title") or filename),
+            title=str(contract.get("title") or copilot.get("title") or filename),
             mime_type=mime_type,
             content_hash=content_hash,
             vault_path=f"outputs/{now:%Y}/pending/{filename}",
@@ -148,18 +181,83 @@ class ObsidianOutputSyncService:
                 "plugin_name": plugin_name,
                 "obsidian_adapter": "filesystem_output",
                 "bsc_output_contract": str(contract.get("bsc_output_contract") or ""),
+                **({"copilot_context_paths": copilot["context_paths"]} if copilot.get("context_paths") else {}),
                 **provenance,
                 "provenance_gaps": provenance_gaps,
             },
         )
 
     @staticmethod
+    def _copilot_conversation_metadata(content: bytes, project_id: str) -> dict[str, Any]:
+        """Extract bounded Copilot export metadata without retaining prompts.
+
+        The fields below remain observational. They describe the producing
+        model and same-project note context, but never create source/page
+        lineage or turn a reviewed-pending output into accepted evidence.
+        """
+        if len(content) > _MAX_OUTPUT_CONTRACT_BYTES:
+            return {}
+        try:
+            text = content.decode("utf-8")
+        except UnicodeDecodeError:
+            return {}
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        if not text.startswith("---\n"):
+            return {}
+        end = text.find("\n---", 4)
+        if end < 0:
+            return {}
+
+        fields: dict[str, str] = {}
+        for line in text[4:end].splitlines():
+            if ":" not in line:
+                continue
+            raw_key, raw_value = line.split(":", 1)
+            key = raw_key.strip().lower()
+            if key not in {"modelkey", "topic"}:
+                continue
+            value = " ".join(raw_value.strip().strip("\"'").split())
+            if value and len(value) <= 256:
+                fields[key] = value
+
+        metadata: dict[str, Any] = {}
+        topic = fields.get("topic", "")
+        if topic:
+            metadata["title"] = topic
+        model_key = fields.get("modelkey", "")
+        model, separator, provider = model_key.partition("|")
+        if separator and _COPILOT_METADATA_SCALAR.fullmatch(model) and _COPILOT_METADATA_SCALAR.fullmatch(provider):
+            metadata["model"] = model
+            metadata["provider"] = provider
+
+        project_prefix = f"projects/{project_id}/"
+        context_paths: list[str] = []
+        for match in _COPILOT_CONTEXT_NOTES.finditer(text):
+            for raw_path in match.group("paths").split(","):
+                path = raw_path.strip().replace("\\", "/")
+                if not path.startswith(project_prefix) or len(path) > 512:
+                    continue
+                candidate = PurePosixPath(path)
+                if any(part in {"", ".", ".."} for part in candidate.parts):
+                    continue
+                if path not in context_paths:
+                    context_paths.append(path)
+                if len(context_paths) >= _COPILOT_MAX_CONTEXT_PATHS:
+                    break
+            if len(context_paths) >= _COPILOT_MAX_CONTEXT_PATHS:
+                break
+        if context_paths:
+            metadata["context_paths"] = context_paths
+        return metadata
+
+    @staticmethod
     def _output_contract(content: bytes, project_id: str) -> dict[str, Any]:
         """Read the bounded BSC output contract without parsing arbitrary YAML.
 
-        The contract is optional for third-party outputs. When supplied, the
-        project identifier and every referenced asset remain subject to the
-        existing OutputRegistry project-scope checks.
+        The contract is optional for third-party outputs except Copilot,
+        whose automatic saved conversations are not reviewed deliveries. When
+        supplied, the project identifier and every referenced asset remain
+        subject to the existing OutputRegistry project-scope checks.
         """
         if len(content) > _MAX_OUTPUT_CONTRACT_BYTES:
             return {}

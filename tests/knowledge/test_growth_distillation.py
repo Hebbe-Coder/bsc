@@ -1,6 +1,8 @@
 import hashlib
 import json
 import os
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -461,7 +463,8 @@ def test_configured_narrative_provider_prefers_growth_model_override(monkeypatch
             }
 
     monkeypatch.setattr(settings, "KNOWLEDGE_GROWTH_SEMANTIC_DISTILLATION_ENABLED", True)
-    monkeypatch.setattr(settings, "KNOWLEDGE_WIKI_LLM_PROVIDER", "deepseek")
+    monkeypatch.setattr(settings, "KNOWLEDGE_GROWTH_LLM_PROVIDER", "growth-provider")
+    monkeypatch.setattr(settings, "KNOWLEDGE_WIKI_LLM_PROVIDER", "wiki-provider")
     monkeypatch.setattr(settings, "SOP_LLM_PROVIDER", "mock")
     monkeypatch.setattr(settings, "KNOWLEDGE_GROWTH_LLM_MODEL", "growth-specific-model")
     monkeypatch.setattr(settings, "KNOWLEDGE_GROWTH_LLM_TIMEOUT_SECONDS", 135.0)
@@ -478,13 +481,54 @@ def test_configured_narrative_provider_prefers_growth_model_override(monkeypatch
 
     assert result["daily"]["headline"] == "Evidence retained for review"
     assert captured == {
-        "provider": "deepseek",
+        "provider": "growth-provider",
         "model": "growth-specific-model",
         "timeout": 135.0,
-        "structured_call_cap": 1,
+        "structured_call_cap": 2,
         "max_tokens": ConfiguredDistillationNarrativeProvider.DAILY_MAX_TOKENS,
     }
     assert provider.last_prompt_run.agent_manifest.context_refs == ("knowledge_run:growth-run-a",)
+
+
+def test_daily_prompt_requires_verbatim_scoped_evidence_quote():
+    prompt = ConfiguredDistillationNarrativeProvider._system_prompt("daily")
+
+    assert "contiguous 24-160 character passage" in prompt
+    assert "ASCII double quotes" in prompt
+    assert "without translating, paraphrasing, or changing punctuation" in prompt
+
+
+def test_rejected_daily_model_keeps_non_secret_promptops_receipt(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "distillation-rejected-receipt.db"))
+    try:
+        service = GrowthDistillationService(repo, root, narrative_provider=_CorrelatedNarrativeProvider())
+        _, generation = service._render_narrative(
+            kind="daily",
+            project_id="project-a",
+            period="2026-07-25",
+            context={
+                "rendered": "[source:source-a]",
+                "source_ids": ["source-a"],
+                "citation_source_ids": ["source-a"],
+                "page_ids": [],
+                "citation_page_ids": [],
+                "_daily_source_scopes": {
+                    "source-a": "Daily source evidence scope; a bounded sentence that must be quoted exactly."
+                },
+            },
+            knowledge_run_id="growth-run-rejected",
+        )
+
+        assert generation["mode"] == "deterministic"
+        assert generation["reason"] == "provider_response_rejected"
+        assert generation["provider"] == "deepseek"
+        assert generation["model"] == "deepseek-v4-pro"
+        assert generation["promptops"]["knowledge_run_id"] == "growth-run-rejected"
+        assert generation["promptops"]["prompt_run_id"] == "prompt-growth-a"
+    finally:
+        repo.close()
 
 
 def test_configured_narrative_provider_reserves_enough_tokens_for_a_small_weekly_repair(monkeypatch):
@@ -817,6 +861,47 @@ def test_distillation_manifest_links_native_model_evidence_to_the_durable_growth
         repo.close()
 
 
+def test_daily_distillation_preserves_a_published_llm_card_when_a_later_run_degrades(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "daily-preserve-llm.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        repo.create_source(
+            SourceRecord(
+                id="source-a",
+                project_id="project-a",
+                source_type="article",
+                content_hash="a" * 64,
+                raw_content="A review gate must remain in the publication workflow.",
+                trust_level="trusted",
+                status=SourceStatus.ELIGIBLE,
+                captured_at=_CUTOFF_SAFE_TIME,
+                updated_at=_CUTOFF_SAFE_TIME,
+            )
+        )
+        first = GrowthDistillationService(repo, root, narrative_provider=_CorrelatedNarrativeProvider()).run_daily(
+            "project-a", "2026-07-24", source_cutoff="2026-07-24T09:00:00Z"
+        )
+        target = root / "projects" / "project-a" / first["paths"][0]
+        published = target.read_bytes()
+
+        preserved = GrowthDistillationService(
+            repo,
+            root,
+            narrative_provider=_UnavailableNarrativeProvider(),
+        ).run_daily("project-a", "2026-07-24", source_cutoff="2026-07-24T10:00:00Z")
+
+        assert preserved["status"] == "preserved"
+        assert preserved["preserved_input_hash"] == first["input_hash"]
+        assert preserved["manifest"]["publication"]["reason"] == (
+            "incomplete_llm_generation_cannot_replace_published_daily"
+        )
+        assert target.read_bytes() == published
+    finally:
+        repo.close()
+
+
 def test_daily_distillation_rejects_a_thin_cited_paragraph_and_uses_the_full_fallback(tmp_path):
     root = tmp_path / "vault"
     root.mkdir()
@@ -931,7 +1016,7 @@ def test_daily_distillation_prefers_current_primary_capture_over_horizon_discove
         ).run_daily(
             "project-a",
             "2026-07-24",
-            source_cutoff="2026-08-01T00:00:00Z",
+            source_cutoff="2099-01-01T00:00:00Z",
         )
 
         assert repo.get_source("project-a", "horizon-current")["status"] == SourceStatus.ELIGIBLE.value
@@ -1002,7 +1087,7 @@ def test_daily_distillation_scopes_multi_topic_evidence_before_accepting_a_model
             repo,
             root,
             narrative_provider=_UnrelatedQuoteProvider(),
-        ).run_daily("project-a", "2026-07-24", source_cutoff="2026-08-01T00:00:00Z")
+        ).run_daily("project-a", "2026-07-24", source_cutoff="2099-01-01T00:00:00Z")
 
         assert result["manifest"]["context"]["daily_source_scope_ids"] == ["source-a"]
         assert result["manifest"]["generation"] == {
@@ -1685,6 +1770,25 @@ def test_tampered_manifest_is_rejected_even_when_documents_are_unchanged(tmp_pat
         repo.close()
 
 
+def test_non_utf8_weekly_manifest_is_rejected_as_a_managed_content_conflict(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "distillation-manifest-encoding.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        service = GrowthDistillationService(repo, root)
+        first = service.run_weekly("project-a", "2026-W30", source_cutoff="2026-07-22T09:00:00Z")
+        weekly_root = root / "projects" / "project-a" / "distillations" / service.WEEKLY_DIRECTORY / "2026-W30"
+        (weekly_root / "manifest.json").write_bytes(b"\xff\xfe\x00")
+
+        with pytest.raises(ManagedContentConflictError, match="weekly manifest is unreadable"):
+            service.run_weekly("project-a", "2026-W30", source_cutoff="2026-07-22T09:00:00Z")
+
+        assert repo.get_growth_distillation("project-a", "weekly", "2026-W30", first["input_hash"])
+    finally:
+        repo.close()
+
+
 def test_weekly_publish_restores_original_directory_when_final_swap_fails(tmp_path, monkeypatch):
     root = tmp_path / "vault"
     root.mkdir()
@@ -1742,6 +1846,166 @@ def test_daily_revisions_are_owned_redacted_and_user_file_is_protected(tmp_path)
         with pytest.raises(ManagedContentConflictError, match="unmarked user-authored"):
             service.run_daily("project-a", "2026-07-23", source_cutoff="2026-07-23T09:00:00Z")
         assert other_date.read_text(encoding="utf-8") == "user-authored daily note"
+    finally:
+        repo.close()
+
+
+def test_daily_revisions_relocate_historical_records_to_immutable_archives(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "daily-history.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        service = GrowthDistillationService(repo, root)
+        first = service.run_daily("project-a", "2026-07-22", source_cutoff="2026-07-22T09:00:00Z")
+        second = service.run_daily("project-a", "2026-07-22", source_cutoff="2026-07-22T10:00:00Z")
+        third = service.run_daily("project-a", "2026-07-22", source_cutoff="2026-07-22T11:00:00Z")
+
+        records = [
+            record
+            for record in repo.list_growth_distillations("project-a", "daily", limit=10)
+            if record["period"] == "2026-07-22"
+        ]
+        assert {record["input_hash"] for record in records} == {
+            first["input_hash"], second["input_hash"], third["input_hash"]
+        }
+        assert len({record["paths"][0] for record in records}) == 3
+        assert any("/revisions/2026-07-22/" in record["paths"][0] for record in records)
+        for record in records:
+            service._validate_record_outputs(service._vault("project-a"), record)
+    finally:
+        repo.close()
+
+
+def test_daily_distillation_quarantines_a_missing_legacy_revision_and_recovers(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "daily-missing-history.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        service = GrowthDistillationService(repo, root)
+        date = "2026-07-22"
+        cutoff = "2026-07-22T09:00:00Z"
+        first = service.run_daily("project-a", date, source_cutoff=cutoff)
+        vault = service._vault("project-a")
+        inputs = service._inputs("project-a", service._validate_cutoff(cutoff))
+        context = service._context_snapshot("project-a", service._validate_cutoff(cutoff), vault, inputs, kind="daily")
+        lost_input_hash = service._input_hash(inputs, service._validate_cutoff(cutoff), context["context_hash"])
+        assert lost_input_hash == first["input_hash"]
+
+        # This models a legacy concurrent publisher that persisted a second
+        # row for the canonical path but failed before preserving its archive.
+        repo.record_growth_distillation(
+            project_id="project-a",
+            period=date,
+            kind="daily",
+            input_hash="f" * 64,
+            paths=first["paths"],
+            manifest={
+                "paths": first["paths"],
+                "file_hashes": {first["paths"][0]: "e" * 64},
+            },
+        )
+
+        recovered = service.run_daily("project-a", date, source_cutoff="2026-07-22T10:00:00Z")
+        records = {
+            record["input_hash"]: record
+            for record in repo.list_growth_distillations("project-a", "daily", limit=10)
+            if record["period"] == date
+        }
+        lost = records["f" * 64]
+
+        assert recovered["status"] == "generated"
+        assert lost["status"] == "superseded_artifact_missing"
+        assert lost["paths"] == []
+        assert lost["manifest"]["paths"] == []
+        assert lost["manifest"]["file_hashes"] == {}
+        assert lost["manifest"]["publication"] == {
+            "status": "superseded_artifact_missing",
+            "reason": "historical_output_missing_or_mismatched",
+            "expected_file_hash": "e" * 64,
+            "archive_exists": False,
+            "canonical_input_hash": first["input_hash"],
+            "period": date,
+        }
+        with pytest.raises(ManagedContentConflictError, match="exactly one path"):
+            service._validate_record_outputs(vault, lost)
+        service._validate_record_outputs(vault, records[recovered["input_hash"]])
+    finally:
+        repo.close()
+
+
+def test_daily_distillation_recovers_when_the_same_input_was_quarantined(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "daily-recovery-identity.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        service = GrowthDistillationService(repo, root)
+        date = "2026-07-22"
+        first = service.run_daily("project-a", date, source_cutoff="2026-07-22T09:00:00Z")
+        cutoff = service._validate_cutoff("2026-07-22T10:00:00Z")
+        vault = service._vault("project-a")
+        inputs = service._inputs("project-a", cutoff)
+        context = service._context_snapshot("project-a", cutoff, vault, inputs, kind="daily")
+        lost_input_hash = service._input_hash(inputs, cutoff, context["context_hash"])
+        repo.record_growth_distillation(
+            project_id="project-a",
+            period=date,
+            kind="daily",
+            input_hash=lost_input_hash,
+            paths=[],
+            manifest={"paths": [], "file_hashes": {}, "publication": {"status": "superseded_artifact_missing"}},
+            status="superseded_artifact_missing",
+        )
+
+        recovered = service.run_daily("project-a", date, source_cutoff=cutoff)
+        repeated = service.run_daily("project-a", date, source_cutoff=cutoff)
+
+        assert recovered["status"] == "generated"
+        assert recovered["input_hash"] != lost_input_hash
+        assert recovered["input_hash"] != first["input_hash"]
+        assert repeated["status"] == "noop"
+        assert repeated["input_hash"] == recovered["input_hash"]
+    finally:
+        repo.close()
+
+
+def test_concurrent_daily_distillations_publish_distinct_valid_revisions(tmp_path, monkeypatch):
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "daily-concurrent.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        service = GrowthDistillationService(repo, root)
+        original_render = service._render_narrative
+
+        def delayed_render(*args, **kwargs):
+            time.sleep(0.1)
+            return original_render(*args, **kwargs)
+
+        monkeypatch.setattr(service, "_render_narrative", delayed_render)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [
+                executor.submit(
+                    service.run_daily,
+                    "project-a",
+                    "2026-07-22",
+                    source_cutoff=cutoff,
+                )
+                for cutoff in ("2026-07-22T09:00:00Z", "2026-07-22T10:00:00Z")
+            ]
+            results = [future.result(timeout=10) for future in futures]
+
+        records = [
+            record
+            for record in repo.list_growth_distillations("project-a", "daily", limit=10)
+            if record["period"] == "2026-07-22"
+        ]
+        assert {record["input_hash"] for record in records} == {result["input_hash"] for result in results}
+        assert len({record["paths"][0] for record in records}) == 2
+        for record in records:
+            service._validate_record_outputs(service._vault("project-a"), record)
     finally:
         repo.close()
 

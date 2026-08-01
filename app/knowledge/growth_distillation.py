@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -9,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import time
 from typing import Any, Protocol
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -57,8 +59,8 @@ class ConfiguredDistillationNarrativeProvider:
     FULL_WEEKLY_MAX_TOKENS = 10_000
     TARGETED_WEEKLY_MAX_TOKENS_FLOOR = 5_500
     # A single daily document still needs enough headroom for reasoning plus
-    # the final JSON object. 1,200 tokens lets reasoning-capable DeepSeek
-    # models exhaust the budget before emitting any structured content.
+    # the final JSON object. The client gets one bounded repair attempt with a
+    # larger budget when the first structured response is truncated.
     DAILY_MAX_TOKENS = 3_600
 
     def __init__(self) -> None:
@@ -94,7 +96,10 @@ class ConfiguredDistillationNarrativeProvider:
             self.unavailable_reason = "semantic_distillation_disabled"
             return None
         selected = (
-            settings.KNOWLEDGE_WIKI_LLM_PROVIDER or settings.SOP_LLM_PROVIDER or ""
+            settings.KNOWLEDGE_GROWTH_LLM_PROVIDER
+            or settings.KNOWLEDGE_WIKI_LLM_PROVIDER
+            or settings.SOP_LLM_PROVIDER
+            or ""
         ).strip().lower()
         if not selected or selected == "mock":
             self.unavailable_reason = "real_provider_not_configured"
@@ -138,14 +143,13 @@ class ConfiguredDistillationNarrativeProvider:
                         else self.DAILY_MAX_TOKENS
                     ),
                     timeout_seconds=settings.KNOWLEDGE_GROWTH_LLM_TIMEOUT_SECONDS,
-                    # The client already performs a bounded low-temperature
-                    # JSON repair. A second full PromptOps sample multiplies
-                    # a five-document quality failure into many paid calls.
+                    # The client performs one bounded low-temperature JSON
+                    # repair. A second full PromptOps sample would multiply a
+                    # five-document quality failure into many paid calls.
                     max_attempts=1,
-                    # Weekly synthesis can trigger at most one governed batch
-                    # repair. Its individual structured samples must never
-                    # also fan out into client-level JSON repair calls.
-                    max_structured_attempts=1,
+                    # Let the client repair a truncated/invalid structured
+                    # response once with its larger bounded token budget.
+                    max_structured_attempts=2,
                     context_refs=(f"knowledge_run:{knowledge_run_id}",) if knowledge_run_id else (),
                 )
             )
@@ -259,9 +263,11 @@ class ConfiguredDistillationNarrativeProvider:
             "a concise single line, while signal, project implication, next review, and open question must "
             "each be concrete prose grounded in the supplied evidence and each of those four prose fields must "
             "include at least one exact citation label from the ledger. When a source is marked as a project-relevant "
-            "evidence excerpt, the daily signal must quote one exact 24+ character passage from that excerpt and "
-            "cite that same source. The project implication must cite that same source and stay within the quoted "
-            "mechanism; do not turn an unrelated sentence into an analogy about agents, governance, or the project. "
+            "evidence excerpt, first copy one contiguous 24-160 character passage from that excerpt verbatim between "
+            "ASCII double quotes (\\\"...\\\") in the daily signal, without translating, paraphrasing, or changing "
+            "punctuation. Put the exact [source:<id>] label for that same excerpt immediately after the quote. "
+            "The project implication must cite that same source and reuse a concrete term from the quoted mechanism; "
+            "do not turn an unrelated sentence into an analogy about agents, governance, or the project. "
             "Do not omit the open question merely "
             "because the signal appears promising. For weekly runs, "
             f"{weekly_scope}. The Weekly document contracts below are authoritative and give every requested "
@@ -318,8 +324,14 @@ class GrowthDistillationService:
     # schedule timezone. Interpret those legacy timestamps consistently with
     # the persisted Asia/Shanghai growth cadence before comparing a cutoff.
     REPOSITORY_TIMEZONE = ZoneInfo("Asia/Shanghai")
-    DISTILLATION_CONTRACT_REVISION = 31
+    # v33 makes the scoped-evidence quote contract explicit and retains model
+    # receipts when a response is rejected, so prior fallbacks remain auditable
+    # history while a governed rerun receives a distinct input identity.
+    DISTILLATION_CONTRACT_REVISION = 33
     MAX_TARGETED_WEEKLY_QUALITY_REPAIRS_PER_DOCUMENT = 2
+    DAILY_PUBLICATION_LOCK_TIMEOUT_SECONDS = 300
+    DAILY_PUBLICATION_LOCK_STALE_SECONDS = 900
+    DAILY_PUBLICATION_LOCK_POLL_SECONDS = 0.1
     DAILY_CONTEXT_CHARACTER_BUDGET = 4_000
     WEEKLY_CONTEXT_CHARACTER_BUDGET = 10_000
     # A news roundup can be admissible as a whole while containing many items
@@ -411,20 +423,61 @@ class GrowthDistillationService:
         inputs = self._inputs(project_id, cutoff)
         context = self._context_snapshot(project_id, cutoff, vault, inputs, kind="daily")
         input_hash = self._input_hash(inputs, cutoff, context["context_hash"])
-        existing = self.repository.get_growth_distillation(project_id, "daily", date, input_hash)
-        if existing:
-            self._validate_record_outputs(vault, existing)
-            return {**existing, "status": "noop", "input_hash": input_hash}
-
         relative = f"distillations/{self.WEEKLY_DIRECTORY}/{self._week(date)}/{self.DAILY_DIRECTORY}/{date}.md"
         target = vault.project_root / relative
+        # PostgreSQL provides the durable advisory lock below. The Vault lock
+        # adds the same publication boundary for local SQLite and separate
+        # worker processes sharing one Obsidian mount.
+        with self._daily_publication_lock(target):
+            with self.repository.growth_distillation_transaction(project_id, "daily", date):
+                return self._run_daily_locked(
+                    project_id=project_id,
+                    date=date,
+                    cutoff=cutoff,
+                    knowledge_run_id=knowledge_run_id,
+                    vault=vault,
+                    inputs=inputs,
+                    context=context,
+                    input_hash=input_hash,
+                    relative=relative,
+                    target=target,
+                )
+
+    def _run_daily_locked(
+        self,
+        *,
+        project_id: str,
+        date: str,
+        cutoff: str,
+        knowledge_run_id: str,
+        vault: FilesystemWikiVault,
+        inputs: list[dict[str, Any]],
+        context: dict[str, Any],
+        input_hash: str,
+        relative: str,
+        target: Path,
+    ) -> dict[str, Any]:
+        self._repair_daily_revision_records(project_id, date, relative, vault)
+        existing = self.repository.get_growth_distillation(project_id, "daily", date, input_hash)
+        if existing:
+            if self._is_missing_historical_output(existing):
+                # The logical input is the same, but its previous publication
+                # was lost before an immutable revision could be preserved.
+                # Give the recovery its own idempotency identity; reusing the
+                # damaged row would make a new file look like old evidence.
+                input_hash = self._recovery_input_hash(input_hash, existing)
+                existing = self.repository.get_growth_distillation(project_id, "daily", date, input_hash)
+            if existing:
+                self._validate_record_outputs(vault, existing)
+                return {**existing, "status": "noop", "input_hash": input_hash}
+
         prior = self._current_daily_record(project_id, date, relative, target=target)
+        archive: Path | None = None
         if target.exists():
             self._validate_managed_daily(target, prior)
             prior_hash = str((prior or {}).get("input_hash") or self._marker_input_hash(target))
             if prior_hash and prior_hash != input_hash:
                 archive = target.parent / "revisions" / date / f"{prior_hash}.md"
-                self._archive_unchanged_file(target, archive)
 
         comparison = prior or self._latest_daily_before(project_id, date)
         changes = self._changes(inputs, (comparison or {}).get("manifest", {}).get("inputs", []))
@@ -435,6 +488,34 @@ class GrowthDistillationService:
             context=context,
             knowledge_run_id=knowledge_run_id,
         )
+        if self._must_preserve_published_llm_daily(prior, generation):
+            attempted_manifest = self._manifest(
+                project_id=project_id,
+                period=date,
+                kind="daily",
+                input_hash=input_hash,
+                source_cutoff=cutoff,
+                inputs=inputs,
+                context=context,
+                generation=generation,
+                paths=[],
+                file_hashes={},
+            )
+            attempted_manifest["publication"] = {
+                "status": "preserved",
+                "reason": "incomplete_llm_generation_cannot_replace_published_daily",
+                "preserved_input_hash": str((prior or {}).get("input_hash") or ""),
+                "preserved_generation_mode": str(
+                    (((prior or {}).get("manifest") or {}).get("generation") or {}).get("mode") or "unknown"
+                ),
+            }
+            return {
+                "status": "preserved",
+                "input_hash": input_hash,
+                "preserved_input_hash": attempted_manifest["publication"]["preserved_input_hash"],
+                "paths": [],
+                "manifest": attempted_manifest,
+            }
         body = str(narrative.get("daily") or self._daily_content(project_id, date, cutoff, inputs, changes, context))
         radar_markdown = self._horizon_signal_queue_markdown(context.get("horizon_signal_queue") or [])
         if radar_markdown:
@@ -446,7 +527,12 @@ class GrowthDistillationService:
             input_hash=input_hash,
             body=body,
         )
+        if archive is not None:
+            self._archive_unchanged_file(target, archive)
         self._atomic_write(target, content.encode("utf-8"))
+        # Once the canonical path points at this revision, previous rows can
+        # be moved to the immutable archives created before this publish.
+        self._repair_daily_revision_records(project_id, date, relative, vault)
         manifest = self._manifest(
             project_id=project_id,
             period=date,
@@ -466,6 +552,7 @@ class GrowthDistillationService:
             input_hash=input_hash,
             paths=[relative],
             manifest=manifest,
+            commit=False,
         )
         return {**result, "status": "generated", "input_hash": input_hash}
 
@@ -609,6 +696,25 @@ class GrowthDistillationService:
             and not generation.get("fallback_documents")
             and set(generation.get("llm_documents") or ()) == set(GrowthDistillationService.WEEKLY_DOCUMENTS)
         )
+
+    @staticmethod
+    def _is_complete_daily_llm_generation(generation: dict[str, Any]) -> bool:
+        return (
+            generation.get("mode") == "llm"
+            and not generation.get("fallback_documents")
+            and list(generation.get("llm_documents") or ()) == ["daily"]
+        )
+
+    def _must_preserve_published_llm_daily(
+        self,
+        prior: dict[str, Any] | None,
+        attempted_generation: dict[str, Any],
+    ) -> bool:
+        """Never replace an accepted daily model card with a fallback."""
+        if not prior or self._is_complete_daily_llm_generation(attempted_generation):
+            return False
+        prior_generation = ((prior.get("manifest") or {}).get("generation") or {})
+        return self._is_complete_daily_llm_generation(prior_generation)
 
     def _must_preserve_published_llm_weekly(
         self,
@@ -1324,11 +1430,21 @@ class GrowthDistillationService:
                 if kind == "daily"
                 else {}
             )
-            return {}, {
+            generation = {
                 **fallback,
+                # A rejected model draft is not content evidence, but the
+                # completed provider call remains useful operational evidence.
+                # Preserve only its non-secret route and PromptOps receipt so
+                # the ledger cannot confuse a quality rejection with no call.
+                "provider": str(getattr(self.narrative_provider, "provider", "") or ""),
+                "model": str(getattr(self.narrative_provider, "model", "") or ""),
                 "reason": "provider_response_rejected",
                 **({"rejection_reasons": rejection} if rejection else {}),
             }
+            promptops = self._promptops_execution(knowledge_run_id)
+            if promptops:
+                generation["promptops"] = promptops
+            return {}, generation
         fallback_documents = []
         if kind == "weekly":
             fallback_documents = [name for name in self.WEEKLY_DOCUMENTS if name not in payload["weekly"]]
@@ -1518,9 +1634,10 @@ class GrowthDistillationService:
             "recommendation or verification instead. The open_question body must include an explicit evidence "
             "gap or verification marker such as 'requires verification', 'uncertain', 'evidence gap', or "
             "'待验证'."
-            " When a project-scoped source excerpt is present, signal must contain a 24+ character exact quote "
-            "from that excerpt and [source:<id>]; project_implication must cite the same source and reuse a "
-            "concrete term from that quote instead of making an analogy."
+            " When a project-scoped source excerpt is present, copy one contiguous 24-160 character passage "
+            "verbatim between ASCII double quotes in signal, immediately followed by the exact [source:<id>] "
+            "label; do not translate, paraphrase, or change punctuation inside the quote. project_implication "
+            "must cite the same source and reuse a concrete term from that quote instead of making an analogy."
             + cls._allowed_citation_labels(context)
         )
 
@@ -1838,7 +1955,7 @@ class GrowthDistillationService:
             return None
         try:
             value = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ManagedContentConflictError("weekly manifest is unreadable") from exc
         if value.get("project_id") != project_id or value.get("period") != week or value.get("kind") != "weekly":
             raise ManagedContentConflictError("weekly manifest ownership scope does not match the target")
@@ -1974,11 +2091,121 @@ class GrowthDistillationService:
 
         return max(records, key=lambda record: str(record.get("created_at") or ""))
 
+    def _repair_daily_revision_records(
+        self,
+        project_id: str,
+        date: str,
+        relative: str,
+        vault: FilesystemWikiVault,
+    ) -> None:
+        """Reconcile legacy same-slot rows with the archive they already own."""
+        target = self._safe_output_path(vault, relative)
+        current_hash = self._marker_input_hash(target) if target.is_file() else ""
+        for record in self.repository.list_growth_distillations(project_id, "daily", limit=500):
+            if record.get("period") != date or relative not in (record.get("paths") or []):
+                continue
+            input_hash = str(record.get("input_hash") or "")
+            if not input_hash or input_hash == current_hash:
+                continue
+            archive = target.parent / "revisions" / date / f"{input_hash}.md"
+            if not archive.is_file() or archive.is_symlink():
+                self._quarantine_missing_daily_revision(
+                    project_id=project_id,
+                    date=date,
+                    input_hash=input_hash,
+                    relative=relative,
+                    record=record,
+                    archive_exists=archive.exists(),
+                    current_hash=current_hash,
+                )
+                continue
+            if self._marker_input_hash(archive) != input_hash:
+                self._quarantine_missing_daily_revision(
+                    project_id=project_id,
+                    date=date,
+                    input_hash=input_hash,
+                    relative=relative,
+                    record=record,
+                    archive_exists=True,
+                    current_hash=current_hash,
+                )
+                continue
+            archived_relative = archive.relative_to(vault.project_root).as_posix()
+            manifest = dict(record.get("manifest") or {})
+            file_hashes = dict(manifest.get("file_hashes") or {})
+            expected_hash = str(file_hashes.get(relative) or "")
+            actual_hash = self._sha256(archive.read_bytes())
+            if expected_hash and expected_hash != actual_hash:
+                raise ManagedContentConflictError("daily archived revision hash conflict")
+            file_hashes.pop(relative, None)
+            file_hashes[archived_relative] = actual_hash
+            manifest["paths"] = [archived_relative]
+            manifest["file_hashes"] = file_hashes
+            self.repository.update_growth_distillation_output(
+                project_id=project_id,
+                period=date,
+                kind="daily",
+                input_hash=input_hash,
+                paths=[archived_relative],
+                manifest=manifest,
+                commit=False,
+            )
+
+    @staticmethod
+    def _is_missing_historical_output(record: dict[str, Any]) -> bool:
+        return str(record.get("status") or "") == "superseded_artifact_missing"
+
+    @staticmethod
+    def _recovery_input_hash(input_hash: str, missing_record: dict[str, Any]) -> str:
+        """Produce a stable successor without mutating the lost record's identity."""
+        return GrowthDistillationService._json_hash({
+            "recovery_of_input_hash": input_hash,
+            "missing_record_id": str(missing_record.get("id") or ""),
+            "reason": "superseded_artifact_missing",
+        })
+
+    def _quarantine_missing_daily_revision(
+        self,
+        *,
+        project_id: str,
+        date: str,
+        input_hash: str,
+        relative: str,
+        record: dict[str, Any],
+        archive_exists: bool,
+        current_hash: str,
+    ) -> None:
+        """Keep durable audit metadata without inventing an archived artifact."""
+        manifest = dict(record.get("manifest") or {})
+        file_hashes = dict(manifest.get("file_hashes") or {})
+        expected_file_hash = str(file_hashes.get(relative) or "")
+        manifest["paths"] = []
+        manifest["file_hashes"] = {}
+        manifest["publication"] = {
+            "status": "superseded_artifact_missing",
+            "reason": "historical_output_missing_or_mismatched",
+            "expected_file_hash": expected_file_hash,
+            "archive_exists": archive_exists,
+            "canonical_input_hash": current_hash,
+            "period": date,
+        }
+        self.repository.update_growth_distillation_output(
+            project_id=project_id,
+            period=date,
+            kind="daily",
+            input_hash=input_hash,
+            paths=[],
+            manifest=manifest,
+            status="superseded_artifact_missing",
+            commit=False,
+        )
+
     def _latest_daily_before(self, project_id: str, date: str) -> dict[str, Any] | None:
         eligible = [
             record
             for record in self.repository.list_growth_distillations(project_id, "daily", limit=500)
             if str(record.get("period") or "") < date
+            and not self._is_missing_historical_output(record)
         ]
         return max(eligible, key=lambda record: (str(record.get("period") or ""), str(record.get("created_at") or "")), default=None)
 
@@ -1992,6 +2219,42 @@ class GrowthDistillationService:
         temporary = destination.with_name(f".{destination.name}.{uuid4().hex}.tmp")
         shutil.copy2(source, temporary)
         os.replace(temporary, destination)
+
+    @contextmanager
+    def _daily_publication_lock(self, target: Path):
+        """Claim a shared Vault publication slot before mutating its revision tree."""
+        lock_path = target.with_name(f".{target.name}.growth.lock")
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        deadline = time.monotonic() + self.DAILY_PUBLICATION_LOCK_TIMEOUT_SECONDS
+        descriptor: int | None = None
+        while descriptor is None:
+            try:
+                descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                os.write(descriptor, f"pid={os.getpid()}\n".encode("ascii"))
+            except FileExistsError:
+                if lock_path.is_symlink():
+                    raise ManagedContentConflictError("daily publication lock is unsafe")
+                try:
+                    stale = time.time() - lock_path.stat().st_mtime > self.DAILY_PUBLICATION_LOCK_STALE_SECONDS
+                except FileNotFoundError:
+                    continue
+                if stale:
+                    try:
+                        lock_path.unlink()
+                    except FileNotFoundError:
+                        pass
+                    continue
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("daily publication lock timed out")
+                time.sleep(self.DAILY_PUBLICATION_LOCK_POLL_SECONDS)
+        try:
+            yield
+        finally:
+            os.close(descriptor)
+            try:
+                lock_path.unlink()
+            except FileNotFoundError:
+                pass
 
     @staticmethod
     def _atomic_write(path: Path, content: bytes) -> None:

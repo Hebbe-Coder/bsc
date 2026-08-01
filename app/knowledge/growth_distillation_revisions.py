@@ -33,11 +33,16 @@ def growth_distillation_revision_metadata(
     vault = _project_vault(repo, records, vault_root)
     metadata: dict[str, dict[str, int | bool]] = {}
     for group_records in grouped.values():
+        readable_records = [
+            record
+            for record in group_records
+            if str(record.get("status") or "") != "superseded_artifact_missing"
+        ]
         current = next(
-            (record for record in group_records if vault and _is_current_managed_record(vault, record)),
-            group_records[0],
+            (record for record in readable_records if vault and _is_current_managed_record(vault, record)),
+            readable_records[0] if readable_records else None,
         )
-        current_id = str(current.get("id") or "")
+        current_id = str((current or {}).get("id") or "")
         revision_count = len(group_records)
         for record in group_records:
             record_id = str(record.get("id") or "")
