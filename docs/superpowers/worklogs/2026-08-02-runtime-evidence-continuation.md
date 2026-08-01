@@ -789,3 +789,24 @@ note bodies, credentials, provider payloads, or personal feedback.
   remains `implemented_with_operational_proof_pending` until the owner reviews
   an actual Copilot draft, attaches real evidence, and records truthful
   evaluation and outcome feedback.
+
+## 2026-08-02 Copilot PRD Contract Runtime Deployment
+
+- **Build and restart:** commit `c4678fb` rebuilt the API, Celery Worker, and
+  Celery Beat images successfully. Compose initially found three stale
+  `Created` application containers with generated name prefixes; only those
+  temporary containers and the three Compose-managed old application
+  containers were removed. PostgreSQL, Redis, n8n, and all named data volumes
+  were left untouched.
+- **Live services:** API, Worker, Beat, PostgreSQL, Redis, and n8n are running;
+  API and n8n report healthy. `GET http://127.0.0.1:8002/ready` returned
+  `{"status":"ok","dependencies":{"database":{"status":"ok"},"redis":{"status":"ok"}}}`.
+- **Source deployment proof:** SHA-256 values for
+  `app/api/growth_api.py`, `app/knowledge/growth_context.py`,
+  `app/knowledge/prd_to_sop.py`, `src/api/growthApi.ts`, and
+  `src/components/growth/GrowthWorkspace.tsx` match between the host checkout
+  and the running API container.
+- **Operational boundary:** this proves the new PRD designation contract and
+  Copilot-compatible context handling are deployed. It does not prove that a
+  Copilot model has produced a new response, that an owner accepted an output,
+  or that a business outcome exists.
