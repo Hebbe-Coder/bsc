@@ -48,3 +48,30 @@ def test_production_startup_fails_when_database_initialization_fails(monkeypatch
 
     with pytest.raises(RuntimeError, match="configured database is unavailable"):
         asyncio.run(run_lifespan())
+
+
+def test_production_startup_survives_recovered_growth_runs(monkeypatch):
+    from app import main
+    from app.knowledge import candidate_extraction, method_distillation
+
+    async def no_orchestrator_recovery():
+        return []
+
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+    monkeypatch.setattr(main, "recover_orchestrator_jobs_on_startup", no_orchestrator_recovery)
+    monkeypatch.setattr(
+        method_distillation,
+        "recover_abandoned_source_method_distillations",
+        lambda repository: ["method-run"],
+    )
+    monkeypatch.setattr(
+        candidate_extraction,
+        "recover_abandoned_source_candidate_extractions",
+        lambda repository: ["candidate-run"],
+    )
+
+    async def run_lifespan():
+        async with main.lifespan(main.app):
+            pass
+
+    asyncio.run(run_lifespan())

@@ -90,13 +90,11 @@ async def lifespan(app: FastAPI):
             repo.close()
         if recovered_method_distillations:
             logger.warning(
-                "Marked %s interrupted source method distillation runs for explicit retry",
-                len(recovered_method_distillations),
+                f"Marked {len(recovered_method_distillations)} interrupted source method distillation runs for explicit retry"
             )
         if recovered_candidate_extractions:
             logger.warning(
-                "Marked %s interrupted candidate extraction runs for explicit retry",
-                len(recovered_candidate_extractions),
+                f"Marked {len(recovered_candidate_extractions)} interrupted candidate extraction runs for explicit retry"
             )
     except Exception as e:
         logger.error(f"Knowledge candidate/method distillation recovery failed: {e}")
