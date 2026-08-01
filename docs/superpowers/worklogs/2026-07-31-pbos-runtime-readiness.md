@@ -518,3 +518,18 @@
 - Both prompts still require an explicit user review and durable save under
   `projects/proj_b8a285642094/04_Outputs/copilot/` before BSC can register an
   output. The bridge remains truthfully `awaiting_output` until then.
+
+## 2026-08-01 Copilot Project Prompt Alignment
+
+- The active Vault's Copilot settings load custom prompts from the
+  project-scoped directory `projects/proj_b8a285642094/06_Skills/copilot-prompts`.
+- Added the governed `BSC 知识审查与沉淀` and `BSC Project Delivery` prompts to
+  that directory, preserving slash-command and context-menu metadata. Existing
+  PBOS prompts remain unchanged.
+- Updated the project activation note to list all four available commands.
+  Claudian was not re-enabled and no provider credential, Copilot conversation,
+  or raw note body was read or written.
+- Verification still pending for the external user action: a user must invoke
+  Copilot, review the result, and intentionally save one Markdown file under
+  `04_Outputs/copilot/`. Until that happens, the bridge remains
+  `awaiting_output` and no D-layer quality or business value is claimed.
