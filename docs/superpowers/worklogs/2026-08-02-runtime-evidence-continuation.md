@@ -405,6 +405,28 @@ note bodies, credentials, provider payloads, or personal feedback.
   Copilot routes; the final focused backend suite passed `101 passed, 1
   warning`, application compilation and Compose validation passed.
 
+## 2026-08-02 Copilot Deployment And Studio Acceptance
+
+- **Clean deployment:** image and application containers were rebuilt from
+  commit `e390505`. API, Celery Worker, and Celery Beat are running; `/ready`
+  reports PostgreSQL and Redis as healthy. Container SHA-256 values match the
+  clean source for the Copilot Workspace API, Local REST bridge, and method
+  distillation validator.
+- **Live command availability:** the authenticated, deployed Workspace API
+  returned `available` with all five allowlisted Copilot commands. It did not
+  expose the command catalog body, Local REST endpoint, token, prompt, or
+  conversation content in this record.
+- **Browser acceptance:** in a temporary local Studio session, selecting the
+  mapped project enabled PBOS and rendered the real Copilot sequence: open
+  delivery, import a completed archive response, and review registered D-layer
+  drafts. The UI displayed two pending Copilot drafts, current evidence gates,
+  and no accepted outcome or verified capability. The temporary session key was
+  cleared after inspection.
+- **Remaining human evidence:** a registered draft still needs a truthful
+  quality/evidence review and a real observed delivery result before feedback
+  may alter a later plan. This requirement remains intentionally open; no
+  output was accepted and no feedback was authored by automation.
+
 ## 2026-08-02 Copilot Configuration and Import Authority Correction
 
 - **Authoritative Copilot configuration:** automatic conversation archiving is
