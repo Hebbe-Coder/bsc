@@ -1213,3 +1213,10 @@ Live Horizon endpoint/API credentials and a real Wiki-maintenance LLM provider r
   does not close Copilot D-layer proof. A user-reviewed Copilot Markdown file,
   capture, evaluation, and feedback are still required before the personal
   knowledge loop can claim full operational closure.
+- A follow-up real `knowledge_lint_eval` run `70f232eee694` completed with
+  evaluation status `passed`. The live health projection reports five
+  published Wiki pages, 47 sources, 100% citation coverage, zero orphan pages,
+  zero uncited pages, zero dangling or stale citations, zero contradictions,
+  and two pending proposals. These are persisted ledger facts, not a claim
+  that the pending proposals have been accepted or that Copilot has produced
+  an output.
