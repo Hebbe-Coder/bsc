@@ -102,6 +102,7 @@ class ObsidianSyncService:
             try:
                 content = path.read_text(encoding="utf-8").strip()
             except UnicodeDecodeError:
+                manual_vault_source = source_type == "manual_upload"
                 result = self.capture_service.capture(
                     CapturedSourceInput(
                         project_id=project_id,
@@ -117,7 +118,8 @@ class ObsidianSyncService:
                             "modified_at": path.stat().st_mtime_ns,
                             "extension": extension,
                             "byte_size": path.stat().st_size,
-                            "extraction_status": "encoding_error",
+                            "extraction_status": "queued" if manual_vault_source else "encoding_error",
+                            **({"manual_vault_source": True} if manual_vault_source else {}),
                         },
                     )
                 )

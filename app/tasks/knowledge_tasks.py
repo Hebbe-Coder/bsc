@@ -455,6 +455,9 @@ def execute_knowledge_run(
             )
             report = ObsidianSyncService(repo, Path(settings.OBSIDIAN_VAULT_ROOT)).sync(project_id=project_id)
             report["multimodal_extraction"] = _extract_new_vault_assets(repo, project_id)
+            report["extraction_index"] = WikiSearchIndex(repo).sync_completed_extraction_projections(
+                project_id=project_id
+            )
             report["multimodal_references"] = ExtractionReferenceProjector(repo).backfill_project(project_id)
             report["evidence_mirror"] = _sync_evidence_mirror(repo, project_id)
             managed_vault = FilesystemWikiVault(Path(settings.OBSIDIAN_VAULT_ROOT), project_id, mapping["vault_path"])

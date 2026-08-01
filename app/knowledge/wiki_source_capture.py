@@ -443,6 +443,8 @@ class SourceCaptureService:
         created = self.repository.create_source(source)
         if assessment.status is SourceStatus.REJECTED:
             projection = {"status": "skipped", "code": "source_rejected_by_policy"}
+        elif self._requires_completed_local_extraction(payload):
+            projection = {"status": "deferred", "code": "local_extraction_pending"}
         else:
             try:
                 projection = self.search_index.project_source(created)
@@ -518,14 +520,27 @@ class SourceCaptureService:
         )
         if not corrected or corrected.get("status") != SourceStatus.ELIGIBLE.value:
             return existing
-        try:
-            projection = self.search_index.project_source(corrected)
-        except Exception:
-            projection = {"status": "failed", "code": "index_backend_exception"}
+        if self._requires_completed_local_extraction(payload):
+            projection = {"status": "deferred", "code": "local_extraction_pending"}
+        else:
+            try:
+                projection = self.search_index.project_source(corrected)
+            except Exception:
+                projection = {"status": "failed", "code": "index_backend_exception"}
         return self.repository.update_source_metadata(
             payload.project_id,
             str(corrected["id"]),
             {**(corrected.get("metadata") or {}), "projection": projection},
+        )
+
+    @staticmethod
+    def _requires_completed_local_extraction(payload: CapturedSourceInput) -> bool:
+        """Keep direct binary Vault descriptors out of retrieval until extracted."""
+        return (
+            payload.source_type == "manual_upload"
+            and payload.metadata.get("manual_vault_source") is True
+            and str(payload.metadata.get("extraction_status") or "").lower()
+            in {"queued", "pending", "processing"}
         )
 
     def _assess(self, payload: CapturedSourceInput) -> SourceTrustAssessment:

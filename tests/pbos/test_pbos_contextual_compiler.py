@@ -9,7 +9,7 @@ from app.knowledge.growth_contracts import FeedbackType, OutputAsset, OutputFeed
 from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
 from app.knowledge.vault import FilesystemWikiVault
-from app.knowledge.wiki_contracts import SourceRecord
+from app.knowledge.wiki_contracts import ExtractionArtifact, ExtractionStatus, MediaAsset, SourceRecord, SourceStatus
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_rules import build_default_agents_rules
 from app.pbos.context import PBOSGovernedContextProvider, PBOSVaultContextBuilder
@@ -366,6 +366,73 @@ def test_governed_context_retrieves_only_published_wiki_with_source_lineage(tmp_
         repo.close()
 
 
+def test_governed_context_exposes_selected_local_extraction_as_sanitized_admitted_evidence(tmp_path):
+    vault_root = tmp_path / "vault"
+    project_root = vault_root / "projects" / "project-a"
+    project_root.mkdir(parents=True)
+    repo = WikiRepository(db_path=str(tmp_path / "governed-extraction-context.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    source = repo.create_source(SourceRecord(
+        id="manual-pdf-source",
+        project_id="project-a",
+        source_type="manual_upload",
+        origin="projects/project-a/01_Sources/memgpt.pdf",
+        vault_path="projects/project-a/01_Sources/memgpt.pdf",
+        content_hash="a" * 64,
+        raw_content="Unsupported format retained as provenance only.",
+        trust_level="trusted",
+        status=SourceStatus.ELIGIBLE,
+    ))
+    asset = repo.register_media_asset(MediaAsset(
+        id="manual-pdf-asset",
+        project_id="project-a",
+        source_id=source["id"],
+        mime_type="application/pdf",
+        byte_hash="b" * 64,
+        byte_size=42,
+        storage_ref="projects/project-a/01_Sources/memgpt.pdf",
+    ))
+    extraction = repo.create_extraction_artifact(ExtractionArtifact(
+        id="manual-pdf-extraction",
+        project_id="project-a",
+        source_id=source["id"],
+        asset_id=asset["id"],
+        extractor="pdf-text",
+        extractor_revision="local-v2",
+        input_hash="b" * 64,
+        content_hash="c" * 64,
+        content="MemGPT separates external archival memory from the prompt context for agent systems.",
+        status=ExtractionStatus.COMPLETE,
+    ))
+    FilesystemWikiVault(vault_root, "project-a", "projects/project-a").commit({
+        "AGENTS.md": build_default_agents_rules("project-a"),
+    })
+
+    class Retrieval:
+        def retrieve(self, *_args, **_kwargs):
+            return [{"source": "evidence://project-a/manual-pdf-source"}]
+
+    provider = PBOSGovernedContextProvider(
+        project_root,
+        project_id="project-a",
+        vault_root=vault_root,
+        repository=repo,
+        wiki_context_provider=WikiContextProvider(repo, vault_root=vault_root, retrieval_service=Retrieval()),
+    )
+    try:
+        context = provider.build(task_constraints=["Design an agent memory system using archival memory."])
+
+        evidence = next(item for item in context["documents"] if item["kind"] == "admitted_evidence")
+        assert evidence["ref"] == "source:manual-pdf-source@" + "a" * 64
+        assert evidence["path"] == "evidence/manual-pdf-source"
+        assert "MemGPT separates external archival memory" in evidence["excerpt"]
+        assert f"extraction:{extraction['id']}" in evidence["supporting_refs"]
+        assert "Unsupported format retained as provenance only." not in evidence["excerpt"]
+        assert context["governed_wiki"]["source_ids"] == ["manual-pdf-source"]
+    finally:
+        repo.close()
+
+
 def test_governed_context_prioritizes_current_handoff_and_brief_before_published_wiki(tmp_path):
     vault_root = tmp_path / "vault"
     project_root = vault_root / "projects" / "project-a"
@@ -714,9 +781,13 @@ def test_governed_context_retains_a_retrieved_published_page_when_source_budget_
         context = provider.build(task_constraints=["plugin extension delivery"])
 
         assert context["governed_wiki"]["page_ids"] == []
-        assert context["documents"][0]["path"] == "wiki/concepts/published.md"
-        assert context["documents"][0]["ref"].startswith("wiki:")
-        assert context["documents"][0]["supporting_refs"] == ["source:source-a@" + "a" * 64]
+        assert [item["path"] for item in context["documents"]] == [
+            "evidence/source-a",
+            "wiki/concepts/published.md",
+        ]
+        assert context["documents"][0]["ref"] == "source:source-a@" + "a" * 64
+        assert context["documents"][1]["ref"].startswith("wiki:")
+        assert context["documents"][1]["supporting_refs"] == ["source:source-a@" + "a" * 64]
     finally:
         repo.close()
 

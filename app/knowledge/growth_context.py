@@ -588,6 +588,10 @@ class GrowthContextBuilder:
     @staticmethod
     def _source_priority(record: dict[str, Any], *, default: int) -> int:
         """Prefer current, admitted triage evidence without elevating it above Wiki authority."""
+        # An explicitly selected, admitted source is scoped input to this
+        # request. It still passes source admission before reaching this point.
+        if record.get("context_required") is True:
+            return 9
         try:
             triage_priority = int(record.get("context_priority"))
         except (TypeError, ValueError):
@@ -644,9 +648,14 @@ class GrowthContextService:
         task: str,
         source_cutoff: str = "",
         creation_run_id: str = "",
+        required_source_ids: Iterable[str] = (),
     ) -> GrowthContextPack:
         if not project_id.strip():
             raise ValueError("project_id is required")
+        required_sources = tuple(
+            dict.fromkeys(str(source_id).strip() for source_id in required_source_ids if str(source_id).strip())
+        )
+        required_source_set = set(required_sources)
         profile = self.repository.get_profile(project_id) or {
             "project_id": project_id,
             "revision": 0,
@@ -680,13 +689,30 @@ class GrowthContextService:
                     current_decisions=current_decisions,
                 )
             ):
-                decision = current_decisions.get(str(source.get("id") or ""))
+                source_id = str(source.get("id") or "")
+                decision = current_decisions.get(source_id)
                 sources.append(
                     {
                         **self._with_completed_local_extraction(project_id, source),
                         "context_priority": int(decision.get("priority") or 0) if decision else 0,
+                        "context_required": source_id in required_source_set,
                     }
                 )
+        if required_source_set:
+            required_order = {source_id: index for index, source_id in enumerate(required_sources)}
+            sources.sort(
+                key=lambda source: (
+                    0 if source.get("context_required") is True else 1,
+                    required_order.get(str(source.get("id") or ""), self.MAX_RECORDS),
+                )
+            )
+        # Explicit operator-selected evidence is part of this request's
+        # contract. Keep it ahead of the ordinary candidate cap so a large
+        # project inventory cannot silently omit it before budget selection.
+        sources.sort(key=lambda source: (
+            not bool(source.get("context_required")),
+            str(source.get("id") or ""),
+        ))
         sources = sources[: self.MAX_RECORDS]
         project_contexts = project_contexts[: self.MAX_RECORDS]
         methods, candidate_method_ids, omitted_method_ids = self._routed_methods(project_id, task)

@@ -12,6 +12,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterable
 
 from app.knowledge.context_pack import WikiContextProvider
+from app.knowledge.generation_provenance import sanitize_untrusted_text
 from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
 from app.knowledge.wiki_repository import WikiRepository
@@ -165,6 +166,7 @@ class PBOSGovernedContextProvider:
 
     MAX_WORKING_DOCUMENTS = 4
     MAX_VERIFIED_OUTPUTS = 2
+    MAX_ADMITTED_EVIDENCE_DOCUMENTS = 1
     MIN_GOVERNED_DOCUMENTS = 2
     MAX_PROCESSED_GROWTH_FEEDBACK = 3
 
@@ -199,6 +201,7 @@ class PBOSGovernedContextProvider:
                 task_constraints=task_constraints,
             )
             governed = self._published_documents(repository, pack)
+            admitted_evidence = self._admitted_evidence_documents(repository, pack, provider)
             operational_state = self._operational_state(repository)
             verified_outputs = self._verified_output_documents(repository)
             growth_feedback = self._processed_growth_feedback(repository)
@@ -208,6 +211,7 @@ class PBOSGovernedContextProvider:
         documents = self._prioritized_documents(
             working["documents"],
             verified_outputs,
+            admitted_evidence,
             governed,
         )
         refs = list(dict.fromkeys(
@@ -286,20 +290,23 @@ class PBOSGovernedContextProvider:
         cls,
         working: list[dict[str, Any]],
         verified_outputs: list[dict[str, Any]],
+        admitted_evidence: list[dict[str, Any]],
         governed: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         """Fit planning inputs into the prompt without losing governed knowledge.
 
         ``PBOSVaultContextBuilder`` places the latest weekly handoff before
         active project briefs. Preserve that ordering, then include accepted
-        outputs. Two retrieved published pages are reserved whenever present:
-        this prevents a large active directory from silently removing the
-        evidence-governed knowledge layer from a personal plan.
+        outputs. One retrieval-selected A-layer evidence excerpt and two
+        retrieved published pages are reserved whenever present. This prevents
+        a large active directory from silently removing the actual research
+        input or evidence-governed knowledge layer from a personal plan.
         """
         limit = PBOSVaultContextBuilder.MAX_DOCUMENTS
         selections = (
-            (working, cls.MAX_WORKING_DOCUMENTS),
+            (working, cls.MAX_WORKING_DOCUMENTS - min(len(admitted_evidence), cls.MAX_ADMITTED_EVIDENCE_DOCUMENTS)),
             (verified_outputs, cls.MAX_VERIFIED_OUTPUTS),
+            (admitted_evidence, cls.MAX_ADMITTED_EVIDENCE_DOCUMENTS),
             (governed, cls.MIN_GOVERNED_DOCUMENTS),
         )
         documents: list[dict[str, Any]] = []
@@ -325,6 +332,51 @@ class PBOSGovernedContextProvider:
         # still bounded and independently checked by its source adapter.
         for items, allocation in selections:
             append(items[allocation:])
+        return documents
+
+    def _admitted_evidence_documents(
+        self,
+        repository: WikiRepository,
+        pack: Any,
+        provider: WikiContextProvider,
+    ) -> list[dict[str, Any]]:
+        """Expose only retrieval-selected, admitted A-layer evidence to PBOS.
+
+        Source text remains untrusted input. The document is bounded and
+        sanitized before the plan compiler sees it, while its source and local
+        extraction identifiers remain auditable. It is not a Capability,
+        Experience, Strategy Genome, or verified output.
+        """
+        if pack is None:
+            return []
+        documents: list[dict[str, Any]] = []
+        for source_id in tuple(getattr(pack, "source_ids", ())):
+            source = repository.get_source(self.project_id, str(source_id))
+            if not source or str(source.get("status") or "") not in {"eligible", "processed"}:
+                continue
+            view = provider.source_context_view(self.project_id, source)
+            content = str(view.get("raw_content") or "").strip()
+            if not content:
+                continue
+            extraction_id = str(view.get("extraction_context_id") or "").strip()
+            documents.append(
+                {
+                    "ref": f"source:{source_id}@{source['content_hash']}",
+                    "path": f"evidence/{source_id}",
+                    "title": str(source.get("origin") or f"Evidence {source_id}")[:200],
+                    "excerpt": self.working_context._excerpt(
+                        sanitize_untrusted_text(content, data_kind="admitted_evidence", ref_id=str(source_id))
+                    ),
+                    "sha256": str(source["content_hash"]),
+                    "kind": "admitted_evidence",
+                    "origin": "admitted_evidence",
+                    "supporting_refs": [
+                        f"extraction:{extraction_id}"
+                    ] if extraction_id else [],
+                }
+            )
+            if len(documents) >= self.MAX_ADMITTED_EVIDENCE_DOCUMENTS:
+                break
         return documents
 
     @staticmethod

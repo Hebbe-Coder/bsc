@@ -261,6 +261,7 @@ describe('growthApi', () => {
 
     const result = await generateProjectSop('project-a', {
       prd_source_id: 'prd-source-a',
+      supporting_source_ids: ['support-source-a'],
       goal: 'Deliver the governed project workflow.',
       audience: 'project operators',
       idempotency_key: 'browser-sop-a',
@@ -270,6 +271,7 @@ describe('growthApi', () => {
     expect(requests[0].url).toContain('/knowledge/projects/project-a/outputs/generate-sop');
     expect(JSON.parse(String(requests[0].init?.body))).toEqual({
       prd_source_id: 'prd-source-a',
+      supporting_source_ids: ['support-source-a'],
       goal: 'Deliver the governed project workflow.',
       audience: 'project operators',
       idempotency_key: 'browser-sop-a',

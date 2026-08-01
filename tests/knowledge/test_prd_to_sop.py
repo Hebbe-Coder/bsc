@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from hashlib import sha256
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -87,7 +88,7 @@ def _setup(tmp_path):
     return repo, root, prd, page
 
 
-def _draft(prd_id: str, page_id: str) -> dict:
+def _draft(prd_id: str, page_id: str, supporting_source_ids: tuple[str, ...] = ()) -> dict:
     return {
         "title": "Evidence-led SOP delivery",
         "purpose": "Convert the admitted project PRD into a reviewed and traceable operating procedure.",
@@ -103,7 +104,7 @@ def _draft(prd_id: str, page_id: str) -> dict:
         "assumptions": ["The project operator will review the registered draft."],
         "risks": ["Missing business constraints remain unresolved."],
         "open_questions": ["Which execution owner accepts the final SOP?"],
-        "source_refs": [prd_id],
+        "source_refs": [prd_id, *supporting_source_ids],
         "page_refs": [page_id],
         "evidence_claims": [{
             "claim_id": "review-gate",
@@ -160,6 +161,127 @@ def test_project_sop_generation_registers_pending_output_with_exact_lineage_and_
         assert repeated["idempotent"] is True
         assert repeated["output"]["id"] == output["id"]
         assert len(promptops.requests) == 1
+    finally:
+        repo.close()
+
+
+def test_project_sop_generation_includes_selected_admitted_supporting_sources_in_context_and_lineage(tmp_path):
+    repo, root, prd, page = _setup(tmp_path)
+    support = repo.get_source("project-a", "support-a")
+    assert support is not None
+    draft = _draft(prd["id"], page["id"])
+    draft["source_refs"] = [prd["id"], support["id"]]
+    draft["evidence_claims"][0]["source_refs"] = [prd["id"], support["id"]]
+    promptops = RecordingPromptOps(draft)
+    service = ProjectSopGenerationService(repo, str(root), promptops=promptops)
+    request = ProjectSopGenerationRequest(
+        prd_source_id=prd["id"],
+        supporting_source_ids=[support["id"]],
+        goal="Deliver an evidence-led SOP for the current project request.",
+        audience="project operators",
+        idempotency_key="prd-to-sop-supporting-source",
+    )
+    try:
+        result = service.generate(project_id="project-a", request=request, actor_id="tester")
+        run = result["run"]
+        output = result["output"]
+
+        assert run["input_refs"]["supporting_source_ids"] == [support["id"]]
+        assert run["input_refs"]["supporting_source_hashes"] == {support["id"]: support["content_hash"]}
+        assert output["metadata"]["generation_provenance"]["supporting_source_ids"] == [support["id"]]
+        prompt = promptops.requests[0]
+        assert support["id"] in prompt.user_prompt
+        assert "Reports require traceable evidence references." in prompt.user_prompt
+        edges = {(edge["edge_type"], edge["from_id"], edge["to_id"]) for edge in repo.list_lineage("project-a")}
+        assert ("output_used_source", support["id"], output["id"]) in edges
+    finally:
+        repo.close()
+
+
+@pytest.mark.parametrize(
+    ("supporting_source_ids", "category"),
+    [(["prd-a"], "supporting_source_duplicates_prd"), (["missing-source"], "supporting_source_not_found")],
+)
+def test_project_sop_generation_rejects_invalid_supporting_sources_before_model_invocation(tmp_path, supporting_source_ids, category):
+    repo, root, prd, page = _setup(tmp_path)
+    promptops = RecordingPromptOps(_draft(prd["id"], page["id"]))
+    service = ProjectSopGenerationService(repo, str(root), promptops=promptops)
+    request = ProjectSopGenerationRequest(
+        prd_source_id=prd["id"],
+        supporting_source_ids=supporting_source_ids,
+        goal="Deliver a governed SOP for the current project request.",
+        audience="project operators",
+        idempotency_key=f"invalid-support-{category}",
+    )
+    try:
+        with pytest.raises(ProjectSopGenerationError) as error:
+            service.generate(project_id="project-a", request=request)
+        assert error.value.category == category
+        assert promptops.requests == []
+    finally:
+        repo.close()
+
+
+def test_project_sop_generation_rejects_cross_project_supporting_source_before_model_invocation(tmp_path):
+    repo, root, prd, page = _setup(tmp_path)
+    foreign = _source(repo, "project-b", "support-b", "Foreign evidence must remain isolated.")
+    promptops = RecordingPromptOps(_draft(prd["id"], page["id"]))
+    service = ProjectSopGenerationService(repo, str(root), promptops=promptops)
+    request = ProjectSopGenerationRequest(
+        prd_source_id=prd["id"],
+        supporting_source_ids=[foreign["id"]],
+        goal="Deliver a governed SOP for the current project request.",
+        audience="project operators",
+        idempotency_key="foreign-supporting-source",
+    )
+    try:
+        with pytest.raises(ProjectSopGenerationError) as error:
+            service.generate(project_id="project-a", request=request)
+        assert error.value.category == "supporting_source_not_found"
+        assert promptops.requests == []
+    finally:
+        repo.close()
+
+
+def test_project_sop_generation_requires_and_records_selected_supporting_sources(tmp_path):
+    repo, root, prd, page = _setup(tmp_path)
+    support = repo.get_source("project-a", "support-a")
+    assert support is not None
+    promptops = RecordingPromptOps(_draft(prd["id"], page["id"], (support["id"],)))
+    service = ProjectSopGenerationService(repo, str(root), promptops=promptops)
+    request = ProjectSopGenerationRequest(
+        prd_source_id=prd["id"],
+        supporting_source_ids=[support["id"]],
+        goal="Create an evidence-specific SOP for the current project delivery.",
+        audience="project operators",
+        idempotency_key="supporting-source-success",
+    )
+    try:
+        result = service.generate(project_id="project-a", request=request, actor_id="tester")
+
+        assert result["output"]["source_refs"] == [prd["id"], support["id"]]
+        assert result["run"]["input_refs"]["supporting_source_ids"] == [support["id"]]
+        assert json.loads(promptops.requests[0].user_prompt)["request"]["required_supporting_source_ids"] == [support["id"]]
+    finally:
+        repo.close()
+
+
+def test_project_sop_generation_rejects_a_draft_that_omits_selected_supporting_source(tmp_path):
+    repo, root, prd, page = _setup(tmp_path)
+    promptops = RecordingPromptOps(_draft(prd["id"], page["id"]))
+    service = ProjectSopGenerationService(repo, str(root), promptops=promptops)
+    request = ProjectSopGenerationRequest(
+        prd_source_id=prd["id"],
+        supporting_source_ids=["support-a"],
+        goal="Create an evidence-specific SOP for the current project delivery.",
+        audience="project operators",
+        idempotency_key="supporting-source-omitted",
+    )
+    try:
+        with pytest.raises(ProjectSopGenerationError, match="every explicitly selected source") as error:
+            service.generate(project_id="project-a", request=request, actor_id="tester")
+        assert error.value.category == "output_contract_invalid"
+        assert repo.list_outputs("project-a") == []
     finally:
         repo.close()
 

@@ -1600,3 +1600,37 @@ runtime facts, not completion labels.
   Capability, Experience, or Strategy Genome. GitHub and Feishu remain
   `awaiting_authorization`. Rollback is limited to the importer deployment;
   audit records and original chat archives must be preserved.
+
+### 2026-08-02 Real Obsidian Extraction Retrieval Into PBOS
+
+- **Implemented:** completed local PDF/media extraction now replaces only its
+  source's rebuildable search projection. The immutable `SourceRecord`, its
+  hash, the extraction artifact, and `has_extraction` graph anchor are not
+  changed. Retrieval remains project-scoped and returns the original source ID;
+  `WikiContextProvider` and PBOS use a bounded derivative marked with the
+  extraction ID only after that source is selected.
+- **PBOS mapping:** the personal compiler now has one reserved,
+  injection-sanitized `admitted_evidence` input slot in addition to working
+  context, verified outputs, and published Wiki. This is A-layer evidence, not
+  an inferred personal memory. The persisted plan retains source/extraction
+  references rather than copying evidence text into an artifact.
+- **Actual proof:** source-sync run `f9a7aef01e22` completed after deployment,
+  refreshing two extraction search projections while preserving 26 existing
+  extraction derivatives and 26 reference anchors. Runtime context readback
+  confirmed the real project MemGPT PDF was retrieval-selected and
+  context-selected, its extraction reference was present in the PBOS input,
+  and raw Copilot/plugin output consumption was `false`.
+- **Verification and rollback:** focused PBOS/Wiki/extraction/context tests
+  passed `103 passed, 1 skipped`; `git diff --check` passed. Reverting this
+  scope and rebuilding API/Worker/Beat removes derived retrieval/context
+  behavior only. No external connector was authorized or contacted, and no
+  source, Vault body, credential, personal capability, Experience, outcome, or
+  Strategy Genome was fabricated.
+- **Final admission guard:** the retrieval context provider now applies the
+  current project-triage decision before selecting source records. A pending
+  Horizon discovery hit is excluded even when retrieval returns it. Final
+  verification expanded to `130 passed, 1 skipped, 1 warning` across PBOS,
+  source-sync, extraction, context, SOP, and Celery integration coverage; the
+  associated Growth Workspace suite passed `35 passed`, TypeScript checking
+  passed, and API/Worker/Beat were rebuilt before the final real-PDF context
+  readback.

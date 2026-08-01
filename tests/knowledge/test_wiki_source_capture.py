@@ -24,6 +24,35 @@ class RecordingSourceIndex:
         return dict(self.result)
 
 
+def test_direct_manual_vault_asset_defers_retrieval_until_local_extraction(tmp_path):
+    repo = WikiRepository(db_path=str(tmp_path / "manual-vault-pending.db"))
+    index = RecordingSourceIndex()
+    service = SourceCaptureService(repo, search_index=index)
+    try:
+        result = service.capture(
+            CapturedSourceInput(
+                project_id="project-a",
+                source_type="manual_upload",
+                origin="projects/project-a/01_Sources/research.pdf",
+                vault_path="projects/project-a/01_Sources/research.pdf",
+                raw_content="Unsupported format retained as provenance only.",
+                trust_level="trusted",
+                metadata={"sync": "obsidian", "manual_vault_source": True, "extraction_status": "queued"},
+            )
+        )
+
+        assert result.created is True
+        assert index.sources == []
+        assert result.source["metadata"]["projection"] == {
+            "status": "deferred",
+            "code": "local_extraction_pending",
+        }
+        attempt = repo.list_source_capture_attempts("project-a")[0]
+        assert attempt["projection"] == result.source["metadata"]["projection"]
+    finally:
+        repo.close()
+
+
 def test_source_capture_hashes_and_deduplicates_project_evidence(tmp_path):
     repo = WikiRepository(db_path=str(tmp_path / "source-capture.db"))
     service = SourceCaptureService(repo)

@@ -780,6 +780,27 @@ def test_obsidian_sync_admits_direct_project_source_assets_for_local_extraction(
         repo.close()
 
 
+def test_obsidian_sync_queues_non_utf8_manual_source_for_local_extraction(tmp_path):
+    root = tmp_path / "vault"
+    project_root = root / "projects" / "project-a"
+    document = project_root / "01_Sources" / "legacy.csv"
+    document.parent.mkdir(parents=True)
+    document.write_bytes(b"metric,value\nquality,\xff\n")
+    repo = WikiRepository(db_path=str(tmp_path / "sync-non-utf8-manual-source.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    try:
+        report = ObsidianSyncService(repo, root).sync(project_id="project-a")
+
+        assert report["created"] == 1
+        source = repo.list_sources("project-a")[0]
+        assert source["source_type"] == "manual_upload"
+        assert source["status"] == "eligible"
+        assert source["metadata"]["manual_vault_source"] is True
+        assert source["metadata"]["extraction_status"] == "queued"
+    finally:
+        repo.close()
+
+
 def test_obsidian_sync_reclassifies_legacy_rejected_direct_project_asset(tmp_path):
     root = tmp_path / "vault"
     project_root = root / "projects" / "project-a"

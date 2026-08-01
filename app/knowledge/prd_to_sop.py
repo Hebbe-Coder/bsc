@@ -44,6 +44,7 @@ class ProjectSopGenerationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     prd_source_id: str = Field(min_length=1, max_length=128)
+    supporting_source_ids: list[str] = Field(default_factory=list, max_length=12)
     goal: str = Field(min_length=8, max_length=4_000)
     audience: str = Field(min_length=2, max_length=1_000)
     idempotency_key: str = Field(min_length=1, max_length=200)
@@ -55,6 +56,16 @@ class ProjectSopGenerationRequest(BaseModel):
         normalized = value.strip()
         if not normalized:
             raise ValueError("request fields must not be blank")
+        return normalized
+
+    @field_validator("supporting_source_ids")
+    @classmethod
+    def normalize_supporting_source_ids(cls, values: list[str]) -> list[str]:
+        normalized = [str(value).strip() for value in values]
+        if any(not value or len(value) > 128 for value in normalized):
+            raise ValueError("supporting_source_ids must contain non-empty source IDs up to 128 characters")
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("supporting_source_ids must not contain duplicates")
         return normalized
 
 
@@ -131,7 +142,17 @@ class ProjectSopGenerationService:
         trigger: str = "http",
     ) -> dict[str, Any]:
         prd_source = self._admitted_prd(project_id, request.prd_source_id)
-        request_fingerprint = self._request_fingerprint(project_id, request, prd_source)
+        if prd_source["id"] in request.supporting_source_ids:
+            raise ProjectSopGenerationError(
+                "supporting_source_duplicates_prd",
+                "the project PRD must not be repeated as a supporting source",
+            )
+        supporting_sources = tuple(
+            self._admitted_supporting_source(project_id, source_id)
+            for source_id in request.supporting_source_ids
+        )
+        required_source_ids = tuple([str(prd_source["id"]), *[str(source["id"]) for source in supporting_sources]])
+        request_fingerprint = self._request_fingerprint(project_id, request, prd_source, supporting_sources)
         run_id = self._run_id(project_id, request.idempotency_key)
         existing = self.repository.get_run(project_id, run_id)
         if existing:
@@ -149,6 +170,11 @@ class ProjectSopGenerationService:
                 "idempotency_key": request.idempotency_key,
                 "prd_source_id": prd_source["id"],
                 "prd_content_hash": prd_source["content_hash"],
+                "supporting_source_ids": list(request.supporting_source_ids),
+                "supporting_source_hashes": {
+                    str(source["id"]): str(source["content_hash"])
+                    for source in supporting_sources
+                },
                 "goal_fingerprint": self._fingerprint(request.goal),
                 "audience_fingerprint": self._fingerprint(request.audience),
                 "channel": request.channel,
@@ -173,16 +199,22 @@ class ProjectSopGenerationService:
             source_cutoff = datetime.now(timezone.utc).isoformat()
             context = self.context_service.build_context(
                 project_id=project_id,
-                task="Generate a project-specific SOP from an admitted PRD. Preserve assumptions and unresolved risks.",
+                task=(
+                    "Generate a project-specific SOP from an admitted PRD. "
+                    f"Goal: {request.goal}\nAudience: {request.audience}\n"
+                    "Preserve assumptions and unresolved risks."
+                ),
                 source_cutoff=source_cutoff,
                 creation_run_id=run_id,
+                required_source_ids=required_source_ids,
             )
             allowed_source_ids = tuple(dict.fromkeys(context.source_ids))
             allowed_page_ids = tuple(dict.fromkeys(context.page_ids))
-            if prd_source["id"] not in allowed_source_ids:
+            missing_required_sources = set(required_source_ids) - set(allowed_source_ids)
+            if missing_required_sources:
                 raise ProjectSopGenerationError(
-                    "required_prd_omitted_from_context",
-                    "the admitted PRD did not fit in the governed context; no SOP was generated",
+                    "required_source_omitted_from_context",
+                    "an explicitly selected source did not fit in the governed context; no SOP was generated",
                 )
 
             self.repository.update_run_input_refs(
@@ -224,7 +256,7 @@ class ProjectSopGenerationService:
             )
             draft = self._validate_draft(
                 prompt_run.output,
-                required_prd_source_id=prd_source["id"],
+                required_source_ids=required_source_ids,
                 allowed_source_ids=allowed_source_ids,
                 allowed_page_ids=allowed_page_ids,
             )
@@ -268,6 +300,7 @@ class ProjectSopGenerationService:
                     "origin": "bsc_system_generated",
                     "prd_source_id": prd_source["id"],
                     "prd_content_hash": prd_source["content_hash"],
+                    "supporting_source_ids": list(request.supporting_source_ids),
                     "prompt_run_id": str(prompt_run.run_id),
                     "prompt_fingerprint": str(prompt_run.prompt_fingerprint),
                     "input_fingerprint": str(prompt_run.input_fingerprint),
@@ -275,7 +308,10 @@ class ProjectSopGenerationService:
                     "prompt_retry_count": int(prompt_run.retry_count),
                     "output_contract": PRD_TO_SOP_REVISION,
                     "generation_risks": draft.risks,
-                    "generation_provenance": manifest.to_generation_metadata(),
+                    "generation_provenance": {
+                        **manifest.to_generation_metadata(),
+                        "supporting_source_ids": list(request.supporting_source_ids),
+                    },
                 },
             )
             registered = OutputRegistry(self.repository, self.vault_root).register_content(output, content)
@@ -322,6 +358,26 @@ class ProjectSopGenerationService:
             raise ProjectSopGenerationError("prd_source_not_admitted", f"PRD source is not admitted: {reason}")
         return source
 
+    def _admitted_supporting_source(self, project_id: str, source_id: str) -> dict[str, Any]:
+        source = self.repository.get_source(project_id, source_id)
+        if not source:
+            raise ProjectSopGenerationError(
+                "supporting_source_not_found",
+                "supporting source was not found in the requested project",
+            )
+        if source.get("status") not in {"eligible", "processed"}:
+            raise ProjectSopGenerationError(
+                "supporting_source_not_admitted",
+                "supporting source must be eligible or processed before generation",
+            )
+        reason = source_admission_reason(self.repository, project_id, source)
+        if reason:
+            raise ProjectSopGenerationError(
+                "supporting_source_not_admitted",
+                f"supporting source is not admitted: {reason}",
+            )
+        return source
+
     def _resolve_existing(self, run: dict[str, Any], request_fingerprint: str) -> dict[str, Any]:
         input_refs = run.get("input_refs") or {}
         if input_refs.get("request_fingerprint") != request_fingerprint:
@@ -344,11 +400,21 @@ class ProjectSopGenerationService:
     def _fingerprint(value: str) -> str:
         return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
-    def _request_fingerprint(self, project_id: str, request: ProjectSopGenerationRequest, prd_source: dict[str, Any]) -> str:
+    def _request_fingerprint(
+        self,
+        project_id: str,
+        request: ProjectSopGenerationRequest,
+        prd_source: dict[str, Any],
+        supporting_sources: tuple[dict[str, Any], ...],
+    ) -> str:
         return self._fingerprint(json.dumps({
             "project_id": project_id,
             "prd_source_id": prd_source["id"],
             "prd_content_hash": prd_source["content_hash"],
+            "supporting_sources": [
+                {"id": source["id"], "content_hash": source["content_hash"]}
+                for source in supporting_sources
+            ],
             "goal": request.goal,
             "audience": request.audience,
             "channel": request.channel,
@@ -400,6 +466,7 @@ class ProjectSopGenerationService:
                     "audience": request.audience,
                     "channel": request.channel,
                     "required_prd_source_id": request.prd_source_id,
+                    "required_supporting_source_ids": request.supporting_source_ids,
                 },
                 "allowed_source_refs": source_refs,
                 "allowed_page_refs": page_refs,
@@ -436,7 +503,7 @@ class ProjectSopGenerationService:
         self,
         value: Any,
         *,
-        required_prd_source_id: str,
+        required_source_ids: tuple[str, ...],
         allowed_source_ids: tuple[str, ...],
         allowed_page_ids: tuple[str, ...],
     ) -> ProjectSopDraft:
@@ -455,8 +522,12 @@ class ProjectSopGenerationService:
             raise ProjectSopGenerationError("output_contract_invalid", "model output did not match the project SOP contract") from exc
         source_refs = self._unique_refs(draft.source_refs)
         page_refs = self._unique_refs(draft.page_refs)
-        if required_prd_source_id not in source_refs:
-            raise ProjectSopGenerationError("output_contract_invalid", "model output did not cite the required PRD source")
+        missing_required_sources = set(required_source_ids) - set(source_refs)
+        if missing_required_sources:
+            raise ProjectSopGenerationError(
+                "output_contract_invalid",
+                "model output did not cite every explicitly selected source",
+            )
         if not set(source_refs).issubset(set(allowed_source_ids)) or not set(page_refs).issubset(set(allowed_page_ids)):
             raise ProjectSopGenerationError("output_contract_invalid", "model output cited a source or page outside the governed context")
         normalized_claims: list[SopEvidenceClaim] = []

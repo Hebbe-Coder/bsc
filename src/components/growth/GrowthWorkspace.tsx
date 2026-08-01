@@ -220,18 +220,21 @@ function isProjectPrdSource(source: GrowthRecord): boolean {
 
 function ProjectSopGenerator({
   sources,
+  supportingSources,
   sourceState,
   canWrite,
   busy,
   onGenerate,
 }: {
   sources: GrowthRecord[];
+  supportingSources: GrowthRecord[];
   sourceState: GrowthRequestState;
   canWrite: boolean;
   busy: boolean;
   onGenerate: (input: Omit<ProjectSopGenerationInput, 'idempotency_key' | 'channel'>) => void;
 }) {
   const [prdSourceId, setPrdSourceId] = useState('');
+  const [supportingSourceIds, setSupportingSourceIds] = useState<string[]>([]);
   const [goal, setGoal] = useState('');
   const [audience, setAudience] = useState('');
 
@@ -239,16 +242,23 @@ function ProjectSopGenerator({
     if (!sources.some((source) => source.id === prdSourceId)) setPrdSourceId(sources[0]?.id || '');
   }, [prdSourceId, sources]);
 
+  useEffect(() => {
+    setSupportingSourceIds((current) => current.filter((sourceId) => sourceId !== prdSourceId && supportingSources.some((source) => source.id === sourceId)));
+  }, [prdSourceId, supportingSources]);
+
   const unavailable = ['loading', 'permission', 'offline', 'unavailable', 'error'].includes(sourceState);
   const disabled = !canWrite || busy || unavailable || !prdSourceId || goal.trim().length < 8 || audience.trim().length < 2;
   return <section className="growth-panel growth-sop-generator" aria-label="Project PRD to SOP">
     <div className="growth-panel__heading"><div><p>PRD TO SOP</p><h3>Reviewable project output</h3></div><Sparkles size={18} /></div>
     <form onSubmit={(event) => {
       event.preventDefault();
-      if (!disabled) onGenerate({ prd_source_id: prdSourceId, goal: goal.trim(), audience: audience.trim() });
+      if (!disabled) onGenerate({ prd_source_id: prdSourceId, supporting_source_ids: supportingSourceIds, goal: goal.trim(), audience: audience.trim() });
     }}>
       <label><span>Admitted project PRD</span><select aria-label="Admitted project PRD" value={prdSourceId} onChange={(event) => setPrdSourceId(event.target.value)} disabled={busy || sourceState === 'loading'}>
         {sources.map((source) => <option key={source.id} value={source.id}>{growthRecordLabel(source)} ({source.id.slice(0, 8)})</option>)}
+      </select></label>
+      <label><span>Supporting admitted evidence</span><select aria-label="Supporting admitted evidence" multiple size={Math.min(5, Math.max(2, supportingSources.length))} value={supportingSourceIds} onChange={(event) => setSupportingSourceIds(Array.from(event.currentTarget.selectedOptions, (option) => option.value).filter((sourceId) => sourceId !== prdSourceId).slice(0, 12))} disabled={busy || sourceState === 'loading'}>
+        {supportingSources.filter((source) => source.id !== prdSourceId).map((source) => <option key={source.id} value={source.id}>{growthRecordLabel(source)} ({source.id.slice(0, 8)})</option>)}
       </select></label>
       <label><span>Delivery goal</span><textarea aria-label="SOP delivery goal" value={goal} onChange={(event) => setGoal(event.target.value)} minLength={8} maxLength={4000} required /></label>
       <label><span>Audience</span><input aria-label="SOP audience" value={audience} onChange={(event) => setAudience(event.target.value)} minLength={2} maxLength={1000} required /></label>
@@ -300,6 +310,7 @@ export function GrowthWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
   const [profileMessage, setProfileMessage] = useState('');
   const [projectPrds, setProjectPrds] = useState<GrowthRecord[]>([]);
+  const [projectSopSupportingSources, setProjectSopSupportingSources] = useState<GrowthRecord[]>([]);
   const [projectPrdState, setProjectPrdState] = useState<GrowthRequestState>('idle');
   const projectSopIdempotencyKey = useRef('');
 
@@ -456,18 +467,19 @@ export function GrowthWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
 
   useEffect(() => {
     if (stage !== 'D') {
-      setProjectPrds([]); setProjectPrdState('idle');
+      setProjectPrds([]); setProjectSopSupportingSources([]); setProjectPrdState('idle');
       return undefined;
     }
     const controller = new AbortController();
     setProjectPrds([]); setProjectPrdState('loading');
     void fetchGrowthStage(projectId, 'A', 500, controller.signal).then((result) => {
       if (controller.signal.aborted) return;
-      const admitted = result.records.filter(isProjectPrdSource);
-      setProjectPrds(admitted); setProjectPrdState(admitted.length ? 'success' : 'empty');
+      const admitted = result.records.filter((source) => ['eligible', 'processed'].includes(String(source.status || '')));
+      const prds = admitted.filter(isProjectPrdSource);
+      setProjectPrds(prds); setProjectSopSupportingSources(admitted); setProjectPrdState(prds.length ? 'success' : 'empty');
     }).catch((reason: unknown) => {
       if (controller.signal.aborted) return;
-      setProjectPrds([]); setProjectPrdState(errorInfo(reason).state);
+      setProjectPrds([]); setProjectSopSupportingSources([]); setProjectPrdState(errorInfo(reason).state);
     });
     return () => controller.abort();
   }, [projectId, reloadEpoch, stage]);
@@ -780,7 +792,7 @@ export function GrowthWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
           <header className="growth-main__header"><div><p>{stage === 'review' ? 'REVIEW QUEUE' : `STAGE ${stage}`}</p><h3>{stageMeta?.detail}</h3></div><div className="growth-view-switcher" role="group" aria-label="Growth workspace view">{viewButtons.map(({ id, label, icon: Icon }) => <button type="button" key={id} className={centerView === id ? 'is-active' : ''} aria-pressed={centerView === id} onClick={() => setCenterView(id)}><Icon size={14} />{label}</button>)}</div></header>
           {centerView === 'assets' && <>
             <section className="growth-panel growth-panel--overview"><div className="growth-panel__heading"><div><p>GROWTH HEALTH</p><h3>Persisted inventory and coverage</h3></div><BarChart3 size={18} /></div><GrowthFunnel counts={counts} state={requestStates.overview} error={overviewError?.message} /></section>
-            {stage === 'D' && <ProjectSopGenerator sources={projectPrds} sourceState={projectPrdState} canWrite={access?.can_write === true} busy={requestStates.action === 'loading'} onGenerate={(input) => void submitProjectSop(input)} />}
+            {stage === 'D' && <ProjectSopGenerator sources={projectPrds} supportingSources={projectSopSupportingSources} sourceState={projectPrdState} canWrite={access?.can_write === true} busy={requestStates.action === 'loading'} onGenerate={(input) => void submitProjectSop(input)} />}
             <div className="growth-assets-view">
               <section className="growth-panel"><div className="growth-panel__heading"><div><p>ASSET INDEX</p><h3>{stageMeta?.label}</h3></div><span>{stageResult ? `${stageResult.records.length}${stageResult.truncated ? '+' : ''} loaded` : 'not loaded'}</span></div><GrowthAssetList stage={stage} records={records} selectedId={selectedId} query={query} statusFilter={statusFilter} page={page} pageSize={pageSize} totalHint={stageTotal(overview, stage)} truncated={Boolean(stageResult?.truncated)} serverCapped={stageResult?.limit === 500} state={requestStates.stage} error={stageError?.message} onQueryChange={setQuery} onStatusChange={setStatusFilter} onPageChange={setPage} onSelect={selectAsset} onRetry={refresh} /></section>
               <section className="growth-panel growth-reader"><div className="growth-panel__heading"><div><p>{detail?.kind === 'proposal' ? 'DIFF' : 'READER'}</p><h3>{selected ? growthRecordLabel(selected) : 'No asset selected'}</h3></div>{detail?.kind === 'proposal' ? <FileDiff size={17} /> : <BookOpen size={17} />}</div><AssetReader selected={selected} detail={detail} state={requestStates.detail} error={detailError?.message} /></section>

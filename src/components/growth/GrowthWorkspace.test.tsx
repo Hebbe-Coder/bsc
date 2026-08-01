@@ -93,13 +93,14 @@ const overview = {
   summary: { project_id: 'default', counts: { sources: 25, eligible_sources: 20, pages: 1, methods: 1, published_methods: 1, outputs: 1, accepted_outputs: 1, rejected_outputs: 0, feedback: 1, wiki_proposals: 1, review_records: 2 } },
 };
 const source = { id: 'source-a', origin: 'Source brief', status: 'eligible', created_at: '2026-07-20T09:00:00Z', content_hash: 'a'.repeat(64), metadata: { evidence_role: 'project_prd' } };
+const supportingSource = { id: 'source-support', origin: 'Research constraint', status: 'eligible', created_at: '2026-07-20T10:00:00Z', content_hash: 'b'.repeat(64), metadata: {} };
 const page = { id: 'page-a', title: 'Wiki page', path: 'wiki/page.md', status: 'published', updated_at: '2026-07-21T09:00:00Z' };
 
 function installSuccessfulProject() {
   mockedOverview.mockResolvedValue(overview);
   mockedAccess.mockResolvedValue({ role: 'project_admin', can_write: true, features: { wiki: true } });
   mockedStage.mockImplementation(async (_projectId, stage, limit) => {
-    const records = stage === 'A' ? [source] : stage === 'B' ? [page] : [];
+    const records = stage === 'A' ? [source, supportingSource] : stage === 'B' ? [page] : [];
     return { project_id: 'default', stage, records, limit, truncated: false };
   });
   mockedDetail.mockImplementation(async (_projectId, stage, assetId) => stage === 'B'
@@ -389,6 +390,25 @@ describe('GrowthWorkspace', () => {
     })));
     expect(await screen.findByText(/New registered SOP is open/i)).toBeVisible();
     expect(useGrowthWorkspaceStore.getState().selectedId).toBe('sop-output-a');
+  });
+
+  it('sends explicitly selected admitted evidence as supporting SOP context', async () => {
+    render(<GrowthWorkspace onClose={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole('tab', { name: /Outputs/i }));
+    const supporting = await screen.findByRole('listbox', { name: 'Supporting admitted evidence' });
+    const option = Array.from((supporting as HTMLSelectElement).options).find((item) => item.value === 'source-support');
+    expect(option).toBeDefined();
+    option!.selected = true;
+    fireEvent.change(supporting);
+    fireEvent.change(screen.getByRole('textbox', { name: 'SOP delivery goal' }), { target: { value: 'Create a delivery SOP that applies the selected research constraint.' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'SOP audience' }), { target: { value: 'Project operators' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Generate reviewable SOP' }));
+
+    await waitFor(() => expect(mockedGenerateProjectSop).toHaveBeenCalledWith('default', expect.objectContaining({
+      prd_source_id: 'source-a',
+      supporting_source_ids: ['source-support'],
+    })));
   });
 
   it('audits persisted run inputs, events, output references and linked failures in one workspace view', async () => {

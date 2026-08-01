@@ -347,6 +347,7 @@ export type GrowthOutputEvidenceInput = {
 
 export type ProjectSopGenerationInput = {
   prd_source_id: string;
+  supporting_source_ids?: string[];
   goal: string;
   audience: string;
   idempotency_key: string;

@@ -171,6 +171,7 @@ def test_project_sop_generation_endpoint_requires_writer_and_returns_durable_res
     monkeypatch.setattr(growth_api_module, "ProjectSopGenerationService", FakeProjectSopService)
     payload = {
         "prd_source_id": "prd-source",
+        "supporting_source_ids": ["support-source"],
         "goal": "Create a governed SOP for the active project delivery.",
         "audience": "project operators",
         "idempotency_key": "sop-api-test",

@@ -9,6 +9,7 @@ from typing import Any, Iterable
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.config import settings
+from app.knowledge.source_triage import source_admission_reason
 from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.wiki_repository import WikiRepository
 from app.knowledge.wiki_rules import ProjectRules
@@ -207,6 +208,8 @@ class ContextPackBuilder:
 class WikiContextProvider:
     """Build a bounded, traceable SOP/content context from one project Wiki."""
 
+    MAX_EXTRACTION_CONTEXT_CHARS = 64 * 1024
+
     def __init__(
         self,
         repository: WikiRepository | None = None,
@@ -248,9 +251,10 @@ class WikiContextProvider:
             (decisions if page.get("page_kind") == "decision" else pages).append(item)
 
         sources = [
-            source
+            self.source_context_view(project_id, source)
             for status in ("eligible", "processed")
             for source in self.repository.list_sources(project_id, status=status)
+            if not source_admission_reason(self.repository, project_id, source)
         ]
         retrieval_refs = self._candidate_refs(project_id, task_constraints)
         if retrieval_refs:
@@ -295,6 +299,39 @@ class WikiContextProvider:
             elif source.startswith(wiki_prefix):
                 references.add(source[len(wiki_prefix):])
         return references
+
+    def source_context_view(self, project_id: str, source: dict[str, Any]) -> dict[str, Any]:
+        """Build an in-memory context view for one source's latest derivative."""
+        source_id = str(source.get("id") or "").strip()
+        if not source_id:
+            return source
+        candidates: list[tuple[str, str, str, str]] = []
+        for asset in self.repository.list_media_assets(project_id, source_id=source_id):
+            extraction = self.repository.latest_extraction_for_asset(project_id, str(asset.get("id") or ""))
+            if not extraction or str(extraction.get("status") or "").lower() not in {"complete", "partial"}:
+                continue
+            derivative = self.repository.get_extraction_content(project_id, str(extraction.get("id") or "")) or {}
+            content = str(derivative.get("content") or "").strip()
+            if content:
+                candidates.append(
+                    (
+                        str(extraction.get("created_at") or ""),
+                        str(extraction.get("id") or ""),
+                        str(extraction.get("status") or "").lower(),
+                        content,
+                    )
+                )
+        if not candidates:
+            return source
+        _, extraction_id, extraction_status, content = max(candidates, key=lambda item: (item[0], item[1]))
+        return {
+            **source,
+            "raw_content": (
+                f"[LOCAL_EXTRACTION source={source_id} extraction={extraction_id} status={extraction_status}]\n"
+                f"{content[:self.MAX_EXTRACTION_CONTEXT_CHARS]}"
+            ),
+            "extraction_context_id": extraction_id,
+        }
 
     def _latest_distillation(self, project_id: str, vault: FilesystemWikiVault) -> dict[str, Any] | None:
         records = self.repository.list_distillations(project_id)

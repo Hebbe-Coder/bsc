@@ -1,6 +1,8 @@
 import pytest
 
 from app.knowledge.context_pack import ContextPackBuilder
+from app.knowledge.wiki_contracts import ExtractionArtifact, ExtractionStatus, MediaAsset, SourceRecord, SourceStatus
+from app.knowledge.wiki_index import WikiSearchIndex
 from app.knowledge.wiki_rules import build_default_agents_rules, parse_project_rules
 
 
@@ -144,5 +146,157 @@ def test_context_provider_uses_hybrid_retrieval_to_bound_candidate_records(tmp_p
         assert "Irrelevant decision" not in pack.rendered
         assert set(pack.retrieval_refs) == {"source-relevant", "wiki/decisions/relevant.md"}
         assert pack.token_budget == pack.character_budget // 4
+    finally:
+        repo.close()
+
+
+def test_context_provider_retrieves_completed_manual_extraction_with_original_source_identity(tmp_path):
+    from app.knowledge.context_pack import WikiContextProvider
+    from app.knowledge.vault import FilesystemWikiVault
+    from app.knowledge.wiki_repository import WikiRepository
+
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = WikiRepository(db_path=str(tmp_path / "context-extraction-retrieval.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    FilesystemWikiVault(root, "project-a").commit({"AGENTS.md": build_default_agents_rules("project-a")})
+    try:
+        source = repo.create_source(SourceRecord(
+            id="manual-pdf-source",
+            project_id="project-a",
+            source_type="manual_upload",
+            origin="projects/project-a/01_Sources/memgpt.pdf",
+            vault_path="projects/project-a/01_Sources/memgpt.pdf",
+            content_hash="a" * 64,
+            raw_content="Unsupported format retained as provenance only.",
+            trust_level="trusted",
+            status=SourceStatus.ELIGIBLE,
+            metadata={"sync": "obsidian", "extraction_status": "complete"},
+        ))
+        asset = repo.register_media_asset(MediaAsset(
+            id="manual-pdf-asset",
+            project_id="project-a",
+            source_id=source["id"],
+            mime_type="application/pdf",
+            byte_hash="b" * 64,
+            byte_size=42,
+            storage_ref="projects/project-a/01_Sources/memgpt.pdf",
+        ))
+        extraction = repo.create_extraction_artifact(ExtractionArtifact(
+            id="manual-pdf-extraction",
+            project_id="project-a",
+            source_id=source["id"],
+            asset_id=asset["id"],
+            extractor="pdf-text",
+            extractor_revision="local-v2",
+            input_hash="b" * 64,
+            content_hash="c" * 64,
+            content="MemGPT separates external archival memory from the prompt context for agent systems.",
+            status=ExtractionStatus.COMPLETE,
+        ))
+
+        result = WikiSearchIndex(repo).sync_completed_extraction_projections(project_id="project-a")
+        unchanged = WikiSearchIndex(repo).sync_completed_extraction_projections(project_id="project-a")
+        pack = WikiContextProvider(repo, vault_root=root).build_context(
+            project_id="project-a",
+            task_constraints=["Design an agent memory system using archival memory."],
+        )
+
+        assert result == {"projected": 1, "unchanged": 0, "failed": 0, "skipped": 0}
+        assert unchanged == {"projected": 0, "unchanged": 1, "failed": 0, "skipped": 0}
+        assert pack is not None
+        assert pack.source_ids == (source["id"],)
+        assert source["id"] in pack.retrieval_refs
+        assert "MemGPT separates external archival memory" in pack.rendered
+        assert f"extraction={extraction['id']}" in pack.rendered
+        assert repo.get_source("project-a", source["id"])["raw_content"] == "Unsupported format retained as provenance only."
+    finally:
+        repo.close()
+
+
+def test_completed_extraction_index_is_bounded_without_mutating_the_artifact(tmp_path):
+    from app.knowledge.vault import FilesystemWikiVault
+    from app.knowledge.wiki_repository import WikiRepository
+
+    class RecordingService:
+        def __init__(self):
+            self.calls = []
+
+        def ingest_text(self, text, **kwargs):
+            self.calls.append((text, kwargs))
+            return {"status": "ingested", "doc_id": kwargs["doc_id"], "version": 1}
+
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = WikiRepository(db_path=str(tmp_path / "bounded-extraction-index.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    FilesystemWikiVault(root, "project-a").commit({"AGENTS.md": build_default_agents_rules("project-a")})
+    service = RecordingService()
+    try:
+        source = repo.create_source(SourceRecord(
+            id="bounded-source", project_id="project-a", source_type="manual_upload",
+            origin="projects/project-a/01_Sources/long.txt", vault_path="projects/project-a/01_Sources/long.txt",
+            content_hash="d" * 64, raw_content="Immutable source descriptor.", trust_level="trusted",
+            status=SourceStatus.ELIGIBLE, metadata={"sync": "obsidian", "extraction_status": "complete"},
+        ))
+        asset = repo.register_media_asset(MediaAsset(
+            id="bounded-asset", project_id="project-a", source_id=source["id"], mime_type="text/plain",
+            byte_hash="e" * 64, byte_size=128 * 1024, storage_ref="projects/project-a/01_Sources/long.txt",
+        ))
+        content = "useful first line\n" + ("x" * (WikiSearchIndex.MAX_EXTRACTION_INDEX_CHARS + 1_024))
+        extraction = repo.create_extraction_artifact(ExtractionArtifact(
+            id="bounded-extraction", project_id="project-a", source_id=source["id"], asset_id=asset["id"],
+            extractor="utf8-text", extractor_revision="local-v2", input_hash="e" * 64,
+            content_hash="f" * 64, content=content, status=ExtractionStatus.COMPLETE,
+        ))
+
+        result = WikiSearchIndex(repo, service=service).project_completed_extraction(
+            source=source, extraction=extraction
+        )
+
+        assert result["status"] == "ingested"
+        indexed, kwargs = service.calls[0]
+        assert "truncated=true" in indexed
+        assert len(indexed) <= WikiSearchIndex.MAX_EXTRACTION_INDEX_CHARS + 160
+        assert kwargs["doc_id"] == WikiSearchIndex.source_doc_id(source["id"])
+        assert repo.get_extraction_content("project-a", extraction["id"])["content"] == content
+    finally:
+        repo.close()
+
+
+def test_context_provider_excludes_untriaged_horizon_evidence_even_when_retrieval_hits_it(tmp_path):
+    from app.knowledge.context_pack import WikiContextProvider
+    from app.knowledge.vault import FilesystemWikiVault
+    from app.knowledge.wiki_repository import WikiRepository
+
+    root = tmp_path / "vault"
+    root.mkdir()
+    repo = WikiRepository(db_path=str(tmp_path / "context-triage-boundary.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    FilesystemWikiVault(root, "project-a").commit({"AGENTS.md": build_default_agents_rules("project-a")})
+    try:
+        source = repo.create_source(SourceRecord(
+            id="horizon-pending",
+            project_id="project-a",
+            source_type="horizon_signal",
+            content_hash="a" * 64,
+            raw_content="Unreviewed discovery signal must not become plan context.",
+            trust_level="reviewed",
+            status=SourceStatus.ELIGIBLE,
+            metadata={"admission_gate": "project_triage"},
+        ))
+
+        class Retrieval:
+            def retrieve(self, *_args, **_kwargs):
+                return [{"source": f"evidence://project-a/{source['id']}"}]
+
+        pack = WikiContextProvider(repo, vault_root=root, retrieval_service=Retrieval()).build_context(
+            project_id="project-a", task_constraints=["Analyze the latest research signal."]
+        )
+
+        assert pack is not None
+        assert pack.source_ids == ()
+        assert "Unreviewed discovery signal" not in pack.rendered
+        assert source["id"] in pack.retrieval_refs
     finally:
         repo.close()

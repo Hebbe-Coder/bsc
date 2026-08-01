@@ -491,6 +491,135 @@ def test_growth_context_uses_completed_local_extraction_for_an_admitted_manual_a
         repository.close()
 
 
+def test_growth_context_keeps_an_explicit_admitted_local_asset_under_budget_pressure(tmp_path):
+    vault_root = tmp_path / "vault"
+    project_root = vault_root / "projects" / "project-a"
+    project_root.mkdir(parents=True)
+    (project_root / "AGENTS.md").write_text(
+        build_default_agents_rules("project-a"), encoding="utf-8"
+    )
+    repository = GrowthRepository(db_path=str(tmp_path / "growth-context-required-extraction.db"))
+    repository.configure_vault("project-a", "projects/project-a")
+    try:
+        preferred = repository.create_source(
+            SourceRecord(
+                id="high-priority-source",
+                project_id="project-a",
+                source_type="manual_upload",
+                content_hash="d" * 64,
+                raw_content="Current priority evidence. " * 800,
+                trust_level="trusted",
+                status=SourceStatus.ELIGIBLE,
+            )
+        )
+        selected = repository.create_source(
+            SourceRecord(
+                id="selected-local-source",
+                project_id="project-a",
+                source_type="manual_upload",
+                origin="projects/project-a/01_Sources/selected.pdf",
+                vault_path="projects/project-a/01_Sources/selected.pdf",
+                content_hash="e" * 64,
+                raw_content="Immutable binary descriptor only.",
+                trust_level="trusted",
+                status=SourceStatus.ELIGIBLE,
+            )
+        )
+        asset = repository.register_media_asset(
+            MediaAsset(
+                id="selected-local-asset",
+                project_id="project-a",
+                source_id=selected["id"],
+                mime_type="application/pdf",
+                byte_hash="f" * 64,
+                byte_size=42,
+                storage_ref="projects/project-a/01_Sources/selected.pdf",
+            )
+        )
+        extraction = repository.create_extraction_artifact(
+            ExtractionArtifact(
+                id="selected-local-extraction",
+                project_id="project-a",
+                source_id=selected["id"],
+                asset_id=asset["id"],
+                extractor="pdf-text",
+                extractor_revision="local-v2",
+                input_hash="f" * 64,
+                content_hash="a" * 64,
+                content="Selected evidence establishes a review checkpoint before publication.",
+                status=ExtractionStatus.COMPLETE,
+            )
+        )
+
+        pack = GrowthContextService(
+            repository,
+            vault_root,
+            builder=GrowthContextBuilder(max_characters=1_400),
+        ).build_context(
+            project_id="project-a",
+            task="Produce a project-specific SOP with selected supporting evidence.",
+            required_source_ids=[selected["id"]],
+        )
+
+        assert selected["id"] in pack.source_ids
+        assert "[LOCAL_EXTRACTION source=selected-local-source extraction=selected-local-extraction" in pack.rendered
+        assert "Selected evidence establishes a review checkpoint" in pack.rendered
+        assert preferred["id"] not in pack.source_ids
+        assert f"source:{preferred['id']}" in pack.omitted_refs
+        assert extraction["id"] == "selected-local-extraction"
+    finally:
+        repository.close()
+
+
+def test_growth_context_keeps_explicitly_selected_sources_before_record_limit(tmp_path):
+    vault_root = tmp_path / "vault"
+    project_root = vault_root / "projects" / "project-a"
+    project_root.mkdir(parents=True)
+    (project_root / "AGENTS.md").write_text(
+        build_default_agents_rules("project-a"), encoding="utf-8"
+    )
+    repository = GrowthRepository(db_path=str(tmp_path / "growth-context-required-source.db"))
+    repository.configure_vault("project-a", "projects/project-a")
+    try:
+        repository.create_source(
+            SourceRecord(
+                id="ordinary-source",
+                project_id="project-a",
+                source_type="manual_upload",
+                origin="ordinary.md",
+                content_hash="d" * 64,
+                raw_content="Ordinary evidence must not evict an explicit generation input.",
+                trust_level="trusted",
+                status=SourceStatus.ELIGIBLE,
+            )
+        )
+        selected = repository.create_source(
+            SourceRecord(
+                id="selected-source",
+                project_id="project-a",
+                source_type="manual_upload",
+                origin="selected.md",
+                content_hash="e" * 64,
+                raw_content="Selected evidence must remain in the generated SOP context.",
+                trust_level="trusted",
+                status=SourceStatus.ELIGIBLE,
+            )
+        )
+        service = GrowthContextService(repository, vault_root)
+        service.MAX_RECORDS = 1
+
+        pack = service.build_context(
+            project_id="project-a",
+            task="Generate a project-specific SOP with the selected source.",
+            required_source_ids=[selected["id"]],
+        )
+
+        assert pack.source_ids == (selected["id"],)
+        assert selected["id"] in pack.rendered
+    finally:
+        repository.close()
+
+
 def test_growth_context_excludes_horizon_signal_until_current_project_triage_exists(tmp_path):
     vault_root = tmp_path / "vault"
     project_root = vault_root / "projects" / "project-a"

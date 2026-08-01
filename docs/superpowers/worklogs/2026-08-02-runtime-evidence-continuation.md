@@ -533,3 +533,83 @@ note bodies, credentials, provider payloads, or personal feedback.
   Runtime health proves deployment; the existing deterministic tests prove the
   behavior. A future user-curated direct asset supplies the first real
   operational receipt.
+
+## 2026-08-02 Extracted Evidence Retrieval And PBOS Consumption
+
+- **Defect corrected:** a completed local extraction was available in the
+  Evidence Atlas but its search document still contained the old
+  unsupported-file descriptor. Task retrieval could therefore miss the
+  extracted material, and PBOS exposed retrieval state without consuming the
+  selected A-layer evidence in its plan context.
+- **Implementation:** `WikiSearchIndex` now rebuilds one project-scoped
+  retrieval projection per admitted source from its latest complete or partial
+  local extraction. The projection retains the original `evidence://` source
+  identity and uses a separate, marked derivative body. `WikiContextProvider`
+  then supplies that bounded derivative only after retrieval selects its source.
+  `PBOSGovernedContextProvider` reserves one selected `admitted_evidence`
+  document, sanitizes it as untrusted data, and retains its source and
+  extraction references. It remains evidence, never an Experience,
+  Capability, accepted outcome, or Strategy Genome.
+- **Real runtime proof:** deployment rebuilt API, Celery Worker, and Beat.
+  Manual `source_sync` run `f9a7aef01e22` completed; it skipped 26 already
+  extracted assets, refreshed two extraction projections, and found all 26
+  existing extraction-reference anchors. A production PBOS context readback
+  for the project-owned MemGPT PDF confirmed its source was retrieval-selected
+  and context-selected, one admitted-evidence document was present, and its
+  extraction reference was retained. The same readback confirmed raw plugin
+  and raw Copilot output consumption were both `false`.
+- **Verification:**
+  `.\.venv\Scripts\python.exe -m pytest tests\pbos\test_pbos_contextual_compiler.py tests\knowledge\test_context_pack.py tests\knowledge\test_multimodal_evidence.py tests\knowledge\test_wiki_sync.py tests\knowledge\test_growth_context.py -q`
+  passed `103 passed, 1 skipped, 1 warning`; `git diff --check` passed. The
+  skip and FastAPI TestClient deprecation warning are test-environment
+  conditions, not a functional failure.
+- **Rollback:** revert the extraction-index and PBOS-context changes, then
+  rebuild API/Worker/Beat. Original Vault bytes, source hashes, extraction
+  artifacts, Evidence Atlas anchors, and external connector authorization
+  states remain unchanged. GitHub and Feishu are still
+  `awaiting_authorization`.
+- **Final hardening and deployment:** `WikiContextProvider` now applies the
+  existing project-triage admission rule before any retrieval-selected source
+  can enter a context pack. This prevents a pending Horizon discovery signal
+  from becoming PBOS context merely because it is indexed. The final API,
+  Worker, and Beat image was rebuilt and all services are healthy. The broader
+  backend suite passed `130 passed, 1 skipped, 1 warning`; the associated
+  Growth Workspace frontend suite passed `35 passed`; `npm run check` and
+  `git diff --check` passed. Final runtime readback repeated the admitted PDF
+  source/extraction proof and confirmed raw plugin/Copilot consumption stayed
+  `false`.
+
+## 2026-08-02 Extracted Evidence Retrieval Projection
+
+- **Problem corrected:** an admitted manual binary source used a provenance
+  descriptor while its local extraction was still queued. Indexing that
+  descriptor made it technically retrievable even though it contained no
+  useful evidence, which could bias retrieval before the source had been
+  digested.
+- **Admission behavior:** direct `01_Sources` binary assets and non-UTF-8
+  manual assets now persist as immutable, eligible source records with a
+  `deferred/local_extraction_pending` projection. The retrieval document is
+  not created until the extractor records a complete or partial derivative.
+  The original bytes, fingerprint, source lifecycle, and evidence references
+  remain unchanged.
+- **Retrieval behavior:** the source-sync task projects the newest usable
+  local derivative under the stable original source document ID. This makes
+  search hits, context-pack references, citations, and Evidence Atlas
+  identities agree, while a newer extraction replaces only rebuildable search
+  data. A true repeated projection is reported as `unchanged`; unrelated
+  skipped states are no longer counted as successful synchronization.
+- **Verification:** focused source/extraction/context coverage passed `80
+  passed, 1 skipped, 1 warning`. The broader task and Workspace API suite
+  passed `106 passed, 1 skipped, 1 warning`; modified modules compiled.
+  Existing TestClient deprecation warnings and one platform-dependent skipped
+  test remain non-functional test-environment conditions.
+- **External-state audit:** the authenticated live Workspace summary reported
+  a configured Vault, enabled Wiki/Obsidian sync/schedules/Horizon/MCP flags,
+  completed latest source-sync and growth runs, 76 registered sources, and
+  the honest release state `implemented_with_operational_proof_pending`.
+  The declared Vault had 59 source files but no current non-text direct source
+  asset, so no artificial binary file or extraction artifact was created.
+- **Rollback:** revert the retrieval-projection commit to restore the prior
+  indexing behavior. Existing immutable evidence, extraction artifacts, and
+  index documents stay auditable; a follow-up rebuild can recreate the search
+  projection deterministically.
