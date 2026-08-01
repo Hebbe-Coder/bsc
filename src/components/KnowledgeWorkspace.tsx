@@ -45,6 +45,19 @@ export const KNOWLEDGE_JOB_OPTIONS = [
   { id: 'growth_daily', label: 'Daily growth cycle', defaultCron: '0 17 * * *' },
   { id: 'growth_weekly_distillation', label: 'Friday weekly growth distillation', defaultCron: '30 17 * * 5' },
 ] as const;
+
+export function describeGrowthCycleSync(growth: KnowledgeWorkspaceData['growth'] | undefined): string {
+  if (!growth || growth.status === 'not_run') {
+    return 'No integrated daily or weekly growth run yet';
+  }
+  const sync = growth.sync;
+  if (!sync) {
+    return `${growth.status}: sync evidence was not recorded`;
+  }
+  const triage = sync.triage;
+  return `${growth.status}: ${sync.sources.created} evidence captured, ${sync.outputs.registered} outputs registered, ${triage.evaluated} evaluated, ${triage.eligible} eligible, ${triage.pending_review} awaiting review`;
+}
+
 const TERMINAL_RUNS = new Set(['completed', 'failed', 'cancelled', 'unavailable']);
 const TrendChart = lazy(() => import('./charts/RegisteredECharts'));
 export const OBSIDIAN_PLUGIN_PRESETS = [
@@ -580,7 +593,6 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '', activeProje
   const vaultConnectionLabel = VAULT_CONNECTION_LABELS[vaultConnectionState];
   const initialized = vaultConnectionState === 'ready';
   const growth = workspace?.growth;
-  const growthSync = growth?.sync;
   const horizon = workspace?.horizon;
   const localRest = workspace?.local_rest;
   const localRestDetail = describeLocalRestConnection(localRest);
@@ -602,11 +614,7 @@ export function KnowledgeWorkspace({ onClose, runtimeAccessKey = '', activeProje
       : horizon.last_run.skipped
         ? `Latest run already imported (${horizon.captured_sources} evidence records)`
       : `${horizon.last_run.source_mode === 'run_store' ? 'Native run store' : 'Horizon import'} ${horizon.last_run.status}: ${horizon.last_run.created} new, ${horizon.last_run.duplicates} duplicate (${horizon.captured_sources} evidence records)`;
-  const growthCycleDetail = !growth || growth.status === 'not_run'
-    ? 'No integrated daily or weekly growth run yet'
-    : growthSync
-      ? `${growth.status}: ${growthSync.sources.created} evidence captured, ${growthSync.outputs.registered} outputs registered, ${growthSync.triage.eligible}/${growthSync.triage.evaluated} passed triage`
-      : `${growth.status}: sync evidence was not recorded`;
+  const growthCycleDetail = describeGrowthCycleSync(growth);
 
   return <section className="knowledge-workspace" aria-label="Knowledge workspace">
     <header className="knowledge-workspace__header">

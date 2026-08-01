@@ -1360,3 +1360,43 @@ runtime facts, not completion labels.
   the intentional development-server restart did not prevent HTTP proxying or
   data rendering. Production API health and frontend build checks remain
   passing.
+
+## 2026-08-01 Copilot Runtime Truth Correction
+
+### Actual State
+
+- This section supersedes earlier statements in this document that described
+  Copilot as `registered_output` or as having a reviewed file under
+  `04_Outputs/copilot`.
+- A direct descriptor-only inspection confirmed that Copilot has an enabled
+  `deepseek-v4-flash|deepseek` default model, indexing, inline citations, the
+  `writeFile` tool, a project-scoped custom-prompt folder, and a separate
+  automatic conversation archive at
+  `projects/proj_b8a285642094/copilot/copilot-conversations`. Credentials
+  were neither read nor changed.
+- The automatic archive contained a real conversation, but it had no
+  `bsc_output_contract: v1`. Its two historical D-layer registration attempts
+  are persisted as `rejected`; they are not accepted evidence, reviewed
+  outputs, Experiences, Capabilities, or Strategy Genomes.
+- The active trusted bridge is path-ready and destination-aligned with the
+  separate `04_Outputs/copilot` route. After rebuilding API, Worker, and Beat
+  from the current workspace, the live authenticated workspace endpoint
+  returned `awaiting_output`, `ready_for_first_output`, and
+  `registered_outputs=0`. The original conversation remains in its archive;
+  no Vault content was deleted or rewritten.
+
+### Verification And Rollback
+
+- `./.venv/Scripts/python.exe -m pytest tests/knowledge/test_wiki_sync.py -q`
+  passed: `26 passed, 1 skipped`. The regression explicitly proves rejected
+  plugin records cannot be counted as registered bridge output.
+- `docker compose up -d --build bsc-backend celery-worker celery-beat`
+  completed. API health, PostgreSQL, Redis, and the mounted Vault were checked
+  afterwards.
+- A future Copilot delivery must be deliberately written to
+  `04_Outputs/copilot` with the existing BSC contract, then pass source
+  lineage and quality review. Merely configuring a model or autosaving a chat
+  cannot complete that gate.
+- Rollback: rebuild the three services from the preceding image. This changes
+  only the live status projection; it does not alter records, Vault files,
+  schedules, or credentials.

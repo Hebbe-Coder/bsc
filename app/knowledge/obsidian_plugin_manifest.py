@@ -25,6 +25,7 @@ _SUPPORTED_ADAPTERS = _CAPTURE_ADAPTERS | frozenset({_OUTPUT_ADAPTER})
 _TRUST_REVISION = "bsc-plugin-trust-v1"
 _SOURCE_EXPORT_ROOTS = frozenset({"raw", "inbox", "00_Inbox", "01_Sources"})
 _OUTPUT_EXPORT_ROOTS = frozenset({"outputs", "04_Outputs"})
+_ACTIVE_OUTPUT_STATUSES = frozenset({"registered", "evaluating", "accepted", "filed"})
 _SYNCABLE_KNOWLEDGE_ROOTS = _SOURCE_EXPORT_ROOTS | frozenset({"02_Assets", "03_Projects", "06_Skills"})
 _WORKSPACE_ROLES = {
     "00_Inbox": "inspiration",
@@ -433,7 +434,11 @@ class ObsidianPluginManifest:
         for output in outputs:
             metadata = output.get("metadata") if isinstance(output, dict) else None
             plugin_id = str(metadata.get("obsidian_plugin") or "") if isinstance(metadata, dict) else ""
-            if plugin_id in registered_outputs and str(metadata.get("obsidian_adapter") or "") == _OUTPUT_ADAPTER:
+            if (
+                plugin_id in registered_outputs
+                and str(metadata.get("obsidian_adapter") or "") == _OUTPUT_ADAPTER
+                and str(output.get("status") or "") in _ACTIVE_OUTPUT_STATUSES
+            ):
                 registered_outputs[plugin_id].append(output)
 
         plugin_statuses = []

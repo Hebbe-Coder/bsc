@@ -1192,13 +1192,105 @@ external service, or writing to a Vault/original file.
   immutable duplicate. The actual next Copilot-generated export is the only
   valid path for a new D-layer version carrying parsed model metadata.
 
-## Latest Governed Zotero Review State (2026-08-01)
+## Prior Governed Zotero Review State (2026-08-01)
 
 - A bounded post-run read confirmed source `f4278140ca7f` remains
-  `validated` and `untrusted`. Its current semantic triage is completed with
+  `validated` and `untrusted`. Its then-current semantic triage was completed with
   disposition `archive` and failed reliability; it did not receive automatic
   admission, trust promotion, Wiki publication, or use as a trusted claim.
 - The completed Growth cycle therefore proves the governed execution path and
   its LLM daily artifact, not the validity of this particular Zotero item. An
   explicit human approval with a documented reason remains required before
   any non-trusted source can enter authoring-eligible knowledge.
+
+## Reauthorized Zotero Review and Growth Run (2026-08-01)
+
+- The user explicitly authorized a further governed review and Growth cycle
+  for source `f4278140ca7f` in `proj_b8a285642094`. The protected semantic
+  review endpoint completed without exposing the source body, prompt,
+  credential, or provider response. Its returned recommendation was `ignore`
+  with failed reliability and `explicit_approval_required`; the source remains
+  `validated` / `untrusted`. No lifecycle transition, trust promotion, Wiki
+  publication, method creation, or output registration occurred.
+- The metadata-only `SourceReferenceProjector` was run for that source. It
+  created `0` reference links, found `0` existing links, and skipped `1`
+  invalid or non-bibliographic metadata value. Local paths and source content
+  were not converted into a synthetic citation. The source therefore still
+  has no legitimate URL, DOI, or citation-key link, and the O4 traceability
+  gap remains open.
+- The protected Growth API queued daily run `f48c450f3d6a`; Celery completed
+  it with `8` durable events and no run error. It reconciled the declared
+  Obsidian routes without new captures, rejections, or blocks. The immutable
+  audit manifest contained `160` bounded input records, including this source
+  for accounting, but it listed `f4278140ca7f` in
+  `daily_excluded_source_ids`. The source was absent from both selected context
+  sources and citation sources, so it could not influence the resulting
+  knowledge content.
+- The run returned `preserved`, not a new daily publication. Its generation
+  metadata was `deterministic`, while the currently published daily artifact
+  is LLM-generated. The publication guard recorded
+  `incomplete_llm_generation_cannot_replace_published_daily`, leaving the
+  existing managed LLM artifact intact and creating no replacement output
+  path. This is the intended anti-regression behavior, not successful new
+  content generation.
+- The project has real evidence that review, source exclusion, durable
+  scheduling, sync, and preservation are operational. It does not close the
+  evidence-link gap, authorize this source for authoring, or establish the
+  feedback/release proof required for `release_ready`.
+
+## Copilot Transcript Boundary Repair (2026-08-01)
+
+- Claudian remains replaced by Obsidian Copilot. Copilot's automatic
+  `defaultSaveFolder` is now the active project's separate conversation
+  archive, `copilot/copilot-conversations`; the governed reviewed-output
+  bridge remains `04_Outputs/copilot`. The configuration was changed without
+  reading or recording plugin credentials.
+- The prior Copilot file was a conversation transcript, not a reviewed
+  delivery: it lacked `bsc_output_contract: v1` and contained a truncated
+  generation attempt. It was moved unchanged from the reviewed-output route
+  into the conversation archive. SHA-256 equality was checked before and
+  after the move; no transcript body was copied into this worklog.
+- The two historical registrations for that transcript,
+  `9aca690865dde8cf706fbbe6` (run `410ac265bf7e`) and
+  `a949e1ebd933e81ea9ddb74e` (run `2c5d307c67d9`), are retained as immutable
+  audit artifacts but were evaluated through the protected BSC output API as
+  `rejected` with quality `0`. Their persisted findings are
+  `copilot_output_contract_missing` and `copilot_transcript_not_reviewed`.
+  They are not accepted knowledge, evidence, or a Copilot delivery.
+- The deployed output bridge now rejects every Copilot file without the BSC
+  v1 output contract. A valid, same-project Copilot delivery with that
+  contract remains registerable exactly once and is still review-pending;
+  automatic conversation saves cannot cross into the D-layer.
+- A real governed `source_sync` run, `580e5deeec8a`, completed after the
+  migration. Its output-feedback summary reported `scanned=0`,
+  `registered=0`, and `rejected=0` for the now-empty reviewed-output route.
+  The active runtime readback reports Copilot as `configured` with
+  `conversation_archive_separated_from_reviewed_output`, `awaiting_output`,
+  and `ready_for_first_output`; rejected history is no longer presented as a
+  current registered output.
+- Docker Compose rebuilt the API, Celery Worker, and Beat from this source;
+  health checks confirmed PostgreSQL, Redis, Celery, the LLM provider, and the
+  document parser are available. Verification passed with
+  `32 passed, 1 skipped` for the focused Obsidian suites and
+  `1660 passed, 14 skipped` for the complete pytest suite. The only warnings
+  are the pre-existing Starlette TestClient and Pydantic deprecations.
+- Remaining boundary: the first genuine Copilot deliverable must be manually
+  reviewed and saved to `04_Outputs/copilot/` with valid BSC v1 frontmatter.
+  It will then enter `registered` review status; no automatic save, chat
+  transcript, or unverified response may be represented as completed work.
+
+## Knowledge Workspace Triage Metric Correction (2026-08-01)
+
+- **Observed defect:** the Knowledge Workspace rendered `eligible/evaluated`
+  as a `passed triage` ratio. These counters describe different lifecycle
+  populations, so the display could show an impossible-looking value and
+  falsely imply a pass rate.
+- **Repair:** the UI now shows evidence captured, outputs registered,
+  evaluated, eligible, and awaiting-review counts as separate governed states.
+  No source, output, triage disposition, or growth record was changed.
+- **Verification:** the focused frontend regression test and TypeScript check
+  passed. The authorized Studio displayed the corrected state text for the
+  current project; the former ratio label was absent.
+- **Boundary:** the correction improves truthful operational visibility only.
+  It does not turn eligible sources into approved claims, nor make an
+  unreviewed Copilot output a verified learning artifact.

@@ -1751,3 +1751,37 @@
   HTTP proxy, API calls, and rendered Cockpit data all succeeded. No remote
   credential was exposed, no Mission was confirmed, and no personal outcome
   was accepted automatically.
+
+## 2026-08-01 Copilot Runtime Status Correction
+
+- **Request handled:** verified the user's existing Obsidian Copilot
+  configuration and made the live BSC runtime reflect its real state rather
+  than a stale completion label.
+- **Verified configuration:** Copilot is enabled with
+  `deepseek-v4-flash|deepseek`, `6000` maximum output tokens, index sync,
+  inline citations, the `writeFile`/`editFile` tools, and the project prompt
+  folder `06_Skills/copilot-prompts`. The default archive route remains
+  `projects/proj_b8a285642094/copilot/copilot-conversations`, deliberately
+  separate from BSC's reviewed-output route. No API key or Keychain entry was
+  read, copied, or changed.
+- **Observed correction:** the saved PBOS conversation is an automatic
+  archive, not a governed output. It lacks `bsc_output_contract: v1`; its two
+  historic registration attempts are `rejected`. A current authenticated
+  workspace read returns Copilot as `trusted`, path-ready,
+  `conversation_archive_separated_from_reviewed_output`, `awaiting_output`,
+  `ready_for_first_output`, and `registered_outputs=0`.
+- **Repair and verification:** the source already excluded rejected records
+  from the registered-output count. Focused verification passed with
+  `26 passed, 1 skipped`. Rebuilt and restarted `bsc-backend`,
+  `celery-worker`, and `celery-beat`; API became healthy and the running
+  status matched the source guard.
+- **Remaining real-world trigger:** invoke the existing `BSC Project Delivery`
+  or `PBOS-证据化执行计划` Copilot command, ask it to use the enabled
+  `writeFile` tool to create a deliberate Markdown deliverable under
+  `04_Outputs/copilot` with the built-in `bsc_output_contract: v1`, then
+  complete D-layer evidence and quality review. Until that happens, Copilot
+  is correctly configured but has no accepted or reviewable PBOS learning
+  evidence.
+- **Rollback:** rebuild the prior API/Worker/Beat image. No project notes,
+  output archive, Artifact, connector authorization, schedule, or secret is
+  removed by this correction.

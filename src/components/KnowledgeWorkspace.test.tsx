@@ -9,6 +9,7 @@ import {
   EvidenceRecord,
   KNOWLEDGE_JOB_OPTIONS,
   OBSIDIAN_PLUGIN_PRESETS,
+  describeGrowthCycleSync,
   projectOptions,
   ProposalReview,
   selectKnowledgeGraphFocus,
@@ -148,6 +149,18 @@ describe('KnowledgeWorkspace focused components', () => {
     expect(screen.getByRole('button', { name: /approve for synthesis/i })).toBeDisabled();
     expect(screen.getByText(source.content_hash)).toBeVisible();
     expect(screen.getByText('Readwise Export')).toBeVisible();
+  });
+
+  it('shows triage counts as distinct governed states instead of a ratio', () => {
+    expect(describeGrowthCycleSync({
+      status: 'completed',
+      sync: {
+        status: 'completed',
+        sources: { created: 1, duplicates: 3 },
+        outputs: { registered: 0, duplicates: 2 },
+        triage: { evaluated: 4, eligible: 5, pending_review: 1 },
+      },
+    } as never)).toBe('completed: 1 evidence captured, 0 outputs registered, 4 evaluated, 5 eligible, 1 awaiting review');
   });
 
   it('explains the optional Local REST connector without treating it as a source bridge', () => {

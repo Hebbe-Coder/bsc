@@ -280,6 +280,20 @@ def test_plugin_status_verifies_copilot_conversation_archive_is_separate_from_re
     }
     assert configured["status"] == "awaiting_output"
 
+    rejected = ObsidianPluginManifest.load(project_root).public_status(
+        outputs=[
+            {
+                "status": "rejected",
+                "metadata": {"obsidian_plugin": "copilot", "obsidian_adapter": "filesystem_output"},
+            }
+        ],
+        project_root=project_root,
+        vault_root=root,
+    )["plugins"][0]
+    assert rejected["registered_outputs"] == 0
+    assert rejected["status"] == "awaiting_output"
+    assert rejected["capture_state"] == "ready_for_first_output"
+
     settings_path.write_text('{"defaultSaveFolder":"projects/project-a/04_Outputs/copilot"}', encoding="utf-8")
     mismatch = manifest.public_status(project_root=project_root, vault_root=root)["plugins"][0]
 
