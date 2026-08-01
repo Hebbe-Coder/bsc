@@ -715,3 +715,32 @@ note bodies, credentials, provider payloads, or personal feedback.
   fabricate a Copilot-authored file. This entry is operational evidence only;
   reverting it does not alter plugin settings, credentials, the immutable run
   ledger, or user-owned Vault content.
+
+## 2026-08-02 PBOS Release Regression Recheck
+
+- **Backend verification:**
+  `.\.venv\Scripts\python.exe -m pytest tests/pbos tests/api/test_pbos_api.py tests/mcp/test_pbos_http_contract.py tests/integration/test_pbos_e2e.py -q`
+  passed `95 passed, 1 warning`. Artifact durability, runtime convergence,
+  Wiki sync, and growth distillation then passed `116 passed, 1 skipped, 1
+  warning`. The skip is the existing Windows symlink-permission condition;
+  the warnings are the existing FastAPI TestClient deprecation.
+- **Frontend and deployment verification:** `npm run test:frontend` passed
+  `224 passed`; `npm run check` and `docker compose config` passed; a fresh
+  `npm run build` completed successfully. Vite retained its non-blocking
+  warning for an ECharts chunk exceeding its default advisory size.
+- **Live PBOS state:** the project Cockpit has a persisted profile, three
+  execution records, three outcomes, and one feedback record. It has no
+  promoted Capability, Strategy Genome, or failure pattern and reports
+  `learning_evidence_required`, which is the required evidence-preserving
+  behavior. GitHub and Feishu remain `awaiting_authorization`.
+- **Studio state:** the live Studio shell renders PBOS and Growth as disabled
+  when no knowledge project is selected, exposes the mapped personal project
+  in the project selector, and explains that a Mission must be diagnosed and
+  authorized before execution. This prevents an unscoped UI session from
+  claiming personal knowledge use.
+- **Release conclusion and rollback:** the PBOS v1 implementation, governed
+  Obsidian bridge, and test/build pipeline are usable. Its learning loop is
+  intentionally not yet promoted because the project lacks the required
+  comparable, accepted, attributed outcomes. Reverting this evidence record
+  changes no runtime state; the committed implementation and its normal
+  release rollback points remain unchanged.
