@@ -27,7 +27,7 @@ from app.knowledge.output_registry import OutputRegistry
 _ARCHIVE_SUBPATH = Path("copilot") / "copilot-conversations"
 _MAX_TRANSCRIPT_BYTES = 1 * 1024 * 1024
 _AI_MESSAGE = re.compile(
-    r"(?ms)^\*\*ai\*\*:\s*(?P<body>.*?)(?=^\*\*(?:user|ai)\*\*:|\Z)"
+    r"(?ms)^\*\*(?:ai|assistant)\*\*:\s*(?P<body>.*?)(?=^\*\*(?:user|ai|assistant)\*\*:|\Z)"
 )
 _TRAILING_TIMESTAMP = re.compile(r"\n?\[Timestamp:[^\]\r\n]*\]\s*\Z", re.IGNORECASE)
 _TRUNCATED_RESPONSE = re.compile(r"response\s+was\s+truncated|before\s+any\s+content\s+could\s+be\s+generated", re.IGNORECASE)

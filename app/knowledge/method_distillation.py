@@ -602,8 +602,12 @@ class SourceMethodDistillationService:
         if not failure_modes or not validity_limits:
             raise MethodDistillationError("critical_review requires failure_modes and validity_limits")
         non_triviality = str(distillation.get("non_triviality") or "").strip()
+        derived_non_triviality = False
         if len(non_triviality) < 24:
-            raise MethodDistillationError("distillation contract requires a concrete non-triviality rationale")
+            non_triviality = self._derive_non_triviality(candidate_selection)
+            if len(non_triviality) < 24:
+                raise MethodDistillationError("distillation contract requires a concrete non-triviality rationale")
+            derived_non_triviality = True
         return {
             "contract_revision": CONTRACT_REVISION,
             "batch_id": batch_id,
@@ -618,6 +622,7 @@ class SourceMethodDistillationService:
                 "validity_limits": validity_limits,
             },
             "non_triviality": non_triviality[:2_000],
+            "derived_non_triviality": derived_non_triviality,
             "trigger_contract": {"positive_signals": positive, "negative_signals": negative},
             "provider": {key: value for key, value in provider.items() if key in {"run_id", "provider", "model"}},
             "project_id": project_id,
@@ -657,6 +662,28 @@ class SourceMethodDistillationService:
             }
             for index, quote in ranked
         ]
+
+    @staticmethod
+    def _derive_non_triviality(candidate_selection: list[dict[str, Any]]) -> str:
+        """Derive the rationale only from distinct, already accepted candidate claims."""
+        candidates = [
+            item
+            for item in candidate_selection
+            if str(item.get("candidate_type") or "").strip()
+            and str(item.get("title") or "").strip()
+            and str(item.get("claim") or "").strip()
+        ]
+        if len({str(item["candidate_type"]).strip() for item in candidates}) < 2:
+            return ""
+        details = "; ".join(
+            f"{str(item['title']).strip()}: {str(item['claim']).strip()}"
+            for item in candidates[:4]
+        )
+        return (
+            "This method is non-trivial because it combines independently accepted, "
+            "evidence-bound candidate types into one bounded decision process: "
+            f"{details}."
+        )
 
     def _routing_competitors(self, project_id: str) -> list[dict[str, Any]]:
         """Expose only published routing signals, never another method's body."""

@@ -216,6 +216,50 @@ note bodies, credentials, provider payloads, or personal feedback.
 3. Review a real governed output, submit typed feedback, execute the affected
    follow-up action, and record the before/after IDs for O6 review.
 
+## 2026-08-02 Copilot Command Bridge Implementation
+
+- **Authoring bridge:** Claudian is not part of the active project bridge.
+  Obsidian Copilot is the sole supported interactive authoring path for this
+  project. Its conversation archive remains separate from the governed
+  `04_Outputs/copilot` review route; a command receipt remains distinct from
+  any external file detection, output registration, or knowledge publication.
+- **Implemented control path:** BSC now exposes a project-scoped Local REST
+  bridge for five fixed Copilot project commands. It rechecks the mapped Vault,
+  declared `copilot` bridge, explicit trust, output-route readiness, and the
+  separated conversation destination before dispatch. It cannot invoke an
+  arbitrary Obsidian command or accept an arbitrary command identifier.
+- **Audit and failure behavior:** each attempted invocation receives a
+  `KnowledgeRun` with only command metadata and a redacted outcome. Local REST
+  tokens, endpoints, command-catalog bodies, note bodies, prompts, and chat
+  responses are excluded from the run ledger and HTTP response. Authentication,
+  catalog, and route failures are persisted as failed runs rather than being
+  presented as successful delivery.
+- **Verification before deployment:** Local REST bridge tests and Workspace API
+  tests passed `43 passed, 1 warning`; PBOS Cockpit tests passed `23 passed`;
+  TypeScript checking and the production frontend build passed.
+- **Real command receipt:** after the Copilot route was restored to the
+  separated archive destination, the live API verified all five allowlisted
+  commands and invoked `governed_delivery`. BSC run `39d0c231de67` completed
+  with events `running -> command.invoked -> completed`; its ledger contains
+  only `command_key=governed_delivery` and redacted dispatch metadata.
+- **Real output boundary:** the invocation caused one external file to appear
+  in the currently running Obsidian process. The explicit `source_sync` run
+  `e7e6e69fa1d9` scanned it and reported `registered=0`, `rejected=1` because
+  the file lacked the BSC output contract. Workspace readback remained
+  `awaiting_output` with `registered_outputs=0`. This proves the bridge does
+  not silently promote Copilot chat archives into D-layer knowledge.
+- **Reload boundary:** the persisted Copilot archive route is corrected, but
+  an already-running Obsidian process must reload Copilot before its in-memory
+  destination changes. No process was force-closed and no generated file was
+  rewritten or moved by BSC.
+- **Deployment and final readback:** API, Celery Worker, and Celery Beat were
+  rebuilt and restarted. `/ready` reports PostgreSQL and Redis as `ok`; Docker
+  reports the API, Worker, Beat, Redis, PostgreSQL, and n8n running. The
+  deployed PBOS bundle contains the corrected D-layer pending-sync notice.
+  A final protected read reports all `5` allowlisted commands available,
+  `conversation_archive_separated_from_reviewed_output`, `awaiting_output`,
+  and `registered_outputs=0`.
+
 ## 2026-08-02 Reauthorized Zotero Review and Growth Cycle
 
 - **Authorization and scope:** the project owner authorized a governed review
@@ -264,3 +308,28 @@ note bodies, credentials, provider payloads, or personal feedback.
   saves a reviewed conversation there; only then may BSC register the file as
   a D-layer candidate. Rollback is restoring the single `defaultSaveFolder`
   setting to its prior archive path.
+
+## 2026-08-02 Owner-Authorized Zotero Re-Review and Growth Verification
+
+- **Authorization:** the owner explicitly authorized another governed review
+  and Growth cycle for `f4278140ca7f` in `proj_b8a285642094`. The request used
+  the protected Workspace and Growth HTTP APIs under the project administrator
+  role; no database shortcut, raw-file rewrite, trust escalation, or admission
+  override was used.
+- **Review readback:** the source remains `validated/untrusted`. The durable
+  semantic decision `d34911d25290828395e1a792` is
+  `semantic-source-triage-v3`, `disposition=ignore`, and
+  `reliability_pass=false`. It remains an audit record only and still requires
+  explicit approval plus a passing recommendation before any authoring use.
+- **Growth execution:** Celery task
+  `ec14b087-fe3c-4c76-9890-4eafe157b91b` completed daily run
+  `4788a2a770a6` with terminal event sequence `queued -> assigned ->
+  dispatched -> started -> Obsidian sync completed -> model completed ->
+  distillation completed -> completed`. The real model-backed artifact is
+  `distillations/每周蒸馏/2026-W31/每日增量/2026-08-02.md`, with growth record
+  `ec92e790b514f452887d852d`.
+- **Governance verification:** the immutable run manifest lists
+  `f4278140ca7f` in `daily_excluded_source_ids`; it is absent from
+  `source_ids`, `citation_source_ids`, and `daily_source_scope_ids`.
+  Consequently the cycle proves a governed exclusion under owner authority,
+  not a factual admission, citation, Wiki publication, or method promotion.

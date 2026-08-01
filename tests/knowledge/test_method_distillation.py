@@ -625,6 +625,48 @@ def test_source_distillation_derives_missing_critical_review_boundaries_from_the
         repo.close()
 
 
+def test_source_distillation_derives_non_triviality_only_from_distinct_accepted_candidate_types(tmp_path):
+    repo = GrowthRepository(db_path=str(tmp_path / "derived-non-triviality.db"))
+    source = _source(repo)
+    response = deepcopy(_response())
+    distillation = response["candidates"][0]["manifest"]["distillation"]
+    del distillation["non_triviality"]
+    selected_candidates = [
+        {
+            "id": "framework-candidate",
+            "candidate_type": "framework",
+            "title": "Evidence-first lifecycle",
+            "claim": "The lifecycle preserves evidence from source capture through feedback.",
+            "explanation": "",
+            "evidence": [],
+        },
+        {
+            "id": "counterexample-candidate",
+            "candidate_type": "counterexample",
+            "title": "Unverified output is not knowledge",
+            "claim": "Generated text without governed evidence cannot be treated as verified knowledge.",
+            "explanation": "",
+            "evidence": [],
+        },
+    ]
+    try:
+        draft = SourceMethodDistillationService(repo)._draft(
+            "project-a",
+            source,
+            response["candidates"][0],
+            "batch-derived-non-triviality",
+            {"run_id": "prompt-derived", "provider": "test", "model": "test-model"},
+            selected_candidates,
+        )
+
+        contract = draft.manifest["distillation"]
+        assert contract["derived_non_triviality"] is True
+        assert "Evidence-first lifecycle" in contract["non_triviality"]
+        assert "Unverified output is not knowledge" in contract["non_triviality"]
+    finally:
+        repo.close()
+
+
 def test_source_distillation_regenerates_once_for_a_real_provider_when_contract_validation_fails(tmp_path):
     repo = GrowthRepository(db_path=str(tmp_path / "retry.db"))
     repo.configure_vault("project-a", "projects/project-a", "owner")

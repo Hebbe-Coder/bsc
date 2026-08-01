@@ -4,12 +4,93 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
+from urllib.parse import quote
 
-from app.knowledge.obsidian_local_rest import ObsidianLocalRestConfiguration, ObsidianLocalRestProbe
+from app.knowledge.obsidian_local_rest import (
+    COPILOT_COMMANDS,
+    ObsidianCopilotCommandBridge,
+    ObsidianLocalRestConfiguration,
+    ObsidianLocalRestProbe,
+)
 
 
 def _probe(configuration: ObsidianLocalRestConfiguration, handler):
     return ObsidianLocalRestProbe(configuration, transport=httpx.MockTransport(handler))
+
+
+def _copilot_bridge(configuration: ObsidianLocalRestConfiguration, handler):
+    return ObsidianCopilotCommandBridge(configuration, transport=httpx.MockTransport(handler))
+
+
+def test_copilot_bridge_invokes_only_a_verified_allowlisted_command():
+    command = COPILOT_COMMANDS["governed_delivery"]
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.method == "GET":
+            return httpx.Response(200, json={
+                "commands": [
+                    {"id": command.command_id, "name": command.name},
+                    {"id": "app:delete-vault", "name": "Delete vault"},
+                ]
+            })
+        assert request.method == "POST"
+        assert request.url.raw_path.decode().endswith(
+            "/commands/" + quote(command.command_id, safe=":")
+        )
+        assert request.headers["authorization"] == "Bearer local-rest-secret"
+        return httpx.Response(204)
+
+    result = _copilot_bridge(
+        ObsidianLocalRestConfiguration(True, "https://127.0.0.1:27124", "local-rest-secret"), handler
+    ).invoke("governed_delivery")
+
+    assert result == {
+        "state": "invoked",
+        "detail_code": "command_invoked",
+        "transport": "loopback_tls",
+        "command_key": "governed_delivery",
+        "command_name": "Copilot: PBOS-一键受治理交付",
+    }
+    assert [request.method for request in requests] == ["GET", "POST"]
+    assert "local-rest-secret" not in str(result)
+
+
+def test_copilot_bridge_refuses_arbitrary_or_missing_commands_without_dispatching_them():
+    command = COPILOT_COMMANDS["governed_delivery"]
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"commands": []})
+
+    bridge = _copilot_bridge(
+        ObsidianLocalRestConfiguration(True, "https://127.0.0.1:27124", "secret"), handler
+    )
+
+    arbitrary = bridge.invoke("app:delete-vault")
+    missing = bridge.invoke("governed_delivery")
+
+    assert arbitrary["state"] == "rejected"
+    assert arbitrary["detail_code"] == "command_not_allowed"
+    assert missing["state"] == "command_unavailable"
+    assert missing["detail_code"] == "command_not_registered"
+    assert [request.method for request in requests] == ["GET"]
+    assert command.command_id not in str(missing)
+
+
+def test_copilot_bridge_redacts_local_rest_authentication_rejection():
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, text="credential content must never leave Local REST")
+
+    result = _copilot_bridge(
+        ObsidianLocalRestConfiguration(True, "https://localhost:27124", "secret"), handler
+    ).available_commands()
+
+    assert result["state"] == "authentication_failed"
+    assert result["detail_code"] == "authorization_rejected"
+    assert "credential content" not in str(result)
 
 
 def test_unconfigured_local_rest_does_not_make_a_network_request():

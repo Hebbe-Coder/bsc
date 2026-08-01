@@ -13,7 +13,7 @@ from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
 from app.knowledge.output_registry import OutputRegistry
 
 
-def _transcript(*, response: str) -> str:
+def _transcript(*, response: str, assistant_label: str = "ai") -> str:
     return (
         "---\n"
         'epoch: 1785558682253\n'
@@ -23,7 +23,7 @@ def _transcript(*, response: str) -> str:
         "**user**: Create a bounded PBOS plan.\n"
         "[Context: Notes: projects/project-a/03_Projects/active/brief.md]\n"
         "[Timestamp: 2026/08/01 13:09:48]\n\n"
-        f"**ai**: {response}\n"
+        f"**{assistant_label}**: {response}\n"
         "[Timestamp: 2026/08/01 13:10:12]\n"
     )
 
@@ -96,6 +96,37 @@ def test_import_latest_completed_copilot_transcript_creates_an_auditable_review_
         assert "No owner outcome has been observed." in materialized["content"]
         assert "Create a bounded PBOS plan." not in materialized["content"]
         assert len(repo.list_outputs("project-a")) == 1
+    finally:
+        repo.close()
+
+
+def test_import_current_copilot_assistant_autosave_from_the_separate_archive(tmp_path: Path):
+    repo, vault, archive = _configured_project(tmp_path)
+    original = archive / "PBOS_One-Click_Governed_Delivery.md"
+    original.write_text(
+        _transcript(
+            assistant_label="assistant",
+            response=(
+                "**Facts**: The active brief defines the Mission boundary.\n\n"
+                "**Plan**: Keep the output pending review until an owner outcome exists."
+            ),
+        ),
+        encoding="utf-8",
+    )
+    original_bytes = original.read_bytes()
+    service = CopilotTranscriptImportService(repo, vault)
+    try:
+        result = service.import_latest(project_id="project-a", actor_id="test-owner")
+
+        output = result["output"]
+        assert result["idempotent"] is False
+        assert output["status"] == "registered"
+        assert output["metadata"]["origin"] == "copilot_transcript_import"
+        assert output["metadata"]["original_path"] == "copilot/copilot-conversations/PBOS_One-Click_Governed_Delivery.md"
+        assert original.read_bytes() == original_bytes
+
+        materialized = OutputRegistry(repo, vault).read_content("project-a", output["id"])
+        assert "Keep the output pending review until an owner outcome exists." in materialized["content"]
     finally:
         repo.close()
 

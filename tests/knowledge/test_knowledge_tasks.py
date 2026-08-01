@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 
 from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus, SourceStatus
@@ -772,6 +772,40 @@ def test_quality_task_runs_project_lint_and_persisted_evaluation(tmp_path, monke
             "wiki/overview.md",
         ]
         assert repo.get_run("project-a", run.id)["output_refs"]["evaluation"]["score"] == 1.0
+    finally:
+        repo.close()
+
+
+def test_schedule_reconciler_recovers_stale_source_method_distillation_runs(tmp_path, monkeypatch):
+    from app.knowledge.method_distillation import METHOD_DISTILLATION_RECOVERY_TIMEOUT_SECONDS
+
+    repo = WikiRepository(db_path=str(tmp_path / "schedule-method-distillation-recovery.db"))
+    current = datetime(2026, 7, 21, 13, 5, tzinfo=timezone.utc)
+    run = repo.create_run(
+        KnowledgeRun(
+            project_id="project-a",
+            run_type="source_method_distillation",
+            trigger="http",
+            status=RunStatus.RUNNING,
+        )
+    )
+    repo._execute(
+        "UPDATE knowledge_runs SET updated_at=? WHERE id=?",
+        ((current - timedelta(seconds=METHOD_DISTILLATION_RECOVERY_TIMEOUT_SECONDS + 1)).isoformat(), run["id"]),
+    )
+    repo._commit()
+    monkeypatch.setattr("app.tasks.knowledge_tasks.WikiRepository", lambda: repo)
+    monkeypatch.setattr("app.tasks.knowledge_tasks.is_celery_real", lambda: True)
+    monkeypatch.setattr(settings, "CELERY_ENABLED", True)
+    try:
+        result = reconcile_knowledge_schedules(current)
+
+        assert result == {"queued": 0, "duplicates": 0, "failures": 0, "recovered": 1}
+        persisted = repo.get_run("project-a", run["id"])
+        assert persisted["status"] == "failed"
+        assert persisted["output_refs"]["failure"]["code"] == "abandoned_source_method_distillation"
+        events = repo.list_run_events(project_id="project-a", run_id=run["id"])
+        assert any(event["event_type"] == "knowledge.method_distillation.recovered" for event in events)
     finally:
         repo.close()
 

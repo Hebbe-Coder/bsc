@@ -51,6 +51,7 @@ from app.tasks.growth_tasks import (
     growth_task_time_limits,
     recover_abandoned_growth_runs,
 )
+from app.knowledge.method_distillation import recover_abandoned_source_method_distillations
 
 PBOS_RUN_TYPES = {"pbos_daily", "pbos_weekly", "pbos_monthly"}
 
@@ -1080,6 +1081,7 @@ def reconcile_knowledge_schedules(now: datetime | None = None) -> dict:
             timeout_seconds=min(max(60, settings.CELERY_TASK_TIMEOUT), 120),
         )
         failures += publication_recovery["failed"]
+        method_distillation_recovered = recover_abandoned_source_method_distillations(repo, now=current)
         recovered = scheduler.recover_abandoned_runs(
             now=current,
             timeout_seconds=max(60, settings.CELERY_TASK_TIMEOUT),
@@ -1187,7 +1189,12 @@ def reconcile_knowledge_schedules(now: datetime | None = None) -> dict:
             "queued": queued,
             "duplicates": duplicates,
             "failures": failures,
-            "recovered": len(recovered) + growth_recovery["recovered"] + publication_recovery["recovered"],
+            "recovered": (
+                len(recovered)
+                + growth_recovery["recovered"]
+                + publication_recovery["recovered"]
+                + len(method_distillation_recovered)
+            ),
         }
     finally:
         repo.close()

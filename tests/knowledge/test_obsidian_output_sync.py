@@ -192,7 +192,7 @@ def test_copilot_transcript_without_bsc_contract_is_rejected(tmp_path):
         "**user**: Compile an evidence-aware plan.\n"
         "[Context: Notes: projects/project-a/03_Projects/active/brief.md, "
         "projects/project-a/wiki/overview.md, ../outside.md]\n\n"
-        "**ai**: Keep all unverified claims pending review.\n",
+        "**assistant**: Keep all unverified claims pending review.\n",
         encoding="utf-8",
     )
     repo = GrowthRepository(db_path=str(tmp_path / "copilot-output.db"))

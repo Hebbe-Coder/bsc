@@ -38,7 +38,7 @@ from app.knowledge.primary_web_capture import PrimaryWebCapture, PrimaryWebCaptu
 from app.knowledge.wiki_source_capture import InvalidSourceTransition, SourceCaptureService
 from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
-from app.knowledge.obsidian_local_rest import ObsidianLocalRestProbe
+from app.knowledge.obsidian_local_rest import ObsidianCopilotCommandBridge, ObsidianLocalRestProbe
 from app.knowledge.ecosystem_release_gate import (
     RELEASE_GATE_CONTRACT_REVISION,
     ReleaseEvidence,
@@ -331,6 +331,87 @@ def _workspace_vault_state(project_id: str, mapping: dict[str, Any] | None) -> d
             "missing_managed_directories": missing_directories,
         }
     return {"state": "ready", "message": "Project Vault is reachable and the full managed knowledge workspace is present."}
+
+
+def _project_copilot_command_bridge(project_id: str, repo: WikiRepository) -> ObsidianCopilotCommandBridge:
+    """Return the Local REST command bridge only for a configured project Copilot route."""
+    mapping = repo.get_vault(project_id)
+    if not mapping:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "knowledge_vault_unconfigured", "message": "Map the project Vault before opening Copilot delivery"},
+        )
+    if not settings.OBSIDIAN_VAULT_ROOT:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "obsidian_vault_unavailable", "message": "The Obsidian Vault is unavailable to this runtime"},
+        )
+    try:
+        vault = FilesystemWikiVault(Path(settings.OBSIDIAN_VAULT_ROOT), project_id, mapping["vault_path"])
+    except Exception as exc:
+        raise _command_error(exc) from exc
+    if not vault.project_root.is_dir():
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "knowledge_vault_uninitialized", "message": "Initialize the mapped project Vault before opening Copilot delivery"},
+        )
+    manifest = ObsidianPluginManifest.load(vault.project_root)
+    plugin = next((item for item in manifest.plugins if item.plugin_id == "copilot"), None)
+    if plugin is None:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "copilot_bridge_unconfigured", "message": "Register the project Copilot bridge before opening delivery"},
+        )
+    if manifest.trust_state(plugin) != "trusted":
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "copilot_bridge_not_trusted", "message": "Trust the declared project Copilot bridge before opening delivery"},
+        )
+    plugin_status = next(
+        (
+            item
+            for item in manifest.public_status(
+                project_root=vault.project_root,
+                vault_root=Path(settings.OBSIDIAN_VAULT_ROOT),
+            )["plugins"]
+            if item["id"] == "copilot"
+        ),
+        None,
+    )
+    runtime = (plugin_status or {}).get("runtime_configuration") or {}
+    if runtime.get("state") != "configured":
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "copilot_runtime_not_configured", "message": "Configure Copilot conversation storage before opening delivery"},
+        )
+    if (plugin_status or {}).get("path_status") != "ready":
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "copilot_output_route_unavailable", "message": "Create the governed Copilot output route before opening delivery"},
+        )
+    return ObsidianCopilotCommandBridge.from_settings(settings)
+
+
+def _copilot_bridge_error(result: dict[str, Any]) -> HTTPException:
+    """Map redacted bridge state to a stable API error without exposing Local REST internals."""
+    state = str(result.get("state") or "unavailable")
+    detail_code = str(result.get("detail_code") or "command_unavailable")
+    if state in {"command_unavailable", "rejected"}:
+        status_code = 409
+        message = "The configured project Copilot command is not available in Obsidian"
+    elif state in {"unconfigured", "configuration_invalid"}:
+        status_code = 503
+        message = "The local Obsidian command service is not configured"
+    elif state == "authentication_failed":
+        status_code = 503
+        message = "The local Obsidian command service rejected its configured authentication"
+    else:
+        status_code = 503
+        message = "The local Obsidian command service is unavailable"
+    return HTTPException(
+        status_code=status_code,
+        detail={"code": f"copilot_command_{detail_code}", "message": message},
+    )
 
 
 def _latest_growth_run(repo: WikiRepository, project_id: str) -> dict[str, Any] | None:
@@ -632,6 +713,99 @@ def set_workspace_plugin_trust(
     except Exception as exc:
         raise _command_error(exc) from exc
     return ApiResponse.ok(manifest.public_status(project_root=vault.project_root, vault_root=Path(settings.OBSIDIAN_VAULT_ROOT)))
+
+
+@router.get("/workspaces/{project_id}/copilot/commands")
+def list_workspace_copilot_commands(
+    request: Request,
+    project_id: str,
+    repo: WikiRepository = Depends(get_wiki_repository),
+):
+    """List the fixed BSC Copilot commands currently present in this project Vault."""
+    project_id = _enforce_project_access(request, project_id, write=True)
+    bridge = _project_copilot_command_bridge(project_id, repo)
+    result = bridge.available_commands()
+    if result.get("state") != "available":
+        raise _copilot_bridge_error(result)
+    return ApiResponse.ok({"commands": result["commands"], "state": "available"})
+
+
+@router.post("/workspaces/{project_id}/copilot/commands/{command_key}")
+def invoke_workspace_copilot_command(
+    request: Request,
+    project_id: str,
+    command_key: str,
+    repo: WikiRepository = Depends(get_wiki_repository),
+):
+    """Open one allowlisted project Copilot command and retain an audit receipt.
+
+    Dispatching invokes the visible Copilot command in Obsidian. A command may
+    create an external file, but BSC neither approves it nor registers it as a
+    governed output until the separate trusted output-sync path evaluates it.
+    """
+    project_id = _enforce_project_access(request, project_id, write=True)
+    bridge = _project_copilot_command_bridge(project_id, repo)
+    normalized_key = str(command_key or "").strip()
+    run = KnowledgeRun(
+        project_id=project_id,
+        run_type="obsidian_copilot_command",
+        trigger="manual",
+        status=RunStatus.RUNNING,
+        actor_id=str(getattr(request.state, "knowledge_role", "") or "http"),
+        input_refs={
+            "bridge": "obsidian_local_rest",
+            "plugin_id": "copilot",
+            "command_key": normalized_key,
+        },
+    )
+    repo.create_run(run)
+    try:
+        result = bridge.invoke(normalized_key)
+    except Exception:
+        repo.update_run_status(
+            project_id,
+            run.id,
+            RunStatus.FAILED,
+            error="copilot_command_bridge_internal_error",
+            output_refs={"state": "failed", "detail_code": "bridge_internal_error", "command_key": normalized_key},
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "copilot_command_bridge_internal_error", "message": "The local Obsidian command service is unavailable"},
+        )
+
+    output_refs = {
+        "state": str(result.get("state") or "unavailable"),
+        "detail_code": str(result.get("detail_code") or "command_unavailable"),
+        "command_key": str(result.get("command_key") or normalized_key),
+    }
+    if result.get("state") != "invoked":
+        repo.update_run_status(
+            project_id,
+            run.id,
+            RunStatus.FAILED,
+            error=output_refs["detail_code"],
+            output_refs=output_refs,
+        )
+        raise _copilot_bridge_error(result)
+
+    repo.append_run_event(
+        project_id=project_id,
+        run_id=run.id,
+        event_type="knowledge.obsidian_copilot_command.invoked",
+        payload=output_refs,
+    )
+    repo.update_run_status(project_id, run.id, RunStatus.COMPLETED, output_refs=output_refs)
+    return ApiResponse.ok(
+        {
+            "run_id": run.id,
+            "state": "invoked",
+            "command": {
+                "key": output_refs["command_key"],
+                "name": str(result.get("command_name") or ""),
+            },
+        }
+    )
 
 
 @router.get("/sources")

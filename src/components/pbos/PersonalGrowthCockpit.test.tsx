@@ -5,12 +5,17 @@ import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { fetchGrowthStage, importLatestCopilotTranscript } from '../../api/growthApi';
+import { invokeKnowledgeCopilotCommand } from '../../api/knowledgeWorkspaceApi';
 import { capturePbosWorkspaceExecution, compilePbosPlan, fetchPbosCockpit, fetchPbosProfile, recordPbosExecution, recordPbosOutcome, reviewPbosExecutionAttribution, reviewPbosOutcome } from '../../api/pbosApi';
 import { PersonalGrowthCockpit } from './PersonalGrowthCockpit';
 
 vi.mock('../../api/growthApi', () => ({
   fetchGrowthStage: vi.fn(),
   importLatestCopilotTranscript: vi.fn(),
+}));
+
+vi.mock('../../api/knowledgeWorkspaceApi', () => ({
+  invokeKnowledgeCopilotCommand: vi.fn(),
 }));
 
 vi.mock('../../api/pbosApi', () => ({
@@ -112,6 +117,25 @@ describe('PersonalGrowthCockpit', () => {
     await waitFor(() => expect(importLatestCopilotTranscript).toHaveBeenCalledWith('default'));
     await waitFor(() => expect(openOutputReview).toHaveBeenCalledWith('copilot-import-1'));
     expect(screen.getByText(/cannot create a personal learning claim/i)).toBeVisible();
+  });
+
+  it('opens the governed Copilot delivery command without changing D-layer review before sync', async () => {
+    vi.mocked(fetchPbosCockpit).mockResolvedValue({
+      profile: null, today: null, today_action: { state: 'no_plan' },
+      capabilities: [], outcomes: [], feedback: [], strategies: [], failure_patterns: [], project_health: {}, connectors: {},
+    });
+    vi.mocked(fetchPbosProfile).mockResolvedValue({ profile: null });
+    vi.mocked(invokeKnowledgeCopilotCommand).mockResolvedValue({
+      run_id: 'copilot-command-run', state: 'invoked', command: { key: 'governed_delivery', name: 'Copilot: PBOS delivery' },
+    });
+
+    render(<PersonalGrowthCockpit projectId="default" onClose={vi.fn()} runtimeAccessKey="session-key" />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Copilot delivery' }));
+    await waitFor(() => expect(invokeKnowledgeCopilotCommand).toHaveBeenCalledWith('default', 'governed_delivery'));
+    expect(screen.getByText(/Copilot delivery command was invoked in Obsidian/i)).toBeVisible();
+    expect(fetchGrowthStage).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('No registered external D-layer output needs review.')).toBeVisible();
   });
 
   it('does not issue a PBOS request without a Studio access session and provides a recovery action', async () => {

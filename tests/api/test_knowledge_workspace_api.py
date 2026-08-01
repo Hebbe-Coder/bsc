@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -18,6 +19,8 @@ from app.knowledge.wiki_sync import ObsidianSyncService
 from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.wiki_rules import build_default_agents_rules
 from app.knowledge import obsidian_local_rest
+from app.knowledge.obsidian_local_rest import ObsidianCopilotCommandBridge
+from app.knowledge.obsidian_plugin_manifest import ObsidianPluginManifest
 
 
 def test_workspace_api_requires_scope_and_redacts_raw_evidence(tmp_path):
@@ -798,6 +801,133 @@ def test_workspace_status_keeps_local_rest_idle_until_authorized_and_explicitly_
         assert authorized.status_code == 200
         assert authorized.json()["data"]["local_rest"]["state"] == "unconfigured"
         assert requested == []
+    finally:
+        app.dependency_overrides.clear()
+        repo.close()
+
+
+def _configure_project_copilot_workspace(tmp_path: Path, repo: WikiRepository, *, trusted: bool, save_folder: str) -> None:
+    project_root = tmp_path / "projects" / "project-a"
+    (project_root / "04_Outputs" / "copilot").mkdir(parents=True)
+    (project_root / "copilot" / "copilot-conversations").mkdir(parents=True)
+    (tmp_path / ".obsidian" / "plugins" / "copilot").mkdir(parents=True)
+    (tmp_path / ".obsidian" / "plugins" / "copilot" / "data.json").write_text(
+        json.dumps({"defaultSaveFolder": save_folder}), encoding="utf-8"
+    )
+    repo.configure_vault("project-a", "projects/project-a")
+    manifest = ObsidianPluginManifest.from_payload({"plugins": [{
+        "id": "copilot",
+        "name": "Copilot",
+        "adapter": "filesystem_output",
+        "input_paths": ["04_Outputs/copilot"],
+    }]})
+    manifest.write_to(project_root)
+    if trusted:
+        manifest.set_trust(
+            project_root,
+            plugin_ids=["copilot"],
+            trusted=True,
+            actor_id="test-admin",
+            reason="test bridge approval",
+        )
+
+
+def test_workspace_copilot_command_requires_trusted_runtime_and_audits_the_dispatch(tmp_path, monkeypatch):
+    repo = WikiRepository(db_path=str(tmp_path / "workspace-copilot-command.db"))
+    _configure_project_copilot_workspace(
+        tmp_path, repo, trusted=True,
+        save_folder="projects/project-a/copilot/copilot-conversations",
+    )
+    monkeypatch.setattr(settings, "API_KEY", "workspace-admin")
+    monkeypatch.setattr(settings, "OBSIDIAN_VAULT_ROOT", str(tmp_path))
+    app.dependency_overrides[get_wiki_repository] = lambda: repo
+
+    class Bridge:
+        def available_commands(self):
+            return {
+                "state": "available", "detail_code": "allowed_commands_discovered", "transport": "loopback_tls",
+                "commands": [{"key": "governed_delivery", "name": "Copilot: PBOS delivery", "available": True}],
+            }
+
+        def invoke(self, command_key: str):
+            assert command_key == "governed_delivery"
+            return {
+                "state": "invoked", "detail_code": "command_invoked", "transport": "loopback_tls",
+                "command_key": command_key, "command_name": "Copilot: PBOS delivery",
+            }
+
+    monkeypatch.setattr(ObsidianCopilotCommandBridge, "from_settings", lambda _settings: Bridge())
+    client = TestClient(app)
+    headers = {"Authorization": "Bearer workspace-admin"}
+    try:
+        commands = client.get("/knowledge/workspaces/project-a/copilot/commands", headers=headers)
+        response = client.post(
+            "/knowledge/workspaces/project-a/copilot/commands/governed_delivery", headers=headers
+        )
+
+        assert commands.status_code == 200
+        assert commands.json()["data"]["commands"] == [{
+            "key": "governed_delivery", "name": "Copilot: PBOS delivery", "available": True,
+        }]
+        assert response.status_code == 200
+        body = response.json()["data"]
+        assert body["state"] == "invoked"
+        assert body["command"] == {"key": "governed_delivery", "name": "Copilot: PBOS delivery"}
+        run = repo.get_run("project-a", body["run_id"])
+        assert run["run_type"] == "obsidian_copilot_command"
+        assert run["status"] == "completed"
+        assert run["input_refs"] == {
+            "bridge": "obsidian_local_rest", "plugin_id": "copilot", "command_key": "governed_delivery",
+        }
+        assert run["output_refs"] == {
+            "state": "invoked", "detail_code": "command_invoked", "command_key": "governed_delivery",
+        }
+    finally:
+        app.dependency_overrides.clear()
+        repo.close()
+
+
+def test_workspace_copilot_command_rejects_untrusted_or_misaligned_plugin_without_dispatch(tmp_path, monkeypatch):
+    repo = WikiRepository(db_path=str(tmp_path / "workspace-copilot-command-rejected.db"))
+    _configure_project_copilot_workspace(
+        tmp_path, repo, trusted=False,
+        save_folder="projects/project-a/copilot/copilot-conversations",
+    )
+    monkeypatch.setattr(settings, "API_KEY", "workspace-admin")
+    monkeypatch.setattr(settings, "OBSIDIAN_VAULT_ROOT", str(tmp_path))
+    app.dependency_overrides[get_wiki_repository] = lambda: repo
+    calls: list[str] = []
+
+    class ForbiddenBridge:
+        def invoke(self, _command_key: str):
+            calls.append("invoke")
+            raise AssertionError("an untrusted plugin must not dispatch a Copilot command")
+
+    monkeypatch.setattr(ObsidianCopilotCommandBridge, "from_settings", lambda _settings: ForbiddenBridge())
+    client = TestClient(app)
+    headers = {"Authorization": "Bearer workspace-admin"}
+    try:
+        untrusted = client.post(
+            "/knowledge/workspaces/project-a/copilot/commands/governed_delivery", headers=headers
+        )
+        assert untrusted.status_code == 409
+        assert untrusted.json()["message"]["code"] == "copilot_bridge_not_trusted"
+        assert calls == []
+
+        project_root = tmp_path / "projects" / "project-a"
+        manifest = ObsidianPluginManifest.load(project_root)
+        manifest.set_trust(
+            project_root, plugin_ids=["copilot"], trusted=True, actor_id="test-admin", reason="test approval"
+        )
+        (tmp_path / ".obsidian" / "plugins" / "copilot" / "data.json").write_text(
+            json.dumps({"defaultSaveFolder": "projects/project-a/04_Outputs/copilot"}), encoding="utf-8"
+        )
+        mismatch = client.post(
+            "/knowledge/workspaces/project-a/copilot/commands/governed_delivery", headers=headers
+        )
+        assert mismatch.status_code == 409
+        assert mismatch.json()["message"]["code"] == "copilot_runtime_not_configured"
+        assert calls == []
     finally:
         app.dependency_overrides.clear()
         repo.close()
