@@ -80,9 +80,9 @@ class SopPhase(BaseModel):
     steps: list[str] = Field(min_length=1, max_length=30)
     quality_gates: list[str] = Field(default_factory=list, max_length=20)
 
-    @field_validator("inputs", "outputs", mode="before")
+    @field_validator("inputs", "outputs", "quality_gates", mode="before")
     @classmethod
-    def normalize_scalar_io(cls, value: Any) -> Any:
+    def normalize_scalar_list_fields(cls, value: Any) -> Any:
         """Accept one scalar model item without weakening the phase contract."""
         if isinstance(value, str):
             normalized = value.strip()
