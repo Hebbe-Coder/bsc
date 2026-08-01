@@ -514,3 +514,22 @@ note bodies, credentials, provider payloads, or personal feedback.
   source records, file bytes, hashes, extraction artifacts, and audit history
   remain retained; reverting only stops future direct manual binary assets
   from entering the local extraction queue.
+
+## 2026-08-02 Manual Asset Admission Deployment
+
+- **Deployment:** rebuilt and recreated only `bsc-backend`, `celery-worker`,
+  and `celery-beat` from `42518d8`. PostgreSQL, Redis, n8n, the mounted Vault,
+  and their persistent volumes were not recreated or modified.
+- **Health:** the API container became healthy and `/ready` returned `200`
+  with database and Redis both `ok`. Worker and Beat started successfully;
+  Celery inspection found no active or reserved task before deployment and no
+  active task after startup.
+- **Image proof:** SHA-256 comparison matched host source to deployed API for
+  `growth_context.py`, `wiki_repository.py`, `wiki_source_capture.py`,
+  `wiki_sync.py`, and `knowledge_tasks.py`. The deployed Worker also matched
+  `wiki_sync.py` and `knowledge_tasks.py`.
+- **Operational boundary:** no artificial Vault document, source record,
+  extraction result, or LLM output was created to demonstrate this path.
+  Runtime health proves deployment; the existing deterministic tests prove the
+  behavior. A future user-curated direct asset supplies the first real
+  operational receipt.
