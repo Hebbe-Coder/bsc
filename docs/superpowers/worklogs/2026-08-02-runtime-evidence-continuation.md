@@ -810,3 +810,103 @@ note bodies, credentials, provider payloads, or personal feedback.
   Copilot-compatible context handling are deployed. It does not prove that a
   Copilot model has produced a new response, that an owner accepted an output,
   or that a business outcome exists.
+
+## 2026-08-02 Governed Source Readback And PRD-to-SOP Runtime Completion
+
+- **Authorized Zotero boundary:** protected readback for `f4278140ca7f` in
+  `proj_b8a285642094` confirmed the existing review is `completed`, with
+  `disposition=archive` and `reliability_pass=false`. Its authorized Growth
+  run `4788a2a770a6` remains `completed`. No duplicate run was dispatched and
+  the untrusted source was not admitted, cited, or promoted.
+- **Compatibility correction:** a model may return one phase `inputs` or
+  `outputs` item as a scalar string. `SopPhase` now converts only a string
+  into one trimmed item (or an empty list for blank text); `steps`, citations,
+  source admission, provenance, and all other schema fields remain strict.
+  The regression test verifies that the resulting registered SOP still retains
+  both the designated PRD and selected supporting-source lineage.
+- **Runtime result:** a new protected request with idempotency key
+  `knowledge-ecosystem-sop-20260802-d` completed as run
+  `sop_dd1520040dab9a912499f88b` and registered output
+  `45594ac732bd3fc85d865ee3`. Metadata-only readback confirmed the three
+  selected source IDs match across `context_source_ids`, output `source_refs`,
+  and verified generation-provenance source references. The output remains
+  `registered`, with zero evaluations and zero feedback; it was not accepted,
+  filed, or used for learning.
+- **Deployment recovery:** Docker built the API, Worker, and Beat images.
+  Compose encountered stale application containers in `created` state; only
+  those three container instances and the three service containers were
+  recreated through `docker compose rm -sf`. PostgreSQL, Redis, n8n, and all
+  named volumes remained running. The API is healthy, Worker and Beat are
+  running, and the deployed `prd_to_sop.py` SHA-256 matches the host checkout.
+- **Verification:** focused backend coverage passed `67 passed, 1 warning`;
+  focused Growth Workspace frontend coverage passed `59 passed`; `npm run
+  check`, Docker production build, and `git diff --check` passed. The warning
+  is the existing FastAPI TestClient deprecation.
+- **Remaining owner gate:** open output `45594ac732bd3fc85d865ee3` in the
+  Growth Workspace, evaluate it against the actual delivery, and record an
+  owner-attributed feedback decision and observed outcome. This is the last
+  O6 feedback-loop proof and cannot be truthfully automated or inferred from
+  a successful model call.
+
+## 2026-08-02 Copilot-Only Authoring Route Recheck
+
+- **Route selection:** Claudian is unavailable and is not registered in the
+  active Vault community-plugin set or the BSC governed-output manifest.
+  Obsidian Copilot remains the only interactive authoring route. No provider
+  credential, Copilot conversation body, or Vault note body was read.
+- **Bridge verification:** the project workspace reports the Copilot output
+  route as `trusted`, `configured`, and `ready`; Obsidian Local REST reports
+  `connected` with `authenticated_manifest_verified`. The fixed allowlist of
+  Copilot project commands remains available.
+- **Real dispatch:** the BSC-protected `governed_delivery` command was
+  dispatched successfully as KnowledgeRun `8c58a2adcd1a`. This records an
+  actual Local REST command invocation only.
+- **Truthful result:** after the observation interval,
+  `04_Outputs/copilot` remained empty and the workspace state remained
+  `awaiting_output`. No Copilot-authored delivery was registered, reviewed,
+  accepted, or used for learning. The release gate therefore remains
+  `implemented_with_operational_proof_pending` with `o6_feedback_cycle`
+  missing; no synthetic output was created to change that state.
+
+## 2026-08-02 Copilot-Only PRD-to-SOP Runtime Proof
+
+- **Bridge decision:** Claudian is unavailable, so this run used the active
+  Copilot-compatible BSC route. It did not read or expose any provider key,
+  Copilot conversation body, or raw Vault note body.
+- **Admission boundary:** project PRD candidate `d343de0e38b1` and supporting
+  candidates `bb08d7c05592` and `f503987ab873` were sent through the protected
+  project triage endpoint. Each completed as `reference` with
+  `reliability_pass=false`; they remain reviewable evidence and were not
+  promoted. The existing admitted PRD `650666057e01` was re-designated
+  idempotently as `project_prd`; the first designation returned
+  `idempotent=false`, the repeat returned `idempotent=true`, and only the
+  source hash plus a reason hash were persisted.
+- **First real generation attempt:** the live model returned scalar strings
+  for phase `quality_gates`, which the strict contract rejected before output
+  registration. The failure was preserved in the run ledger. The contract was
+  then corrected to normalize one scalar `quality_gates` value to a one-item
+  list, matching the existing bounded compatibility for phase inputs/outputs;
+  source admission, citations, provenance, and lineage rules remain strict.
+- **Successful runtime result:** a new protected request completed run
+  `sop_45734498e137f8d5c70aa5f8` and registered output
+  `033d38cd3e1a068ea5f38834`. The output is `registered`, materialized at
+  `outputs/2026/033d38cd3e1a068ea5f38834/project-sop.md`, and binds PRD
+  `650666057e01` plus supporting source `3bd50287b11a`. No evaluation or
+  feedback exists yet.
+- **Integrity readback:** managed output content is text, `7165` bytes, and its
+  content hash matches the persisted output hash. The run is `completed` with
+  events `knowledge.run.queued`, `knowledge.run.running`,
+  `knowledge.prd_to_sop.context_built`, and `knowledge.run.completed`.
+  Lineage contains two `output_used_source` edges and one
+  `output_produced_by_run` edge.
+- **Verification:** focused SOP/API coverage passed `44 passed`; focused
+  frontend coverage passed `59 passed`; full backend coverage passed
+  `1699 passed, 14 skipped, 3 warnings`; full frontend coverage passed
+  `226 passed`; `npm run check`, `npm run build`, `docker compose config`,
+  and `git diff --check` passed. Docker API, Worker, and Beat were rebuilt and
+  restarted; `/ready` returned `ok` with PostgreSQL and Redis healthy.
+- **Remaining owner gate:** the new SOP is a registered review draft, not an
+  accepted or filed output. The owner must inspect it in Growth Workspace,
+  attach any actual delivery evidence, record a truthful quality evaluation,
+  and provide observed outcome feedback. This cannot be automated without
+  fabricating owner judgment.
