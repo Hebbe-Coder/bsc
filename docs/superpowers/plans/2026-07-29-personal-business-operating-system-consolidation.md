@@ -1133,8 +1133,230 @@ that Compose had omitted `KNOWLEDGE_GROWTH_LLM_MODEL` from API and Worker
 environments. The contract was repaired and `deepseek-v4-flash` was observed
 inside both live containers; a second run still returned `payment_required`.
 
-The remaining blocker is therefore provider billing/credential availability,
-not a claimed completed compilation. GitHub and Feishu remain
-`awaiting_authorization`; Copilot is a trusted, destination-aligned output
-bridge but remains `awaiting_output` until a real reviewed conversation is
-saved and ingested.
+That run remains a historical failed Wiki-maintenance attempt. It is no longer
+the current PBOS model-execution state: a later real DeepSeek weekly
+distillation completed, and an authenticated PBOS compilation completed in
+`llm_contextual` / `context_grounded` mode. GitHub and Feishu remain
+`awaiting_authorization`; Copilot is a trusted, destination-aligned bridge with
+real registered output, but registration is still not acceptance or a personal
+method claim.
+
+## 2026-08-01 Copilot Review Projection And Context-Gating Update
+
+### Actual Delivery
+
+- Copilot configuration is operationally aligned: the declared default model
+  is `deepseek-v4-flash|deepseek`, the project-owned save route is
+  `projects/proj_b8a285642094/04_Outputs/copilot`, and the custom prompt root
+  is `projects/proj_b8a285642094/06_Skills/copilot-prompts`. This is a
+  descriptor-only verification. No API key, Keychain entry, conversation,
+  prompt body, or output body was read, copied, logged, or written.
+- The bridge has real registered D-layer output versions. The integration does
+  not equate registration with acceptance, evidence, personal experience, or
+  capability. Copilot output still needs eligible A-layer lineage, an
+  immutable quality evaluation, and the normal filing/feedback gates.
+- `app/pbos/context.py` now prevents a raw-output bypass: direct Vault scans
+  do not enter `04_Outputs/` or `outputs/`. A D-layer output may be supplied
+  to a PBOS plan only when its persisted review state is `accepted` or
+  `filed` and a safe managed file matches its registered SHA-256. Context refs
+  identify that version as `output:<id>@<hash>`.
+- The deployed project has a real `llm_contextual`, `context_grounded` plan
+  `art_ab2b736b59f5` for Mission `art_055276148486`. It is based on governed
+  sources, published Wiki, the weekly handoff, and project Brief context; the
+  recorded flags prove that neither raw Copilot context nor unreviewed managed
+  output entered compilation.
+- `PersonalGrowthCockpit` now surfaces bounded pending D-layer descriptors
+  and hands each one to the existing Growth Workspace D-stage inspector. It
+  shows only origin and immutable ID, not output title/content, and an
+  unavailable read remains unavailable rather than being rendered as clean.
+
+### Validation And Rollback
+
+```powershell
+npm run test:frontend
+# 24 files / 217 tests passed
+npm run check
+npm run build
+docker compose config --quiet
+# passed; only the existing ECharts chunk-size advisory remains
+.\.venv\Scripts\python.exe -m pytest tests\pbos tests\api\test_pbos_api.py tests\mcp\test_pbos_http_contract.py tests\integration\test_pbos_e2e.py -q
+# 87 passed
+.\.venv\Scripts\python.exe -m pytest tests\knowledge\test_obsidian_output_sync.py tests\knowledge\test_growth_distillation.py tests\api\test_growth_api.py -q
+# 97 passed
+```
+
+Rollback is limited to the D-layer Cockpit projection/navigation and the
+PBOS context rule. It has no schema migration and no persisted Artifact or
+Vault mutation to undo.
+
+### Remaining Owner Decisions
+
+- The three PBOS Outcomes remain `unverified`; accurate delivery quality,
+  acceptance, and owner/mixed-work attribution are required before Experience,
+  Capability, or Strategy Genome promotion.
+- A registered Copilot output remains outside PBOS planning until its evidence
+  link and quality review are completed in Growth. Its existence is a real
+  captured event, not evidence of a useful personal method.
+- GitHub and Feishu remain `awaiting_authorization`. They are not marked
+  synced, and neither connector participates in the current personal-learning
+  claim.
+
+## 2026-08-01 Post-Consolidation Integrity Recheck
+
+- The active weekly distillation manifests for the default and PBOS projects
+  parse as UTF-8 JSON, and every declared document hash matches the mapped
+  Obsidian Vault. The previously observed unreadable weekly-directory display
+  was console encoding only; it was not an on-disk naming or JSON defect.
+- Weekly manifest decoding now fails closed for invalid UTF-8 as
+  `ManagedContentConflictError`. The focused distillation suite passed `66`;
+  this protects reruns and record validation without modifying published Vault
+  artifacts.
+- Full verification passed: PBOS REST/MCP/E2E `88`, artifact/knowledge/Copilot
+  boundary suite `145` with `1` designed skip, and frontend `217`; TypeScript,
+  production build, and Compose configuration checks also passed. The build
+  keeps its pre-existing ECharts chunk-size advisory.
+- Copilot is configured and captured, not accepted: its trusted project route
+  holds two registered external output versions. They have no source/page
+  lineage or quality review, so this recheck did not treat them as verified
+  evidence or personal learning. GitHub and Feishu remain
+  `awaiting_authorization`.
+- The API, Worker, and Beat were rebuilt from this workspace after the
+  integrity fix. `/ready` returned `200` with database and Redis ready, the
+  Worker registered all three PBOS periodic tasks, and its deployed
+  distillation source hash matches the workspace.
+
+## 2026-08-01 Legacy Feedback Input-Boundary Closure
+
+### Implemented And Proven
+
+- `app/pbos/text_integrity.py` defines the same conservative unreadable-text
+  rule used by the Cockpit: blank input remains valid, while U+FFFD, repeated
+  question marks, or question-mark-dominated non-whitespace text is
+  quarantined.
+- `PBOSService.compile_plan` now excludes only unreadable feedback from the
+  persisted plan's `feedback_refs` and parent lineage. Cockpit reads still
+  include the original Artifact, preserving historical audit evidence.
+- `PBOSPlanCompiler` repeats the filter at its public compilation boundary,
+  before both baseline generation and `_prompt_payload`. `PBOSService`
+  evolution helpers also exclude it from promoted feedback patterns. This
+  closes direct compiler/adaptor bypasses without deleting records.
+- The final PBOS REST/MCP/E2E command passed `91`, including the conservative
+  replacement-character and question-mark detection cases. API, Worker, and
+  Beat were rebuilt, and the deployed helper hash matches the checked
+  workspace source.
+- The real project recompiled unconfirmed Mission `art_055276148486` to
+  `art_4f2e40fac865` with the configured PBOS model. Runtime readback proves
+  `llm_contextual`, `context_grounded`, twelve governed references, zero
+  feedback references, and no unreadable question run in its plan or its
+  UTF-8 projection `pbos/plans/art_4f2e40fac865.md`.
+
+### Current Limits And Rollback
+
+The compilation remains non-executing: the Mission is not confirmed, no
+external connector was invoked, and no accepted owner-attributed result was
+created. GitHub and Feishu remain `awaiting_authorization`; Copilot remains a
+configured, captured D-layer bridge until a real output receives source
+lineage and quality review. The project still has zero verified Capabilities
+and zero active Strategy Genomes, as required by the three-comparable-outcome
+evidence gate.
+
+Rollback is limited to the unreadable-feedback helper and its service/compiler
+call sites. It must not delete the original feedback Artifact, the live plan,
+its Vault projection, or any connector and credential configuration.
+
+### Runtime Boundary Recheck
+
+The current project proves the local Obsidian transport, not an imaginary
+external sync: Local REST is `connected` with an authenticated plugin
+manifest; Copilot is trusted, destination-aligned, and `registered_output`;
+Zotero is captured; Clipper and Xiaohongshu Importer remain
+`awaiting_export`. Copilot uses Keychain-only credential storage, so its
+intentionally blank Vault settings cannot be used to claim that an API key is
+missing or present, and BSC must not overwrite it. The active Mission remains
+`ready_for_confirmation` with no execution result. These are all observable
+runtime facts, not completion labels.
+
+## 2026-08-01 Context Priority Repair And Live Recompile
+
+### Implemented
+
+- `PBOSGovernedContextProvider` now allocates the bounded planning context in
+  this order: current weekly handoff and active project briefs, accepted/filed
+  verified outputs, then retrieval-selected published Wiki pages. It reserves
+  space for governed Wiki evidence and never admits raw `04_Outputs`, raw
+  sources, or unreviewed managed outputs.
+- The active Vault Brief now states the real boundary: BSC model execution is
+  operational, while Copilot's Keychain credential is not inferred from
+  `data.json`; one real saved Copilot conversation remains required for the
+  plugin end-to-end proof.
+
+### Evidence
+
+- The new priority regression passed, and the complete PBOS suite passed `92`.
+  The artifact/knowledge regression passed `113` with `1` designed skip.
+- API, Celery Worker, and Celery Beat were rebuilt from the workspace. Docker
+  Compose configuration passed and `/ready` returned `200` with PostgreSQL and
+  Redis healthy. The deployed `app/pbos/context.py` SHA-256 matched the
+  workspace source.
+- Authenticated compilation produced plan `art_235a2dfd58cc` for Mission
+  `art_055276148486` using DeepSeek in `llm_contextual` mode. Its first context
+  references are the weekly handoff, Copilot activation Brief, PBOS delivery
+  Brief, and weekly summary; published Wiki references remain in the bounded
+  context. The projection is `pbos/plans/art_235a2dfd58cc.md`.
+- The plan remains review-only. Mission status is still
+  `ready_for_confirmation`; no capability was invoked and no external side
+  effect was authorized. The live project still has zero accepted personal
+  outcomes, zero verified Capabilities, and zero active Strategy Genomes.
+
+### Remaining Boundary And Rollback
+
+- Copilot has a real file under `04_Outputs/copilot` and is therefore
+  `registered_output`, not `awaiting_output`. It still requires source
+  lineage, quality review, and an observed result before entering PBOS learning.
+- GitHub and Feishu remain `awaiting_authorization` and were not contacted.
+- Rollback is limited to the context-priority helper, its regression, the Brief
+  wording, and these records. It does not delete the real Copilot output,
+  current PBOS plan, Mission, or credentials.
+
+## 2026-08-01 Studio Connectivity And UI Acceptance
+
+### Repaired Runtime Integration
+
+- The local Vite runtime had a configured server-side proxy credential but
+  used its default API target (`localhost:8000`) instead of the active BSC
+  API (`127.0.0.1:8002`). This produced an honest but unusable Studio state:
+  `local proxy` appeared while project discovery failed and PBOS remained
+  disabled.
+- The ignored local environment now declares
+  `BSC_VITE_API_PROXY_TARGET=http://127.0.0.1:8002`. The Vite process was
+  restarted. No credential was added to source, a browser environment value,
+  the Vault, Artifact Graph, logs, or documentation.
+
+### Runtime Evidence
+
+- The proxy returned `200` for `/knowledge/workspaces` and reported both
+  mapped projects. Selecting `proj_b8a285642094` enabled Growth, PBOS, and
+  Mission controls in the actual Studio page.
+- The browser loaded the real Personal Growth Cockpit for that project. It
+  rendered plan `art_235a2dfd58cc`, eight governed references, the live
+  DeepSeek compiler descriptor, pending D-layer review records, connection
+  states, three reviewable outcomes, and the correct zero verified
+  Capability/Strategy state. The same result was checked at `390x844`.
+- Default daily, weekly, and monthly PBOS schedules are enabled in
+  `Asia/Shanghai`. An immediate weekly report was written to the canonical
+  Obsidian path and contains the managed SHA-256 marker.
+- Horizon is enabled in the running API and has a mounted run-store containing
+  recent real capture runs. Its material remains subject to the evidence gate.
+
+### Remaining User Evidence
+
+- This removes the connectivity and UI blockers. PBOS still correctly refuses
+  to call an agent-created regression result the user's personal capability.
+  An owner or mixed attribution, observed delivery result, acceptance, and
+  quality score are still required for each real outcome before the three-case
+  Strategy Genome promotion gate can run.
+- GitHub and Feishu remain `awaiting_authorization`; they are not simulated.
+- The one Vite HMR WebSocket warning observed during browser automation after
+  the intentional development-server restart did not prevent HTTP proxying or
+  data rendering. Production API health and frontend build checks remain
+  passing.

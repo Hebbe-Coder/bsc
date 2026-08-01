@@ -7,6 +7,7 @@ from app.core.config import settings
 from app.pbos import PBOSService
 from app.pbos import PBOSProjectionService
 from app.pbos import PBOSReportService
+from app.pbos.text_integrity import is_unreadable_legacy_text
 
 
 def _mission(store, mission_id: str = "mission") -> MissionArtifact:
@@ -28,6 +29,14 @@ def test_pbos_requires_evidence_before_claiming_personal_plan(tmp_path):
     plan = service.compile_plan("mission-1")
     assert plan.compilation_state == "capture_required"
     assert plan.evidence_gap_plan
+
+
+def test_unreadable_legacy_text_detection_is_conservative():
+    assert is_unreadable_legacy_text("") is False
+    assert is_unreadable_legacy_text("Keep the source citation.") is False
+    assert is_unreadable_legacy_text("lost \ufffd feedback") is True
+    assert is_unreadable_legacy_text("??? legacy export") is True
+    assert is_unreadable_legacy_text("?? review ??") is True
 
 
 def _accepted_outcome(
@@ -949,6 +958,41 @@ def test_feedback_is_a_traceable_constraint_for_the_next_plan(tmp_path):
     assert any("The review needs source citations before approval." in item for item in next_plan.rationale)
     assert any("source citations" in action for phase in next_plan.phases for action in phase["actions"])
     assert next_plan.compilation_state == "capture_required"
+
+
+def test_unreadable_feedback_remains_auditable_but_cannot_pollute_the_next_plan(tmp_path):
+    store = ArtifactGraphStore(str(tmp_path), project_id="personal")
+    _mission(store, "mission-1")
+    _mission(store, "mission-2")
+    service = PBOSService(store, "personal")
+    service.save_profile({"focus": ["AI delivery"]})
+    execution = service.record_execution("mission-1", "", {"actions": ["deliver"]})
+    outcome = service.record_outcome(
+        execution.artifact_id,
+        {
+            "acceptance_status": "accepted",
+            "quality_score": 75,
+            "outcome_summary": "The delivery created reviewable feedback.",
+        },
+    )
+    readable = service.record_feedback(outcome.artifact_id, {
+        "statement": "Keep the public contract bounded before implementation.",
+    })
+    unreadable = service.record_feedback(outcome.artifact_id, {
+        "statement": "???????? Mission feedback lost during a legacy export",
+    })
+
+    next_plan = service.compile_plan("mission-2")
+    cockpit = service.cockpit()
+
+    assert next_plan.feedback_refs == [readable.artifact_id]
+    assert unreadable.artifact_id not in next_plan.parent_ids
+    assert "????????" not in next_plan.model_dump_json()
+    assert any("public contract bounded" in item for item in next_plan.rationale)
+    assert any(
+        item["artifact_id"] == unreadable.artifact_id
+        for item in cockpit["feedback"]
+    )
 
 
 def test_feedback_requires_an_outcome_in_the_same_project(tmp_path):

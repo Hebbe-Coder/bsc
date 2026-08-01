@@ -48,6 +48,7 @@ _RUNTIME_SETTING_PROBES = {
     ),
     "copilot": (Path(".obsidian/plugins/copilot/data.json"), "defaultSaveFolder"),
 }
+_COPILOT_CONVERSATION_SUBPATH = "copilot/copilot-conversations"
 _INTERACTIVE_DESTINATION_PLUGINS = frozenset({"obsidian-importer", "docxer"})
 # Claudian agents work from the Vault and can create files directly. Its
 # ``mediaFolder`` setting is for attachments, not a chat-transcript export
@@ -606,6 +607,23 @@ class ObsidianPluginManifest:
             if not isinstance(data, dict):
                 return {"state": "unavailable", "detail_code": "plugin_settings_invalid"}
             configured = str(data.get(key) or "").replace("\\", "/").strip("/")
+            if plugin.plugin_id == "copilot":
+                conversation_path = "/".join([project_relative, _COPILOT_CONVERSATION_SUBPATH])
+                if configured == conversation_path:
+                    return {
+                        "state": "configured",
+                        "detail_code": "conversation_archive_separated_from_reviewed_output",
+                    }
+                expected_output_paths = {
+                    "/".join([project_relative, input_path]).strip("/")
+                    for input_path in plugin.input_paths
+                }
+                if configured in expected_output_paths:
+                    return {
+                        "state": "mismatch",
+                        "detail_code": "conversation_archive_overlaps_reviewed_output",
+                    }
+                return {"state": "mismatch", "detail_code": "copilot_conversation_destination_unmanaged"}
             expected_paths = {
                 "/".join([project_relative, input_path]).strip("/")
                 for input_path in plugin.input_paths

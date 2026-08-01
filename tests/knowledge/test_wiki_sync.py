@@ -245,7 +245,7 @@ def test_plugin_status_rejects_symlinked_runtime_settings_without_reading_or_wri
     }
 
 
-def test_plugin_status_verifies_copilot_reviewed_output_destination_from_readonly_settings(tmp_path):
+def test_plugin_status_verifies_copilot_conversation_archive_is_separate_from_reviewed_outputs(tmp_path):
     root = tmp_path / "vault"
     project_root = root / "projects" / "project-a"
     output_root = project_root / "04_Outputs" / "copilot"
@@ -257,7 +257,7 @@ def test_plugin_status_verifies_copilot_reviewed_output_destination_from_readonl
     settings_path = root / ".obsidian" / "plugins" / "copilot" / "data.json"
     settings_path.parent.mkdir(parents=True)
     settings_path.write_text(
-        '{"defaultSaveFolder":"projects/project-a/04_Outputs/copilot"}',
+        '{"defaultSaveFolder":"projects/project-a/copilot/copilot-conversations"}',
         encoding="utf-8",
     )
     manifest = ObsidianPluginManifest.load(project_root)
@@ -276,16 +276,16 @@ def test_plugin_status_verifies_copilot_reviewed_output_destination_from_readonl
 
     assert configured["runtime_configuration"] == {
         "state": "configured",
-        "detail_code": "destination_matches_bridge",
+        "detail_code": "conversation_archive_separated_from_reviewed_output",
     }
     assert configured["status"] == "awaiting_output"
 
-    settings_path.write_text('{"defaultSaveFolder":"copilot/copilot-conversations"}', encoding="utf-8")
+    settings_path.write_text('{"defaultSaveFolder":"projects/project-a/04_Outputs/copilot"}', encoding="utf-8")
     mismatch = manifest.public_status(project_root=project_root, vault_root=root)["plugins"][0]
 
     assert mismatch["runtime_configuration"] == {
         "state": "mismatch",
-        "detail_code": "plugin_destination_differs_from_bridge",
+        "detail_code": "conversation_archive_overlaps_reviewed_output",
     }
 
 

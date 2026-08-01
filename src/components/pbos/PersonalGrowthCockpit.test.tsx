@@ -2,10 +2,15 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { fetchGrowthStage } from '../../api/growthApi';
 import { capturePbosWorkspaceExecution, compilePbosPlan, fetchPbosCockpit, fetchPbosProfile, recordPbosExecution, recordPbosOutcome, reviewPbosExecutionAttribution, reviewPbosOutcome } from '../../api/pbosApi';
 import { PersonalGrowthCockpit } from './PersonalGrowthCockpit';
+
+vi.mock('../../api/growthApi', () => ({
+  fetchGrowthStage: vi.fn(),
+}));
 
 vi.mock('../../api/pbosApi', () => ({
   capturePbosWorkspaceExecution: vi.fn(),
@@ -30,7 +35,38 @@ vi.mock('reactflow', () => ({
 
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
+beforeEach(() => {
+  vi.mocked(fetchGrowthStage).mockResolvedValue({
+    project_id: 'default', stage: 'D', records: [], limit: 100, truncated: false,
+  });
+});
+
 describe('PersonalGrowthCockpit', () => {
+  it('routes registered Copilot output to D-layer review without treating it as personal learning', async () => {
+    const openOutputReview = vi.fn();
+    vi.mocked(fetchPbosCockpit).mockResolvedValue({
+      profile: null, today: null, today_action: { state: 'no_plan' },
+      capabilities: [], outcomes: [], feedback: [], strategies: [], failure_patterns: [], project_health: {}, connectors: {},
+    });
+    vi.mocked(fetchPbosProfile).mockResolvedValue({ profile: null });
+    vi.mocked(fetchGrowthStage).mockResolvedValue({
+      project_id: 'default', stage: 'D', limit: 100, truncated: false,
+      records: [{
+        id: 'output-copilot-1', status: 'registered', title: 'Private generated output',
+        metadata: { obsidian_plugin: 'copilot', obsidian_adapter: 'filesystem_output' },
+      }],
+    });
+
+    render(<PersonalGrowthCockpit projectId="default" onClose={vi.fn()} runtimeAccessKey="session-key" onOpenOutputReview={openOutputReview} />);
+
+    expect(await screen.findByText('PENDING D-LAYER REVIEW')).toBeVisible();
+    expect(screen.getByText('Copilot output')).toBeVisible();
+    expect(screen.getByText('output-copilot-1')).toBeVisible();
+    expect(screen.queryByText('Private generated output')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Open D-layer review for output-copilot-1' }));
+    expect(openOutputReview).toHaveBeenCalledWith('output-copilot-1');
+  });
+
   it('does not issue a PBOS request without a Studio access session and provides a recovery action', async () => {
     const openAccess = vi.fn();
 

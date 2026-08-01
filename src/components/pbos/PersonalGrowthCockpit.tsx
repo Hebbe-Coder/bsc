@@ -16,6 +16,7 @@ import {
   type PbosCockpit,
   type PbosProfile,
 } from '../../api/pbosApi';
+import { fetchGrowthStage, type GrowthRecord } from '../../api/growthApi';
 import RegisteredECharts from '../charts/RegisteredECharts';
 
 type Props = {
@@ -25,6 +26,7 @@ type Props = {
   onConfigureAccess?: () => void;
   initialMissionId?: string;
   onStartMission?: () => void;
+  onOpenOutputReview?: (outputId: string) => void;
 };
 
 function isAccessFailure(reason: unknown): boolean {
@@ -120,7 +122,32 @@ function planGenerationStatus(plan: Record<string, unknown> | null | undefined):
   return { label: 'Contextual deterministic', detail: 'no model result recorded', tone: 'is-pending' };
 }
 
-export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '', onConfigureAccess, initialMissionId = '', onStartMission }: Props) {
+type PendingOutputReview = {
+  id: string;
+  source: 'Copilot' | 'External';
+};
+
+function pendingOutputReviews(records: GrowthRecord[]): PendingOutputReview[] {
+  return records
+    .filter((record) => String(record.status || '') === 'registered')
+    .map((record) => {
+      const metadata = planObject(record.metadata);
+      const pluginId = String(metadata.obsidian_plugin_id || metadata.plugin_id || '');
+      const legacyPlugin = String(metadata.obsidian_plugin || metadata.plugin_name || '').toLowerCase();
+      const originalPath = String(metadata.original_path || record.vault_path || '').replace(/\\/g, '/').toLowerCase();
+      const isCopilot = pluginId === 'copilot-agent'
+        || legacyPlugin.includes('copilot')
+        || /(?:^|\/)04_outputs\/copilot(?:\/|$)/.test(originalPath);
+      return {
+        id: String(record.id || ''),
+        source: isCopilot ? 'Copilot' as const : 'External' as const,
+      };
+    })
+    .filter((record) => Boolean(record.id))
+    .slice(0, 12);
+}
+
+export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '', onConfigureAccess, initialMissionId = '', onStartMission, onOpenOutputReview }: Props) {
   const [data, setData] = useState<PbosCockpit | null>(null);
   const [profile, setProfile] = useState<PbosProfile | null>(null);
   const [error, setError] = useState('');
@@ -151,15 +178,26 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
   const [attributionReviewDrafts, setAttributionReviewDrafts] = useState<Record<string, AttributionReviewDraft>>({});
   const [reviewingAttributionExecutionId, setReviewingAttributionExecutionId] = useState('');
   const [creatingOutcomeExecutionId, setCreatingOutcomeExecutionId] = useState('');
+  const [pendingOutputState, setPendingOutputState] = useState<'loading' | 'ready' | 'unavailable'>('loading');
+  const [pendingOutputs, setPendingOutputs] = useState<PendingOutputReview[]>([]);
   const load = useCallback(async () => {
     if (!runtimeAccessKey.trim()) {
-      setData(null); setProfile(null); setError(''); setAccessState('required');
+      setData(null); setProfile(null); setPendingOutputs([]); setPendingOutputState('unavailable'); setError(''); setAccessState('required');
       return;
     }
     try {
-      setError(''); setAccessState(null);
-      const [cockpit, profileResult] = await Promise.all([fetchPbosCockpit(projectId, initialMissionId), fetchPbosProfile(projectId)]);
+      setError(''); setAccessState(null); setPendingOutputState('loading');
+      const dLayerResult = fetchGrowthStage(projectId, 'D', 100)
+        .then((result) => ({ state: 'ready' as const, outputs: pendingOutputReviews(result.records) }))
+        .catch(() => ({ state: 'unavailable' as const, outputs: [] as PendingOutputReview[] }));
+      const [cockpit, profileResult, dLayer] = await Promise.all([
+        fetchPbosCockpit(projectId, initialMissionId),
+        fetchPbosProfile(projectId),
+        dLayerResult,
+      ]);
       setData(cockpit);
+      setPendingOutputState(dLayer.state);
+      setPendingOutputs(dLayer.outputs);
       const nextProfile = profileResult.profile ?? cockpit.profile;
       setProfile(nextProfile);
       setRole(nextProfile?.role ?? '');
@@ -173,7 +211,7 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
       setConstraints((nextProfile?.constraints ?? []).join(', '));
     } catch (reason) {
       if (isAccessFailure(reason)) {
-        setData(null); setProfile(null); setError(''); setAccessState('rejected');
+        setData(null); setProfile(null); setPendingOutputs([]); setPendingOutputState('unavailable'); setError(''); setAccessState('rejected');
         return;
       }
       setError(reason instanceof Error ? reason.message : 'Unable to load PBOS');
@@ -461,6 +499,7 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
       </section>}
       {Object.keys(currentPhase).length > 0 && <section className="pbos-execution-path"><div className="pbos-panel-heading"><p className="pbos-label">TODAY'S EXECUTION PATH</p><span>phase 1 of {phases.length}</span></div><h3>{String(currentPhase.title || 'Clarify the next evidence-backed slice')}</h3>{currentPhase.why_now && <p>{String(currentPhase.why_now)}</p>}<div className="pbos-execution-path__io"><div><strong>Inputs</strong>{phaseInputs.slice(0, 3).map((item) => <span key={item}>{item}</span>)}</div><div><strong>Reviewable output</strong>{phaseOutputs.slice(0, 2).map((item) => <span key={item}>{item}</span>)}</div></div>{phaseActions.length > 0 && <ol>{phaseActions.slice(0, 3).map((item) => <li key={item}>{item}</li>)}</ol>}{decisionPoint.question && <div className="pbos-decision-point"><strong>Decision: {String(decisionPoint.question)}</strong><span>Proceed: {String(decisionPoint.proceed_when || 'when the phase output is reviewable')}</span><span>Adapt: {String(decisionPoint.adapt_when || 'when the evidence boundary is not met')}</span></div>}{executionContract.reflection_entry && <small>{String(executionContract.reflection_entry)}</small>}</section>}
       <section className="pbos-connectors"><div className="pbos-panel-heading"><p className="pbos-label">CONNECTORS</p><span>{Object.keys(data.connectors).length} configured</span></div><div>{Object.entries(data.connectors).map(([name, state]) => <p key={name}><strong>{name}</strong><span data-state={state}>{connectorLabel(state)}</span></p>)}</div><small>External sources stay outside personal evidence until their scoped authorization and receipts are available.</small></section>
+      <section className="pbos-review-queue pbos-output-review" id="pbos-d-layer-review"><div className="pbos-panel-heading"><p className="pbos-label">PENDING D-LAYER REVIEW</p><span className={pendingOutputs.length ? 'is-pending' : 'is-ready'}>{pendingOutputState === 'loading' ? 'checking' : pendingOutputState === 'unavailable' ? 'unavailable' : `${pendingOutputs.length} pending`}</span></div><p>Registered Copilot and external outputs remain outside personal learning until their evidence and quality review are complete.</p>{pendingOutputState === 'loading' ? <p className="pbos-empty-panel">Checking governed output descriptors...</p> : pendingOutputState === 'unavailable' ? <p className="pbos-review-warning" role="status">D-layer review status is unavailable. PBOS does not assume that an external output is verified.</p> : pendingOutputs.length ? <div className="pbos-review-list">{pendingOutputs.map((output) => <article key={output.id} className="pbos-review-card"><div><strong>{output.source} output</strong><small>{output.id}</small></div><button type="button" className="pbos-primary-action" aria-label={`Open D-layer review for ${output.id}`} disabled={!onOpenOutputReview} onClick={() => onOpenOutputReview?.(output.id)}>Open review</button></article>)}</div> : <p className="pbos-empty-panel">No registered external D-layer output needs review.</p>}</section>
       <section className="pbos-health"><div className="pbos-panel-heading"><p className="pbos-label">PROJECT HEALTH</p><span>ledger projection</span></div><dl><div><dt>Vault context</dt><dd className={knowledgeContextReady ? 'is-ready' : 'is-pending'}>{knowledgeContextReady ? `connected (${contextReferenceCount})` : 'needed'}</dd></div><div><dt>Personal learning</dt><dd className={personalLearningReady ? 'is-ready' : 'is-pending'}>{personalLearningReady ? 'grounded' : 'awaiting evidence'}</dd></div><div><dt>Accepted</dt><dd>{String(projectHealth.accepted_outcomes ?? 0)}</dd></div><div><dt>Learning-eligible</dt><dd>{String(projectHealth.eligible_personal_outcomes ?? 0)}</dd></div><div><dt>Unverified</dt><dd>{String(projectHealth.unverified_outcomes ?? 0)}</dd></div><div><dt>Active strategies</dt><dd>{String(projectHealth.active_strategies ?? 0)}</dd></div></dl></section>
       <section className="pbos-readiness"><div className="pbos-panel-heading"><p className="pbos-label">PERSONALIZATION READINESS</p><span className={readinessState === 'personalized' ? 'is-ready' : 'is-pending'}>{readinessLabel}</span></div><dl><div><dt>Profile context</dt><dd>{personalizationReadiness.declared_profile_ready ? 'declared' : 'incomplete'}</dd></div><div><dt>Comparable outcomes</dt><dd>{personalizationReadiness.accepted_outcome_count} of {personalizationReadiness.required_comparable_outcomes} comparable accepted outcomes</dd></div></dl>{readinessMissing.length > 0 && <p>Missing personal context: {readinessMissing.join(', ')}.</p>}<p>{readinessState === 'personalized' ? 'This plan can reuse a verified personal strategy within its matching context.' : 'Vault context can guide this plan, but it is not yet a learned personal method.'}</p></section>
       {data.today && <section className="pbos-grounding"><div className="pbos-panel-heading"><p className="pbos-label">PLAN GROUNDING</p><span>{contextReferences.length} governed reference{contextReferences.length === 1 ? '' : 's'}</span></div><dl><div><dt>Plan engine</dt><dd><span className={`pbos-plan-generation ${generation.tone}`}>{generation.label}</span><small>{generation.detail}</small></dd></div><div><dt>Weekly handoff</dt><dd>{weeklyHandoffs.length} weekly handoff{weeklyHandoffs.length === 1 ? '' : 's'}</dd></div><div><dt>Feedback input</dt><dd>{feedbackReferences.length} feedback input{feedbackReferences.length === 1 ? '' : 's'}</dd></div><div><dt>Personal strategy</dt><dd>{appliedStrategies.length ? `${appliedStrategies.length} verified strategy applied` : 'not yet earned'}</dd></div></dl>{contextReferences.length ? <ul>{contextReferences.slice(0, 4).map((item) => <li key={item}><code>{visibleVaultRef(item)}</code></li>)}</ul> : <p className="pbos-grounding-empty">No governed context was selected for this plan.</p>}{appliedStrategies.length > 0 && <ul className="pbos-strategy-inputs">{appliedStrategies.map((item) => <li key={String(item.artifact_id)}><BrainCircuit size={13} /><span>{String(item.strategy_name || 'Personal strategy')} v{String(item.version || 1)}</span></li>)}</ul>}<p>These are planning inputs. They do not establish a personal capability without verified execution evidence.</p></section>}

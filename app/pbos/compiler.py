@@ -19,6 +19,7 @@ from app.artifacts import (
 from app.core.config import settings
 from app.core.prompt_context import estimate_prompt_tokens, truncate_prompt_text
 from app.services.sop_llm_client import PROVIDER_KEY_MAP, PROVIDER_REGISTRY, SOPLLMClient
+from .text_integrity import is_unreadable_legacy_text
 
 
 class PBOSPlanCompiler:
@@ -59,6 +60,8 @@ class PBOSPlanCompiler:
         feedback: list[dict[str, str]],
         knowledge_context: dict[str, Any],
     ) -> dict[str, Any]:
+        feedback = self._sanitize_feedback(feedback)
+        knowledge_context = self._sanitize_knowledge_context(knowledge_context)
         documents = [item for item in knowledge_context.get("documents", []) if isinstance(item, dict)]
         baseline = self._baseline(
             mission=mission,
@@ -145,6 +148,75 @@ class PBOSPlanCompiler:
             deterministic_phases,
             mission,
         )
+
+    @staticmethod
+    def _sanitize_feedback(feedback: list[dict[str, str]]) -> list[dict[str, str]]:
+        """Keep damaged legacy feedback auditable but out of plan reasoning."""
+        return [
+            dict(item)
+            for item in feedback
+            if isinstance(item, dict)
+            and not is_unreadable_legacy_text(item.get("statement"))
+        ]
+
+    @staticmethod
+    def _sanitize_knowledge_context(knowledge_context: dict[str, Any]) -> dict[str, Any]:
+        """Keep raw plugin and unreviewed managed output out of every compiler path.
+
+        The governed provider already applies this policy. Reapplying it at the
+        compiler boundary prevents a future adapter from leaking a raw D-layer
+        export into the model prompt, persisted plan, or rationale.
+        """
+        source = knowledge_context if isinstance(knowledge_context, dict) else {}
+        documents = source.get("documents") if isinstance(source.get("documents"), list) else []
+        safe_documents: list[dict[str, Any]] = []
+        rejected_raw_plugin_outputs = 0
+        rejected_raw_copilot_outputs = 0
+        rejected_unreviewed_outputs = 0
+        rejected_raw_sources = 0
+        for document in documents:
+            if not isinstance(document, dict):
+                continue
+            path = str(document.get("path") or "").replace("\\", "/").lstrip("/")
+            path_lower = path.lower()
+            origin = str(document.get("origin") or "")
+            if path_lower.startswith("04_outputs/"):
+                rejected_raw_plugin_outputs += 1
+                if path_lower.startswith("04_outputs/copilot/"):
+                    rejected_raw_copilot_outputs += 1
+                continue
+            if path_lower.startswith("outputs/") and origin != "verified_output":
+                rejected_unreviewed_outputs += 1
+                continue
+            if path_lower.startswith(("00_inbox/", "01_sources/", "raw/", "inbox/")):
+                rejected_raw_sources += 1
+                continue
+            safe_documents.append(document)
+        refs = list(dict.fromkeys(
+            str(reference)
+            for document in safe_documents
+            for reference in [document.get("ref"), *(document.get("supporting_refs") or [])]
+            if str(reference)
+        ))
+        verified_output_count = sum(
+            str(document.get("origin") or "") == "verified_output"
+            for document in safe_documents
+        )
+        return {
+            **source,
+            "documents": safe_documents,
+            "refs": refs,
+            "context_integrity": {
+                "raw_plugin_output_context_consumed": False,
+                "raw_copilot_context_consumed": False,
+                "unreviewed_managed_output_consumed": False,
+                "verified_output_context_count": verified_output_count,
+                "rejected_raw_plugin_output_count": rejected_raw_plugin_outputs,
+                "rejected_raw_copilot_output_count": rejected_raw_copilot_outputs,
+                "rejected_unreviewed_managed_output_count": rejected_unreviewed_outputs,
+                "rejected_raw_source_count": rejected_raw_sources,
+            },
+        }
 
     def _record_llm_diagnostics(self, baseline: dict[str, Any]) -> None:
         """Persist only structural provider diagnostics, never a model response body."""
@@ -829,6 +901,7 @@ class PBOSPlanCompiler:
             f"Verified personal assets: {', '.join(verified_capabilities + verified_experiences) if (verified_capabilities or verified_experiences) else 'none yet'}",
         ]
         operational_state = self._safe_operational_state(knowledge_context)
+        context_integrity = self._safe_context_integrity(knowledge_context)
         if operational_state["managed_source_mirror"]["state"] == "available":
             rationale.append(
                 "Operational state: the BSC evidence mirror is already available; advance the Mission instead of repeating source projection."
@@ -879,7 +952,27 @@ class PBOSPlanCompiler:
                 "effective_personal_context": effective_personal_context,
                 "effective_personal_context_sources": effective_context_sources,
                 "operational_state": operational_state,
+                "context_integrity": context_integrity,
+                "raw_plugin_output_context_consumed": context_integrity["raw_plugin_output_context_consumed"],
+                "raw_copilot_context_consumed": context_integrity["raw_copilot_context_consumed"],
+                "unreviewed_managed_output_consumed": context_integrity["unreviewed_managed_output_consumed"],
             },
+        }
+
+    @staticmethod
+    def _safe_context_integrity(knowledge_context: dict[str, Any]) -> dict[str, Any]:
+        """Return a bounded, schema-stable input-boundary audit projection."""
+        raw = knowledge_context.get("context_integrity")
+        raw = raw if isinstance(raw, dict) else {}
+        return {
+            "raw_plugin_output_context_consumed": bool(raw.get("raw_plugin_output_context_consumed")),
+            "raw_copilot_context_consumed": bool(raw.get("raw_copilot_context_consumed")),
+            "unreviewed_managed_output_consumed": bool(raw.get("unreviewed_managed_output_consumed")),
+            "verified_output_context_count": PBOSPlanCompiler._safe_nonnegative_int(raw.get("verified_output_context_count")),
+            "rejected_raw_plugin_output_count": PBOSPlanCompiler._safe_nonnegative_int(raw.get("rejected_raw_plugin_output_count")),
+            "rejected_raw_copilot_output_count": PBOSPlanCompiler._safe_nonnegative_int(raw.get("rejected_raw_copilot_output_count")),
+            "rejected_unreviewed_managed_output_count": PBOSPlanCompiler._safe_nonnegative_int(raw.get("rejected_unreviewed_managed_output_count")),
+            "rejected_raw_source_count": PBOSPlanCompiler._safe_nonnegative_int(raw.get("rejected_raw_source_count")),
         }
 
     @staticmethod

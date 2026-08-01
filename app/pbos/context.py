@@ -7,7 +7,8 @@ captures as personal experience or sends the full Vault to a plan compiler.
 from __future__ import annotations
 
 import hashlib
-from pathlib import Path
+import hmac
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterable
 
 from app.knowledge.context_pack import WikiContextProvider
@@ -23,8 +24,6 @@ class PBOSVaultContextBuilder:
         "03_Projects/active",
         "02_Assets/curated",
         "methods",
-        "04_Outputs",
-        "outputs",
         "distillations",
     )
     EXCLUDED_PARTS = {"revisions", "pbos", ".obsidian", ".git"}
@@ -158,10 +157,14 @@ class PBOSVaultContextBuilder:
 class PBOSGovernedContextProvider:
     """Combine bounded working notes with retrieval-selected published Wiki pages.
 
-    The filesystem is useful for the user's current project context, but it is
-    not an authority for B-layer knowledge. Published pages and their evidence
-    lineage are therefore selected from BSC's project-scoped repository first.
+    The active project handoff is the primary planning input. Published pages
+    remain B-layer authority and retain their evidence lineage, but navigation
+    pages must not displace the current delivery brief from a bounded prompt.
     """
+
+    MAX_WORKING_DOCUMENTS = 4
+    MAX_VERIFIED_OUTPUTS = 2
+    MIN_GOVERNED_DOCUMENTS = 2
 
     def __init__(
         self,
@@ -195,10 +198,15 @@ class PBOSGovernedContextProvider:
             )
             governed = self._published_documents(repository, pack)
             operational_state = self._operational_state(repository)
+            verified_outputs = self._verified_output_documents(repository)
         finally:
             if owns_repository:
                 repository.close()
-        documents = [*governed, *working["documents"]][: PBOSVaultContextBuilder.MAX_DOCUMENTS]
+        documents = self._prioritized_documents(
+            working["documents"],
+            verified_outputs,
+            governed,
+        )
         refs = list(dict.fromkeys(
             [
                 str(reference)
@@ -210,12 +218,14 @@ class PBOSGovernedContextProvider:
                 if str(reference)
             ]
         ))
+        context_integrity = self._context_integrity(documents)
         return {
             "availability": "available" if documents else (
                 "no_governed_context" if pack is not None else working["availability"]
             ),
             "documents": documents,
             "refs": refs,
+            "context_integrity": context_integrity,
             "governed_wiki": {
                 "available": pack is not None,
                 "revision": pack.revision if pack is not None else "",
@@ -224,6 +234,144 @@ class PBOSGovernedContextProvider:
                 "retrieval_refs": list(pack.retrieval_refs) if pack is not None else [],
             },
             "operational_state": operational_state,
+        }
+
+    @classmethod
+    def _prioritized_documents(
+        cls,
+        working: list[dict[str, Any]],
+        verified_outputs: list[dict[str, Any]],
+        governed: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Fit planning inputs into the prompt without losing governed knowledge.
+
+        ``PBOSVaultContextBuilder`` places the latest weekly handoff before
+        active project briefs. Preserve that ordering, then include accepted
+        outputs. Two retrieved published pages are reserved whenever present:
+        this prevents a large active directory from silently removing the
+        evidence-governed knowledge layer from a personal plan.
+        """
+        limit = PBOSVaultContextBuilder.MAX_DOCUMENTS
+        selections = (
+            (working, cls.MAX_WORKING_DOCUMENTS),
+            (verified_outputs, cls.MAX_VERIFIED_OUTPUTS),
+            (governed, cls.MIN_GOVERNED_DOCUMENTS),
+        )
+        documents: list[dict[str, Any]] = []
+        seen_refs: set[str] = set()
+
+        def append(items: list[dict[str, Any]]) -> None:
+            for document in items:
+                if len(documents) >= limit:
+                    return
+                reference = str(document.get("ref") or "")
+                identity = reference or str(document.get("path") or "")
+                if identity in seen_refs:
+                    continue
+                seen_refs.add(identity)
+                documents.append(document)
+
+        # Fixed initial allocations preserve the intended priority while
+        # retaining room for accepted outputs and governed Wiki evidence.
+        for items, allocation in selections:
+            append(items[:allocation])
+
+        # Backfill unused budget in the same planning order. Each document is
+        # still bounded and independently checked by its source adapter.
+        for items, allocation in selections:
+            append(items[allocation:])
+        return documents
+
+    @staticmethod
+    def _context_integrity(documents: list[dict[str, Any]]) -> dict[str, Any]:
+        """Expose output-boundary facts derived from the actual selected inputs."""
+        raw_plugin_output = False
+        raw_copilot_output = False
+        unreviewed_managed_output = False
+        verified_output_count = 0
+        for document in documents:
+            path = str(document.get("path") or "").replace("\\", "/").lower()
+            origin = str(document.get("origin") or "")
+            if path.startswith("04_outputs/"):
+                raw_plugin_output = True
+                if path.startswith("04_outputs/copilot/"):
+                    raw_copilot_output = True
+            if path.startswith("outputs/"):
+                if origin == "verified_output":
+                    verified_output_count += 1
+                else:
+                    unreviewed_managed_output = True
+        return {
+            "raw_plugin_output_context_consumed": raw_plugin_output,
+            "raw_copilot_context_consumed": raw_copilot_output,
+            "unreviewed_managed_output_consumed": unreviewed_managed_output,
+            "verified_output_context_count": verified_output_count,
+        }
+
+    def _verified_output_documents(self, repository: WikiRepository) -> list[dict[str, Any]]:
+        """Expose only hash-valid accepted D-layer prose as PBOS working context.
+
+        Plugin exports under ``04_Outputs`` and managed files under ``outputs``
+        must never become planning context merely because they exist on disk.
+        The output lifecycle record is the authority: only accepted/filed text
+        whose current managed copy still matches its registered hash may be read.
+        """
+        outputs = GrowthRepository.borrow(repository).list_outputs(self.project_id, limit=100)
+        documents: list[dict[str, Any]] = []
+        for output in outputs:
+            if str(output.get("status") or "") not in {"accepted", "filed"}:
+                continue
+            if not str(output.get("mime_type") or "").startswith("text/"):
+                continue
+            document = self._verified_output_document(output)
+            if document is not None:
+                documents.append(document)
+            if len(documents) >= self.MAX_VERIFIED_OUTPUTS:
+                break
+        return documents
+
+    def _verified_output_document(self, output: dict[str, Any]) -> dict[str, Any] | None:
+        relative_path = str(output.get("vault_path") or "").replace("\\", "/")
+        relative = PurePosixPath(relative_path)
+        if (
+            not relative.parts
+            or relative.parts[0] != "outputs"
+            or relative.is_absolute()
+            or any(part in {"", ".", ".."} for part in relative.parts)
+        ):
+            return None
+        candidate = (self.project_root / relative).resolve()
+        try:
+            candidate.relative_to(self.project_root)
+        except ValueError:
+            return None
+        try:
+            if (
+                candidate.is_symlink()
+                or not candidate.is_file()
+                or candidate.stat().st_size > PBOSVaultContextBuilder.MAX_FILE_BYTES
+            ):
+                return None
+            payload = candidate.read_bytes()
+            if not hmac.compare_digest(
+                hashlib.sha256(payload).hexdigest(),
+                str(output.get("content_hash") or "").lower(),
+            ):
+                return None
+            text = payload.decode("utf-8")
+        except (OSError, UnicodeDecodeError):
+            return None
+        output_id = str(output.get("id") or "").strip()
+        content_hash = str(output.get("content_hash") or "").strip()
+        if not output_id or not content_hash:
+            return None
+        return {
+            "ref": f"output:{output_id}@{content_hash}",
+            "path": relative.as_posix(),
+            "title": str(output.get("title") or output.get("kind") or "Verified output")[:200],
+            "excerpt": self.working_context._excerpt(text),
+            "sha256": content_hash,
+            "origin": "verified_output",
         }
 
     def _operational_state(self, repository: WikiRepository) -> dict[str, Any]:

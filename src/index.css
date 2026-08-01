@@ -2144,6 +2144,8 @@ body .knowledge-connection-path small {
 .pbos-executions .pbos-outcomes { max-height: 182px; overflow: auto; }
 .pbos-executions .pbos-outcomes em { margin-left: auto; color: #e0c177; font: 8px/1.35 var(--font-mono); font-style: normal; text-align: right; }
 .pbos-review-queue { display: grid; align-content: start; gap: 12px; }
+.pbos-output-review .pbos-review-card { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+.pbos-output-review .pbos-review-card button { min-height: 30px; border: 1px solid #4f9d88; border-radius: 3px; padding: 0 10px; color: #dff9ed; background: #164238; font: 9px var(--font-mono); }
 .pbos-review-list { display: grid; gap: 8px; }
 .pbos-review-card { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(120px, .7fr) minmax(150px, 1fr); gap: 9px; border: 1px solid #3a5961; padding: 10px; background: #0a171d; }
 .pbos-review-card > div:first-child { display: grid; min-width: 0; align-content: start; gap: 4px; }

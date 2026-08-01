@@ -18,6 +18,7 @@ from app.core.config import settings
 from app.knowledge.capture_adapters import redact_secrets
 from .capture import local_receipts
 from .compiler import PBOSPlanCompiler
+from .text_integrity import is_unreadable_legacy_text
 
 
 class PBOSService:
@@ -370,7 +371,10 @@ class PBOSService:
             item for item in self.store.get_by_type(ArtifactType.SOP_VERSION)
             if isinstance(item, SOPVersionArtifact) and item.status == ArtifactStatus.ACTIVE
         ])
-        feedback = self._recent_feedback()
+        feedback = [
+            item for item in self._recent_feedback()
+            if not is_unreadable_legacy_text(item.statement)
+        ]
         mission = self.store.get(mission_id)
         if not isinstance(mission, MissionArtifact):
             raise ValueError("PBOS plan requires an existing project Mission")
@@ -1109,7 +1113,12 @@ class PBOSService:
     def _feedback_for_outcomes(self, outcome_ids: list[str]) -> list[str]:
         values: list[str] = []
         for item in self.store.get_by_type(ArtifactType.WORK_FEEDBACK):
-            if isinstance(item, WorkFeedbackArtifact) and item.outcome_id in outcome_ids and item.statement:
+            if (
+                isinstance(item, WorkFeedbackArtifact)
+                and item.outcome_id in outcome_ids
+                and item.statement
+                and not is_unreadable_legacy_text(item.statement)
+            ):
                 values.append(item.statement)
         return list(dict.fromkeys(values))[:8]
 
@@ -1118,7 +1127,10 @@ class PBOSService:
         severe = [item for item in outcomes if item.severe_failure and self._is_complete_record(item)]
         if severe:
             patterns.append({"kind": "severe_failure", "count": len(severe), "evidence_refs": [item.artifact_id for item in severe]})
-        negative = [item for item in feedback if item.sentiment == "negative"]
+        negative = [
+            item for item in feedback
+            if item.sentiment == "negative" and not is_unreadable_legacy_text(item.statement)
+        ]
         if negative:
             patterns.append({"kind": "negative_feedback", "count": len(negative), "evidence_refs": [item.artifact_id for item in negative]})
         return patterns

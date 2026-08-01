@@ -1113,3 +1113,92 @@ external service, or writing to a Vault/original file.
   source, publish Wiki knowledge, create a method or output, or satisfy the
   remaining E1 evidence gates. Those actions require their own governed
   review and authorization.
+
+## Governed Zotero Review and Growth Cycle (2026-08-01)
+
+### Historical Revision Repair
+
+- A legacy concurrent daily publisher had left one historical database row
+  without a matching immutable Vault archive. The repair does not copy the
+  current daily document or manufacture an archive for that row.
+- The damaged row is now retained only as bounded audit metadata with status
+  `superseded_artifact_missing`; its output paths and file hashes are cleared.
+  A same-input rerun receives a deterministic successor identity, so the
+  database unique key cannot present a new publication as the old artifact.
+- API revision selection excludes that status from current revisions. A
+  history read can disclose the state, but it has no readable output path.
+- Regression coverage passed for the repair, stable successor identity, and
+  API currentness behavior. The complete affected suite passed:
+  `121 passed, 1 warning` across daily distillation, Growth API, and knowledge
+  workspace API tests. The warning is the existing Starlette TestClient
+  deprecation.
+
+### Live Run Evidence
+
+- Docker Compose rebuilt and restarted the API and Celery worker from the
+  repaired source. The API health endpoint returned `200`; API, Worker,
+  PostgreSQL, Redis, Beat, and n8n were running, and the worker loaded
+  distillation contract revision `33`.
+- With explicit project authorization, the protected Growth API queued run
+  `410ac265bf7e` for `proj_b8a285642094`. The run completed through governed
+  Obsidian sync, model execution, distillation publication, and durable run
+  completion events. No source body, provider response, credential, or prompt
+  was printed or copied into this worklog.
+- The completed run generated one managed daily artifact from `152` bounded
+  input records. Its recorded generation mode is `llm` using the configured
+  Growth provider and model; no deterministic fallback or failure category was
+  recorded. The worker queue was empty after completion.
+- Revision metadata now reports one quarantined missing-artifact history row,
+  zero such rows marked current, and a latest current daily revision in LLM
+  mode. This is real Growth-cycle evidence only: it does not override the
+  Zotero triage recommendation, promote source trust, publish Wiki claims, or
+  fabricate an output-feedback loop.
+
+## Copilot First Real Output Registration (2026-08-01)
+
+- The earlier `awaiting_output` state in this record was accurate at its
+  timestamp. It is superseded by a later real Obsidian action: Copilot
+  generated and automatically saved
+  `projects/proj_b8a285642094/04_Outputs/copilot/PBOS_v1_Execution_Plan@20260801_123122.md`.
+- The first provider attempt exhausted the `6000` output-token limit and
+  produced no final content. Copilot then generated a complete Brief-grounded
+  plan after its model setting was changed in the plugin UI to `12000`; the
+  saved conversation retains both attempts as immutable history. The second
+  response is bounded, evidence-aware, and does not claim an executed result.
+- Governed run `60ae633c6ec4` completed through the live Celery `source_sync`
+  path. The output route scanned one file with no rejection or block, and the
+  project now has two registered Copilot output versions with distinct hashes.
+  The bridge reports `registered_output`, `trusted`, and
+  `destination_matches_bridge`; the D-layer records remain review-pending.
+- This is completion of the real Copilot output bridge, not completion of the
+  personal-learning loop. Owner review, an observed Outcome, and two more
+  comparable delivery records are still required before promotion. GitHub and
+  Feishu still correctly report `awaiting_authorization`.
+
+## Copilot Output Provenance Rollout (2026-08-01)
+
+- The deployed parser now recognizes bounded metadata produced by the real
+  Copilot conversation export: provider, model, topic title, Markdown type,
+  revision marker, and same-project context paths. It deliberately excludes
+  prompts, Keychain values, cross-project paths, source/page lineage, and any
+  learning or acceptance decision.
+- Fresh records will carry this metadata. The two existing registered versions
+  remain immutable and keep their historical `external_plugin` / `unknown`
+  metadata; they are not silently rewritten to make the bridge appear newer
+  than it was. This is verified compatibility behavior, not a failure.
+- Normal run `fa4da88cad62` completed after deployment. Its output-feedback
+  report was `scanned=1`, `registered=0`, `duplicates=1`, `rejected=0`,
+  `blocked=0`, proving the legacy Copilot file is still accepted as an
+  immutable duplicate. The actual next Copilot-generated export is the only
+  valid path for a new D-layer version carrying parsed model metadata.
+
+## Latest Governed Zotero Review State (2026-08-01)
+
+- A bounded post-run read confirmed source `f4278140ca7f` remains
+  `validated` and `untrusted`. Its current semantic triage is completed with
+  disposition `archive` and failed reliability; it did not receive automatic
+  admission, trust promotion, Wiki publication, or use as a trusted claim.
+- The completed Growth cycle therefore proves the governed execution path and
+  its LLM daily artifact, not the validity of this particular Zotero item. An
+  explicit human approval with a documented reason remains required before
+  any non-trusted source can enter authoring-eligible knowledge.

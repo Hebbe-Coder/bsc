@@ -1534,3 +1534,220 @@
 - **Rollback:** revert `2290891`. This removes only the activation presentation
   and its test; it does not modify PBOS artifacts, source records, outcomes,
   schedules, connector credentials, or Obsidian projections.
+
+## 2026-08-01 Copilot D-Layer Review And PBOS Context Boundary
+
+- **Configuration proof without credential access:** the active Vault's
+  Copilot configuration selects `deepseek-v4-flash|deepseek`, saves explicit
+  deliverables to the project-scoped `04_Outputs/copilot` route, and loads
+  prompts from `06_Skills/copilot-prompts`. This inspection read only the
+  selected-model and route descriptors. API-key material remains in the
+  plugin's runtime credential storage and was neither read nor changed.
+- **Real bridge state:** the Copilot route is trusted, destination-aligned,
+  and has registered real D-layer output versions. Registered is not accepted:
+  no plugin response, output body, or title is treated as an Experience,
+  Capability, or Strategy Genome before explicit source linkage and quality
+  review.
+- **PBOS context repair:** `PBOSVaultContextBuilder` no longer scans raw
+  `04_Outputs/` or `outputs/` directories. A managed D-layer file is eligible
+  only after it is `accepted` or `filed`, remains below the managed output
+  root, is non-symlinked and bounded, and its current SHA-256 still matches
+  its immutable registered content hash. Raw, registered, rejected, tampered,
+  missing, binary, and traversal-path output is excluded. The corresponding
+  contextual compiler regression covers both exclusion and hash-valid reuse.
+- **Live plan proof:** an authorized project compilation produced
+  `art_ab2b736b59f5` for Mission `art_055276148486` in `llm_contextual` /
+  `context_grounded` mode. Its first phase is evidence-gap and acceptance
+  clarification, and its projection is `pbos/plans/art_ab2b736b59f5.md`.
+  Runtime readback confirmed `raw_copilot_context_consumed=false` and
+  `unreviewed_managed_output_consumed=false`; it used governed Wiki, immutable
+  sources, the weekly distillation, and the active project Brief instead.
+- **Cockpit handoff:** Personal Growth Cockpit now requests bounded D-layer
+  descriptors for the active project and renders registered Copilot/external
+  outputs as `PENDING D-LAYER REVIEW`. It exposes identifiers and origin only,
+  never preview text or prompt content. `Open review` navigates directly to
+  the Growth Workspace D-stage inspector, where evidence attachment and the
+  persisted quality gate already exist. A failed D-stage lookup renders
+  `unavailable`; it never implies verification.
+- **Verification:** `npm run test:frontend` passed `24` files / `217` tests;
+  `npm run check`, `npm run build`, and `docker compose config --quiet`
+  passed. The PBOS REST/MCP/integration suite passed `87`; Copilot
+  output-sync, growth-distillation, and Growth API tests passed `97`.
+  The production build retains only the pre-existing ECharts chunk-size
+  advisory.
+- **Rollback:** remove the Cockpit D-layer descriptor projection, its
+  UnifiedWorkspace navigation callback, style rules, and test. This is UI and
+  read-model wiring only: no stored output, PBOS Artifact, connector
+  authorization, Vault file, or credential was mutated.
+
+## 2026-08-01 Vault Manifest And Copilot Recheck
+
+- **Weekly Vault integrity:** every active weekly `manifest.json` was parsed
+  as UTF-8 JSON and its five listed document SHA-256 values matched disk:
+  `default/2026-W30`, `default/2026-W31`, and
+  `proj_b8a285642094/2026-W31`. The apparent garbled weekly-directory text in
+  a terminal transcript was a console-display encoding issue, not a Vault-path
+  or manifest failure.
+- **Failure containment:** a non-UTF-8 weekly manifest is now normalized to
+  `ManagedContentConflictError("weekly manifest is unreadable")` rather than
+  leaking `UnicodeDecodeError`. `test_non_utf8_weekly_manifest_is_rejected_as_a_managed_content_conflict`
+  preserves the existing ledger row while proving that safe failure mode.
+- **Copilot bridge state:** the active configuration selects
+  `deepseek-v4-flash|deepseek`, saves to the project-owned Copilot D-layer
+  route, and has a matching trusted bridge declaration. Two real external
+  Copilot versions are registered. Both still have no source/page lineage,
+  review, or feedback, so their state remains `registered`; neither has been
+  promoted to a PBOS Experience, Capability, or Strategy Genome.
+- **External boundary:** GitHub and Feishu remain `awaiting_authorization`.
+  No plugin key, conversation body, output body, or connector credential was
+  read or stored during this inspection.
+- **Verification:** `pytest tests/knowledge/test_growth_distillation.py -q`
+  passed with `66 passed`.
+- **Full regression:** PBOS REST/MCP/E2E tests passed `88`; artifact,
+  knowledge-sync, growth, and Copilot-output tests passed `145` with `1`
+  designed skip; frontend tests passed `217`; `npm run check`, `npm run
+  build`, and `docker compose config --quiet` passed. The only build notice is
+  the existing ECharts vendor-chunk size advisory.
+- **Deployment:** rebuilt and restarted the local API, Celery Worker, and
+  Celery Beat. `/ready` returned `200` with PostgreSQL and Redis ready; the
+  Worker registered `pbos.daily_review`, `pbos.weekly_report`, and
+  `pbos.monthly_review`. The deployed `growth_distillation.py` SHA-256
+  matches the workspace source, so future scheduled runs include the UTF-8
+  manifest failure containment.
+
+## 2026-08-01 PBOS Legacy Feedback Integrity And Live Recompile
+
+- **Defect corrected:** a damaged historical `WorkFeedback` statement could
+  remain hidden in the Cockpit yet still enter `PBOSService.compile_plan`,
+  the deterministic compiler baseline, and the structured-model prompt. The
+  new `app/pbos/text_integrity.py` recognizes replacement characters and
+  question-mark-dominated legacy text. It leaves the original Artifact intact
+  for audit, but excludes unreadable feedback from next-plan lineage,
+  rationale, phases, prompt payloads, evolution feedback, and negative
+  feedback patterns.
+- **Regression coverage:** `test_unreadable_feedback_remains_auditable_but_cannot_pollute_the_next_plan`
+  verifies that the corrupt Artifact remains in Cockpit audit data while a
+  readable peer still constrains the next plan. The contextual-compiler test
+  verifies the same filtering at the compiler boundary and asserts that the
+  LLM payload does not contain the damaged statement.
+- **Verification:** the final complete PBOS REST/MCP/E2E suite passed `91`.
+  It covers the scheduler, API authorization, artifact lineage, LLM compiler
+  fallback, the unreadable replacement-character and question-mark rules, and
+  project isolation. The only test warning was the existing
+  Starlette/httpx deprecation.
+- **Deployment:** rebuilt and restarted `bsc-backend`, `celery-worker`, and
+  `celery-beat`. `/ready` returned `200` with PostgreSQL and Redis ready; the
+  deployed `text_integrity.py` SHA-256 matches the workspace source.
+- **Live evidence:** authenticated project compilation for Mission
+  `art_055276148486` produced plan `art_4f2e40fac865` in
+  `llm_contextual` / `context_grounded` mode. It has twelve governed-context
+  references, zero feedback references, no unreadable question runs, and a
+  valid UTF-8 Vault projection at `pbos/plans/art_4f2e40fac865.md`. The
+  original unreadable feedback remains visible as one Cockpit audit record.
+  This compilation does not confirm the Mission or execute a capability.
+- **Truth boundary:** GitHub and Feishu remain `awaiting_authorization`; the
+  Cockpit still has zero verified Capability and zero active Strategy Genome.
+  No personal attribution, outcome score, acceptance decision, plugin key, or
+  connector credential was invented or modified.
+- **Rollback:** revert the text-integrity helper, its PBOS service/compiler
+  call sites, and the two focused tests. This only restores the former
+  planning-input behavior; it does not rewrite the preserved feedback
+  Artifact, change Mission status, or alter Vault evidence.
+
+## 2026-08-01 Obsidian Runtime Boundary Recheck
+
+- **Local REST proof:** the authenticated workspace endpoint returned
+  `connected` / `authenticated_manifest_verified` for
+  `obsidian-local-rest-api` version `5.0.2`, using the plugin's local secure
+  configuration path. The probe validates only the service identity and
+  authentication result; it does not list or read note bodies.
+- **Copilot bridge proof:** Copilot is `trusted`, its configured save route
+  matches `projects/proj_b8a285642094/04_Outputs/copilot`, and BSC sees its
+  real route state as `registered_output`. Its selected model and custom
+  prompt route remain aligned. Copilot uses Keychain-only secret storage, so
+  the intentionally blank `data.json` key fields cannot prove either a
+  missing or a valid secret. BSC does not overwrite that secure store.
+- **Remaining plugin truth:** Clipper and Xiaohongshu Importer are trusted,
+  destination-aligned, and `awaiting_export`; Zotero is `captured`. Those
+  states reflect the presence of real exported files rather than installation
+  alone.
+- **Mission boundary:** the live DBOS Mission `art_055276148486` remains
+  `ready_for_confirmation` with no execution result. The new PBOS plan is
+  reviewable but has not authorized or performed a capability action.
+
+## 2026-08-01 Context Priority Repair And Live Recompile
+
+- **Root cause:** the governed context provider previously placed retrieved
+  published Wiki pages before active project files. Navigation pages such as
+  `AGENTS`, `Index`, and `Overview` could therefore consume the bounded plan
+  context before the current PBOS delivery brief and weekly handoff.
+- **Implementation:** `PBOSGovernedContextProvider` now selects the weekly
+  handoff and active project context first, accepted/filed hash-valid outputs
+  second, and retrieved published Wiki pages third. It uses fixed bounded
+  allocations and backfills unused slots without admitting raw sources, raw
+  `04_Outputs`, or unreviewed managed outputs.
+- **Test-first proof:** added
+  `test_governed_context_prioritizes_current_handoff_and_brief_before_published_wiki`.
+  The test failed against the old order, then passed after the provider change;
+  the complete PBOS command passed `92`, and the artifact/knowledge command
+  passed `113` with `1` designed skip.
+- **Vault boundary correction:** updated
+  `projects/proj_b8a285642094/03_Projects/active/PBOS-Copilot-Activation.md`.
+  It now records that real BSC DeepSeek execution is operational, while
+  Copilot's Keychain-only credential is intentionally not inferred from
+  `data.json`. The remaining plugin proof is a real saved conversation already
+  present under the declared `04_Outputs/copilot` route and its subsequent
+  source/quality review.
+- **Deployment:** rebuilt API, Celery Worker, and Celery Beat. `docker compose
+  config --quiet` passed; `/ready` returned `200` with PostgreSQL and Redis
+  healthy; deployed `app/pbos/context.py` SHA-256 matched the workspace.
+- **Live PBOS result:** authenticated compilation created
+  `art_235a2dfd58cc` for Mission `art_055276148486` in `llm_contextual` /
+  `context_grounded` mode. The plan projection is
+  `D:\\bsc\\bsc\\projects\\proj_b8a285642094\\pbos\\plans\\art_235a2dfd58cc.md`.
+  Its first context paths are the weekly handoff, Copilot activation Brief,
+  PBOS delivery Brief, and weekly summary; Wiki evidence remains present after
+  them. This proves the active project is now driving the plan context rather
+  than navigation pages.
+- **Boundary:** Mission status remains `ready_for_confirmation`; no external
+  capability or connector was invoked. Copilot is `registered_output`, not
+  accepted learning evidence. GitHub and Feishu remain
+  `awaiting_authorization`; accepted personal outcomes, verified Capabilities,
+  and active Strategy Genomes remain zero.
+
+## 2026-08-01 Studio Proxy And Browser Acceptance
+
+- **User-visible defect:** the local Studio displayed `local proxy` but could
+  not discover mapped projects. `Growth`, `PBOS`, and `Mission` were disabled,
+  so the deployed knowledge/PBOS runtime could not be reached from the actual
+  workspace UI.
+- **Cause and repair:** the secure Vite proxy had an explicit local proxy key
+  but no explicit API target, so its development fallback used port `8000`
+  while the running API is published on `127.0.0.1:8002`. Added only
+  `BSC_VITE_API_PROXY_TARGET=http://127.0.0.1:8002` to the ignored local
+  development environment and restarted the Vite process. The key remains
+  process-side; the browser receives only the non-secret `local-proxy` marker.
+- **Proxy proof:** `GET http://127.0.0.1:5174/knowledge/workspaces` returned
+  `200` through the Vite proxy and exposed the two authorized project IDs,
+  including `proj_b8a285642094`.
+- **Browser proof:** selected `Personal Knowledge Intelligence
+  (proj_b8a285642094)` in Studio. The real page changed from `project list
+  unavailable` / disabled Cockpit controls to `mapped` with enabled Growth,
+  PBOS, and Mission controls. The rendered Personal Growth Cockpit loaded
+  `art_235a2dfd58cc`, eight governed references, the active DeepSeek compiler,
+  three reviewable outcomes, four pending D-layer outputs, and the honest
+  zero-capability/zero-strategy evidence state. The same view was verified at
+  a `390x844` mobile viewport.
+- **Automation proof:** default schedules were persisted and enabled for
+  daily `0 17 * * *`, weekly `0 17 * * 5`, and monthly `0 17 1 * *` in
+  `Asia/Shanghai`. An immediate weekly report write returned `written` at
+  `distillations/每周蒸馏/2026-W31/pbos/personal-growth.md`; it contains the
+  current plan grounding and managed SHA-256 integrity footer.
+- **Horizon proof:** the deployed API has `HORIZON_ENABLED=true`; its mounted
+  run store contains the real latest run `run-20260731T051156Z-ce8c88ed`.
+  This is governed source material, not a fabricated personal outcome.
+- **Boundary:** the Vite development HMR socket emitted a non-blocking
+  browser-automation WebSocket warning after the deliberate Vite restart;
+  HTTP proxy, API calls, and rendered Cockpit data all succeeded. No remote
+  credential was exposed, no Mission was confirmed, and no personal outcome
+  was accepted automatically.

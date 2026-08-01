@@ -1,3 +1,4 @@
+import hashlib
 import json
 
 from app.artifacts import ArtifactGraphStore, ArtifactStatus, DiagnosisArtifact, MissionArtifact, SOPVersionArtifact
@@ -76,8 +77,143 @@ def test_vault_context_prioritizes_working_methods_and_skips_unpublished_wiki_fi
         "methods/delivery-loop/SKILL.md",
     ]
     assert "wiki/concepts/evidence.md" not in [item["path"] for item in context["documents"]]
+    assert "outputs/legacy.md" not in [item["path"] for item in context["documents"]]
     assert not any("excalidraw" in item["path"] for item in context["documents"])
     assert "title: Boundary" not in context["documents"][0]["excerpt"]
+
+
+def test_governed_context_excludes_unreviewed_outputs_and_reads_only_hash_valid_accepted_output(tmp_path):
+    vault_root = tmp_path / "vault"
+    project_root = vault_root / "projects" / "project-a"
+    active = project_root / "03_Projects" / "active"
+    active.mkdir(parents=True)
+    (active / "brief.md").write_text("# Current brief\nUse verified delivery evidence.", encoding="utf-8")
+    raw_output = project_root / "04_Outputs" / "copilot"
+    raw_output.mkdir(parents=True)
+    (raw_output / "unreviewed.md").write_text("This unreviewed answer must not enter PBOS context.", encoding="utf-8")
+    accepted_content = b"# Verified delivery retrospective\nUse the accepted release evidence in the next plan."
+    accepted_path = project_root / "outputs" / "2026" / "accepted-output" / "retrospective.md"
+    accepted_path.parent.mkdir(parents=True)
+    accepted_path.write_bytes(accepted_content)
+    tampered_path = project_root / "outputs" / "2026" / "tampered-output" / "draft.md"
+    tampered_path.parent.mkdir(parents=True)
+    tampered_path.write_text("This file differs from its registered hash.", encoding="utf-8")
+    repo = GrowthRepository(db_path=str(tmp_path / "output-context.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    repo.register_output(OutputAsset(
+        id="accepted-output",
+        project_id="project-a",
+        kind="project_plan",
+        title="Verified delivery retrospective",
+        mime_type="text/markdown",
+        content_hash=hashlib.sha256(accepted_content).hexdigest(),
+        vault_path="outputs/2026/accepted-output/retrospective.md",
+        idempotency_key="accepted-output",
+        status="accepted",
+    ))
+    repo.register_output(OutputAsset(
+        id="registered-output",
+        project_id="project-a",
+        kind="external_plugin_output",
+        title="Unreviewed Copilot conversation",
+        mime_type="text/markdown",
+        content_hash=hashlib.sha256(b"unreviewed").hexdigest(),
+        vault_path="outputs/2026/registered-output/conversation.md",
+        idempotency_key="registered-output",
+    ))
+    repo.register_output(OutputAsset(
+        id="tampered-output",
+        project_id="project-a",
+        kind="project_plan",
+        title="Tampered accepted output",
+        mime_type="text/markdown",
+        content_hash=hashlib.sha256(b"different registered content").hexdigest(),
+        vault_path="outputs/2026/tampered-output/draft.md",
+        idempotency_key="tampered-output",
+        status="accepted",
+    ))
+
+    class NoGovernedContext:
+        def build_context(self, **_kwargs):
+            return None
+
+    provider = PBOSGovernedContextProvider(
+        project_root,
+        project_id="project-a",
+        vault_root=vault_root,
+        repository=repo,
+        wiki_context_provider=NoGovernedContext(),
+    )
+    try:
+        context = provider.build(task_constraints=["delivery evidence"])
+
+        assert [item["path"] for item in context["documents"]] == [
+            "03_Projects/active/brief.md",
+            "outputs/2026/accepted-output/retrospective.md",
+        ]
+        assert context["documents"][1]["ref"] == "output:accepted-output@" + hashlib.sha256(accepted_content).hexdigest()
+        assert context["documents"][1]["origin"] == "verified_output"
+        assert context["context_integrity"] == {
+            "raw_plugin_output_context_consumed": False,
+            "raw_copilot_context_consumed": False,
+            "unreviewed_managed_output_consumed": False,
+            "verified_output_context_count": 1,
+        }
+        serialized = json.dumps(context, ensure_ascii=False)
+        assert "unreviewed answer" not in serialized
+        assert "differs from its registered hash" not in serialized
+    finally:
+        repo.close()
+
+
+def test_compiler_rejects_raw_and_unreviewed_output_candidates_before_model_context(tmp_path):
+    store = ArtifactGraphStore(str(tmp_path / "ledger"), project_id="personal")
+    _mission(store, "mission", "PBOS delivery", "Compile an evidence-bound PBOS delivery plan")
+    service = PBOSService(
+        store,
+        "personal",
+        context_provider=lambda: {
+            "availability": "available",
+            "documents": [
+                {
+                    "ref": "vault:03_Projects/active/brief.md",
+                    "path": "03_Projects/active/brief.md",
+                    "title": "Governed delivery brief",
+                    "excerpt": "Keep the acceptance boundary reviewable.",
+                },
+                {
+                    "ref": "vault:04_Outputs/copilot/raw-answer.md",
+                    "path": "04_Outputs/copilot/raw-answer.md",
+                    "title": "Raw Copilot answer",
+                    "excerpt": "This must never enter a PBOS plan.",
+                },
+                {
+                    "ref": "vault:outputs/2026/unreviewed.md",
+                    "path": "outputs/2026/unreviewed.md",
+                    "title": "Unreviewed managed output",
+                    "excerpt": "This must never enter a PBOS plan either.",
+                },
+            ],
+            "refs": [
+                "vault:03_Projects/active/brief.md",
+                "vault:04_Outputs/copilot/raw-answer.md",
+                "vault:outputs/2026/unreviewed.md",
+            ],
+        },
+        plan_compiler=PBOSPlanCompiler(),
+    )
+    service.save_profile({"focus": ["AI systems"]})
+
+    plan = service.compile_plan("mission")
+
+    assert plan.knowledge_context_refs == ["vault:03_Projects/active/brief.md"]
+    assert plan.compiler_metadata["raw_plugin_output_context_consumed"] is False
+    assert plan.compiler_metadata["raw_copilot_context_consumed"] is False
+    assert plan.compiler_metadata["unreviewed_managed_output_consumed"] is False
+    assert plan.compiler_metadata["context_integrity"]["rejected_raw_plugin_output_count"] == 1
+    assert plan.compiler_metadata["context_integrity"]["rejected_unreviewed_managed_output_count"] == 1
+    assert "Raw Copilot answer" not in plan.model_dump_json()
+    assert "Unreviewed managed output" not in plan.model_dump_json()
 
 
 def test_governed_context_retrieves_only_published_wiki_with_source_lineage(tmp_path):
@@ -134,6 +270,81 @@ def test_governed_context_retrieves_only_published_wiki_with_source_lineage(tmp_
         assert context["documents"][0]["supporting_refs"] == ["source:source-a@" + "a" * 64]
         assert context["governed_wiki"]["page_ids"]
         assert "unpublished" not in str(context)
+    finally:
+        repo.close()
+
+
+def test_governed_context_prioritizes_current_handoff_and_brief_before_published_wiki(tmp_path):
+    vault_root = tmp_path / "vault"
+    project_root = vault_root / "projects" / "project-a"
+    active = project_root / "03_Projects" / "active"
+    active.mkdir(parents=True)
+    (active / "delivery-brief.md").write_text(
+        "# Current delivery brief\n\nShip the evidence capture path before connector expansion.",
+        encoding="utf-8",
+    )
+    weekly = project_root / "distillations" / "2026-W31"
+    weekly.mkdir(parents=True)
+    (weekly / "03-next-context.md").write_text(
+        "# Next context\n\nUse the current PBOS evidence gate and finish the active mission.",
+        encoding="utf-8",
+    )
+    repo = WikiRepository(db_path=str(tmp_path / "governed-context-priority.db"))
+    repo.configure_vault("project-a", "projects/project-a")
+    source = repo.create_source(
+        SourceRecord(
+            id="source-a",
+            project_id="project-a",
+            source_type="manual_upload",
+            origin="evidence.md",
+            content_hash="a" * 64,
+            raw_content="Published knowledge must retain its evidence lineage.",
+            trust_level="trusted",
+        )
+    )
+    published = "# Evidence governance\n\nUse source-backed, reviewable evidence. [source:source-a]\n"
+    contents = {
+        "AGENTS.md": build_default_agents_rules("project-a"),
+        "wiki/index.md": "# Index\n- [[wiki/concepts/published.md]]\n",
+        "wiki/log.md": "# Log\n",
+        "wiki/concepts/published.md": published,
+    }
+    vault = FilesystemWikiVault(vault_root, "project-a", "projects/project-a")
+    vault.commit(contents)
+    repo.record_publication(project_id="project-a", contents=contents, source_ids=[source["id"]])
+    active.mkdir(parents=True, exist_ok=True)
+    (active / "delivery-brief.md").write_text(
+        "# Current delivery brief\n\nShip the evidence capture path before connector expansion.",
+        encoding="utf-8",
+    )
+    weekly.mkdir(parents=True, exist_ok=True)
+    (weekly / "03-next-context.md").write_text(
+        "# Next context\n\nUse the current PBOS evidence gate and finish the active mission.",
+        encoding="utf-8",
+    )
+
+    class Retrieval:
+        def retrieve(self, *_args, **_kwargs):
+            return [{"source": "wiki://project-a/wiki/concepts/published.md"}]
+
+    provider = PBOSGovernedContextProvider(
+        project_root,
+        project_id="project-a",
+        vault_root=vault_root,
+        repository=repo,
+        wiki_context_provider=WikiContextProvider(repo, vault_root=vault_root, retrieval_service=Retrieval()),
+    )
+    try:
+        context = provider.build(task_constraints=["active PBOS delivery"])
+
+        assert [item["path"] for item in context["documents"]][:3] == [
+            "distillations/2026-W31/03-next-context.md",
+            "03_Projects/active/delivery-brief.md",
+            "wiki/concepts/published.md",
+        ]
+        published_document = context["documents"][2]
+        assert published_document["ref"].startswith("wiki:")
+        assert published_document["supporting_refs"] == ["source:source-a@" + "a" * 64]
     finally:
         repo.close()
 
@@ -662,6 +873,52 @@ def test_structured_model_output_is_traceable_to_the_same_context(tmp_path):
     assert any("Personal focus: AI systems" in item for item in plan.rationale)
     assert plan.phases[0]["why_now"] == "A prior scope failure needs an early boundary."
     assert plan.phases[0]["decision_point"]["adapt_when"] == "Capture the missing constraint."
+
+
+def test_compiler_excludes_unreadable_feedback_from_baseline_and_llm_prompt():
+    class CapturingClient:
+        provider = "test"
+        model = "contextual-test"
+        last_structured_failure = ""
+
+        def chat_structured(self, **kwargs):
+            self.payload = json.loads(kwargs["user_prompt"])
+            return {
+                "title": "Evidence-bound delivery system",
+                "phases": [
+                    {"title": "Contract gate", "actions": ["Freeze the public contract"]},
+                    {"title": "Verification", "actions": ["Run the focused check"]},
+                    {"title": "Reflection", "actions": ["Record the observed result"]},
+                ],
+            }
+
+    client = CapturingClient()
+    compiler = PBOSPlanCompiler(client=client)
+    values = compiler.compile(
+        mission=MissionArtifact(
+            artifact_id="mission",
+            project_id="personal",
+            mission_id="mission",
+            title="PBOS delivery",
+            intent="Deliver one evidence-bound PBOS workflow",
+        ),
+        diagnosis=None,
+        profile=None,
+        capabilities=[],
+        experiences=[],
+        strategies=[],
+        feedback=[
+            {"source": "legacy", "statement": "???????? Mission feedback lost during a legacy export"},
+            {"source": "manual_reflection", "statement": "Keep the public contract bounded."},
+        ],
+        knowledge_context={"availability": "available", "documents": [], "refs": []},
+    )
+
+    assert client.payload["feedback"] == [
+        {"source": "manual_reflection", "statement": "Keep the public contract bounded."},
+    ]
+    assert "????????" not in json.dumps(values, ensure_ascii=False)
+    assert any("public contract bounded" in item for item in values["rationale"])
 
 
 def test_completed_evidence_mirror_replaces_repeated_projection_with_mission_action(tmp_path):
