@@ -198,6 +198,41 @@ def test_project_sop_generation_includes_selected_admitted_supporting_sources_in
         repo.close()
 
 
+def test_project_sop_generation_normalizes_string_phase_io_without_relaxing_source_lineage(tmp_path):
+    repo, root, prd, page = _setup(tmp_path)
+    support = repo.get_source("project-a", "support-a")
+    assert support is not None
+    draft = _draft(prd["id"], page["id"], (support["id"],))
+    draft["source_refs"] = [prd["id"], support["id"]]
+    draft["evidence_claims"][0]["source_refs"] = [prd["id"], support["id"]]
+    draft["phases"][0]["inputs"] = "Selected PRD and supporting evidence"
+    draft["phases"][0]["outputs"] = "Reviewable project SOP"
+    promptops = RecordingPromptOps(draft)
+    service = ProjectSopGenerationService(repo, str(root), promptops=promptops)
+    request = ProjectSopGenerationRequest(
+        prd_source_id=prd["id"],
+        supporting_source_ids=[support["id"]],
+        goal="Create a project-specific SOP from the admitted evidence set.",
+        audience="project operators",
+        idempotency_key="string-phase-io-compatibility",
+    )
+    try:
+        result = service.generate(project_id="project-a", request=request, actor_id="tester")
+        output = result["output"]
+        materialized = OutputRegistry(repo, root).read_content("project-a", output["id"])
+
+        assert result["run"]["status"] == "completed"
+        assert output["source_refs"] == [prd["id"], support["id"]]
+        assert output["metadata"]["generation_provenance"]["supporting_source_ids"] == [support["id"]]
+        assert "- Selected PRD and supporting evidence" in materialized["content"]
+        assert "- Reviewable project SOP" in materialized["content"]
+        edges = {(edge["edge_type"], edge["from_id"], edge["to_id"]) for edge in repo.list_lineage("project-a")}
+        assert ("output_used_source", prd["id"], output["id"]) in edges
+        assert ("output_used_source", support["id"], output["id"]) in edges
+    finally:
+        repo.close()
+
+
 @pytest.mark.parametrize(
     ("supporting_source_ids", "category"),
     [(["prd-a"], "supporting_source_duplicates_prd"), (["missing-source"], "supporting_source_not_found")],

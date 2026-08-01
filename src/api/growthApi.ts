@@ -921,6 +921,23 @@ export async function generateProjectSop(
   );
 }
 
+export type ProjectPrdDesignationInput = {
+  expected_content_hash: string;
+  designation_note: string;
+};
+
+export async function designateGrowthProjectPrd(
+  projectId: string,
+  sourceId: string,
+  input: ProjectPrdDesignationInput,
+): Promise<{ source: GrowthRecord; idempotent: boolean }> {
+  return request<{ source: GrowthRecord; idempotent: boolean }>(
+    `/knowledge/projects/${encoded(projectId)}/sources/${encoded(sourceId)}/designate-prd`,
+    undefined,
+    { method: 'POST', body: JSON.stringify(input) },
+  );
+}
+
 export async function linkGrowthOutputEvidence(
   projectId: string,
   outputId: string,

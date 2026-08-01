@@ -69,6 +69,7 @@ class _Candidate:
     revision: str
     content: str
     recency_epoch: int = 0
+    required: bool = False
 
     @property
     def key(self) -> tuple[int, str, int, str, str]:
@@ -227,6 +228,7 @@ class GrowthContextBuilder:
                         revision,
                         content,
                         self._source_recency(record) if candidate_kind == "source" else 0,
+                        bool(record.get("context_required")) if candidate_kind == "source" else False,
                     )
                 )
 
@@ -270,8 +272,20 @@ class GrowthContextBuilder:
                 used += separator + len(fitted)
 
         included_candidates: list[_Candidate] = []
+        self._reserve_required_sources(
+            candidates=candidates,
+            rendered_sections=rendered_sections,
+            included_candidates=included_candidates,
+            omissions=omissions,
+            method_reserve=method_reserve,
+        )
         for item in sorted(candidates, key=lambda candidate: candidate.key):
-            if item.kind == "method":
+            if item.kind == "method" or any(
+                included.kind == item.kind
+                and included.ref == item.ref
+                and included.revision == item.revision
+                for included in included_candidates
+            ):
                 continue
             section = self._untrusted_section(item)
             available = self._remaining_budget(rendered_sections) - method_reserve
@@ -433,13 +447,56 @@ class GrowthContextBuilder:
         return max(0, self.max_characters - used - separator)
 
     def _evidence_reserve(self, candidates: Iterable[_Candidate], *, mandatory_count: int) -> int:
-        if not any(candidate.kind == "source" for candidate in candidates):
+        source_candidates = [candidate for candidate in candidates if candidate.kind == "source"]
+        if not source_candidates:
             return 0
         mandatory_floor = (mandatory_count * 48) + (max(0, mandatory_count - 1) * 2)
+        required_count = sum(candidate.required for candidate in source_candidates)
+        if required_count:
+            # Explicit operator choices are a request contract. Reserve enough
+            # room for bounded excerpts of every selected source before the
+            # ordinary routing budget is distributed.
+            return min(
+                self.MINIMUM_SOURCE_EXCERPT_CHARACTERS * required_count,
+                max(0, self.max_characters - mandatory_floor),
+            )
         return min(
             self.MINIMUM_SOURCE_EXCERPT_CHARACTERS,
             max(0, self.max_characters - mandatory_floor),
         )
+
+    def _reserve_required_sources(
+        self,
+        *,
+        candidates: Iterable[_Candidate],
+        rendered_sections: list[str],
+        included_candidates: list[_Candidate],
+        omissions: list[ContextOmission],
+        method_reserve: int,
+    ) -> None:
+        """Render every explicitly selected source as a bounded A-layer excerpt.
+
+        A selected source is not promoted to a factual claim. It simply receives
+        a deterministic share of the request's context budget so a custom SOP
+        remains grounded in every operator-selected, already-admitted input.
+        """
+        required_sources = [
+            candidate
+            for candidate in sorted(candidates, key=lambda candidate: candidate.key)
+            if candidate.kind == "source" and candidate.required
+        ]
+        for index, source in enumerate(required_sources):
+            remaining_sources = len(required_sources) - index
+            available = max(0, self._remaining_budget(rendered_sections) - method_reserve)
+            allocation = available // remaining_sources if remaining_sources else 0
+            excerpt = self._bounded_untrusted_section(source, allocation)
+            if not excerpt:
+                omissions.append(ContextOmission(ref=f"source:{source.ref}", reason="required_source_budget"))
+                continue
+            rendered_sections.append(excerpt)
+            included_candidates.append(source)
+            if excerpt != self._untrusted_section(source):
+                omissions.append(ContextOmission(ref=f"source:{source.ref}", reason="excerpted_for_budget"))
 
     def _method_reserve(
         self,

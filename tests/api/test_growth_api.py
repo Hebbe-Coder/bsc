@@ -194,6 +194,57 @@ def test_project_sop_generation_endpoint_requires_writer_and_returns_durable_res
     assert calls[0][1].prd_source_id == "prd-source"
 
 
+def test_project_prd_designation_requires_admitted_writer_scoped_evidence(growth_api):
+    client, repo = growth_api
+    source = _capture(repo, "project-a", "The active delivery brief defines the project scope.")
+    payload = {
+        "expected_content_hash": source["content_hash"],
+        "designation_note": "Use the reviewed delivery brief as the project SOP source.",
+    }
+
+    blocked = client.post(
+        f"/knowledge/projects/project-a/sources/{source['id']}/designate-prd",
+        headers=_headers(),
+        json=payload,
+    )
+    assert blocked.status_code == 409
+
+    repo.update_source_status("project-a", source["id"], SourceStatus.ELIGIBLE)
+    denied = client.post(
+        f"/knowledge/projects/project-a/sources/{source['id']}/designate-prd",
+        headers=_headers("growth-reader-key"),
+        json=payload,
+    )
+    created = client.post(
+        f"/knowledge/projects/project-a/sources/{source['id']}/designate-prd",
+        headers=_headers(),
+        json=payload,
+    )
+    repeated = client.post(
+        f"/knowledge/projects/project-a/sources/{source['id']}/designate-prd",
+        headers=_headers(),
+        json=payload,
+    )
+
+    assert denied.status_code == 403
+    assert created.status_code == 200, created.text
+    assert created.json()["data"]["idempotent"] is False
+    designation = created.json()["data"]["source"]["metadata"]["project_prd_designation"]
+    assert created.json()["data"]["source"]["metadata"]["evidence_role"] == "project_prd"
+    assert designation["source_content_hash"] == source["content_hash"]
+    assert designation["designation_note_hash"] == hashlib.sha256(payload["designation_note"].encode("utf-8")).hexdigest()
+    assert "designation_note" not in designation
+    assert repeated.status_code == 200
+    assert repeated.json()["data"]["idempotent"] is True
+
+    stale = client.post(
+        f"/knowledge/projects/project-a/sources/{source['id']}/designate-prd",
+        headers=_headers(),
+        json={**payload, "expected_content_hash": "0" * 64},
+    )
+    assert stale.status_code == 409
+
+
 def test_copilot_transcript_import_api_preserves_provenance_and_requires_writer(growth_api):
     client, repo = growth_api
     project_root = Path(settings.OBSIDIAN_VAULT_ROOT) / "projects" / "project-a"

@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   classifyGrowthError,
   addGrowthOutputFeedback,
+  designateGrowthProjectPrd,
   distillGrowthSourceMethods,
   extractGrowthSourceCandidates,
   evaluateGrowthOutput,
@@ -54,6 +55,7 @@ import {
   type GrowthStage,
   type GrowthStageResult,
   type GrowthTrend,
+  type ProjectPrdDesignationInput,
   type ProjectSopGenerationInput,
   startGrowthRun,
 } from '../../api/growthApi';
@@ -224,16 +226,22 @@ function ProjectSopGenerator({
   sourceState,
   canWrite,
   busy,
+  actionMessage,
   onGenerate,
+  onDesignate,
 }: {
   sources: GrowthRecord[];
   supportingSources: GrowthRecord[];
   sourceState: GrowthRequestState;
   canWrite: boolean;
   busy: boolean;
+  actionMessage: string;
   onGenerate: (input: Omit<ProjectSopGenerationInput, 'idempotency_key' | 'channel'>) => void;
+  onDesignate: (sourceId: string, input: ProjectPrdDesignationInput) => void;
 }) {
   const [prdSourceId, setPrdSourceId] = useState('');
+  const [designationSourceId, setDesignationSourceId] = useState('');
+  const [designationNote, setDesignationNote] = useState('');
   const [supportingSourceIds, setSupportingSourceIds] = useState<string[]>([]);
   const [goal, setGoal] = useState('');
   const [audience, setAudience] = useState('');
@@ -246,11 +254,30 @@ function ProjectSopGenerator({
     setSupportingSourceIds((current) => current.filter((sourceId) => sourceId !== prdSourceId && supportingSources.some((source) => source.id === sourceId)));
   }, [prdSourceId, supportingSources]);
 
+  useEffect(() => {
+    if (!supportingSources.some((source) => source.id === designationSourceId)) setDesignationSourceId(supportingSources[0]?.id || '');
+  }, [designationSourceId, supportingSources]);
+
   const unavailable = ['loading', 'permission', 'offline', 'unavailable', 'error'].includes(sourceState);
   const disabled = !canWrite || busy || unavailable || !prdSourceId || goal.trim().length < 8 || audience.trim().length < 2;
+  const designationSource = supportingSources.find((source) => source.id === designationSourceId);
+  const designationHash = typeof designationSource?.content_hash === 'string' ? designationSource.content_hash : '';
+  const designationDisabled = !canWrite || busy || unavailable || !designationSourceId || !/^[a-fA-F0-9]{64}$/.test(designationHash) || designationNote.trim().length < 8;
   return <section className="growth-panel growth-sop-generator" aria-label="Project PRD to SOP">
     <div className="growth-panel__heading"><div><p>PRD TO SOP</p><h3>Reviewable project output</h3></div><Sparkles size={18} /></div>
-    <form onSubmit={(event) => {
+    {!sources.length && <form className="growth-prd-designation" onSubmit={(event) => {
+      event.preventDefault();
+      if (!designationDisabled) onDesignate(designationSourceId, { expected_content_hash: designationHash.toLowerCase(), designation_note: designationNote.trim() });
+    }}>
+      <label><span>Eligible evidence to designate</span><select aria-label="Eligible evidence to designate as project PRD" value={designationSourceId} onChange={(event) => setDesignationSourceId(event.target.value)} disabled={busy || sourceState === 'loading'}>
+        {supportingSources.map((source) => <option key={source.id} value={source.id}>{growthRecordLabel(source)} ({source.id.slice(0, 8)})</option>)}
+      </select></label>
+      <label><span>Designation reason</span><input aria-label="Project PRD designation reason" value={designationNote} onChange={(event) => setDesignationNote(event.target.value)} minLength={8} maxLength={512} required /></label>
+      <p>The source body remains private. BSC binds only this immutable source hash and a hash of your reason.</p>
+      {sourceState === 'loading' ? <small>Loading admitted project evidence...</small> : !supportingSources.length ? <small>No eligible A-layer evidence is available for PRD designation.</small> : null}
+      <button type="submit" disabled={designationDisabled} title={canWrite ? 'Bind the selected evidence revision as the project PRD' : 'Project write permission is required'}>{busy ? <LoaderCircle size={14} className="spin" /> : <FileText size={14} />}Designate project PRD</button>
+    </form>}
+    {sources.length > 0 && <form onSubmit={(event) => {
       event.preventDefault();
       if (!disabled) onGenerate({ prd_source_id: prdSourceId, supporting_source_ids: supportingSourceIds, goal: goal.trim(), audience: audience.trim() });
     }}>
@@ -262,9 +289,10 @@ function ProjectSopGenerator({
       </select></label>
       <label><span>Delivery goal</span><textarea aria-label="SOP delivery goal" value={goal} onChange={(event) => setGoal(event.target.value)} minLength={8} maxLength={4000} required /></label>
       <label><span>Audience</span><input aria-label="SOP audience" value={audience} onChange={(event) => setAudience(event.target.value)} minLength={2} maxLength={1000} required /></label>
-      {sourceState === 'loading' ? <small>Loading admitted project PRDs...</small> : !sources.length ? <small>No eligible source is designated as a project PRD.</small> : null}
       <button type="submit" disabled={disabled} title={canWrite ? 'Generate a registered SOP for review' : 'Project write permission is required'}>{busy ? <LoaderCircle size={14} className="spin" /> : <Sparkles size={14} />}Generate reviewable SOP</button>
     </form>
+    }
+    {!sources.length && actionMessage && <p className="growth-sop-generator__message" role="status">{actionMessage}</p>}
   </section>;
 }
 
@@ -650,6 +678,22 @@ export function GrowthWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
       const failure = errorInfo(reason); setRequestState('action', failure.state); setActionMessage(failure.info.message);
     }
   };
+  const designateProjectPrd = async (sourceId: string, input: ProjectPrdDesignationInput) => {
+    if (!/^[a-f0-9]{64}$/i.test(input.expected_content_hash)) {
+      setRequestState('action', 'error');
+      setActionMessage('The selected evidence has no stable content hash, so it cannot be designated as the project PRD.');
+      return;
+    }
+    setRequestState('action', 'loading'); setActionMessage('');
+    try {
+      const result = await designateGrowthProjectPrd(projectId, sourceId, input);
+      setRequestState('action', 'success');
+      setActionMessage(result.idempotent ? 'The selected evidence is already the current project PRD.' : 'The admitted evidence is now the active project PRD.');
+      refresh();
+    } catch (reason) {
+      const failure = errorInfo(reason); setRequestState('action', failure.state); setActionMessage(failure.info.message);
+    }
+  };
   const evaluateMethodCandidate = async (current: GrowthAssetDetail) => {
     setRequestState('action', 'loading'); setActionMessage('');
     try {
@@ -792,7 +836,7 @@ export function GrowthWorkspace({ onClose, runtimeAccessKey = '' }: Props) {
           <header className="growth-main__header"><div><p>{stage === 'review' ? 'REVIEW QUEUE' : `STAGE ${stage}`}</p><h3>{stageMeta?.detail}</h3></div><div className="growth-view-switcher" role="group" aria-label="Growth workspace view">{viewButtons.map(({ id, label, icon: Icon }) => <button type="button" key={id} className={centerView === id ? 'is-active' : ''} aria-pressed={centerView === id} onClick={() => setCenterView(id)}><Icon size={14} />{label}</button>)}</div></header>
           {centerView === 'assets' && <>
             <section className="growth-panel growth-panel--overview"><div className="growth-panel__heading"><div><p>GROWTH HEALTH</p><h3>Persisted inventory and coverage</h3></div><BarChart3 size={18} /></div><GrowthFunnel counts={counts} state={requestStates.overview} error={overviewError?.message} /></section>
-            {stage === 'D' && <ProjectSopGenerator sources={projectPrds} supportingSources={projectSopSupportingSources} sourceState={projectPrdState} canWrite={access?.can_write === true} busy={requestStates.action === 'loading'} onGenerate={(input) => void submitProjectSop(input)} />}
+            {stage === 'D' && <ProjectSopGenerator sources={projectPrds} supportingSources={projectSopSupportingSources} sourceState={projectPrdState} canWrite={access?.can_write === true} busy={requestStates.action === 'loading'} actionMessage={actionMessage} onGenerate={(input) => void submitProjectSop(input)} onDesignate={(sourceId, input) => void designateProjectPrd(sourceId, input)} />}
             <div className="growth-assets-view">
               <section className="growth-panel"><div className="growth-panel__heading"><div><p>ASSET INDEX</p><h3>{stageMeta?.label}</h3></div><span>{stageResult ? `${stageResult.records.length}${stageResult.truncated ? '+' : ''} loaded` : 'not loaded'}</span></div><GrowthAssetList stage={stage} records={records} selectedId={selectedId} query={query} statusFilter={statusFilter} page={page} pageSize={pageSize} totalHint={stageTotal(overview, stage)} truncated={Boolean(stageResult?.truncated)} serverCapped={stageResult?.limit === 500} state={requestStates.stage} error={stageError?.message} onQueryChange={setQuery} onStatusChange={setStatusFilter} onPageChange={setPage} onSelect={selectAsset} onRetry={refresh} /></section>
               <section className="growth-panel growth-reader"><div className="growth-panel__heading"><div><p>{detail?.kind === 'proposal' ? 'DIFF' : 'READER'}</p><h3>{selected ? growthRecordLabel(selected) : 'No asset selected'}</h3></div>{detail?.kind === 'proposal' ? <FileDiff size={17} /> : <BookOpen size={17} />}</div><AssetReader selected={selected} detail={detail} state={requestStates.detail} error={detailError?.message} /></section>

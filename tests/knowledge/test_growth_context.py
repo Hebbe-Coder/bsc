@@ -571,6 +571,42 @@ def test_growth_context_keeps_an_explicit_admitted_local_asset_under_budget_pres
         repository.close()
 
 
+def test_growth_context_renders_every_explicit_required_source_as_a_bounded_excerpt():
+    sources = [
+        {
+            "id": source_id,
+            "project_id": "project-a",
+            "status": "eligible",
+            "context_required": True,
+            "raw_content": f"{source_id} opening evidence. " + ("Detailed evidence. " * 1_000) + f"{source_id} closing evidence.",
+        }
+        for source_id in ("prd-source", "supporting-source-a", "supporting-source-b")
+    ]
+
+    pack = GrowthContextBuilder(max_characters=4_000).build(
+        project_id="project-a",
+        profile={"revision": 1},
+        rules="Keep citations grounded in admitted evidence.",
+        task="Generate a project-specific SOP with selected supporting evidence.",
+        pages=[{
+            "id": "published-page",
+            "project_id": "project-a",
+            "status": "published",
+            "path": "wiki/concepts/large.md",
+            "content": "Published knowledge. " * 1_000,
+        }],
+        sources=sources,
+    )
+
+    assert pack.character_count <= pack.character_budget
+    assert pack.source_ids == ("prd-source", "supporting-source-a", "supporting-source-b")
+    for source_id in ("prd-source", "supporting-source-a", "supporting-source-b"):
+        assert f"{source_id} opening evidence." in pack.rendered
+        assert f"{source_id} closing evidence." in pack.rendered
+        assert any(item.ref == f"source:{source_id}" and item.reason == "excerpted_for_budget" for item in pack.omissions)
+    assert "page:published-page" in pack.omitted_refs
+
+
 def test_growth_context_keeps_explicitly_selected_sources_before_record_limit(tmp_path):
     vault_root = tmp_path / "vault"
     project_root = vault_root / "projects" / "project-a"

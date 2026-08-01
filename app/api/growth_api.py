@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 from datetime import datetime, timezone
+import hashlib
 import json
 import logging
 from pathlib import Path
@@ -51,9 +52,9 @@ from app.knowledge.output_evaluator import OutputEvaluator
 from app.knowledge.output_registry import OutputRegistry
 from app.knowledge.prd_to_sop import ProjectSopGenerationRequest, ProjectSopGenerationService
 from app.knowledge.project_profile import ProfileRevisionConflict, ProjectProfileService
-from app.knowledge.source_triage import SourceTriageService
+from app.knowledge.source_triage import SourceTriageService, source_admission_reason
 from app.knowledge.wiki_commands import WikiCommandService
-from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus
+from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus, SourceStatus
 
 
 logger = logging.getLogger(__name__)
@@ -145,6 +146,20 @@ class SourceCreateRequest(GrowthRequest):
     @model_validator(mode="after")
     def bound_metadata(self) -> "SourceCreateRequest":
         _validate_metadata_size(self.metadata)
+        return self
+
+
+class ProjectPrdDesignationRequest(GrowthRequest):
+    """Bind one admitted immutable source to the active project PRD role."""
+
+    expected_content_hash: str = Field(pattern=r"^[a-fA-F0-9]{64}$")
+    designation_note: str = Field(min_length=8, max_length=512)
+
+    @model_validator(mode="after")
+    def normalize_note(self) -> "ProjectPrdDesignationRequest":
+        self.designation_note = self.designation_note.strip()
+        if len(self.designation_note) < 8:
+            raise ValueError("designation_note must not be blank")
         return self
 
 
@@ -462,6 +477,59 @@ def triage_source(
     project_id = _enforce_growth_access(request, project_id, write=True)
     triage = _guard(lambda: SourceTriageService(repo).triage_source(project_id, source_id))
     return _ok(request, repo, project_id, {"triage": _public_record(triage)})
+
+
+@project_router.post("/sources/{source_id}/designate-prd")
+def designate_project_prd(
+    project_id: str,
+    source_id: str,
+    payload: ProjectPrdDesignationRequest,
+    request: Request,
+    repo: GrowthRepository = Depends(get_growth_repository),
+):
+    """Designate one admitted, unchanged source as the project's SOP PRD.
+
+    This is intentionally narrower than arbitrary source metadata editing: the
+    source remains immutable, must already pass the authoring gate, and the
+    designation retains only audit metadata rather than the operator's note.
+    """
+    project_id = _enforce_growth_access(request, project_id, write=True)
+    source = _guard(lambda: repo.get_source(project_id, source_id))
+    if not source:
+        raise _http_error(404, "growth_resource_not_found", "source not found in project")
+    if source.get("status") not in {SourceStatus.ELIGIBLE.value, SourceStatus.PROCESSED.value}:
+        raise _http_error(409, "growth_gate_not_satisfied", "project PRD designation requires admitted evidence")
+    if str(source.get("content_hash") or "") != payload.expected_content_hash.lower():
+        raise _http_error(409, "growth_revision_conflict", "source content changed before PRD designation")
+    if source_admission_reason(repo, project_id, source):
+        raise _http_error(409, "growth_gate_not_satisfied", "project PRD designation requires current source admission")
+
+    metadata = dict(source.get("metadata") or {})
+    current_role = str(metadata.get("evidence_role") or "").strip().lower()
+    if current_role not in {"", "project_prd", "prd"}:
+        raise _http_error(409, "growth_state_conflict", "existing evidence role cannot be replaced by a project PRD designation")
+    note_hash = hashlib.sha256(payload.designation_note.encode("utf-8")).hexdigest()
+    existing = metadata.get("project_prd_designation")
+    if (
+        current_role in {"project_prd", "prd"}
+        and isinstance(existing, dict)
+        and str(existing.get("source_content_hash") or "") == payload.expected_content_hash.lower()
+        and str(existing.get("designation_note_hash") or "") == note_hash
+    ):
+        return _ok(request, repo, project_id, {"source": _public_source(source), "idempotent": True})
+
+    metadata.update({
+        "evidence_role": "project_prd",
+        "project_prd_designation": {
+            "revision": "project-prd-designation-v1",
+            "source_content_hash": payload.expected_content_hash.lower(),
+            "designation_note_hash": note_hash,
+            "designated_at": datetime.now(timezone.utc).isoformat(),
+            "designated_by": _actor(request),
+        },
+    })
+    updated = _guard(lambda: repo.update_source_metadata(project_id, source_id, metadata))
+    return _ok(request, repo, project_id, {"source": _public_source(updated), "idempotent": False})
 
 
 @project_router.get("/methods")

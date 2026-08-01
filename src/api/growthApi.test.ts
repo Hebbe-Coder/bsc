@@ -14,6 +14,7 @@ import {
   evaluateGrowthOutput,
   fileGrowthOutput,
   distillGrowthSourceMethods,
+  designateGrowthProjectPrd,
   generateProjectSop,
   growthRecordKind,
   linkGrowthOutputEvidence,
@@ -276,6 +277,26 @@ describe('growthApi', () => {
       audience: 'project operators',
       idempotency_key: 'browser-sop-a',
       channel: 'knowledge_workspace',
+    });
+  });
+
+  it('designates one unchanged admitted source as the active project PRD', async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ url: String(input), init });
+      return Promise.resolve(ok({ source: { id: 'source-a', status: 'eligible', metadata: { evidence_role: 'project_prd' } }, idempotent: false }));
+    }));
+
+    const result = await designateGrowthProjectPrd('project-a', 'source-a', {
+      expected_content_hash: 'a'.repeat(64),
+      designation_note: 'Select this admitted brief as the active project PRD.',
+    });
+
+    expect(result.source.metadata).toEqual({ evidence_role: 'project_prd' });
+    expect(requests[0].url).toContain('/knowledge/projects/project-a/sources/source-a/designate-prd');
+    expect(JSON.parse(String(requests[0].init?.body))).toEqual({
+      expected_content_hash: 'a'.repeat(64),
+      designation_note: 'Select this admitted brief as the active project PRD.',
     });
   });
 

@@ -744,3 +744,48 @@ note bodies, credentials, provider payloads, or personal feedback.
   comparable, accepted, attributed outcomes. Reverting this evidence record
   changes no runtime state; the committed implementation and its normal
   release rollback points remain unchanged.
+
+## 2026-08-02 Copilot-Only PRD Designation And Context Completion
+
+- **Authoring route:** Claudian is unavailable and is excluded from the active
+  bridge. Obsidian Copilot remains the only supported interactive authoring
+  route. No provider credential, Copilot conversation body, or Vault note body
+  was read or fabricated.
+- **Project PRD contract:** added a project-scoped
+  `POST /knowledge/projects/{project_id}/sources/{source_id}/designate-prd`
+  mutation. It requires project write access, an admitted `eligible` or
+  `processed` source, the current 64-character content hash, and a short
+  designation reason. The source remains immutable; only the reason hash,
+  source hash, actor, and timestamp are retained in designation metadata.
+  Cross-project access, stale revisions, non-admitted sources, and conflicting
+  evidence roles remain rejected.
+- **Studio path:** Growth Workspace now shows an explicit designation form
+  when no project PRD exists. It exposes source metadata only, requires the
+  operator's reason, displays the persisted action result, and unlocks the
+  existing reviewable PRD-to-SOP path only after the project state reloads.
+  The browser client and API contract have focused tests.
+- **Context guarantee:** explicitly selected supporting admitted sources are
+  marked as required context candidates and receive deterministic bounded
+  excerpts before ordinary retrieval candidates. This prevents a custom SOP
+  from silently dropping selected evidence under budget; it does not promote
+  those sources into trusted claims.
+- **Provider-shape compatibility:** a model response that supplies a single
+  SOP phase input or output as a string is normalized to a one-item list before
+  validation. Citation, evidence-link, source-lineage, and review gates remain
+  unchanged; the compatibility path has its own durable-output regression
+  test.
+- **Verification:** the focused backend API suite passed `28 passed`; the full
+  frontend suite passed `226 passed`; `npm run check`, `npm run build`, and
+  `git diff --check` passed. The full Python suite completed with `1697 passed,
+  14 skipped, 3 warnings` and one order-sensitive failure in the pre-existing
+  legacy BSC export compatibility test; that test passed independently on
+  immediate rerun. The failure is outside the changed knowledge/Copilot paths
+  and is retained as a residual regression risk rather than hidden.
+- **Deployment boundary:** current Docker API, Celery Worker, Celery Beat,
+  PostgreSQL, Redis, and n8n were healthy before the code refresh. Container
+  rebuild and `/ready` verification remain the next release evidence step.
+- **Release truth:** this increment does not create accepted output, quality
+  score, observed business outcome, or Copilot-authored delivery. The release
+  remains `implemented_with_operational_proof_pending` until the owner reviews
+  an actual Copilot draft, attaches real evidence, and records truthful
+  evaluation and outcome feedback.

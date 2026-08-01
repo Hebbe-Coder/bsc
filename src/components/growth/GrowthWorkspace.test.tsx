@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   addGrowthOutputFeedback,
+  designateGrowthProjectPrd,
   distillGrowthSourceMethods,
   evaluateGrowthOutput,
   GrowthRequestError,
@@ -49,6 +50,7 @@ vi.mock('../../api/growthApi', async (importOriginal) => {
     fetchGrowthStage: vi.fn(),
     fetchGrowthTrend: vi.fn(),
     addGrowthOutputFeedback: vi.fn(),
+    designateGrowthProjectPrd: vi.fn(),
     distillGrowthSourceMethods: vi.fn(),
     evaluateGrowthOutput: vi.fn(),
     fileGrowthOutput: vi.fn(),
@@ -77,6 +79,7 @@ const mockedRuns = vi.mocked(fetchGrowthRuns);
 const mockedRunEvents = vi.mocked(fetchGrowthRunEvents);
 const mockedFailures = vi.mocked(fetchGrowthFailures);
 const mockedAddFeedback = vi.mocked(addGrowthOutputFeedback);
+const mockedDesignateProjectPrd = vi.mocked(designateGrowthProjectPrd);
 const mockedDistillSourceMethods = vi.mocked(distillGrowthSourceMethods);
 const mockedEvaluateOutput = vi.mocked(evaluateGrowthOutput);
 const mockedFileOutput = vi.mocked(fileGrowthOutput);
@@ -115,6 +118,7 @@ function installSuccessfulProject() {
   mockedCaptureAttempts.mockResolvedValue([]);
   mockedFailures.mockResolvedValue([]);
   mockedAddFeedback.mockResolvedValue({ id: 'feedback-new', status: 'pending' });
+  mockedDesignateProjectPrd.mockResolvedValue({ source: { id: 'source-support', status: 'eligible', metadata: { evidence_role: 'project_prd' } }, idempotent: false });
   mockedDistillSourceMethods.mockResolvedValue({ run: { id: 'method-distillation-run', run_type: 'source_method_distillation', status: 'queued' }, proposals: [], publication_status: 'proposal_only', execution: { execution: 'in_process', task_id: 'in-process:method-distillation-run' } });
   mockedEvaluateOutput.mockResolvedValue({ id: 'evaluation-new', quality: 90, status: 'completed' });
   mockedFileOutput.mockResolvedValue({ id: 'output-a', status: 'filed' });
@@ -409,6 +413,24 @@ describe('GrowthWorkspace', () => {
       prd_source_id: 'source-a',
       supporting_source_ids: ['source-support'],
     })));
+  });
+
+  it('designates admitted evidence as the project PRD when no PRD is available', async () => {
+    mockedStage.mockImplementation(async (_projectId, stage, limit) => ({
+      project_id: 'default', stage, records: stage === 'A' ? [supportingSource] : [], limit, truncated: false,
+    }));
+    render(<GrowthWorkspace onClose={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole('tab', { name: /Outputs/i }));
+    expect(await screen.findByRole('combobox', { name: 'Eligible evidence to designate as project PRD' })).toHaveValue('source-support');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Project PRD designation reason' }), { target: { value: 'The reviewed constraint is the active project delivery brief.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Designate project PRD' }));
+
+    await waitFor(() => expect(mockedDesignateProjectPrd).toHaveBeenCalledWith('default', 'source-support', {
+      expected_content_hash: 'b'.repeat(64),
+      designation_note: 'The reviewed constraint is the active project delivery brief.',
+    }));
+    expect(await screen.findByText(/now the active project PRD/i)).toBeVisible();
   });
 
   it('audits persisted run inputs, events, output references and linked failures in one workspace view', async () => {
