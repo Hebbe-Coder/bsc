@@ -14,6 +14,7 @@
 | Repair startup logging | Replaced stdlib-style `%s` logger calls with single f-string messages accepted by `StructuredLogger`. | `app/main.py` recovery branch. |
 | Regression test | Simulated recovered method and candidate distillation runs while production mode is enabled; lifespan completes. | `tests/test_delivery_contract.py`. |
 | Verification | Focused delivery and method-distillation suite passed. | `24 passed, 1 warning`; `python -m compileall -q app/main.py`. |
+| Deployment verification | Rebuilt from clean commits, recreated API/Worker/Beat, then compared deployed SHA-256 hashes and called the authenticated PBOS cockpit. | API `healthy`; `/ready` database and Redis `ok`; cockpit `200`; hashes match `main.py`, `pbos/context.py`, and `pbos/service.py`. |
 
 ## Release Impact
 
