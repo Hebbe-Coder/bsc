@@ -2,6 +2,7 @@ import pytest
 
 from app.knowledge.growth_contracts import OutputAsset
 from app.knowledge.growth_repository import GrowthRepository
+from app.knowledge.output_source_gate import OutputSourceAdmissionError
 from app.knowledge.output_evaluator import OutputEvaluator
 from app.knowledge.wiki_contracts import SourceRecord, SourceStatus
 
@@ -77,6 +78,32 @@ def test_output_evaluator_rejects_claimed_grounding_without_external_ancestry(tm
                 project_id="project-a", output_id="output-a",
                 components={"groundedness": 0.95, "task_fit": 0.9, "usefulness": 0.9, "coherence": 0.9, "format_quality": 0.9},
             )
+    finally:
+        repo.close()
+
+
+def test_output_evaluator_rechecks_source_admission_after_registration(tmp_path):
+    repo = GrowthRepository(db_path=str(tmp_path / "source-drift.db"))
+    try:
+        repo.create_source(SourceRecord(
+            id="source-a", project_id="project-a", source_type="article",
+            content_hash="s" * 64, raw_content="evidence", status=SourceStatus.ELIGIBLE,
+        ))
+        output = repo.register_output(OutputAsset(
+            id="output-a", project_id="project-a", kind="report", content_hash="a" * 64,
+            vault_path="outputs/2026/output-a/report.md", idempotency_key="output-a", source_refs=["source-a"],
+        ))
+        repo.update_source_status("project-a", "source-a", SourceStatus.REJECTED)
+
+        with pytest.raises(OutputSourceAdmissionError, match="regenerate the output") as error:
+            OutputEvaluator(repo).evaluate(
+                project_id="project-a", output_id=output["id"],
+                components={"groundedness": 0, "task_fit": 0.8, "usefulness": 0.8, "coherence": 0.8, "format_quality": 0.8},
+            )
+
+        assert error.value.issues == [{"source_id": "source-a", "code": "source_status_not_admitted", "status": "rejected"}]
+        assert repo.get_output("project-a", output["id"])["status"] == "registered"
+        assert repo.list_output_evaluations("project-a", output_id=output["id"]) == []
     finally:
         repo.close()
 

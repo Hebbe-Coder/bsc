@@ -50,6 +50,7 @@ from app.knowledge.method_gate import MethodGate
 from app.knowledge.method_registry import MethodRegistry
 from app.knowledge.output_evaluator import OutputEvaluator
 from app.knowledge.output_registry import OutputRegistry
+from app.knowledge.output_source_gate import OutputSourceAdmissionError
 from app.knowledge.prd_to_sop import ProjectSopGenerationRequest, ProjectSopGenerationService
 from app.knowledge.project_profile import ProfileRevisionConflict, ProjectProfileService
 from app.knowledge.source_triage import SourceTriageService, source_admission_reason
@@ -1073,6 +1074,25 @@ def import_copilot_transcript(
     )
 
 
+@project_router.get("/outputs/copilot-transcript-status")
+def copilot_transcript_status(
+    project_id: str,
+    request: Request,
+    repo: GrowthRepository = Depends(get_growth_repository),
+):
+    """Inspect Copilot archive readiness without importing or exposing content."""
+    project_id = _enforce_growth_access(request, project_id)
+    try:
+        status = CopilotTranscriptImportService(repo, _vault_root()).inspect_latest(
+            project_id=project_id,
+        )
+    except CopilotTranscriptImportError as exc:
+        code = str(exc)
+        state = "awaiting_output" if code == "no_completed_copilot_response" else "unavailable"
+        status = {"state": state, "reason": code, "output_id": None, "transcript": None}
+    return _ok(request, repo, project_id, status)
+
+
 @project_router.post("/outputs/recover-managed")
 def recover_managed_sop_outputs(
     project_id: str,
@@ -2026,6 +2046,13 @@ def _translate_error(exc: Exception) -> HTTPException:
         return _http_error(403, "growth_permission_denied", message)
     if isinstance(exc, ProfileRevisionConflict):
         return _http_error(409, "growth_revision_conflict", message)
+    if isinstance(exc, OutputSourceAdmissionError):
+        return _http_error(
+            409,
+            "growth_gate_not_satisfied",
+            message,
+            details={"source_gate": {"status": "blocked", "issues": exc.issues}},
+        )
     if "conflict" in normalized or "revision" in normalized or "already bound" in normalized:
         return _http_error(409, "growth_conflict", message)
     if "unavailable" in normalized or "not configured" in normalized or "disabled" in normalized:
@@ -2036,8 +2063,11 @@ def _translate_error(exc: Exception) -> HTTPException:
     return _http_error(500, "growth_internal_error", "knowledge growth operation failed")
 
 
-def _http_error(status_code: int, code: str, message: str) -> HTTPException:
-    return HTTPException(status_code=status_code, detail={"code": code, "message": _safe_message(message)})
+def _http_error(status_code: int, code: str, message: str, *, details: dict[str, Any] | None = None) -> HTTPException:
+    payload: dict[str, Any] = {"code": code, "message": _safe_message(message)}
+    if details:
+        payload.update(details)
+    return HTTPException(status_code=status_code, detail=payload)
 
 
 def _safe_message(message: str) -> str:

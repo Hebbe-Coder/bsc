@@ -280,6 +280,15 @@ def test_copilot_transcript_import_api_preserves_provenance_and_requires_writer(
     )
     repo.configure_vault("project-a", "projects/project-a", "test-owner")
 
+    status_before = client.get(
+        "/knowledge/projects/project-a/outputs/copilot-transcript-status",
+        headers=_headers("growth-reader-key"),
+    )
+    assert status_before.status_code == 200, status_before.text
+    assert status_before.json()["data"]["state"] == "ready_to_import"
+    assert status_before.json()["data"]["transcript"]["original_path"].startswith("copilot/copilot-conversations/")
+    assert "response" not in status_before.json()["data"]["transcript"]
+
     denied = client.post(
         "/knowledge/projects/project-a/outputs/import-copilot-transcript",
         headers=_headers("growth-reader-key"),
@@ -304,6 +313,14 @@ def test_copilot_transcript_import_api_preserves_provenance_and_requires_writer(
     assert repeated.status_code == 201
     assert repeated.json()["data"]["idempotent"] is True
     assert repeated.json()["data"]["output"]["id"] == payload["output"]["id"]
+
+    status_after = client.get(
+        "/knowledge/projects/project-a/outputs/copilot-transcript-status",
+        headers=_headers("growth-reader-key"),
+    )
+    assert status_after.status_code == 200, status_after.text
+    assert status_after.json()["data"]["state"] == "already_imported"
+    assert status_after.json()["data"]["output_id"] == payload["output"]["id"]
 
     content = client.get(
         f"/knowledge/projects/project-a/outputs/{payload['output']['id']}/content",
@@ -759,6 +776,7 @@ def test_sources_triage_methods_outputs_feedback_and_review_are_project_scoped(g
     assert triage.status_code == 200, triage.text
     assert cross.status_code == 404
     assert cross.json()["message"]["code"] == "growth_resource_not_found"
+    repo.update_source_status("project-a", source["id"], SourceStatus.ELIGIBLE)
 
     output_ids = []
     for index in range(3):
@@ -897,6 +915,39 @@ def test_external_output_must_link_eligible_project_evidence_before_quality_revi
     assert detail.json()["data"]["evidence"]["source_ids"] == [source["id"]]
     edges = repo.list_lineage("project-a", relation="output_used_source")
     assert any(edge["from_id"] == source["id"] and edge["to_id"] == output["id"] for edge in edges)
+
+
+def test_output_evaluation_reports_source_admission_drift_without_mutating_output(growth_api):
+    client, repo = growth_api
+    source = _capture(repo, "project-a", "source that later loses admission")
+    repo.update_source_status("project-a", source["id"], SourceStatus.ELIGIBLE)
+    output = repo.register_output(OutputAsset(
+        id="drift-output", project_id="project-a", kind="report", content_hash="d" * 64,
+        vault_path="outputs/2026/drift-output/report.md", idempotency_key="drift-output",
+        source_refs=[source["id"]],
+    ))
+    repo.update_source_status("project-a", source["id"], SourceStatus.REJECTED)
+
+    response = client.post(
+        f"/knowledge/projects/project-a/outputs/{output['id']}/evaluate",
+        headers=_headers(),
+        json={
+            "groundedness": 0,
+            "task_fit": 0.8,
+            "usefulness": 0.8,
+            "coherence": 0.8,
+            "format_quality": 0.8,
+        },
+    )
+
+    assert response.status_code == 409, response.text
+    body = response.json()["message"]
+    assert body["code"] == "growth_gate_not_satisfied"
+    assert body["source_gate"] == {
+        "status": "blocked",
+        "issues": [{"source_id": source["id"], "code": "source_status_not_admitted", "status": "rejected"}],
+    }
+    assert repo.get_output("project-a", output["id"])["status"] == "registered"
 
 
 def test_lineage_response_projects_readable_typed_nodes_without_evidence_bodies(growth_api):

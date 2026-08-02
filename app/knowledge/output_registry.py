@@ -14,6 +14,7 @@ import yaml
 
 from app.knowledge.growth_contracts import KnowledgeLineageEdge, OutputAsset, OutputStatus
 from app.knowledge.growth_repository import GrowthRepository
+from app.knowledge.output_source_gate import assert_output_sources_admitted
 from app.knowledge.vault import FilesystemWikiVault
 from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus
 
@@ -497,6 +498,7 @@ class OutputRegistry:
                 digest.update(chunk)
         if not hmac.compare_digest(digest.hexdigest(), str(output["content_hash"]).lower()):
             raise ValueError("output materialization content hash does not match registration")
+        assert_output_sources_admitted(self.repository, output)
         return self.repository.file_output(
             project_id,
             output_id,

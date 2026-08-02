@@ -373,6 +373,13 @@ export type CopilotTranscriptImportResult = {
   idempotent: boolean;
 };
 
+export type CopilotTranscriptStatus = {
+  state: 'awaiting_output' | 'ready_to_import' | 'already_imported' | 'unavailable';
+  reason?: string;
+  output_id?: string | null;
+  transcript: CopilotTranscriptImportResult['transcript'] | null;
+};
+
 export type GrowthMethodReviewInput = {
   comparable_uses?: number;
   average_quality?: number;
@@ -696,6 +703,12 @@ export async function importLatestCopilotTranscript(projectId: string): Promise<
     `/knowledge/growth/${encoded(projectId)}/outputs/import-copilot-transcript`,
     undefined,
     { method: 'POST' },
+  );
+}
+
+export async function fetchCopilotTranscriptStatus(projectId: string): Promise<CopilotTranscriptStatus> {
+  return request<CopilotTranscriptStatus>(
+    `/knowledge/growth/${encoded(projectId)}/outputs/copilot-transcript-status`,
   );
 }
 

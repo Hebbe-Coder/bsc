@@ -16,7 +16,13 @@ import {
   type PbosCockpit,
   type PbosProfile,
 } from '../../api/pbosApi';
-import { fetchGrowthStage, importLatestCopilotTranscript, type GrowthRecord } from '../../api/growthApi';
+import {
+  fetchCopilotTranscriptStatus,
+  fetchGrowthStage,
+  importLatestCopilotTranscript,
+  type CopilotTranscriptStatus,
+  type GrowthRecord,
+} from '../../api/growthApi';
 import { invokeKnowledgeCopilotCommand } from '../../api/knowledgeWorkspaceApi';
 import RegisteredECharts from '../charts/RegisteredECharts';
 
@@ -192,12 +198,14 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
   const [creatingOutcomeExecutionId, setCreatingOutcomeExecutionId] = useState('');
   const [importingCopilot, setImportingCopilot] = useState(false);
   const [openingCopilotDelivery, setOpeningCopilotDelivery] = useState(false);
+  const [checkingCopilotArchive, setCheckingCopilotArchive] = useState(false);
   const [copilotDeliveryNotice, setCopilotDeliveryNotice] = useState('');
+  const [copilotArchive, setCopilotArchive] = useState<CopilotTranscriptStatus>({ state: 'unavailable', transcript: null });
   const [pendingOutputState, setPendingOutputState] = useState<'loading' | 'ready' | 'unavailable'>('loading');
   const [pendingOutputs, setPendingOutputs] = useState<PendingOutputReview[]>([]);
   const load = useCallback(async () => {
     if (!runtimeAccessKey.trim()) {
-      setData(null); setProfile(null); setPendingOutputs([]); setPendingOutputState('unavailable'); setError(''); setAccessState('required');
+      setData(null); setProfile(null); setPendingOutputs([]); setPendingOutputState('unavailable'); setCopilotArchive({ state: 'unavailable', transcript: null }); setError(''); setAccessState('required');
       return;
     }
     try {
@@ -205,14 +213,18 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
       const dLayerResult = fetchGrowthStage(projectId, 'D', 100)
         .then((result) => ({ state: 'ready' as const, outputs: pendingOutputReviews(result.records) }))
         .catch(() => ({ state: 'unavailable' as const, outputs: [] as PendingOutputReview[] }));
-      const [cockpit, profileResult, dLayer] = await Promise.all([
+      const copilotArchiveResult = fetchCopilotTranscriptStatus(projectId)
+        .catch(() => ({ state: 'unavailable' as const, transcript: null }));
+      const [cockpit, profileResult, dLayer, archive] = await Promise.all([
         fetchPbosCockpit(projectId, initialMissionId),
         fetchPbosProfile(projectId),
         dLayerResult,
+        copilotArchiveResult,
       ]);
       setData(cockpit);
       setPendingOutputState(dLayer.state);
       setPendingOutputs(dLayer.outputs);
+      setCopilotArchive(archive);
       const nextProfile = profileResult.profile ?? cockpit.profile;
       setProfile(nextProfile);
       setRole(nextProfile?.role ?? '');
@@ -226,7 +238,7 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
       setConstraints((nextProfile?.constraints ?? []).join(', '));
     } catch (reason) {
       if (isAccessFailure(reason)) {
-        setData(null); setProfile(null); setPendingOutputs([]); setPendingOutputState('unavailable'); setError(''); setAccessState('rejected');
+        setData(null); setProfile(null); setPendingOutputs([]); setPendingOutputState('unavailable'); setCopilotArchive({ state: 'unavailable', transcript: null }); setError(''); setAccessState('rejected');
         return;
       }
       setError(reason instanceof Error ? reason.message : 'Unable to load PBOS');
@@ -302,6 +314,17 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
     : capabilities.length
       ? 'This plan is grounded in declared personal context and verified execution evidence.'
       : 'This plan is grounded in declared personal context and governed Vault evidence. Capability claims still await verified execution evidence.';
+  const copilotArchiveLabel = checkingCopilotArchive
+    ? 'checking archive'
+    : copilotArchive.state === 'ready_to_import'
+      ? 'response ready to import'
+      : copilotArchive.state === 'already_imported'
+        ? 'latest response already imported'
+        : copilotArchive.state === 'awaiting_output'
+          ? 'awaiting completed response'
+          : 'archive unavailable';
+  const canImportCopilotArchive = !checkingCopilotArchive
+    && copilotArchive.state === 'ready_to_import';
   const compactGraph = typeof window !== 'undefined'
     && typeof window.matchMedia === 'function'
     && window.matchMedia('(max-width: 720px)').matches;
@@ -462,16 +485,38 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
     try {
       const result = await importLatestCopilotTranscript(projectId);
       await load();
+      setCopilotDeliveryNotice(result.idempotent
+        ? 'The latest completed Copilot response was already present as a D-layer review draft.'
+        : 'The completed Copilot response is now a registered D-layer review draft. It still requires evidence and owner review.');
       onOpenOutputReview?.(String(result.output.id || ''));
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to import the latest completed Copilot response'); }
     finally { setImportingCopilot(false); }
+  };
+  const checkCopilotArchive = async () => {
+    setCheckingCopilotArchive(true);
+    setCopilotDeliveryNotice('');
+    try {
+      const status = await fetchCopilotTranscriptStatus(projectId);
+      setCopilotArchive(status);
+      const message = status.state === 'ready_to_import'
+        ? 'A completed Copilot response is saved in the separate archive and is ready for explicit D-layer import.'
+        : status.state === 'already_imported'
+          ? 'The latest completed Copilot response is already a registered D-layer review draft.'
+          : status.state === 'awaiting_output'
+            ? 'No completed Copilot response has been saved yet. A command invocation alone is not a generated delivery.'
+            : 'The Copilot archive is unavailable. Check the trusted Vault mapping and Copilot archive configuration.';
+      setCopilotDeliveryNotice(message);
+    } catch (reason) {
+      setCopilotArchive({ state: 'unavailable', transcript: null });
+      setError(reason instanceof Error ? reason.message : 'Unable to inspect the Copilot archive');
+    } finally { setCheckingCopilotArchive(false); }
   };
   const openCopilotDelivery = async () => {
     setOpeningCopilotDelivery(true);
     setCopilotDeliveryNotice('');
     try {
       await invokeKnowledgeCopilotCommand(projectId, 'governed_delivery');
-      setCopilotDeliveryNotice('Copilot delivery opened in Obsidian. Finish and review the response there, then import the latest completed Copilot plan as a D-layer review draft.');
+      setCopilotDeliveryNotice('The Copilot command was invoked in Obsidian. Finish the response there, then check the archive before importing it as a D-layer review draft.');
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to open the governed Copilot delivery command'); }
     finally { setOpeningCopilotDelivery(false); }
   };
@@ -532,7 +577,23 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
       </section>}
       {Object.keys(currentPhase).length > 0 && <section className="pbos-execution-path"><div className="pbos-panel-heading"><p className="pbos-label">TODAY'S EXECUTION PATH</p><span>phase 1 of {phases.length}</span></div><h3>{String(currentPhase.title || 'Clarify the next evidence-backed slice')}</h3>{currentPhase.why_now && <p>{String(currentPhase.why_now)}</p>}<div className="pbos-execution-path__io"><div><strong>Inputs</strong>{phaseInputs.slice(0, 3).map((item) => <span key={item}>{item}</span>)}</div><div><strong>Reviewable output</strong>{phaseOutputs.slice(0, 2).map((item) => <span key={item}>{item}</span>)}</div></div>{phaseActions.length > 0 && <ol>{phaseActions.slice(0, 3).map((item) => <li key={item}>{item}</li>)}</ol>}{decisionPoint.question && <div className="pbos-decision-point"><strong>Decision: {String(decisionPoint.question)}</strong><span>Proceed: {String(decisionPoint.proceed_when || 'when the phase output is reviewable')}</span><span>Adapt: {String(decisionPoint.adapt_when || 'when the evidence boundary is not met')}</span></div>}{executionContract.reflection_entry && <small>{String(executionContract.reflection_entry)}</small>}</section>}
       <section className="pbos-connectors"><div className="pbos-panel-heading"><p className="pbos-label">CONNECTORS</p><span>{Object.keys(data.connectors).length} configured</span></div><div>{Object.entries(data.connectors).map(([name, state]) => <p key={name}><strong>{name}</strong><span data-state={state}>{connectorLabel(state)}</span></p>)}</div><small>External sources stay outside personal evidence until their scoped authorization and receipts are available.</small></section>
-      <section className="pbos-review-queue pbos-output-review" id="pbos-d-layer-review"><div className="pbos-panel-heading"><p className="pbos-label">PENDING D-LAYER REVIEW</p><span className={pendingOutputs.length ? 'is-pending' : 'is-ready'}>{pendingOutputState === 'loading' ? 'checking' : pendingOutputState === 'unavailable' ? 'unavailable' : `${pendingOutputs.length} pending`}</span></div><p>Registered Copilot and external outputs remain outside personal learning until their evidence and quality review are complete.</p><div className="pbos-review-actions"><button type="button" className="pbos-primary-action" disabled={openingCopilotDelivery} onClick={() => void openCopilotDelivery()}>{openingCopilotDelivery ? 'Opening Copilot delivery...' : 'Open Copilot delivery'}</button><button type="button" className="pbos-primary-action" disabled={importingCopilot || pendingOutputState === 'unavailable'} onClick={() => void importCopilotTranscript()}>{importingCopilot ? 'Importing Copilot draft...' : 'Import latest completed Copilot plan'}</button></div><small>Copilot conversations stay in a separate archive. Importing a completed response creates a BSC-owned D-layer review draft; review is still required before learning or publication.</small>{copilotDeliveryNotice && <p className="pbos-empty-panel" role="status">{copilotDeliveryNotice}</p>}<small>The import preserves archive provenance and cannot create a personal learning claim.</small>{pendingOutputState === 'loading' ? <p className="pbos-empty-panel">Checking governed output descriptors...</p> : pendingOutputState === 'unavailable' ? <p className="pbos-review-warning" role="status">D-layer review status is unavailable. PBOS does not assume that an external output is verified.</p> : pendingOutputs.length ? <div className="pbos-review-list">{pendingOutputs.map((output) => <article key={output.id} className="pbos-review-card"><div><strong>{output.source} output</strong><small>{output.id}</small></div><button type="button" className="pbos-primary-action" aria-label={`Open D-layer review for ${output.id}`} disabled={!onOpenOutputReview} onClick={() => onOpenOutputReview?.(output.id)}>Open review</button></article>)}</div> : <p className="pbos-empty-panel">No registered external D-layer output needs review.</p>}</section>
+      <section className="pbos-review-queue pbos-output-review" id="pbos-d-layer-review">
+        <div className="pbos-panel-heading"><p className="pbos-label">PENDING D-LAYER REVIEW</p><span className={pendingOutputs.length ? 'is-pending' : 'is-ready'}>{pendingOutputState === 'loading' ? 'checking' : pendingOutputState === 'unavailable' ? 'unavailable' : `${pendingOutputs.length} pending`}</span></div>
+        <p>Registered Copilot and external outputs remain outside personal learning until their evidence and quality review are complete.</p>
+        <div className="pbos-copilot-status" role="status" aria-live="polite">
+          <div><strong>Copilot archive</strong><span className={copilotArchive.state === 'ready_to_import' ? 'is-ready' : 'is-pending'}>{copilotArchiveLabel}</span></div>
+          {copilotArchive.transcript && <small>Latest completed response: {copilotArchive.transcript.title || 'untitled'} / {copilotArchive.transcript.original_path}</small>}
+          {!copilotArchive.transcript && copilotArchive.state === 'awaiting_output' && <small>The command may be invoked, but only a saved completed response can enter review.</small>}
+        </div>
+        <div className="pbos-review-actions">
+          <button type="button" className="pbos-primary-action" disabled={openingCopilotDelivery} onClick={() => void openCopilotDelivery()}>{openingCopilotDelivery ? 'Opening Copilot delivery...' : 'Open Copilot delivery'}</button>
+          <button type="button" className="pbos-primary-action" disabled={checkingCopilotArchive} onClick={() => void checkCopilotArchive()}>{checkingCopilotArchive ? 'Checking Copilot archive...' : 'Check for completed response'}</button>
+          <button type="button" className="pbos-primary-action" disabled={importingCopilot || !canImportCopilotArchive} onClick={() => void importCopilotTranscript()}>{importingCopilot ? 'Importing Copilot draft...' : 'Import completed Copilot response'}</button>
+        </div>
+        <small>Copilot conversations stay in a separate archive. Importing is an explicit transition that creates a BSC-owned D-layer review draft; it cannot publish, and it cannot create a personal learning claim.</small>
+        {copilotDeliveryNotice && <p className="pbos-empty-panel" role="status">{copilotDeliveryNotice}</p>}
+        {pendingOutputState === 'loading' ? <p className="pbos-empty-panel">Checking governed output descriptors...</p> : pendingOutputState === 'unavailable' ? <p className="pbos-review-warning" role="status">D-layer review status is unavailable. PBOS does not assume that an external output is verified.</p> : pendingOutputs.length ? <div className="pbos-review-list">{pendingOutputs.map((output) => <article key={output.id} className="pbos-review-card"><div><strong>{output.source} output</strong><small>{output.id}</small></div><button type="button" className="pbos-primary-action" aria-label={`Open D-layer review for ${output.id}`} disabled={!onOpenOutputReview} onClick={() => onOpenOutputReview?.(output.id)}>Open review</button></article>)}</div> : <p className="pbos-empty-panel">No registered external D-layer output needs review.</p>}
+      </section>
       <section className="pbos-health"><div className="pbos-panel-heading"><p className="pbos-label">PROJECT HEALTH</p><span>ledger projection</span></div><dl><div><dt>Vault context</dt><dd className={knowledgeContextReady ? 'is-ready' : 'is-pending'}>{knowledgeContextReady ? `connected (${contextReferenceCount})` : 'needed'}</dd></div><div><dt>Personal learning</dt><dd className={personalLearningReady ? 'is-ready' : 'is-pending'}>{personalLearningReady ? 'grounded' : 'awaiting evidence'}</dd></div><div><dt>Accepted</dt><dd>{String(projectHealth.accepted_outcomes ?? 0)}</dd></div><div><dt>Learning-eligible</dt><dd>{String(projectHealth.eligible_personal_outcomes ?? 0)}</dd></div><div><dt>Unverified</dt><dd>{String(projectHealth.unverified_outcomes ?? 0)}</dd></div><div><dt>Active strategies</dt><dd>{String(projectHealth.active_strategies ?? 0)}</dd></div></dl></section>
       <section className="pbos-readiness"><div className="pbos-panel-heading"><p className="pbos-label">PERSONALIZATION READINESS</p><span className={readinessState === 'personalized' ? 'is-ready' : 'is-pending'}>{readinessLabel}</span></div><dl><div><dt>Profile context</dt><dd>{personalizationReadiness.declared_profile_ready ? 'declared' : 'incomplete'}</dd></div><div><dt>Comparable outcomes</dt><dd>{personalizationReadiness.accepted_outcome_count} of {personalizationReadiness.required_comparable_outcomes} comparable accepted outcomes</dd></div></dl>{readinessMissing.length > 0 && <p>Missing personal context: {readinessMissing.join(', ')}.</p>}<p>{readinessState === 'personalized' ? 'This plan can reuse a verified personal strategy within its matching context.' : 'Vault context can guide this plan, but it is not yet a learned personal method.'}</p></section>
       {data.today && <section className="pbos-grounding"><div className="pbos-panel-heading"><p className="pbos-label">PLAN GROUNDING</p><span>{contextReferences.length} governed reference{contextReferences.length === 1 ? '' : 's'}</span></div><dl><div><dt>Plan engine</dt><dd><span className={`pbos-plan-generation ${generation.tone}`}>{generation.label}</span><small>{generation.detail}</small></dd></div><div><dt>Weekly handoff</dt><dd>{weeklyHandoffs.length} weekly handoff{weeklyHandoffs.length === 1 ? '' : 's'}</dd></div><div><dt>Feedback input</dt><dd>{feedbackReferences.length} feedback input{feedbackReferences.length === 1 ? '' : 's'}</dd></div><div><dt>Personal strategy</dt><dd>{appliedStrategies.length ? `${appliedStrategies.length} verified strategy applied` : 'not yet earned'}</dd></div></dl>{contextReferences.length ? <ul>{contextReferences.slice(0, 4).map((item) => <li key={item}><code>{visibleVaultRef(item)}</code></li>)}</ul> : <p className="pbos-grounding-empty">No governed context was selected for this plan.</p>}{appliedStrategies.length > 0 && <ul className="pbos-strategy-inputs">{appliedStrategies.map((item) => <li key={String(item.artifact_id)}><BrainCircuit size={13} /><span>{String(item.strategy_name || 'Personal strategy')} v{String(item.version || 1)}</span></li>)}</ul>}<p>These are planning inputs. They do not establish a personal capability without verified execution evidence.</p></section>}

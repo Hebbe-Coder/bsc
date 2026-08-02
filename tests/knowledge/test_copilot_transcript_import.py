@@ -131,6 +131,29 @@ def test_import_current_copilot_assistant_autosave_from_the_separate_archive(tmp
         repo.close()
 
 
+def test_inspect_latest_reports_ready_then_already_imported_without_returning_response_body(tmp_path: Path):
+    repo, vault, archive = _configured_project(tmp_path)
+    original = archive / "PBOS_status_probe.md"
+    original.write_text(
+        _transcript(response="A completed response that must stay out of the status payload."),
+        encoding="utf-8",
+    )
+    service = CopilotTranscriptImportService(repo, vault)
+    try:
+        ready = service.inspect_latest(project_id="project-a")
+        assert ready["state"] == "ready_to_import"
+        assert ready["output_id"] is None
+        assert ready["transcript"]["original_path"] == "copilot/copilot-conversations/PBOS_status_probe.md"
+        assert "response" not in ready["transcript"]
+
+        imported = service.import_latest(project_id="project-a", actor_id="test-owner")
+        already_imported = service.inspect_latest(project_id="project-a")
+        assert already_imported["state"] == "already_imported"
+        assert already_imported["output_id"] == imported["output"]["id"]
+    finally:
+        repo.close()
+
+
 def test_import_rejects_truncated_or_untrusted_copilot_archives(tmp_path: Path):
     repo, vault, archive = _configured_project(tmp_path)
     (archive / "truncated.md").write_text(

@@ -65,7 +65,49 @@ class CopilotTranscriptImportService:
         project_root = self._project_root(project_id)
         archive_root = self._trusted_archive_root(project_root)
         response = self._latest_completed_response(project_root, archive_root)
-        content = self._review_package(project_id, response)
+        output, content = self._output_for_response(project_id, response, actor)
+        registry = OutputRegistry(self.repository, self.vault_root)
+        output_id = registry.deterministic_id(output)
+        existing = self.repository.get_output(project_id, output_id)
+        registered = registry.register_content(output, content, original_path=response.relative_path)
+        return {
+            "output": registered,
+            "idempotent": existing is not None,
+            "transcript": self._transcript_metadata(response),
+        }
+
+    def inspect_latest(self, *, project_id: str) -> dict[str, Any]:
+        """Return bounded metadata without importing or exposing content."""
+        project_root = self._project_root(project_id)
+        archive_root = self._trusted_archive_root(project_root)
+        response = self._latest_completed_response(project_root, archive_root)
+        output, _ = self._output_for_response(project_id, response, "status_probe")
+        output_id = OutputRegistry.deterministic_id(output)
+        imported = self.repository.get_output(project_id, output_id) is not None
+        return {
+            "state": "already_imported" if imported else "ready_to_import",
+            "output_id": output_id if imported else None,
+            "transcript": self._transcript_metadata(response),
+        }
+
+    @staticmethod
+    def _transcript_metadata(response: CompletedCopilotResponse) -> dict[str, str]:
+        return {
+            "original_path": response.relative_path,
+            "title": response.title,
+            "model": response.model,
+            "provider": response.provider,
+            "transcript_sha256": response.transcript_sha256,
+            "response_sha256": response.response_sha256,
+        }
+
+    @staticmethod
+    def _output_for_response(
+        project_id: str,
+        response: CompletedCopilotResponse,
+        actor: str,
+    ) -> tuple[OutputAsset, bytes]:
+        content = CopilotTranscriptImportService._review_package(project_id, response)
         content_hash = hashlib.sha256(content).hexdigest()
         output = OutputAsset(
             project_id=project_id,
@@ -96,22 +138,7 @@ class CopilotTranscriptImportService:
                 "review_gate": "external_evidence_quality_owner_outcome_required",
             },
         )
-        registry = OutputRegistry(self.repository, self.vault_root)
-        output_id = registry.deterministic_id(output)
-        existing = self.repository.get_output(project_id, output_id)
-        registered = registry.register_content(output, content, original_path=response.relative_path)
-        return {
-            "output": registered,
-            "idempotent": existing is not None,
-            "transcript": {
-                "original_path": response.relative_path,
-                "title": response.title,
-                "model": response.model,
-                "provider": response.provider,
-                "transcript_sha256": response.transcript_sha256,
-                "response_sha256": response.response_sha256,
-            },
-        }
+        return output, content
 
     def _project_root(self, project_id: str) -> Path:
         mapping = self.repository.get_vault(project_id)

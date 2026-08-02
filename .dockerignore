@@ -10,6 +10,7 @@ node_modules/
 dist/
 tests/
 output/
+artifacts/
 data/
 *.log
 celerybeat-schedule*

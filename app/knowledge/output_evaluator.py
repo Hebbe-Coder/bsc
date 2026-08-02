@@ -8,6 +8,7 @@ from typing import Any, Callable
 
 from app.knowledge.growth_contracts import OutputEvaluation
 from app.knowledge.growth_repository import GrowthRepository
+from app.knowledge.output_source_gate import assert_output_sources_admitted
 
 
 ComponentEvaluator = Callable[[dict[str, Any]], dict[str, float]]
@@ -40,6 +41,7 @@ class OutputEvaluator:
             raise KeyError("output not found in project")
         if not evaluator_revision.strip():
             raise ValueError("evaluator_revision is required")
+        assert_output_sources_admitted(self.repository, output)
 
         if not evaluator_available:
             return self._record_unavailable(

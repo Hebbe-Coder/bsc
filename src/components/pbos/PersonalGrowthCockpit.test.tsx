@@ -4,12 +4,13 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { fetchGrowthStage, importLatestCopilotTranscript } from '../../api/growthApi';
+import { fetchCopilotTranscriptStatus, fetchGrowthStage, importLatestCopilotTranscript } from '../../api/growthApi';
 import { invokeKnowledgeCopilotCommand } from '../../api/knowledgeWorkspaceApi';
 import { capturePbosWorkspaceExecution, compilePbosPlan, fetchPbosCockpit, fetchPbosProfile, recordPbosExecution, recordPbosOutcome, reviewPbosExecutionAttribution, reviewPbosOutcome } from '../../api/pbosApi';
 import { PersonalGrowthCockpit } from './PersonalGrowthCockpit';
 
 vi.mock('../../api/growthApi', () => ({
+  fetchCopilotTranscriptStatus: vi.fn(),
   fetchGrowthStage: vi.fn(),
   importLatestCopilotTranscript: vi.fn(),
 }));
@@ -42,6 +43,7 @@ vi.mock('reactflow', () => ({
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
 beforeEach(() => {
+  vi.mocked(fetchCopilotTranscriptStatus).mockResolvedValue({ state: 'awaiting_output', transcript: null });
   vi.mocked(fetchGrowthStage).mockResolvedValue({
     project_id: 'default', stage: 'D', records: [], limit: 100, truncated: false,
   });
@@ -102,6 +104,13 @@ describe('PersonalGrowthCockpit', () => {
       capabilities: [], outcomes: [], feedback: [], strategies: [], failure_patterns: [], project_health: {}, connectors: {},
     });
     vi.mocked(fetchPbosProfile).mockResolvedValue({ profile: null });
+    vi.mocked(fetchCopilotTranscriptStatus).mockResolvedValue({
+      state: 'ready_to_import',
+      transcript: {
+        original_path: 'copilot/copilot-conversations/plan.md', title: 'PBOS plan', model: 'deepseek-v4-flash', provider: 'deepseek',
+        transcript_sha256: 'a'.repeat(64), response_sha256: 'b'.repeat(64),
+      },
+    });
     vi.mocked(importLatestCopilotTranscript).mockResolvedValue({
       output: { id: 'copilot-import-1', status: 'registered' },
       transcript: {
@@ -113,7 +122,7 @@ describe('PersonalGrowthCockpit', () => {
 
     render(<PersonalGrowthCockpit projectId="default" onClose={vi.fn()} runtimeAccessKey="session-key" onOpenOutputReview={openOutputReview} />);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Import latest completed Copilot plan' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Import completed Copilot response' }));
     await waitFor(() => expect(importLatestCopilotTranscript).toHaveBeenCalledWith('default'));
     await waitFor(() => expect(openOutputReview).toHaveBeenCalledWith('copilot-import-1'));
     expect(screen.getByText(/cannot create a personal learning claim/i)).toBeVisible();
@@ -133,9 +142,61 @@ describe('PersonalGrowthCockpit', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Open Copilot delivery' }));
     await waitFor(() => expect(invokeKnowledgeCopilotCommand).toHaveBeenCalledWith('default', 'governed_delivery'));
-    expect(screen.getByText(/Copilot delivery opened in Obsidian/i)).toBeVisible();
+    expect(screen.getByText(/Copilot command was invoked in Obsidian/i)).toBeVisible();
     expect(fetchGrowthStage).toHaveBeenCalledTimes(1);
     expect(screen.getByText('No registered external D-layer output needs review.')).toBeVisible();
+  });
+
+  it('keeps Copilot import disabled until a completed archive response is detected', async () => {
+    vi.mocked(fetchPbosCockpit).mockResolvedValue({
+      profile: null, today: null, today_action: { state: 'no_plan' },
+      capabilities: [], outcomes: [], feedback: [], strategies: [], failure_patterns: [], project_health: {}, connectors: {},
+    });
+    vi.mocked(fetchPbosProfile).mockResolvedValue({ profile: null });
+
+    render(<PersonalGrowthCockpit projectId="default" onClose={vi.fn()} runtimeAccessKey="session-key" />);
+
+    const importButton = await screen.findByRole('button', { name: 'Import completed Copilot response' });
+    expect(screen.getByText('awaiting completed response')).toBeVisible();
+    expect(importButton).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Check for completed response' }));
+    await waitFor(() => expect(fetchCopilotTranscriptStatus).toHaveBeenCalledWith('default'));
+    expect(screen.getByText(/No completed Copilot response has been saved yet/i)).toBeVisible();
+    expect(importButton).toBeDisabled();
+    expect(importLatestCopilotTranscript).not.toHaveBeenCalled();
+  });
+
+  it('enables explicit import only after a completed Copilot archive response is detected', async () => {
+    vi.mocked(fetchPbosCockpit).mockResolvedValue({
+      profile: null, today: null, today_action: { state: 'no_plan' },
+      capabilities: [], outcomes: [], feedback: [], strategies: [], failure_patterns: [], project_health: {}, connectors: {},
+    });
+    vi.mocked(fetchPbosProfile).mockResolvedValue({ profile: null });
+    vi.mocked(fetchCopilotTranscriptStatus).mockResolvedValue({
+      state: 'ready_to_import',
+      transcript: {
+        original_path: 'copilot/copilot-conversations/plan.md', title: 'PBOS plan', model: 'deepseek-v4-flash', provider: 'deepseek',
+        transcript_sha256: 'a'.repeat(64), response_sha256: 'b'.repeat(64),
+      },
+    });
+    vi.mocked(importLatestCopilotTranscript).mockResolvedValue({
+      output: { id: 'copilot-import-2', status: 'registered' },
+      transcript: {
+        original_path: 'copilot/copilot-conversations/plan.md', title: 'PBOS plan', model: 'deepseek-v4-flash', provider: 'deepseek',
+        transcript_sha256: 'a'.repeat(64), response_sha256: 'b'.repeat(64),
+      },
+      idempotent: false,
+    });
+
+    const openOutputReview = vi.fn();
+    render(<PersonalGrowthCockpit projectId="default" onClose={vi.fn()} runtimeAccessKey="session-key" onOpenOutputReview={openOutputReview} />);
+
+    const importButton = await screen.findByRole('button', { name: 'Import completed Copilot response' });
+    expect(screen.getByText('response ready to import')).toBeVisible();
+    expect(importButton).toBeEnabled();
+    fireEvent.click(importButton);
+    await waitFor(() => expect(importLatestCopilotTranscript).toHaveBeenCalledWith('default'));
+    await waitFor(() => expect(openOutputReview).toHaveBeenCalledWith('copilot-import-2'));
   });
 
   it('does not issue a PBOS request without a Studio access session and provides a recovery action', async () => {

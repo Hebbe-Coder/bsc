@@ -175,3 +175,30 @@ def test_feedback_router_enforces_actor_and_project_scope(tmp_path):
         assert repo.get_feedback("project-a", feedback["id"])["status"] == "pending"
     finally:
         repo.close()
+
+
+def test_accepted_feedback_cannot_promote_output_after_source_admission_drift(tmp_path):
+    repo = GrowthRepository(db_path=str(tmp_path / "feedback-source-drift.db"))
+    try:
+        repo.create_source(SourceRecord(
+            id="source-a", project_id="project-a", source_type="article",
+            content_hash="s" * 64, raw_content="evidence", status=SourceStatus.ELIGIBLE,
+        ))
+        repo.register_output(OutputAsset(
+            id="output-a", project_id="project-a", kind="report", content_hash="a" * 64,
+            vault_path="outputs/2026/output-a/report.md", idempotency_key="output-a", status="accepted",
+            source_refs=["source-a"], quality={"quality": 90},
+        ))
+        repo.update_source_status("project-a", "source-a", SourceStatus.REJECTED)
+        feedback = repo.add_output_feedback(OutputFeedback(
+            id="feedback-a", project_id="project-a", output_id="output-a",
+            feedback_type=FeedbackType.ACCEPTED, actor_id="owner",
+        ))
+
+        with pytest.raises(ValueError, match="regenerate the output"):
+            FeedbackRouter(repo).process("project-a", feedback["id"], actor_id="owner", actor_role="project_admin")
+
+        assert repo.get_feedback("project-a", feedback["id"])["status"] == "failed"
+        assert repo.get_output("project-a", "output-a")["status"] == "accepted"
+    finally:
+        repo.close()
