@@ -147,6 +147,33 @@ describe('PersonalGrowthCockpit', () => {
     expect(screen.getByText('No registered external D-layer output needs review.')).toBeVisible();
   });
 
+  it('distinguishes an older imported archive from a new response after command invocation', async () => {
+    vi.mocked(fetchPbosCockpit).mockResolvedValue({
+      profile: null, today: null, today_action: { state: 'no_plan' },
+      capabilities: [], outcomes: [], feedback: [], strategies: [], failure_patterns: [], project_health: {}, connectors: {},
+    });
+    vi.mocked(fetchPbosProfile).mockResolvedValue({ profile: null });
+    vi.mocked(fetchCopilotTranscriptStatus).mockResolvedValue({
+      state: 'already_imported', output_id: 'old-output',
+      transcript: {
+        original_path: 'copilot/copilot-conversations/old-plan.md', archived_at: '2026-08-01T01:23:25+00:00',
+        title: 'Old PBOS plan', model: 'deepseek-v4-flash', provider: 'deepseek',
+        transcript_sha256: 'a'.repeat(64), response_sha256: 'b'.repeat(64),
+      },
+    });
+    vi.mocked(invokeKnowledgeCopilotCommand).mockResolvedValue({
+      run_id: 'copilot-command-run-older-archive', state: 'invoked', command: { key: 'governed_delivery', name: 'Copilot: PBOS delivery' },
+    });
+
+    render(<PersonalGrowthCockpit projectId="default" onClose={vi.fn()} runtimeAccessKey="session-key" />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Copilot delivery' }));
+    await waitFor(() => expect(invokeKnowledgeCopilotCommand).toHaveBeenCalledWith('default', 'governed_delivery'));
+    fireEvent.click(screen.getByRole('button', { name: 'Check for completed response' }));
+    expect(await screen.findByText(/No new completed Copilot response was saved after the last command/i)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Import completed Copilot response' })).toBeDisabled();
+  });
+
   it('keeps Copilot import disabled until a completed archive response is detected', async () => {
     vi.mocked(fetchPbosCockpit).mockResolvedValue({
       profile: null, today: null, today_action: { state: 'no_plan' },

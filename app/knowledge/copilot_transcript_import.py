@@ -41,6 +41,7 @@ class CopilotTranscriptImportError(ValueError):
 @dataclass(frozen=True)
 class CompletedCopilotResponse:
     relative_path: str
+    archived_at: str
     transcript_sha256: str
     response_sha256: str
     title: str
@@ -94,6 +95,7 @@ class CopilotTranscriptImportService:
     def _transcript_metadata(response: CompletedCopilotResponse) -> dict[str, str]:
         return {
             "original_path": response.relative_path,
+            "archived_at": response.archived_at,
             "title": response.title,
             "model": response.model,
             "provider": response.provider,
@@ -196,6 +198,7 @@ class CopilotTranscriptImportService:
     def _parse_completed_response(project_root: Path, path: Path) -> CompletedCopilotResponse | None:
         try:
             raw = path.read_bytes()
+            archived_at = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat()
             text = raw.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
             relative_path = path.relative_to(project_root).as_posix()
         except (OSError, UnicodeDecodeError, ValueError):
@@ -215,6 +218,7 @@ class CopilotTranscriptImportService:
         title = " ".join(fields.get("topic", "").split())[:200] or "Imported Copilot review draft"
         return CompletedCopilotResponse(
             relative_path=relative_path,
+            archived_at=archived_at,
             transcript_sha256=hashlib.sha256(raw).hexdigest(),
             response_sha256=hashlib.sha256(response.encode("utf-8")).hexdigest(),
             title=title,

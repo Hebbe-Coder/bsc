@@ -364,6 +364,7 @@ export type CopilotTranscriptImportResult = {
   output: GrowthRecord;
   transcript: {
     original_path: string;
+    archived_at?: string;
     title: string;
     model: string;
     provider: string;

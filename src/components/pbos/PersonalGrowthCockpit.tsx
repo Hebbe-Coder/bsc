@@ -199,6 +199,7 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
   const [importingCopilot, setImportingCopilot] = useState(false);
   const [openingCopilotDelivery, setOpeningCopilotDelivery] = useState(false);
   const [checkingCopilotArchive, setCheckingCopilotArchive] = useState(false);
+  const [copilotCommandAt, setCopilotCommandAt] = useState<number | null>(null);
   const [copilotDeliveryNotice, setCopilotDeliveryNotice] = useState('');
   const [copilotArchive, setCopilotArchive] = useState<CopilotTranscriptStatus>({ state: 'unavailable', transcript: null });
   const [pendingOutputState, setPendingOutputState] = useState<'loading' | 'ready' | 'unavailable'>('loading');
@@ -484,6 +485,7 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
     setImportingCopilot(true);
     try {
       const result = await importLatestCopilotTranscript(projectId);
+      setCopilotCommandAt(null);
       await load();
       setCopilotDeliveryNotice(result.idempotent
         ? 'The latest completed Copilot response was already present as a D-layer review draft.'
@@ -498,13 +500,19 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
     try {
       const status = await fetchCopilotTranscriptStatus(projectId);
       setCopilotArchive(status);
-      const message = status.state === 'ready_to_import'
-        ? 'A completed Copilot response is saved in the separate archive and is ready for explicit D-layer import.'
-        : status.state === 'already_imported'
-          ? 'The latest completed Copilot response is already a registered D-layer review draft.'
-          : status.state === 'awaiting_output'
-            ? 'No completed Copilot response has been saved yet. A command invocation alone is not a generated delivery.'
-            : 'The Copilot archive is unavailable. Check the trusted Vault mapping and Copilot archive configuration.';
+      const archivedAt = status.transcript?.archived_at ? Date.parse(status.transcript.archived_at) : NaN;
+      const archivePredatesCommand = copilotCommandAt !== null
+        && Number.isFinite(archivedAt)
+        && archivedAt <= copilotCommandAt;
+      const message = archivePredatesCommand
+        ? 'No new completed Copilot response was saved after the last command. The status shown is the previous archive; finish and save the current response before importing.'
+        : status.state === 'ready_to_import'
+          ? 'A completed Copilot response is saved in the separate archive and is ready for explicit D-layer import.'
+          : status.state === 'already_imported'
+            ? 'The latest completed Copilot response is already a registered D-layer review draft.'
+            : status.state === 'awaiting_output'
+              ? 'No completed Copilot response has been saved yet. A command invocation alone is not a generated delivery.'
+              : 'The Copilot archive is unavailable. Check the trusted Vault mapping and Copilot archive configuration.';
       setCopilotDeliveryNotice(message);
     } catch (reason) {
       setCopilotArchive({ state: 'unavailable', transcript: null });
@@ -516,6 +524,7 @@ export function PersonalGrowthCockpit({ projectId, onClose, runtimeAccessKey = '
     setCopilotDeliveryNotice('');
     try {
       await invokeKnowledgeCopilotCommand(projectId, 'governed_delivery');
+      setCopilotCommandAt(Date.now());
       setCopilotDeliveryNotice('The Copilot command was invoked in Obsidian. Finish the response there, then check the archive before importing it as a D-layer review draft.');
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to open the governed Copilot delivery command'); }
     finally { setOpeningCopilotDelivery(false); }

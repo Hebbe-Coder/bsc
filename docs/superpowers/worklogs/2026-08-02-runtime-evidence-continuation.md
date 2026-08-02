@@ -1194,3 +1194,113 @@ note bodies, credentials, provider payloads, or personal feedback.
   imported from the cockpit; it still requires owner evidence review, quality
   evaluation, and observed outcome feedback before PBOS learning or release
   closure.
+
+## 2026-08-02 Copilot Fresh-Response Negative Proof
+
+- **Real command invocation:** the protected `governed_delivery` command was
+  invoked through the deployed API as KnowledgeRun `416172d1de41`. The durable
+  event chain was `knowledge.run.running`,
+  `knowledge.obsidian_copilot_command.invoked`, and
+  `knowledge.run.completed`.
+- **Observed result:** the mapped archive directory was inspected by file
+  metadata only for a bounded 75-second interval. No new or modified Markdown
+  file appeared. The status endpoint therefore continued to report the older
+  imported Copilot draft `2e45b45b1fafcbbdc0bd8b0a`; this invocation was not
+  counted as a new response or D-layer delivery.
+- **UX correction:** Copilot archive metadata now includes the safe file
+  modification timestamp. After a command is invoked, PBOS compares that
+  timestamp with the invocation time and explicitly reports that no new
+  response was saved when the archive is older. Import remains disabled until
+  a completed response newer than the command is detected.
+- **Verification:** Copilot service/API tests passed `33`; PBOS tests passed
+  `26`; TypeScript checking passed. No transcript body, provider secret, or
+  Keychain value was read or logged.
+- **Remaining user boundary:** Copilot itself must save a completed response
+  in its configured archive before BSC can import it. The release gate remains
+  `implemented_with_operational_proof_pending` with `o6_feedback_cycle` open.
+
+## 2026-08-02 Copilot Route Confirmation And Redeployment
+
+- **Route decision:** Claudian is unavailable in the current environment and
+  is no longer the active authoring route. Copilot remains the only active
+  interactive producer for this project. Historic Claudian references in prior
+  worklogs are retained as history and are not treated as current runtime
+  capability.
+- **Regression verification:** `tests/api/test_knowledge_workspace_api.py`
+  and `tests/knowledge/test_wiki_sync.py` passed `61 passed, 1 skipped`.
+  Frontend Vitest passed `24 files, 229 tests`; `npm run check` and
+  `npm run build` passed. Backend `pytest --collect-only -q` collected `1718`
+  tests; a full run did not finish within the 120-second local command budget,
+  so it is not reported as passed. The pre-existing full-suite baseline remains
+  `1703 passed, 14 skipped` from the prior verified run.
+- **Redeployment:** rebuilt and recreated `bsc-backend`, `celery-worker`, and
+  `celery-beat` with `docker compose up -d --build ...`. PostgreSQL and Redis
+  containers and their named data volumes were preserved.
+- **Runtime verification:** before and after redeployment, `GET /ready`
+  returned HTTP 200 with database and Redis `ok`. The protected Copilot status
+  and workspace endpoints returned HTTP 401 without an access credential,
+  confirming the protected boundary rather than exposing project data.
+  Host/container SHA-256 matched for the Copilot import service, plugin
+  manifest, and workspace API modules.
+- **Remaining owner action:** a user must complete and save one new response
+  in Obsidian Copilot. BSC can then check the archive, import it explicitly as
+  a D-layer review draft, and wait for owner evidence review, quality scoring,
+  and observed outcome feedback. No new Copilot response was fabricated by
+  this deployment.
+
+## 2026-08-02 Owner-Authorized Source Review And Growth Cycle
+
+- **Authorization boundary:** the project owner explicitly authorized a
+  governed review and one Growth cycle for source `f4278140ca7f` in project
+  `proj_b8a285642094`. The protected API was used with bounded metadata only;
+  no source body, provider payload, credential, or plugin source was read or
+  written by the verification.
+- **Review result:** the protected project triage endpoint reused the current
+  immutable decision `71c541af88741f4dc87ed503` (`profile-aware-v2`). The source
+  remains `validated/untrusted`, with `disposition=archive` and
+  `reliability_pass=false`; it is not authoring-eligible.
+- **Growth execution:** a new idempotent daily run `bfe7d97c9312` was created
+  with a unique owner-authorized request key. The run completed with eight
+  durable events: queue, execution assignment, Growth dispatch, Growth start,
+  Obsidian sync completion, model completion, distillation completion, and run
+  completion.
+- **Admission proof:** the generated run manifest records one context source
+  and one citation source, neither of which is `f4278140ca7f`; the authorized
+  source is present only in `daily_excluded_source_ids`. Therefore this run did
+  not claim, cite, publish, or update Wiki/method/output state from that
+  source. The generated daily artifact is evidence that the broader run passed
+  its quality gate, not evidence that this untrusted source was accepted.
+- **Artifact result:** the run returned `growth.status=generated` with one
+  daily artifact at
+  `distillations/每周蒸馏/2026-W31/每日增量/2026-08-02.md`. Generation metadata
+  records the configured DeepSeek provider/model and contract revision `33`;
+  no provider secret or response body was retained in this worklog.
+- **Vault persistence proof:** the configured host root is `D:\bsc\bsc`, with
+  the project mapped below `projects/proj_b8a285642094`. A metadata-only host
+  filesystem check found the expected artifact at
+  `D:\bsc\bsc\projects\proj_b8a285642094\distillations\每周蒸馏\2026-W31\每日增量\2026-08-02.md`
+  with size `7340` bytes. The file body was not read.
+- **Operational deviation:** the first event poll used an incorrect route
+  alias and returned HTTP 404 after the run had already been created. No second
+  run was started. The correct project-scoped events route was then used to
+  read the same run to terminal completion.
+- **Remaining owner gate:** this run does not manufacture owner evaluation,
+  observed delivery outcome, or feedback. The release gate therefore remains
+  `implemented_with_operational_proof_pending` with `o6_feedback_cycle` open.
+
+## 2026-08-02 Copilot Runtime Protection Regression And Integration
+
+- **Regression evidence:** the focused backend suite
+  `tests/knowledge/test_wiki_sync.py tests/api/test_knowledge_workspace_api.py`
+  passed `61 passed, 1 skipped`; the focused frontend Cockpit suite passed
+  `26 passed`; `npm run check` passed. These cover provider-readiness redaction,
+  explicit model-configuration blocking, old-archive detection after command
+  invocation, and disabled import until a fresh response is saved.
+- **Integration scope:** the verified changes are limited to the Copilot
+  readiness/status API, the PBOS Copilot delivery UI and its tests, and this
+  worklog. Browser proof directories remain untracked and were not included in
+  the integration set.
+- **Release truth:** tests and deployment do not close the owner feedback
+  gate. The system remains `implemented_with_operational_proof_pending` until
+  a real owner reviews a registered output, records quality/effect evidence,
+  and supplies an observed delivery result.
