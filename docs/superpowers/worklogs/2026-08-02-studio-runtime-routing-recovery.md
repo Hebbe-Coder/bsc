@@ -45,3 +45,16 @@ The current project uses Copilot rather than Claudian. Its imported archive is
 a registered D-layer draft until the owner supplies a genuine observed result,
 attribution, quality score, and next-iteration direction. Damaged historical
 text remains quarantined rather than reconstructed or promoted as evidence.
+
+## Full Backend Verification
+
+- Ran the complete configured backend suite with
+  `python -m pytest -q`: `1707 passed, 14 skipped` from `1721` collected tests
+  in `222.44s`.
+- The previous intermittent Windows `os.replace()` contention did not recur.
+  This is full-suite evidence for the bounded retry repair, not merely an
+  isolated unit-test result.
+- The suite emitted three non-failing deprecation warnings: one Starlette
+  TestClient warning and two Pydantic V2 `.dict()` warnings in the brainstorm
+  API's error responses. They remain technical-debt items and do not alter the
+  current Copilot, Vault, Horizon, PBOS, or Artifact Graph behavior.
