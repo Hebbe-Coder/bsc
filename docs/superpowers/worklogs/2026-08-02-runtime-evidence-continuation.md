@@ -1247,6 +1247,9 @@ note bodies, credentials, provider payloads, or personal feedback.
   a D-layer review draft, and wait for owner evidence review, quality scoring,
   and observed outcome feedback. No new Copilot response was fabricated by
   this deployment.
+- **Version control:** model readiness was committed as `c54b6ec` and the
+  fresh-response import guard plus this runtime record were committed as
+  `747076a`; both were pushed to `origin/master`.
 
 ## 2026-08-02 Owner-Authorized Source Review And Growth Cycle
 
