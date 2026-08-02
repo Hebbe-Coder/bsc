@@ -86,9 +86,9 @@ function includesModeSignal(text: string, signal: string): boolean {
 // ---- Auto-detect ----
 export function detectMode(input: string): { mode: EffectiveMode; confidence: number; reason: string } {
   const text = input.toLowerCase(); const len = input.length;
-  const boardSignals = ['board', '??', '??', 'ceo', 'cfo', 'cto', 'board review', 'multi-agent', '???'];
-  const compileSignals = ['prd', '????', '????', 'compile', '??', 'sop', '????', 'pipeline', '????', '????', '???', '## ', '??', '??', '???'];
-  const analyzeSignals = ['??', '??', '??', '??', '????', '??', '??', '??', 'analyze', 'gap', 'coverage', 'assumption', 'risk', '???', 'how', 'what', 'strategy'];
+  const boardSignals = ['board', '董事会', '评审会', '多智能体', 'ceo', 'cfo', 'cto', 'board review', 'multi-agent', '管理层评审'];
+  const compileSignals = ['prd', '产品需求文档', '需求文档', 'compile', '编译', 'sop', '动态 sop', '执行流水线', 'pipeline', '工作流', '任务编排', '实施计划', '项目方案', '流程设计'];
+  const analyzeSignals = ['分析', '诊断', '评估', '审查', '风险', '证据缺口', '缺口', '覆盖', 'analyze', 'gap', 'coverage', 'assumption', 'risk', '假设', '如何', '什么', 'strategy', '策略'];
   const boardHits = boardSignals.filter((signal) => includesModeSignal(text, signal)).length;
   const compileHits = compileSignals.filter((signal) => includesModeSignal(text, signal)).length;
   const analyzeHits = analyzeSignals.filter((signal) => includesModeSignal(text, signal)).length;

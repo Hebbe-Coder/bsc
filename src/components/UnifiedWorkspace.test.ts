@@ -79,6 +79,12 @@ describe('formatRuntimeError', () => {
     expect(result.mode).toBe('business');
     expect(result.reason).toMatch(/diagnosis/i);
   });
+
+  it('routes Chinese multi-agent, PRD, and analysis requests to their intended workspaces', () => {
+    expect(detectMode('请组织 CEO、CFO 和 CTO 进行多智能体董事会评审').mode).toBe('board');
+    expect(detectMode('请把这份产品需求文档编译为项目专属的动态 SOP 与执行流水线').mode).toBe('compile');
+    expect(detectMode('请诊断当前方案的风险、证据缺口与覆盖范围').mode).toBe('analyze');
+  });
 });
 
 describe('isLocalProxySession', () => {
