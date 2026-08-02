@@ -673,6 +673,14 @@ describe('GrowthWorkspace', () => {
     fireEvent.click(await screen.findByRole('tab', { name: /Outputs/i }));
     fireEvent.click(await screen.findByRole('option', { name: /Web Clipper synthesis/i }));
 
+    expect(await screen.findByRole('heading', { name: 'Record owner decision' })).toBeVisible();
+    expect(screen.getByText(/cannot promote this draft/i)).toBeVisible();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Output feedback text' }), { target: { value: 'Owner accepts this draft pending evidence review.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit feedback' }));
+    await waitFor(() => expect(mockedAddFeedback).toHaveBeenCalledWith('default', 'plugin-output', {
+      feedback_type: 'accepted', comment: 'Owner accepts this draft pending evidence review.',
+    }));
+
     const evidenceSelect = await screen.findByRole('listbox', { name: 'Registered evidence sources' });
     fireEvent.change(evidenceSelect, { target: { value: 'source-a' } });
     fireEvent.click(screen.getByRole('button', { name: 'Link selected evidence' }));

@@ -278,7 +278,7 @@ export function GrowthInspector(props: Props) {
             <label><span>Findings</span><textarea aria-label="Output evaluation findings" value={findings} placeholder="One auditable finding per line" onChange={(event) => setFindings(event.target.value)} /></label>
             <button type="submit" disabled={actionDisabled} title={permissionMessage || 'Persist quality evaluation'}>{actionState === 'loading' ? <LoaderCircle size={14} className="spin" /> : canWrite ? <CheckCircle2 size={14} /> : <KeyRound size={14} />}Evaluate output</button>
           </form> : outputStatus === 'registered' && evidenceRequired && !hasEvidenceReferences ? <div className="growth-inspector__notice">Link at least one eligible external source before submitting an evaluation. Groundedness above zero without that lineage is rejected by the API.</div> : hasEvaluation ? <div className="growth-inspector__notice">A persisted evaluation already exists for this immutable review revision. Add feedback or file an accepted output.</div> : null}
-          {outputStatus !== 'registered' && <form className="growth-feedback-form" onSubmit={(event) => {
+          <form className="growth-feedback-form" onSubmit={(event) => {
           event.preventDefault();
           const payload: GrowthFeedbackInput = { feedback_type: feedbackType };
           if (feedbackType === 'rated') payload.rating = rating;
@@ -286,11 +286,12 @@ export function GrowthInspector(props: Props) {
           else payload.comment = feedbackText.trim();
           onFeedback(detail, payload);
         }}>
-          <h4>Record feedback</h4>
+          <h4>{outputStatus === 'registered' ? 'Record owner decision' : 'Record feedback'}</h4>
+          {outputStatus === 'registered' && <p>Feedback is retained for review but cannot promote this draft. Link evidence and complete the quality gate before processing it.</p>}
           <label><span>Outcome</span><select aria-label="Output feedback type" value={feedbackType} onChange={(event) => setFeedbackType(event.target.value as GrowthFeedbackInput['feedback_type'])}><option value="accepted">Accepted</option><option value="rejected">Rejected</option><option value="corrected">Corrected</option><option value="rated">Rated</option><option value="reused">Reused</option></select></label>
           {feedbackType === 'rated' ? <label><span>Rating</span><input aria-label="Output feedback rating" type="number" min="0" max="100" value={rating} onChange={(event) => setRating(Number(event.target.value))} /></label> : <label><span>{feedbackType === 'corrected' ? 'Correction' : 'Comment'}</span><textarea aria-label="Output feedback text" value={feedbackText} required={feedbackType === 'corrected'} onChange={(event) => setFeedbackText(event.target.value)} /></label>}
           <button type="submit" disabled={actionDisabled} title={permissionMessage || 'Persist output feedback'}>{actionState === 'loading' ? <LoaderCircle size={14} className="spin" /> : canWrite ? <CheckCircle2 size={14} /> : <KeyRound size={14} />}Submit feedback</button>
-          </form>}
+          </form>
         </>}
         {actionMessage && <div className={`growth-action-message${actionState === 'error' || actionState === 'permission' ? ' is-error' : ''}`} role="status">{actionMessage}</div>}
         {detail.kind === 'method_proposal' && <section className="growth-inspector__section" aria-label="Method candidate gate">
