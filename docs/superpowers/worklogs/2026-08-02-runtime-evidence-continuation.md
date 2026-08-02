@@ -1307,3 +1307,73 @@ note bodies, credentials, provider payloads, or personal feedback.
   gate. The system remains `implemented_with_operational_proof_pending` until
   a real owner reviews a registered output, records quality/effect evidence,
   and supplies an observed delivery result.
+
+## 2026-08-02 Deployment, Copilot Draft, And Information-to-Growth Proof
+
+- **Deployment proof:** `docker compose up -d --build bsc-backend
+  celery-worker celery-beat` rebuilt the API, Worker, and Beat with the
+  production frontend. `/ready` returned database and Redis `ok`; all Compose
+  services were running; and the deployed
+  `obsidian_plugin_manifest.py` SHA-256 matched the host source. The production
+  frontend build completed during the image build.
+- **Copilot draft proof:** the deployed read-only archive probe reported one
+  completed response ready for explicit import. The protected import created
+  D-layer output `2604034382bce4bddec08e1f` as `registered`, with immutable
+  archive provenance and the review gate
+  `external_evidence_quality_owner_outcome_required`. Metadata-only filesystem
+  inspection confirmed its managed output directory contains `index.md` and
+  the imported Markdown artifact. No transcript body was returned, accepted,
+  or evaluated as owner feedback.
+- **Information operation proof:** a protected n8n manual information run
+  returned completed run `c002338c8539`, six completed batches, six verified
+  receipts, and no pending batch IDs. The subsequent project overview moved
+  from `73` to `79` captured records and from `62` to `68` duplicates. Horizon
+  review queue count remains `9`, so collected signals remain reviewable rather
+  than being silently promoted.
+- **Capture-to-growth proof:** the post-intelligence daily Growth run
+  `1a3c8f223c6a` completed with all eight durable events. It used `232` bounded
+  inputs, passed the current quality contract, and generated the current sixth
+  daily revision `159570bd9298f878734e9a32` at
+  `distillations/每周蒸馏/2026-W31/每日增量/2026-08-02.md`. A metadata-only host
+  check confirmed the current file exists at the mapped project path with size
+  `7536` bytes.
+- **Admission proof:** `f4278140ca7f` remained absent from both the context and
+  citation sets and present in the daily exclusion set. The capture-to-growth
+  proof therefore does not turn its authorization into an unsupported trust or
+  knowledge-promotion claim.
+- **Current external boundary:** Obsidian Copilot is configured and its archive
+  route is trusted, but the selected provider reports
+  `copilot_provider_keychain_check_required`; BSC intentionally does not read
+  a Keychain credential. Release readiness still requires a real owner review,
+  quality rating, observed result, and feedback processing for a registered
+  D-layer output.
+
+## 2026-08-02 Native Copilot Archive Proof And Governed Import
+
+- **Credential verification:** Obsidian Copilot settings showed an enabled
+  `deepseek-v4-flash|deepseek` default model, auto-save, and a masked DeepSeek
+  credential stored in Obsidian Keychain-only storage. The credential value was
+  not read, copied, or written to a file. A bounded provider readiness request
+  also returned a successful response without recording any secret.
+- **Real plugin result:** the owner-authorized, evidence-constrained PBOS prompt
+  completed in the visible Obsidian Copilot chat and auto-saved a new native
+  conversation archive at
+  `projects/proj_b8a285642094/copilot/copilot-conversations/`.
+  The archive metadata identifies the configured DeepSeek provider/model and
+  was observed at `2026-08-02 10:15` local time. Its Markdown body was not
+  copied into this worklog.
+- **BSC transition:** the protected transcript-status endpoint returned
+  `already_imported` for output `2604034382bce4bddec08e1f`. The corresponding
+  D-layer `personal_execution_plan` is `registered` with
+  `origin=copilot_transcript_import`, immutable transcript/response hashes,
+  and the gate `external_evidence_quality_owner_outcome_required`.
+- **Verification:** focused backend coverage passed `48`; the complete frontend
+  suite passed `24 files, 228 tests`; TypeScript checking passed. `GET /ready`
+  returned database and Redis `ok` after the running API container refresh.
+- **Boundary and rollback:** this proves the configured Copilot archive route
+  and explicit BSC import route, not a `04_Outputs/copilot` `writeFile`
+  delivery. That native output route remains empty/awaiting a real plugin file.
+  The imported archive remains outside personal learning until an owner reviews
+  evidence, records a quality-scored outcome, and supplies feedback. Preserve
+  the original archive and registered draft; rollback is limited to future
+  review decisions or importer deployment, never deletion of audit evidence.
