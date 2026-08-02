@@ -51,6 +51,8 @@ class ArtifactGraphStore:
     INDEX_LOCK_FILE = ".index.lock"
     INDEX_LOCK_TIMEOUT_SECONDS = 10.0
     INDEX_LOCK_STALE_SECONDS = 60.0
+    ATOMIC_WRITE_REPLACE_ATTEMPTS = 4
+    ATOMIC_WRITE_RETRY_BASE_SECONDS = 0.025
 
     def __init__(
         self,
@@ -137,7 +139,14 @@ class ArtifactGraphStore:
                 handle.write(content)
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.replace(temporary, path)
+            for attempt in range(ArtifactGraphStore.ATOMIC_WRITE_REPLACE_ATTEMPTS):
+                try:
+                    os.replace(temporary, path)
+                    break
+                except PermissionError:
+                    if attempt == ArtifactGraphStore.ATOMIC_WRITE_REPLACE_ATTEMPTS - 1:
+                        raise
+                    time.sleep(ArtifactGraphStore.ATOMIC_WRITE_RETRY_BASE_SECONDS * (2 ** attempt))
         finally:
             if temporary.exists():
                 temporary.unlink()
