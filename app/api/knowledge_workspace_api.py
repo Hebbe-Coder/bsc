@@ -384,6 +384,16 @@ def _project_copilot_command_bridge(project_id: str, repo: WikiRepository) -> Ob
             status_code=409,
             detail={"code": "copilot_runtime_not_configured", "message": "Configure Copilot conversation storage before opening delivery"},
         )
+    model_readiness = (plugin_status or {}).get("model_readiness") or {}
+    if model_readiness.get("state") == "unavailable":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "copilot_model_not_configured",
+                "message": "Enable Copilot Plus or configure the selected Copilot provider before opening delivery",
+                "detail_code": model_readiness.get("detail_code", "copilot_provider_credential_missing"),
+            },
+        )
     if (plugin_status or {}).get("path_status") != "ready":
         raise HTTPException(
             status_code=409,

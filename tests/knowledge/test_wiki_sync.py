@@ -279,7 +279,26 @@ def test_plugin_status_verifies_copilot_conversation_archive_is_separate_from_re
         "state": "configured",
         "detail_code": "conversation_archive_separated_from_reviewed_output",
     }
+    assert configured["model_readiness"] == {
+        "state": "unavailable",
+        "detail_code": "copilot_default_model_unconfigured",
+    }
     assert configured["status"] == "awaiting_output"
+
+    settings_path.write_text(
+        '{"defaultSaveFolder":"projects/project-a/copilot/copilot-conversations",'
+        '"defaultModelKey":"deepseek-v4-flash|deepseek","deepseekApiKey":"test-secret"}',
+        encoding="utf-8",
+    )
+    ready = ObsidianPluginManifest.load(project_root).public_status(
+        project_root=project_root,
+        vault_root=root,
+    )["plugins"][0]
+    assert ready["model_readiness"] == {
+        "state": "ready",
+        "detail_code": "copilot_provider_credential_present",
+    }
+    assert "test-secret" not in str(ready)
 
     rejected = ObsidianPluginManifest.load(project_root).public_status(
         outputs=[

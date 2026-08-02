@@ -50,6 +50,29 @@ _RUNTIME_SETTING_PROBES = {
     "copilot": (Path(".obsidian/plugins/copilot/data.json"), "defaultSaveFolder"),
 }
 _COPILOT_CONVERSATION_SUBPATH = "copilot/copilot-conversations"
+# Copilot stores provider credentials under provider-specific keys. This map is
+# used only to return a boolean readiness state; credential values never leave
+# the settings probe.
+_COPILOT_PROVIDER_KEY_FIELDS = {
+    "openai": ("openAIApiKey",),
+    "anthropic": ("anthropicApiKey",),
+    "deepseek": ("deepseekApiKey",),
+    "google": ("googleApiKey",),
+    "gemini": ("googleApiKey",),
+    "openrouter": ("openRouterAiApiKey",),
+    "xai": ("xaiApiKey",),
+    "mistral": ("mistralApiKey",),
+    "cohere": ("cohereApiKey",),
+    "groq": ("groqApiKey",),
+    "huggingface": ("huggingfaceApiKey",),
+    "siliconflow": ("siliconflowApiKey",),
+    "fireworks": ("fireworksApiKey",),
+    "perplexity": ("perplexityApiKey",),
+    "supadata": ("supadataApiKey",),
+    "azureopenai": ("azureOpenAIApiKey",),
+    "githubcopilot": ("githubCopilotAccessToken", "githubCopilotToken"),
+    "amazonbedrock": ("amazonBedrockApiKey",),
+}
 _INTERACTIVE_DESTINATION_PLUGINS = frozenset({"obsidian-importer", "docxer"})
 # Claudian agents work from the Vault and can create files directly. Its
 # ``mediaFolder`` setting is for attachments, not a chat-transcript export
@@ -445,8 +468,7 @@ class ObsidianPluginManifest:
         for plugin in self.plugins:
             observation = self._export_observation(plugin, project_root)
             status = self._status(plugin, captured_sources[plugin.plugin_id], registered_outputs[plugin.plugin_id])
-            plugin_statuses.append(
-                {
+            plugin_status = {
                     "id": plugin.plugin_id,
                     "name": plugin.name,
                     "adapter": plugin.adapter,
@@ -470,7 +492,9 @@ class ObsidianPluginManifest:
                         default="",
                     ),
                 }
-            )
+            if plugin.plugin_id == "copilot":
+                plugin_status["model_readiness"] = self._copilot_model_readiness(project_root, vault_root)
+            plugin_statuses.append(plugin_status)
 
         return {
             "configured": self.configured,
@@ -638,6 +662,48 @@ class ObsidianPluginManifest:
             return {"state": "mismatch", "detail_code": "plugin_destination_differs_from_bridge"}
         except (OSError, UnicodeDecodeError, ValueError, TypeError, json.JSONDecodeError):
             return {"state": "unavailable", "detail_code": "plugin_settings_unreadable"}
+
+    @staticmethod
+    def _copilot_model_readiness(
+        project_root: Path | None,
+        vault_root: Path | None,
+    ) -> dict[str, str]:
+        """Report model readiness without exposing provider credentials."""
+        if project_root is None or vault_root is None:
+            return {"state": "unverified", "detail_code": "vault_or_project_root_unavailable"}
+        try:
+            root = vault_root.resolve()
+            project = project_root.resolve()
+            project.relative_to(root)
+            settings_path = (root / Path(".obsidian/plugins/copilot/data.json")).resolve()
+            settings_path.relative_to(root)
+            if ObsidianPluginManifest._has_symlink_component(root, settings_path):
+                return {"state": "unverified", "detail_code": "plugin_settings_unsafe_path"}
+            if not settings_path.is_file():
+                return {"state": "unavailable", "detail_code": "copilot_settings_not_found"}
+            payload = settings_path.read_bytes()
+            if len(payload) > _MAX_MANIFEST_BYTES:
+                return {"state": "unavailable", "detail_code": "copilot_settings_too_large"}
+            data = json.loads(payload.decode("utf-8"))
+            if not isinstance(data, dict):
+                return {"state": "unavailable", "detail_code": "copilot_settings_invalid"}
+            if data.get("isPlusUser") is True:
+                return {"state": "ready", "detail_code": "copilot_plus_enabled"}
+            model_key = str(data.get("defaultModelKey") or "").strip()
+            model, separator, provider = model_key.partition("|")
+            if not model or not separator or not provider:
+                return {"state": "unavailable", "detail_code": "copilot_default_model_unconfigured"}
+            provider_key = provider.lower().replace("-", "").replace("_", "")
+            fields = _COPILOT_PROVIDER_KEY_FIELDS.get(provider_key)
+            if fields is None:
+                return {"state": "unverified", "detail_code": "copilot_provider_requires_manual_check"}
+            if any(str(data.get(field) or "").strip() for field in fields):
+                return {"state": "ready", "detail_code": "copilot_provider_credential_present"}
+            if data.get("_keychainOnly") is True:
+                return {"state": "unverified", "detail_code": "copilot_provider_keychain_check_required"}
+            return {"state": "unavailable", "detail_code": "copilot_provider_credential_missing"}
+        except (OSError, UnicodeDecodeError, ValueError, TypeError, json.JSONDecodeError):
+            return {"state": "unavailable", "detail_code": "copilot_settings_unreadable"}
 
     @staticmethod
     def _has_symlink_component(root: Path, candidate: Path) -> bool:

@@ -806,13 +806,23 @@ def test_workspace_status_keeps_local_rest_idle_until_authorized_and_explicitly_
         repo.close()
 
 
-def _configure_project_copilot_workspace(tmp_path: Path, repo: WikiRepository, *, trusted: bool, save_folder: str) -> None:
+def _configure_project_copilot_workspace(
+    tmp_path: Path,
+    repo: WikiRepository,
+    *,
+    trusted: bool,
+    save_folder: str,
+    model_ready: bool = True,
+) -> None:
     project_root = tmp_path / "projects" / "project-a"
     (project_root / "04_Outputs" / "copilot").mkdir(parents=True)
     (project_root / "copilot" / "copilot-conversations").mkdir(parents=True)
     (tmp_path / ".obsidian" / "plugins" / "copilot").mkdir(parents=True)
+    settings = {"defaultSaveFolder": save_folder, "defaultModelKey": "test-model|deepseek"}
+    if model_ready:
+        settings["deepseekApiKey"] = "test-provider-key"
     (tmp_path / ".obsidian" / "plugins" / "copilot" / "data.json").write_text(
-        json.dumps({"defaultSaveFolder": save_folder}), encoding="utf-8"
+        json.dumps(settings), encoding="utf-8"
     )
     repo.configure_vault("project-a", "projects/project-a")
     manifest = ObsidianPluginManifest.from_payload({"plugins": [{
@@ -938,6 +948,45 @@ def test_workspace_copilot_command_rejects_untrusted_or_misaligned_plugin_withou
         second_run = repo.list_runs("project-a")[0]
         assert second_run["status"] == "failed"
         assert second_run["output_refs"]["detail_code"] == "copilot_runtime_not_configured"
+        assert calls == []
+    finally:
+        app.dependency_overrides.clear()
+        repo.close()
+
+
+def test_workspace_copilot_command_rejects_a_known_missing_provider_without_dispatch(tmp_path, monkeypatch):
+    repo = WikiRepository(db_path=str(tmp_path / "workspace-copilot-model-missing.db"))
+    _configure_project_copilot_workspace(
+        tmp_path,
+        repo,
+        trusted=True,
+        save_folder="projects/project-a/copilot/copilot-conversations",
+        model_ready=False,
+    )
+    monkeypatch.setattr(settings, "API_KEY", "workspace-admin")
+    monkeypatch.setattr(settings, "OBSIDIAN_VAULT_ROOT", str(tmp_path))
+    app.dependency_overrides[get_wiki_repository] = lambda: repo
+    calls: list[str] = []
+
+    class ForbiddenBridge:
+        def invoke(self, _command_key: str):
+            calls.append("invoke")
+            raise AssertionError("a missing Copilot provider must not dispatch a command")
+
+    monkeypatch.setattr(ObsidianCopilotCommandBridge, "from_settings", lambda _settings: ForbiddenBridge())
+    client = TestClient(app)
+    try:
+        response = client.post(
+            "/knowledge/workspaces/project-a/copilot/commands/governed_delivery",
+            headers={"Authorization": "Bearer workspace-admin"},
+        )
+
+        assert response.status_code == 409
+        assert response.json()["message"] == {
+            "code": "copilot_model_not_configured",
+            "message": "Enable Copilot Plus or configure the selected Copilot provider before opening delivery",
+            "detail_code": "copilot_provider_credential_missing",
+        }
         assert calls == []
     finally:
         app.dependency_overrides.clear()
