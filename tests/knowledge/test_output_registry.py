@@ -6,6 +6,7 @@ import pytest
 from app.knowledge.growth_contracts import OutputAsset, OutputStatus
 from app.knowledge.growth_repository import GrowthRepository
 from app.knowledge.output_registry import OutputRegistry
+from app.knowledge.output_source_gate import OutputSourceAdmissionError
 from app.knowledge.wiki_contracts import KnowledgeRun, RunStatus, SourceRecord, SourceStatus
 
 
@@ -373,5 +374,35 @@ def test_file_output_rejects_tampering_and_cross_project_access(tmp_path):
             registry.file(
                 "project-b", registered["id"], actor_id="owner", reason="cross project"
             )
+    finally:
+        repo.close()
+
+
+def test_file_output_rechecks_current_source_admission(tmp_path):
+    vault_root = tmp_path / "vault"
+    vault_root.mkdir()
+    repo = GrowthRepository(db_path=str(tmp_path / "file-source-drift.db"))
+    try:
+        repo.configure_vault("project-a", "projects/project-a", "owner")
+        repo.create_source(SourceRecord(
+            id="source-a", project_id="project-a", source_type="article",
+            content_hash="s" * 64, raw_content="evidence", status=SourceStatus.ELIGIBLE,
+        ))
+        registry = OutputRegistry(repo, vault_root)
+        content = b"approved report"
+        registered = registry.register_content(
+            OutputAsset(
+                project_id="project-a", kind="report", content_hash=hashlib.sha256(content).hexdigest(),
+                vault_path="outputs/2026/report.md", idempotency_key="source-drift-report",
+                status=OutputStatus.ACCEPTED, source_refs=["source-a"], metadata=_provenance(),
+            ),
+            content,
+        )
+        repo.update_source_status("project-a", "source-a", SourceStatus.REJECTED)
+
+        with pytest.raises(OutputSourceAdmissionError, match="regenerate the output"):
+            registry.file_output("project-a", registered["id"], actor_id="owner", reason="approved")
+
+        assert repo.get_output("project-a", registered["id"])["status"] == "accepted"
     finally:
         repo.close()

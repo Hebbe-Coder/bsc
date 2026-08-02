@@ -868,6 +868,93 @@ note bodies, credentials, provider payloads, or personal feedback.
   `implemented_with_operational_proof_pending` with `o6_feedback_cycle`
   missing; no synthetic output was created to change that state.
 
+## 2026-08-02 Full Verification And Runtime Rebuild
+
+- **Committed implementation:** `8c2e863` commits the scalar SOP
+  `quality_gates` compatibility correction and its regression test. The
+  existing evidence, citation, and source-lineage gates were not changed.
+- **Host verification:** the focused SOP suite passed `16 passed`. The full
+  knowledge and integration scope passed `774 passed, 9 skipped, 1 warning`.
+  Frontend tests passed `226 passed`; TypeScript check, production build,
+  `docker compose --profile full config --quiet`, and `git diff --check`
+  passed. The build retains only the existing Vite large-chunk advisory.
+- **Runtime deployment:** API, Celery Worker, and Celery Beat images were
+  rebuilt from the committed source and their containers recreated. The
+  PostgreSQL, Redis, n8n containers and named data volumes were preserved.
+  `GET /ready` returned database and Redis `ok`; host and API-container
+  SHA-256 values for `app/knowledge/prd_to_sop.py` matched.
+- **Browser proof:** the local Studio loaded successfully and the Knowledge
+  workspace correctly remained authorization-gated when no runtime key was
+  entered. It did not expose a historical project or invent metrics. The
+  authenticated Knowledge/Copilot interaction remains pending the owner
+  entering the local runtime key and completing one real Copilot response.
+- **Container test boundary:** the production image intentionally does not
+  include pytest, so a direct container pytest invocation returned
+  `No module named pytest`; host test execution is the authoritative test
+  result for this image build.
+
+## 2026-08-02 Authenticated Studio Sync And Daily Growth Proof
+
+- **Studio authentication:** the local Studio was authenticated using the
+  existing local runtime key without exposing or changing its value. The
+  mapped Personal Knowledge Intelligence project opened successfully; its
+  Vault tree, release ledger, sync, growth, and maintenance controls were
+  enabled by the real workspace response.
+- **UI-triggered sync:** clicking the Studio Sync control created source-sync
+  run `46cf6bf0d9f9`, which completed with 8 files scanned, 10 duplicates,
+  zero rejects, 56 unchanged evidence mirrors, 5 indexed Wiki pages, and 12
+  unchanged metadata views. No content was copied into the worklog.
+- **UI-triggered growth:** clicking Growth cycle created daily run
+  `4942431ef697`. The durable event ledger reached queued, assigned, started,
+  Obsidian sync completed, model completed, distillation completed, and run
+  completed. The run evaluated 57 sources, admitted 9 as eligible, kept 48
+  pending review, and generated the daily distillation at
+  `distillations/每周蒸馏/2026-W31/每日增量/2026-08-02.md`.
+- **Artifact proof:** the generated file exists at the mapped project Vault,
+  is 7,443 bytes, and its SHA-256 is
+  `48d1cfbcd9c6258ab1007181e7148a63f3dbcd747d31e4362443a6cba859a8fa`,
+  matching the run receipt. This proves a real BSC/Obsidian growth artifact,
+  not only a rendered button state.
+- **Remaining boundary:** the Copilot reviewed-output route is still empty
+  and `awaiting_output`; the daily BSC distillation used the configured BSC
+  model route and does not impersonate an Obsidian Copilot response. O6 still
+  requires a real Copilot draft plus owner evaluation and observed feedback.
+
+## 2026-08-02 Governed Maintenance And Proposal Lint Proof
+
+- **Maintenance execution:** the authenticated Studio Maintenance control
+  completed workspace run `620f2308b76c`. It produced a new Wiki proposal
+  `26917eda5047` with status `draft`; no publish or overwrite operation was
+  invoked.
+- **Lint gate:** the proposal lint endpoint returned `valid=true` for
+  `26917eda5047`. The proposal remains a reviewable draft and has not been
+  treated as published knowledge.
+- **Boundary:** this proves the real A-to-B maintenance path after the daily
+  growth run. C-layer method promotion, D-layer Copilot delivery, and O6
+  owner feedback remain separate gates and were not inferred from lint
+  success.
+
+## 2026-08-02 Copilot Draft Admission Gate Deployment
+
+- **Committed gate:** `8c07736` adds a current-source admission gate to
+  output evaluation, acceptance, filing, and reuse. If immutable generation
+  lineage or mutable review evidence is no longer admitted, the operation
+  returns a bounded conflict and leaves the output state unchanged.
+- **Archive status contract:** the new read-only Copilot transcript-status
+  endpoint reveals only import state and bounded transcript metadata. Runtime
+  verification returned `already_imported` for output
+  `2e45b45b1fafcbbdc0bd8b0a`; the response contained no Copilot response body.
+- **Verification and deployment:** source-gate, Copilot-import, feedback,
+  evaluator, API, and output-bridge coverage passed `56 passed`; PBOS review
+  UI coverage passed `25 passed`; TypeScript and production builds passed.
+  API, Worker, and Beat were rebuilt and recreated before the live endpoint
+  check.
+- **PBOS browser proof:** after authenticated local Studio access, PBOS showed
+  `latest response already imported`; its import control was disabled, and the
+  explicit archive check reported that the latest response was already a
+  registered D-layer review draft. The UI did not duplicate import, publish,
+  or claim personal learning.
+
 ## 2026-08-02 Copilot-Only PRD-to-SOP Runtime Proof
 
 - **Bridge decision:** Claudian is unavailable, so this run used the active
@@ -910,3 +997,200 @@ note bodies, credentials, provider payloads, or personal feedback.
   attach any actual delivery evidence, record a truthful quality evaluation,
   and provide observed outcome feedback. This cannot be automated without
   fabricating owner judgment.
+
+## 2026-08-02 PBOS Mission And Copilot Configuration Recheck
+
+- **Authenticated runtime:** the local BSC API was queried from the running
+  application container using its existing runtime authorization. The project
+  already had the intended PBOS first-loop Mission
+  `art_055276148486` in `ready_for_confirmation`; no duplicate Mission was
+  created and no external side effect was authorized.
+- **Diagnosis and compilation:** the Mission was re-diagnosed successfully
+  through DBOS. The PBOS compiler completed a real DeepSeek structured
+  generation and created Personal Execution Plan `art_a308ae4b5ce1`, synced to
+  `pbos/plans/art_a308ae4b5ce1.md`. The plan has three phases and uses the
+  declared profile, active project brief, admitted PRD evidence, weekly
+  distillation context, and the current evidence-gap state.
+- **Runtime integrity:** the compiler recorded `context_availability=available`,
+  `raw_copilot_context_consumed=false`,
+  `raw_plugin_output_context_consumed=false`, and
+  `unreviewed_managed_output_consumed=false`. The project has 56 mirrored
+  evidence files, 5 published Wiki pages, 4 ready plugin routes, and a
+  connected Obsidian Local REST manifest. No unreviewed Copilot transcript was
+  promoted into PBOS context.
+- **Growth gate:** the cockpit remains `learning_evidence_required`. The
+  declared profile is complete, but accepted owner-attributed outcomes are
+  `0/3`; promoted capabilities and failure patterns remain zero. This is
+  intentional: the current plan is an actionable starting point, not proof of
+  personal capability growth.
+- **Copilot configuration finding:** the Vault Copilot plugin is version
+  `3.3.3`, its autosave directory is aligned to
+  `projects/proj_b8a285642094/copilot/copilot-conversations`, and the BSC
+  bridge is authenticated and ready. The plugin data file currently has
+  `isPlusUser=false`, an empty Plus license field, and
+  `defaultModelKey=deepseek-v4-flash|deepseek` while its provider key field is
+  empty. The model list alone is therefore not proof of an executable Copilot
+  model. BSC's own DeepSeek runtime health does not automatically grant
+  Obsidian Copilot access, and no key was copied or written into the plugin.
+- **Remaining external confirmation:** either activate Copilot Plus in the
+  Obsidian Copilot settings or set a provider key there, then run one
+  allowlisted PBOS command and save a completed response. Until that happens,
+  the native Copilot output route remains honestly `awaiting_output`; the BSC
+  bridge and PBOS internal plan are already operational.
+
+## 2026-08-02 Real Copilot Dispatch And Archive Import Recheck
+
+- **Workspace audit:** the mapped project Vault is reachable, Obsidian Local
+  REST is `connected/authenticated_manifest_verified`, and all five fixed
+  Copilot commands are available. The Copilot reviewed-output route remains
+  trusted and configured, but `04_Outputs/copilot` contains zero files.
+- **New dispatch test:** the protected `evidence_plan` command was invoked as
+  KnowledgeRun `50deaa4579ec`. The command receipt was returned as `invoked`,
+  but after a bounded 35-second observation no new Copilot archive and no
+  reviewed-output file appeared. This proves dispatch transport only; it does
+  not prove model generation or output capture.
+- **Existing real archive recovery:** the existing completed Copilot archive
+  `copilot/copilot-conversations/PBOS_One-Click_Governed_Delivery@20260802_012038.md`
+  was processed through the explicit transcript-import endpoint. It produced
+  the registered BSC review draft `2e45b45b1fafcbbdc0bd8b0a`, preserving the
+  original path, transcript hash, response hash, model/provider metadata, and
+  review-gate metadata. The operation was idempotent and did not mutate the
+  original archive.
+- **Learning boundary:** the imported draft is a registered
+  `personal_execution_plan` review package, not accepted knowledge, a
+  Capability, an Experience, or a Strategy Genome. It still requires eligible
+  evidence, quality review, and an owner-attributed observed outcome.
+- **Current release state:** the workspace release matrix still has only
+  `o6_feedback_cycle` missing. The PBOS cockpit remains
+  `learning_evidence_required` with zero accepted owner-attributed outcomes.
+  No synthetic output, owner decision, or personal-growth claim was created.
+
+## 2026-08-02 PBOS Runtime Closure And Studio Verification
+
+- **D-layer evidence binding:** registered Copilot review draft
+  `2e45b45b1fafcbbdc0bd8b0a` was attached to admitted PRD source
+  `650666057e01`. It remains `registered`; evidence linkage does not accept,
+  publish, or promote the draft.
+- **Execution audit:** the BSC-side work was captured as Agent-only execution
+  `art_06bd3bc986dd`, with two server-verified workspace receipts and a
+  recorded reflection. Its outcome record `art_96f26e03e41c` was deliberately
+  rejected for personal learning because it has no owner attribution or owner
+  review. The receipts and readable rejection rationale remain available for
+  audit.
+- **Encoding deviation and correction:** an initial Chinese test payload was
+  transformed into question marks by the host-to-container stdin boundary.
+  The result was never accepted. It was corrected through the immutable review
+  flow using a readable ASCII audit summary and rejected as Agent-only work;
+  no personal outcome, quality score, capability, or Strategy Genome was
+  affected.
+- **Evolution proof:** reconciliation for the personal AI-delivery comparison
+  context returned `insufficient_evidence` with `0` complete records out of
+  the required `3`. This is the expected safeguard: neither imported Copilot
+  material nor Agent-only receipts can become a personal method.
+- **Studio proof:** on `http://127.0.0.1:5174`, selecting project
+  `proj_b8a285642094` enabled PBOS and rendered the Personal Growth Cockpit.
+  The UI showed the context-grounded plan, 8 governed references, the two
+  pending D-layer review drafts, Agent attribution, the rejected Agent-only
+  outcome, `0/3` accepted comparable outcomes, zero capabilities, and zero
+  active Strategy Genomes. A refresh preserved the same server-derived state.
+- **Regression verification:**
+  `python -m pytest tests/pbos tests/api/test_pbos_api.py tests/mcp/test_pbos_http_contract.py tests/integration/test_pbos_e2e.py`
+  passed `95`; `npm run check` passed; `git diff --check` passed with only the
+  repository's existing LF-to-CRLF warning for this worklog.
+
+## 2026-08-02 Reauthorized Source Review, Growth Cycle, And Admission Drift Gate
+
+- **Authorization boundary:** the project owner authorized a governed review
+  and Growth cycle for source `f4278140ca7f` in project
+  `proj_b8a285642094`. The source was inspected through bounded metadata only;
+  no source body, credential, or provider payload was written to this record.
+- **Review result:** the protected triage request reused the immutable existing
+  decision `71c541af88741f4dc87ed503` (`profile-aware-v2`). It remains
+  `disposition=archive` and `reliability_pass=false`; the source remains
+  `validated/untrusted` and is not authoring-eligible.
+- **Governed runtime:** the protected daily Growth request used idempotency key
+  `codex-governed-review-20260802-f4278140ca7f` and completed as run
+  `d6d8759f568a`. The durable event sequence was:
+  `knowledge.run.queued`, `knowledge.run.execution_assigned`,
+  `knowledge.growth.dispatched`, `knowledge.growth.started`,
+  `knowledge.growth.obsidian_sync.completed`,
+  `knowledge.growth.model.completed`,
+  `knowledge.growth.distillation.preserved`, and
+  `knowledge.run.completed`.
+- **Admission proof:** the run manifest contains `f4278140ca7f` only in
+  `daily_excluded_source_ids`; it is absent from `context.source_ids` and
+  `citation_source_ids`. The run therefore did not create a claim, citation,
+  Wiki update, method, or output from this source. The provider response did
+  not satisfy the daily uncertainty contract, so the existing daily artifact
+  was preserved rather than replaced; this is a completed governed run, not a
+  claim of a newly published distillation.
+- **Current source state audit:** the three source refs of registered output
+  `45594ac732bd3fc85d865ee3` are currently `eligible/trusted`; its output is
+  still `registered` with zero evaluations and zero feedback. The historical
+  rejected state on two Obsidian assets is superseded by their current
+  extracted, trusted lifecycle and was not treated as current drift. The
+  authorized Zotero source remains `validated/untrusted`.
+- **Drift-gate implementation:** added the metadata-only
+  `output_source_gate` contract. Evaluation, accepted/reused feedback routing,
+  and output filing now re-check current `eligible/processed` admission for
+  both immutable `source_refs` and attached evidence refs. A drift blocks with
+  `409 growth_gate_not_satisfied` and bounded source IDs/status/reason codes;
+  it does not mutate the output or source. Corrected/rejected feedback remains
+  recordable so stale evidence can produce a remediation case.
+- **Container deployment:** added `artifacts/` to `.dockerignore` after a
+  BuildKit context-cancellation caused by the failed browser profile artifact.
+  API, Worker, and Beat images rebuilt successfully; the deployed
+  `output_source_gate.py` SHA-256 matched the host
+  (`46ec4e2fb97e602f12aee9d4f93098faf48cbb049dd1086a6dab53c6f7efb576`).
+  `GET /ready` returned database and Redis `ok`.
+- **Verification:** the focused source-gate/API suite passed `56 passed, 1
+  warning`. The new regressions prove evaluation, accepted feedback, and
+  filing cannot promote an output after source rejection, and the API exposes
+  a structured gate response while retaining the output as `registered`.
+  The complete backend suite later passed `1703 passed, 14 skipped`; frontend
+  type checking and `228` Vitest assertions also passed.
+- **Remaining owner gate:** the runtime cycle still cannot manufacture an
+  owner review, quality rating, observed outcome, or feedback closure for
+  output `45594ac732bd3fc85d865ee3`. The release gate therefore remains
+  `implemented_with_operational_proof_pending` with `o6_feedback_cycle` open.
+
+## 2026-08-02 Copilot Archive Status Probe And Explicit Import UX
+
+- **Active authoring route:** Claudian is unavailable; Obsidian Copilot remains
+  the active interactive route. The existing Copilot conversation archive and
+  reviewed-output route remain separate by design. No provider secret,
+  Keychain value, transcript body, or Vault note body was written by this
+  change.
+- **Read-only status contract:** added
+  `GET /knowledge/projects/{project_id}/outputs/copilot-transcript-status`.
+  The service scans only the trusted Copilot archive, returns bounded metadata
+  (relative path, title, provider/model, and hashes), and reports
+  `awaiting_output`, `ready_to_import`, `already_imported`, or `unavailable`.
+  It does not create an output, return the response body, or infer completion
+  from a command invocation.
+- **PBOS workflow:** the cockpit now separates `Open Copilot delivery`,
+  `Check for completed response`, and `Import completed Copilot response`.
+  Import is disabled until the read-only probe sees a completed archive; an
+  imported response remains a registered D-layer review draft and cannot
+  create a personal learning claim. Regression coverage verifies the waiting,
+  ready-to-import, and explicit import states.
+- **Verification:** Copilot service/API tests passed `33`; PBOS component tests
+  passed `25`; the full backend suite passed `1703 passed, 14 skipped, 3
+  warnings`; the full frontend suite passed `228`; `npm run check`, production
+  build, `docker compose --profile full config`, and `git diff --check` passed.
+- **Runtime deployment:** API, Celery Worker, and Celery Beat images rebuilt
+  successfully and containers were recreated without touching PostgreSQL,
+  Redis, n8n, or named volumes. `GET /ready` returned database and Redis
+  `ok`. Host/container SHA-256 for
+  `app/knowledge/copilot_transcript_import.py` matched.
+- **Live readback:** the protected status endpoint for
+  `proj_b8a285642094` returned `already_imported` for the existing completed
+  archive `copilot/copilot-conversations/PBOS_One-Click_Governed_Delivery@20260802_012038.md`
+  and D-layer output `2e45b45b1fafcbbdc0bd8b0a`. This is proof of an existing
+  imported Copilot draft, not a newly generated response from this run.
+- **Remaining boundary:** the release gate remains
+  `implemented_with_operational_proof_pending` with `o6_feedback_cycle` open.
+  A fresh user-completed Copilot response can now be checked and explicitly
+  imported from the cockpit; it still requires owner evidence review, quality
+  evaluation, and observed outcome feedback before PBOS learning or release
+  closure.
